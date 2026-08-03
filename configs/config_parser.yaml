@@ -1,0 +1,33 @@
+# Параметры парсера: браузер, антиблок-меры, ретраи, лимиты.
+# Все параметры применяются при старте парсера.
+
+browser:
+  headless: true
+  # Путь к ПОЛНОЙ версии Chromium (не headless-shell). Полная версия лучше
+  # обходит антибот zakupki.mos.ru, который блокирует headless-shell.
+  # Задаётся под конкретную машину/контейнер; пусто — используется headless-shell.
+  chromium_executable_path: null
+  # user_agent:            # если пусто — браузер подставит реальный UA
+  viewport_width: 1366
+  viewport_height: 768
+  locale: ru-RU
+  timezone: Europe/Moscow
+
+  # --- антиблок-меры (один IP + вежливое поведение) ---
+  disable_webdriver_flag: true      # скрыть navigator.webdriver
+  hide_user_agent_override: true    # не палить переопределённый UA
+  persist_session: true             # сохранять куки/хранилище между запусками
+  session_dir: data/session
+  scroll_randomly: true             # «человеческий» скролл
+  random_mouse_moves: true          # «человеческие» движения мыши
+  delay_between_actions_seconds: [4, 12]   # вежливая рандомная задержка между действиями
+
+retry:
+  max_attempts: 3
+  min_backoff_seconds: 2
+  max_backoff_seconds: 60
+  jitter_seconds: 1
+
+request_limits:
+  enabled: true
+  max_requests_per_minute: 10       # вежливое ограничение частоты запросов

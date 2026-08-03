@@ -1,0 +1,42 @@
+# DOM-конфигурация площадок закупок: URL, переменные, селекторы контейнеров
+# и путей к значениям переменных. Изменяется без правки кода.
+#
+# Внимание: селекторы основаны на CSS-классах Semantic UI (стабильные) и
+# styled-components (хешированные, могут меняться при деплое). Точные значения
+# переменных для площадки требуется верифицировать на живом сайте (см. TODO).
+
+platforms:
+  zakupki_mos:
+    name: "Портал поставщиков Москвы"
+    url: "https://zakupki.mos.ru"
+    list_path: "/purchase/list"
+
+    list:
+      # Контейнер записи о закупке в списке (Semantic UI grid-column одной карточки)
+      container: "div.nine.wide.computer"
+      # Ссылка на детальную страницу закупки
+      detail_link: "a[href^='/need/']"
+      # Селектор элемента перехода на следующую страницу (уточнить на живом сайте)
+      next_page: "a:has-text('Следующая')"
+      # Дата обновления записи в списке (уточнить на живом сайте)
+      update_date: null
+      variables:
+        # number/type/customer подтверждены на живом сайте; остальные требуют
+        # верификации селекторов (см. TODO).
+        - { name: "number",        selector: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6", handler: "strip" }
+        - { name: "purchase_type", selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3 span", handler: "strip", default: "" }
+        - { name: "customer",      selector: ".PurchaseCardStyles__MainInfoCustomerHeader-sc-xhk4mt-0", handler: "strip", default: "" }
+        - { name: "status",        selector: "div.CardStyles__MainInfoStatusHeader-sc-1rn3iq8-4", handler: "strip", default: "" }
+        - { name: "subject",       selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3", handler: "strip", default: "" }
+        - { name: "nmck",          selector: "span.CardStyles__MainInfoPrice-sc-1rn3iq8-8", handler: "money", default: null }
+        - { name: "law",           selector: "div.CardStyles__MainInfoBottomTagContainer-sc-1rn3iq8-10", handler: "strip", default: "" }
+
+    detail:
+      variables:
+        - { name: "number",   selector: "h1.CardStyles__...", handler: "strip", default: "" }
+        - { name: "subject",  selector: "h1", handler: "strip", default: "" }
+        - { name: "customer", selector: "span:has-text('Заказчик')", handler: "strip", default: "" }
+        - { name: "okpd2",    selector: "span:has-text('Код ОКПД2')", handler: "strip", default: "" }
+        - { name: "deadline", selector: "span:has-text('Дата окончания')", handler: "strip", default: "" }
+      files:
+        - { name: "document", selector: "a[href*='FileStorage/Download']", attribute: "href", handler: "strip" }

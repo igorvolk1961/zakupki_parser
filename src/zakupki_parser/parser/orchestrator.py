@@ -1,0 +1,219 @@
+"""Оркестратор основного алгоритма парсинга одной площадки.
+
+См. specification.md для детального описания шагов.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from playwright.async_api import Locator, Page
+
+from zakupki_parser.browser.delayer import Delayer
+from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
+from zakupki_parser.config.models import (
+    AppConfig,
+    FiltersConfig,
+    PlatformDom,
+)
+from zakupki_parser.downloader import download_files
+from zakupki_parser.file_processor import FileProcessor
+from zakupki_parser.notify import Notifier
+from zakupki_parser.parser.detail import extract_detail_vars, open_detail
+from zakupki_parser.parser.extractor import extract_from_scope
+from zakupki_parser.parser.lister import (
+    extract_update_date,
+    goto_next_page,
+    iter_container_records,
+    next_page_exists,
+    open_list_page,
+    setup_sort_and_filters,
+)
+from zakupki_parser.storage.last_seen import LastSeenStore
+from zakupki_parser.storage.repository import ProcurementRepository
+
+logger = logging.getLogger(__name__)
+
+
+class Orchestrator:
+    """Выполняет полный проход по закупкам площадки."""
+
+    def __init__(
+        self,
+        cfg: AppConfig,
+        platform_id: str,
+        platform: PlatformDom,
+        filters_cfg: FiltersConfig,
+        delayer: Delayer,
+        repository: ProcurementRepository | None,
+        notifier: Notifier,
+        file_processor: FileProcessor,
+        last_seen: LastSeenStore,
+        site_cb: CircuitBreaker,
+        db_cb: CircuitBreaker,
+        now: datetime | None = None,
+    ) -> None:
+        self._cfg = cfg
+        self._platform_id = platform_id
+        self._platform = platform
+        self._filters = filters_cfg
+        self._delayer = delayer
+        self._repository = repository
+        self._notifier = notifier
+        self._file_processor = file_processor
+        self._last_seen = last_seen
+        self._site_cb = site_cb
+        self._db_cb = db_cb
+        self._now = now or datetime.now(UTC)
+
+    # -- приватные помощники -------------------------------------------------
+    @staticmethod
+    def _documents_dir(cfg: AppConfig) -> Path:
+        return Path(cfg.service.documents_dir).resolve()
+
+    def _check_stop_conditions(self, record: dict[str, Any]) -> bool:
+        """Проверяет набор флагов прекращения обработки заявки.
+
+        Возвращает True, если заявку следует ПРОПУСТИТЬ (обработка прекращается).
+        """
+        sc = self._cfg.service.stop_conditions
+        if not sc.enabled:
+            return False
+        if sc.deadline_not_expired:
+            deadline = record.get("deadline")
+            if isinstance(deadline, datetime) and deadline < self._now:
+                logger.info(
+                    "Заявка %s пропущена: срок приёма истёк (%s)",
+                    record.get("number"),
+                    deadline,
+                )
+                return True
+        return False
+
+    async def _persist(self, record: dict[str, Any]) -> bool:
+        """Сохраняет заявку в БД с вежливой деградацией."""
+        if not self._cfg.service.db.enabled or self._repository is None:
+            return False
+        if not self._db_cb.allow_request():
+            logger.warning("БД недоступна (circuit open), запись пропущена")
+            return False
+        try:
+            saved = await self._repository.upsert(record)
+            self._db_cb.record_success()
+            return saved
+        except Exception as exc:  # noqa: BLE001
+            self._db_cb.record_failure()
+            logger.error("Ошибка записи в БД: %s", exc)
+            return False
+
+    async def _process_container(self, page: Page, container: Locator) -> None:
+        """Обрабатывает один контейнер записи о закупке."""
+        # 1) list-vars
+        list_vars = await extract_from_scope(container, self._platform.list.variables)
+        number = list_vars.get("number")
+
+        # 2) ссылка на детальную страницу
+        detail_link_loc = container.locator(self._platform.list.detail_link)
+        if await detail_link_loc.count() == 0:
+            logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
+            return
+        detail_url = await detail_link_loc.first.get_attribute("href")
+        if not detail_url:
+            return
+
+        # stop-условия по данным из деталей проверяются после извлечения деталей.
+        # 3) переход на детальную страницу
+        await open_detail(page, detail_url, self._platform)
+        detail_vars = await extract_detail_vars(page, self._platform)
+
+        record: dict[str, Any] = {**list_vars, **detail_vars}
+        record["url"] = self._platform.url.rstrip("/") + detail_url
+        record["source_platform"] = self._platform_id
+        record["detail_json"] = record
+
+        # 4) условия прекращения обработки
+        if self._check_stop_conditions(record):
+            return
+
+        # 5) скачивание файлов
+        downloaded: list[Path] = []
+        if self._cfg.service.download_files:
+            try:
+                downloaded = await download_files(
+                    page,
+                    self._platform,
+                    self._documents_dir(self._cfg),
+                    str(number),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Ошибка скачивания файлов заявки %s: %s", number, exc)
+
+        # 6) доп. обработка файлов (заглушка)
+        extracted = await self._file_processor.process(downloaded, str(number))
+        if extracted:
+            record.update(extracted)
+
+        # 7) удаление файлов (по флагу)
+        if self._cfg.service.delete_files_after_processing:
+            for path in downloaded:
+                try:
+                    if path.is_file():
+                        path.unlink()
+                        logger.debug("Удалён файл %s", path)
+                except OSError as exc:
+                    logger.warning("Не удалось удалить %s: %s", path, exc)
+
+        # 8) запись в БД + защита от дубликатов
+        saved = await self._persist(record)
+
+        # 9) webhook только для новых записей
+        if saved:
+            await self._notifier.notify(record)
+
+    # -- основной цикл ------------------------------------------------------
+    async def run(self, page: Page) -> None:
+        """Запускает проход по площадке на заданной ``page``."""
+        if not self._site_cb.allow_request():
+            raise CircuitOpenError("Сайт недоступен (circuit open)")
+
+        cutoff = self._last_seen.load(self._platform_id, self._now)
+        logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
+
+        await open_list_page(page, self._platform)
+        await setup_sort_and_filters(page, self._platform, self._filters)
+        await self._delayer.sleep()
+
+        while True:
+            async for container in iter_container_records(page, self._platform, self._delayer):
+                # Выход по порогу даты (запись старее cutoff)
+                upd = await extract_update_date(container, self._platform)
+                if upd is not None:
+                    try:
+                        upd_dt = datetime.fromisoformat(upd)
+                        if upd_dt < cutoff:
+                            logger.info(
+                                "Достигнут порог дат (%s < %s), завершаем цикл",
+                                upd_dt,
+                                cutoff,
+                            )
+                            return
+                    except ValueError:
+                        pass
+                await self._process_container(page, container)
+
+            # переход на следующую страницу
+            if not await next_page_exists(page, self._platform):
+                logger.info("Достигнут конец пагинации")
+                break
+            moved = await goto_next_page(page, self._platform, self._delayer)
+            if not moved:
+                logger.info("Не удалось перейти на следующую страницу")
+                break
+            await self._delayer.sleep()
+
+        # обновляем дату последней обработки
+        self._last_seen.save(self._platform_id, self._now)
+        self._site_cb.record_success()

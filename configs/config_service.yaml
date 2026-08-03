@@ -1,0 +1,48 @@
+# Сервисная конфигурация: таймер, список сайтов, пороги дат, флаги,
+# подключение к БД, webhook и условия прекращения обработки заявки.
+
+# Период запуска парсера по таймеру (в секундах)
+timeout_seconds: 3600
+
+# Список сайтов закупок (platform_id должен присутствовать в config_dom.yaml)
+sites:
+  - { platform_id: "zakupki_mos", enabled: true }
+
+# Порог «дата последней обработанной записи» в днях (по умолчанию «сейчас − 7 дней»)
+default_cutoff_days: 7
+
+# Скачивание файлов (в подпапку documents/<номер заявки>/)
+download_files: true
+# Удалять файлы после дополнительной обработки
+delete_files_after_processing: true
+
+documents_dir: "documents"
+data_dir: "data"
+
+# --- База данных (PostgreSQL) ---
+db:
+  enabled: true
+  dsn: "postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki"
+  connect_timeout_seconds: 5
+  pool_min: 1
+  pool_max: 5
+
+# --- Webhook-уведомления (сейчас заглушка/лог) ---
+webhook:
+  enabled: false
+  url: null
+  token: null
+  timeout_seconds: 10
+
+# --- Набор флагов-условий прекращения обработки очередной заявки ---
+# Каждый флаг — условие, при котором заявка пропускается (не сохраняется,
+# не уведомляется). Набор расширяется добавлением новых флагов.
+stop_conditions:
+  enabled: true
+  # Не обрабатывать заявку, если срок приёма заявок (переменная 'deadline'
+  # из config_dom.yaml) истёк к текущей дате.
+  deadline_not_expired: true
+
+# --- Circuit Breaker (вежливая деградация) ---
+circuit_breaker_failure_threshold: 5
+circuit_breaker_reset_timeout_seconds: 60

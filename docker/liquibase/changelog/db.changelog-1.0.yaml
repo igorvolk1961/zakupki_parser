@@ -1,0 +1,78 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1
+      author: zakupki-parser
+      changes:
+        - createTable:
+            tableName: procurements
+            remarks: "Записи о закупках"
+            columns:
+              - column:
+                  name: id
+                  type: BIGSERIAL
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: number
+                  type: VARCHAR(64)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: source_platform
+                  type: VARCHAR(128)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: url
+                  type: VARCHAR(1024)
+              - column:
+                  name: customer
+                  type: TEXT
+              - column:
+                  name: law
+                  type: VARCHAR(16)
+              - column:
+                  name: subject
+                  type: TEXT
+              - column:
+                  name: nmck
+                  type: FLOAT
+              - column:
+                  name: deadline
+                  type: TIMESTAMP WITH TIME ZONE
+              - column:
+                  name: execution_term
+                  type: TEXT
+              - column:
+                  name: okpd2_codes
+                  type: TEXT
+              - column:
+                  name: kpgz_codes
+                  type: TEXT
+              - column:
+                  name: detail_json
+                  type: JSONB
+              - column:
+                  name: created_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP WITH TIME ZONE
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: procurements
+            constraintName: uq_procurement_number_platform
+            columnNames: number, source_platform
+        - createIndex:
+            tableName: procurements
+            indexName: ix_procurements_created_at
+            columns:
+              - column:
+                  name: created_at
