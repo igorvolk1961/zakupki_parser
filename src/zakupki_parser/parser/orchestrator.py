@@ -38,6 +38,21 @@ from zakupki_parser.storage.repository import ProcurementRepository
 logger = logging.getLogger(__name__)
 
 
+def is_older_than_cutoff(upd_iso: str, cutoff: datetime) -> bool | None:
+    """Проверяет, должна ли запись остановить цикл по дате обновления.
+
+    На площадке обычно доступна только дата (без времени), поэтому сравнение
+    ведётся по календарному дню: запись «старее» порога — когда её день строго
+    меньше дня порога. Возвращает True — стоп, False — обрабатывать далее,
+    None — некорректная дата (обрабатывать).
+    """
+    try:
+        upd_dt = datetime.fromisoformat(upd_iso)
+    except ValueError:
+        return None
+    return upd_dt.date() < cutoff.date()
+
+
 class Orchestrator:
     """Выполняет полный проход по закупкам площадки."""
 
@@ -188,20 +203,14 @@ class Orchestrator:
 
         while True:
             async for container in iter_container_records(page, self._platform, self._delayer):
-                # Выход по порогу даты (запись старее cutoff)
+                # Выход по порогу даты. Обрабатываем записи с датой >= дня порога и
+                # останавливаемся при записи со строго более ранним днём.
                 upd = await extract_update_date(container, self._platform)
                 if upd is not None:
-                    try:
-                        upd_dt = datetime.fromisoformat(upd)
-                        if upd_dt < cutoff:
-                            logger.info(
-                                "Достигнут порог дат (%s < %s), завершаем цикл",
-                                upd_dt,
-                                cutoff,
-                            )
-                            return
-                    except ValueError:
-                        pass
+                    older = is_older_than_cutoff(upd, cutoff)
+                    if older:
+                        logger.info("Достигнут порог дат (%s < %s), завершаем цикл", upd, cutoff)
+                        return
                 await self._process_container(page, container)
 
             # переход на следующую страницу
