@@ -1,0 +1,53 @@
+# Схема базы данных
+
+Схема БД парсера (PostgreSQL). Миграции — Liquibase (`docker/liquibase/changelog/`),
+ORM-модель — `src/zakupki_parser/storage/db.py`.
+
+```mermaid
+erDiagram
+    PROCUREMENTS {
+        BIGSERIAL id PK "автоинкремент"
+        VARCHAR(64) number "реестровый номер заявки"
+        VARCHAR(128) source_platform "ключ площадки"
+        VARCHAR(1024) url "ссылка на закупку"
+        TEXT customer "заказчик"
+        VARCHAR(16) law "закон: 44-ФЗ / 223-ФЗ"
+        TEXT subject "предмет закупки"
+        FLOAT nmck "начальная макс. цена контракта"
+        TIMESTAMPTZ deadline "срок приёма заявок"
+        TEXT execution_term "срок исполнения"
+        TEXT okpd2_codes "коды ОКПД2"
+        TEXT kpgz_codes "коды КПГЗ"
+        JSONB detail_json "полный набор переменных карточки"
+        TIMESTAMPTZ created_at "server_default now()"
+        TIMESTAMPTZ updated_at "server_default now(), onupdate"
+    }
+
+    %% Схема имеет одну таблицу. Дата последней обработанной записи
+    %% НЕ хранится в БД — она получается SQL-запросом, а порог по умолчанию
+    %% хранится в state-файле data/last_seen.json и конфиге config_service.yaml.
+```
+
+## Замечания
+- **Таблица одна** — `procurements`. Отдельной таблицы дат последней обработки нет
+  (она получается SQL-запросом; текущий порог — в `data/last_seen.json`).
+- **Защита от дубликатов**: уникальный констрейнт `uq_procurement_number_platform`
+  на `(number, source_platform)`.
+- **Индекс** `ix_procurements_created_at` по `created_at`.
+- `detail_json` хранит весь набор извлечённых переменных карточки для аналитики.
+
+## Ключевые SQL-запросы
+- Проверка дубликата перед вставкой:
+  ```sql
+  SELECT id FROM procurements
+  WHERE number = $1 AND source_platform = $2;
+  ```
+- Дата последней обработанной записи по площадке:
+  ```sql
+  SELECT MAX(updated_at) FROM procurements WHERE source_platform = $1;
+  ```
+- Одинарная/множественная вставка исключает повтор:
+  ```sql
+  INSERT INTO procurements (...) VALUES (...)
+  ON CONFLICT (number, source_platform) DO NOTHING;
+  ```
