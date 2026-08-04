@@ -56,3 +56,28 @@ platforms:
     # --- Фильтры (DOM-шаги). Пока не заполнены — точные селекторы панели
     #     фильтров Реестра закупок требуют верификации (см. TODO). ---
     filters: []
+
+    # --- URL-фильтр списка закупок (механизм для этой площадки). ---
+    # Маппинг полностью из конфига: имена параметров, структуры JSON, формат даты.
+    # Плейсхолдеры: {filter_json}, {state_json}, {publish_date_great_equal}.
+    search:
+      enabled: true
+      query_params:
+        page: "1"
+        perPage: "10"
+        sortField: "relevance"
+        sortDesc: "true"
+        filter: "{filter_json}"
+        state: "{state_json}"
+      # Структура параметра filter (значения фильтров задаются здесь).
+      filter_json:
+        typeIn:
+          values: [2]
+        publishDateGreatEqual: "{publish_date_great_equal}"
+        needSpecificFilter:
+          okpdPaths:
+            - ".1147303.1133182.1133183.1133184.1133185."
+            - ".1133218.1133222."
+      state_json:
+        currentTab: 2
+      date_great_equal_format: "%d.%m.%Y 00:00:00"

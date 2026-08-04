@@ -149,11 +149,40 @@ class SortConfig(BaseModel):
     )
 
 
+class SearchFilterConfig(BaseModel):
+    """URL-фильтр списка закупок — полностью конфигурируемый.
+
+    Маппинг URL строится только из конфига: имена параметров запроса, структура
+    JSON-параметров ``filter``/``state`` и формат даты порога. Плейсхолдеры:
+      - ``{filter_json}`` — URL-encoded JSON из ``filter_json``;
+      - ``{state_json}``  — URL-encoded JSON из ``state_json``;
+      - ``{publish_date_great_equal}`` — дата порога (cutoff) в формате
+        ``date_great_equal_format``.
+    """
+
+    enabled: bool = Field(default=True)
+    query_params: dict[str, str] = Field(
+        default_factory=dict,
+        description="имя параметра запроса -> шаблон значения (с плейсхолдерами)",
+    )
+    filter_json: dict[str, Any] = Field(
+        default_factory=dict, description="структура параметра filter (JSON)"
+    )
+    state_json: dict[str, Any] = Field(
+        default_factory=dict, description="структура параметра state (JSON)"
+    )
+    date_great_equal_format: str = Field(
+        default="%d.%m.%Y 00:00:00",
+        description="формат даты порога для плейсхолдера publish_date_great_equal",
+    )
+
+
 class PlatformDom(BaseModel):
     """DOM-конфигурация одной площадки закупок.
 
-    Содержит и селекторы извлечения (``list``/``detail``), и селекторы
+    Содержит и селекторы извлечения (``list_config``/``detail``), и селекторы
     сортировки/фильтров (``sort``/``filters``) — всё, что связано с DOM площадки.
+    ``search`` — URL-механизм фильтрации (приоритетен, если задан).
     """
 
     name: str
@@ -164,6 +193,9 @@ class PlatformDom(BaseModel):
     sort: SortConfig | None = Field(default=None, description="установка сортировки списка")
     filters: list[PurchaseFilter] = Field(
         default_factory=list, description="фильтры и порядок их DOM-шагов"
+    )
+    search: SearchFilterConfig | None = Field(
+        default=None, description="URL-фильтр списка (приоритетнее DOM-шагов)"
     )
 
 
