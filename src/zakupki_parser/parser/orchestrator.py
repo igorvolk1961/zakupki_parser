@@ -12,21 +12,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import asyncpg
 from playwright.async_api import Locator, Page
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import IntegrityError
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
-from zakupki_parser.config.models import (
-    AppConfig,
-    PlatformDom,
-)
+from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.downloader import download_files
 from zakupki_parser.file_processor import FileProcessor
 from zakupki_parser.notify import Notifier
+from zakupki_parser.parser.cutoff import is_older_than_cutoff
 from zakupki_parser.parser.detail import detail_file_urls, extract_detail_vars, open_detail
 from zakupki_parser.parser.extractor import extract_from_scope
+from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
     goto_next_page,
     iter_container_records,
@@ -34,68 +32,11 @@ from zakupki_parser.parser.lister import (
     open_list_page,
     setup_sort_and_filters,
 )
+from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
 from zakupki_parser.storage.last_seen import LastSeenStore
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
-
-
-def is_older_than_cutoff(upd: str | datetime | None, cutoff: datetime) -> bool | None:
-    """Проверяет, должна ли запись остановить цикл по дате публикации.
-
-    На площадке доступна только дата (без времени), поэтому сравнение ведётся по
-    календарному дню: запись «старее» порога — когда её день строго меньше дня
-    порога. Возвращает True — стоп, False — обрабатывать далее, None — некорректная
-    дата (обрабатывать).
-    """
-    if upd is None:
-        return None
-    if isinstance(upd, str):
-        try:
-            upd_dt = datetime.fromisoformat(upd)
-        except ValueError:
-            return None
-    else:
-        upd_dt = upd
-    return upd_dt.date() < cutoff.date()
-
-
-def _json_safe(data: Any) -> Any:
-    """Рекурсивно приводит datetime к ISO-строке (для JSONB)."""
-    if isinstance(data, dict):
-        return {k: _json_safe(v) for k, v in data.items()}
-    if isinstance(data, list):
-        return [_json_safe(v) for v in data]
-    if isinstance(data, datetime):
-        return data.isoformat()
-    return data
-
-
-def _unwrap_db_error(exc: BaseException) -> BaseException:
-    """Распаковывает SQLAlchemy DBAPIError до исходного (asyncpg) исключения."""
-    while isinstance(exc, DBAPIError) and exc.orig is not None:
-        exc = exc.orig
-    return exc
-
-
-def _is_transient_db_error(exc: BaseException) -> bool:
-    """Транзиентная ошибка (недоступность БД/сети) — учитывается circuit breaker'ом."""
-    exc = _unwrap_db_error(exc)
-    return isinstance(
-        exc,
-        (
-            asyncpg.PostgresConnectionError,
-            asyncpg.InterfaceError,
-            OSError,
-            TimeoutError,
-        ),
-    )
-
-
-def _is_data_db_error(exc: BaseException) -> bool:
-    """Ошибка данных/схемы (не транзиентная) — НЕ учитывается circuit breaker'ом."""
-    exc = _unwrap_db_error(exc)
-    return isinstance(exc, asyncpg.DataError)
 
 
 class Orchestrator:
@@ -178,10 +119,10 @@ class Orchestrator:
                 logger.info("Дубликат по unique-констрейнту: %s", exc)
                 return False
             except Exception as exc:  # noqa: BLE001
-                if _is_data_db_error(exc):
+                if is_data_db_error(exc):
                     logger.error("Ошибка данных при записи заявки: %s", exc)
                     return False
-                if _is_transient_db_error(exc) and attempt < attempts:
+                if is_transient_db_error(exc) and attempt < attempts:
                     delay = db_cfg.retry_backoff_seconds * attempt
                     logger.warning(
                         "Транзиентная ошибка БД (%s), retry %d/%d через %.1f с",
@@ -235,7 +176,7 @@ class Orchestrator:
         record: dict[str, Any] = {**list_vars, **detail_vars}
         record["url"] = self._platform.url.rstrip("/") + detail_url
         record["source_platform"] = self._platform_id
-        record["detail_json"] = _json_safe(record)
+        record["detail_json"] = json_safe(record)
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record):

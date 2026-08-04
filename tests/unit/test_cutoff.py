@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from zakupki_parser.parser.orchestrator import _json_safe, is_older_than_cutoff
+from zakupki_parser.parser.cutoff import is_older_than_cutoff
+from zakupki_parser.parser.json_utils import json_safe
 
 
 def test_same_day_not_older() -> None:
@@ -56,7 +57,7 @@ def test_datetime_input() -> None:
 def test_json_safe_datetime() -> None:
     dt = datetime(2026, 8, 6, 15, 0, tzinfo=UTC)
     data = {"deadline": dt, "nested": [dt], "ok": 1}
-    safe = _json_safe(data)
+    safe = json_safe(data)
     assert safe["deadline"] == dt.isoformat()
     assert safe["nested"][0] == dt.isoformat()
     assert safe["ok"] == 1
