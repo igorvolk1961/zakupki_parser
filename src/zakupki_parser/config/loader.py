@@ -49,6 +49,14 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     logging_data = _load_yaml(base / CONFIG_FILES["logging"])
 
     service_model = ServiceConfig.model_validate(service_data)
+    logging_model = LoggingConfig.model_validate(logging_data)
+
+    # Относительный путь файла лога — относительно корня проекта (родителя configs).
+    if logging_model.file:
+        log_path = Path(logging_model.file)
+        if not log_path.is_absolute():
+            log_path = base.parent / log_path
+        logging_model.file = str(log_path)
 
     # Переопределение через переменные окружения (для Docker/CI).
     env_dsn = os.environ.get("ZAKUPKI_DB_DSN")
@@ -61,5 +69,5 @@ def load_config(configs_dir: str | Path) -> AppConfig:
         dom=DomConfig.model_validate(dom_data),
         filters=FiltersConfig.model_validate(filters_data),
         service=service_model,
-        logging=LoggingConfig.model_validate(logging_data),
+        logging=logging_model,
     )

@@ -1,7 +1,7 @@
 # Схема базы данных
 
-Схема БД парсера (PostgreSQL). Миграции — Liquibase (`docker/liquibase/changelog/`),
-ORM-модель — `src/zakupki_parser/storage/db.py`.
+Схема БД парсера (PostgreSQL). Миграции — Liquibase (`../../docker/liquibase/changelog`),
+ORM-модель — `../../src/zakupki_parser/storage/db.py`.
 
 ```mermaid
 erDiagram
@@ -14,10 +14,12 @@ erDiagram
         VARCHAR(16) law "закон: 44-ФЗ / 223-ФЗ"
         TEXT subject "предмет закупки"
         FLOAT nmck "начальная макс. цена контракта"
+        TIMESTAMPTZ publication_date "дата публикации (из «с …»)"
+        TEXT dates "исходная строка «с … до … (МСК)»"
         TIMESTAMPTZ deadline "срок приёма заявок"
         TEXT execution_term "срок исполнения"
-        TEXT okpd2_codes "коды ОКПД2"
-        TEXT kpgz_codes "коды КПГЗ"
+        TEXT okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
+        TEXT kpgz_codes "коды КПГЗ (один или несколько, через запятую)"
         JSONB detail_json "полный набор переменных карточки"
         TIMESTAMPTZ created_at "server_default now()"
         TIMESTAMPTZ updated_at "server_default now(), onupdate"

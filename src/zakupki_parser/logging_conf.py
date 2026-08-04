@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from zakupki_parser.config.models import LoggingConfig
 
@@ -23,8 +24,13 @@ def setup_logging(cfg: LoggingConfig) -> None:
         root.addHandler(console)
 
     if cfg.file:
+        file_path = Path(cfg.file)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        # При truncate_on_start=True файл очищается при старте (иначе — дописываем).
+        if cfg.truncate_on_start:
+            file_path.write_text("", encoding="utf-8")
         file_handler = RotatingFileHandler(
-            cfg.file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+            file_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
         )
         file_handler.setLevel(cfg.file_level.upper())
         file_handler.setFormatter(fmt)

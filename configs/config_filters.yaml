@@ -1,26 +1,18 @@
-# Конфигурация фильтров и порядка их применения на платформе.
-# Каждый фильтр — набор DOM-шагов, приводящих к выбору значения фильтра.
-# Внимание: точные селекторы панели фильтров требуют верификации на живом сайте
-# (см. TODO). Движок применения шагов реализован и покрыт тестами.
+# Конфигурация сортировки и фильтров на платформе (Реестр закупок).
+# Сортировка и фильтры применяются до основного цикла парсинга.
 
-# Поле сортировки по убыванию (по дате обновления закупки)
-sort_descending_by: "update_date"
-# Селектор кнопки применения фильтров (уточнить на живом сайте)
-apply_button: "button:has-text('Показать')"
-wait_ms_after_apply: 1500
+# Установка порядка сортировки списка закупок.
+sort:
+  dropdown: "div.SortDropdownStyles__SortDropdownContainer-sc-1j5g9d7-0 .ui.dropdown"
+  option_text: "По дате публикации"
 
-filters:
-  # Пример фильтра по предмету (тематика ИТ-услуг). Шаги задают порядок
-  # DOM-манипуляций: открыть поиск, ввести значение, подтвердить.
-  - name: "subject_contains"
-    steps:
-      - { action: "click", selector: "input[name='subject']", wait_ms: 400 }
-      - { action: "fill",  selector: "input[name='subject']", value: "ИИ" }
-      - { action: "press", selector: "input[name='subject']", value: "Enter", wait_ms: 600 }
+# Поле сортировки по убыванию (по дате публикации закупки)
+sort_descending_by: "publication_date"
 
-  # Пример фильтра по коду ОКПД2 (ИТ-услуги). Добавляется при уточнении DOM.
-  - name: "okpd2_code"
-    steps:
-      - { action: "click", selector: "input[name='okpd2']", wait_ms: 400 }
-      - { action: "fill",  selector: "input[name='okpd2']", value: "62.01" }
-      - { action: "press", selector: "input[name='okpd2']", value: "Enter", wait_ms: 600 }
+# Кнопка применения фильтров (пусто — не применяется)
+apply_button: null
+wait_ms_after_apply: 1000
+
+# Фильтры (DOM-шаги). Пока не заполнены — точные селекторы панели фильтров
+# Реестра закупок требуют верификации (см. TODO).
+filters: []

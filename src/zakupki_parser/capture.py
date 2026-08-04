@@ -32,7 +32,7 @@ async def capture_fixtures(cfg_dir: str, platform_id: str, out: str) -> None:
             wait_until="domcontentloaded",
             timeout=60000,
         )
-        await page.wait_for_load_state("networkidle")
+        await page.wait_for_timeout(4000)
         await _trim_save(page, out_dir / "list_cardregion.html", _LIST_MARKER)
         print("Сохранён список:", out_dir / "list_cardregion.html")
 
@@ -40,7 +40,7 @@ async def capture_fixtures(cfg_dir: str, platform_id: str, out: str) -> None:
         link = await page.locator("a[href^='/need/']").first.get_attribute("href")
         if link:
             await page.goto(platform.url.rstrip("/") + link, wait_until="domcontentloaded")
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_timeout(4000)
             await _trim_save(page, out_dir / "detail_content.html", _DETAIL_MARKER)
             print("Сохранена деталь:", out_dir / "detail_content.html")
         else:

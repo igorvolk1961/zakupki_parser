@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,10 +23,9 @@ from zakupki_parser.config.models import (
 from zakupki_parser.downloader import download_files
 from zakupki_parser.file_processor import FileProcessor
 from zakupki_parser.notify import Notifier
-from zakupki_parser.parser.detail import extract_detail_vars, open_detail
+from zakupki_parser.parser.detail import detail_file_urls, extract_detail_vars, open_detail
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.lister import (
-    extract_update_date,
     goto_next_page,
     iter_container_records,
     next_page_exists,
@@ -38,19 +38,35 @@ from zakupki_parser.storage.repository import ProcurementRepository
 logger = logging.getLogger(__name__)
 
 
-def is_older_than_cutoff(upd_iso: str, cutoff: datetime) -> bool | None:
-    """Проверяет, должна ли запись остановить цикл по дате обновления.
+def is_older_than_cutoff(upd: str | datetime | None, cutoff: datetime) -> bool | None:
+    """Проверяет, должна ли запись остановить цикл по дате публикации.
 
-    На площадке обычно доступна только дата (без времени), поэтому сравнение
-    ведётся по календарному дню: запись «старее» порога — когда её день строго
-    меньше дня порога. Возвращает True — стоп, False — обрабатывать далее,
-    None — некорректная дата (обрабатывать).
+    На площадке доступна только дата (без времени), поэтому сравнение ведётся по
+    календарному дню: запись «старее» порога — когда её день строго меньше дня
+    порога. Возвращает True — стоп, False — обрабатывать далее, None — некорректная
+    дата (обрабатывать).
     """
-    try:
-        upd_dt = datetime.fromisoformat(upd_iso)
-    except ValueError:
+    if upd is None:
         return None
+    if isinstance(upd, str):
+        try:
+            upd_dt = datetime.fromisoformat(upd)
+        except ValueError:
+            return None
+    else:
+        upd_dt = upd
     return upd_dt.date() < cutoff.date()
+
+
+def _json_safe(data: Any) -> Any:
+    """Рекурсивно приводит datetime к ISO-строке (для JSONB)."""
+    if isinstance(data, dict):
+        return {k: _json_safe(v) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_json_safe(v) for v in data]
+    if isinstance(data, datetime):
+        return data.isoformat()
+    return data
 
 
 class Orchestrator:
@@ -69,6 +85,7 @@ class Orchestrator:
         last_seen: LastSeenStore,
         site_cb: CircuitBreaker,
         db_cb: CircuitBreaker,
+        new_page: Callable[[], Awaitable[Page]] | None = None,
         now: datetime | None = None,
     ) -> None:
         self._cfg = cfg
@@ -82,6 +99,7 @@ class Orchestrator:
         self._last_seen = last_seen
         self._site_cb = site_cb
         self._db_cb = db_cb
+        self._new_page = new_page
         self._now = now or datetime.now(UTC)
 
     # -- приватные помощники -------------------------------------------------
@@ -140,20 +158,35 @@ class Orchestrator:
             return
 
         # stop-условия по данным из деталей проверяются после извлечения деталей.
-        # 3) переход на детальную страницу
-        await open_detail(page, detail_url, self._platform)
-        detail_vars = await extract_detail_vars(page, self._platform)
+        # 3) переход на детальную страницу — в отдельной вкладке, чтобы не терять
+        #    страницу списка (итерация по контейнерам и пагинация продолжаются).
+        #    «Возврат к списку» (п.10 ТЗ) — закрытие этой вкладки.
+        detail_page: Page
+        close_detail = False
+        file_urls: list[str] = []
+        if self._new_page is not None:
+            detail_page = await self._new_page()
+            close_detail = True
+        else:
+            detail_page = page
+        try:
+            await open_detail(detail_page, detail_url, self._platform)
+            detail_vars = await extract_detail_vars(detail_page, self._platform)
+            file_urls = await detail_file_urls(detail_page, self._platform)
+        finally:
+            if close_detail:
+                await detail_page.close()
 
         record: dict[str, Any] = {**list_vars, **detail_vars}
         record["url"] = self._platform.url.rstrip("/") + detail_url
         record["source_platform"] = self._platform_id
-        record["detail_json"] = record
+        record["detail_json"] = _json_safe(record)
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record):
             return
 
-        # 5) скачивание файлов
+        # 5) скачивание файлов (URL собраны с детальной страницы)
         downloaded: list[Path] = []
         if self._cfg.service.download_files:
             try:
@@ -162,6 +195,7 @@ class Orchestrator:
                     self._platform,
                     self._documents_dir(self._cfg),
                     str(number),
+                    file_urls,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Ошибка скачивания файлов заявки %s: %s", number, exc)
@@ -203,13 +237,26 @@ class Orchestrator:
 
         while True:
             async for container in iter_container_records(page, self._platform, self._delayer):
-                # Выход по порогу даты. Обрабатываем записи с датой >= дня порога и
-                # останавливаемся при записи со строго более ранним днём.
-                upd = await extract_update_date(container, self._platform)
-                if upd is not None:
-                    older = is_older_than_cutoff(upd, cutoff)
+                # Выход по порогу даты публикации. Обрабатываем записи с датой >=
+                # дня порога и останавливаемся при записи со строго более ранним днём.
+                pub_var = next(
+                    (
+                        v
+                        for v in self._platform.list.variables
+                        if v.name == self._platform.list.publication_date
+                    ),
+                    None,
+                )
+                if pub_var is not None:
+                    pub = await extract_from_scope(container, [pub_var])
+                    pub_val = pub.get(self._platform.list.publication_date)
+                    older = is_older_than_cutoff(pub_val, cutoff)
                     if older:
-                        logger.info("Достигнут порог дат (%s < %s), завершаем цикл", upd, cutoff)
+                        logger.info(
+                            "Достигнут порог дат (%s < %s), завершаем цикл",
+                            pub_val,
+                            cutoff,
+                        )
                         return
                 await self._process_container(page, container)
 

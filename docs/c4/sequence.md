@@ -1,7 +1,7 @@
 # Диаграмма последовательности — алгоритм парсинга
 
 Последовательность действий парсера для одной площадки (Mermaid sequenceDiagram).
-Соответствует `src/zakupki_parser/parser/orchestrator.py`.
+Соответствует `../../src/zakupki_parser/parser/orchestrator.py`.
 
 ```mermaid
 sequenceDiagram

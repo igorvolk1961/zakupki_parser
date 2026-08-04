@@ -10,24 +10,42 @@ from playwright.async_api import Locator, Page
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.config.models import FiltersConfig, PlatformDom
 from zakupki_parser.parser.filters import apply_filters
-from zakupki_parser.parser.handlers import apply_handler
 
 logger = logging.getLogger(__name__)
+
+# Фиксированная пауза после загрузки страницы: networkidle на этой SPA не наступает.
+SETTLE_MS = 3000
 
 
 async def open_list_page(page: Page, platform: PlatformDom) -> None:
     url = platform.url.rstrip("/") + platform.list_path
     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    await page.wait_for_load_state("networkidle")
+    # networkidle на этой SPA не наступает (аналитика/чат), ждём фиксированно.
+    await page.wait_for_timeout(SETTLE_MS)
     logger.info("Открыта страница списка: %s", page.url)
 
 
 async def setup_sort_and_filters(
     page: Page, platform: PlatformDom, filters_cfg: FiltersConfig
 ) -> None:
-    """Устанавливает сортировку по убыванию даты обновления и применяет фильтры."""
-    # Сортировка по убыванию даты обновления (для площадки по умолчанию применяются
-    # фильтры из config_filters; точный селектор сортировки уточняется в конфиге).
+    """Устанавливает сортировку и применяет фильтры из ``config_filters.yaml``."""
+    sort = filters_cfg.sort
+    if sort.dropdown and sort.option_text:
+        dropdown = page.locator(sort.dropdown)
+        if await dropdown.count() > 0:
+            await dropdown.first.click()
+            await page.wait_for_timeout(400)
+            option = dropdown.first.locator(f'.menu .item:has(.text:text-is("{sort.option_text}"))')
+            if await option.count() > 0:
+                await option.first.click()
+                await page.wait_for_timeout(SETTLE_MS)
+                logger.info("Сортировка установлена: %s", sort.option_text)
+            else:
+                await page.keyboard.press("Escape")
+                logger.warning("Пункт сортировки '%s' не найден", sort.option_text)
+        else:
+            logger.warning("Дропдаун сортировки не найден: %s", sort.dropdown)
+
     await apply_filters(page, filters_cfg)
 
 
@@ -53,7 +71,7 @@ async def goto_next_page(page: Page, platform: PlatformDom, delayer: Delayer) ->
     if await locator.count() == 0:
         return False
     await locator.first.click()
-    await page.wait_for_load_state("networkidle")
+    await page.wait_for_timeout(SETTLE_MS)
     await delayer.sleep()
     return True
 
@@ -68,16 +86,3 @@ async def iter_container_records(
     for i in range(count):
         await delayer.sleep()
         yield containers.nth(i)
-
-
-async def extract_update_date(container: Locator, platform: PlatformDom) -> str | None:
-    """Извлекает дату обновления записи (если селектор задан в конфиге)."""
-    sel = platform.list.update_date
-    if not sel:
-        return None
-    locator = container.locator(sel)
-    if await locator.count() == 0:
-        return None
-    raw = await locator.first.inner_text()
-    value = apply_handler("date_iso", raw)
-    return str(value) if value is not None else None

@@ -1,6 +1,11 @@
 # Конфигурация логирования.
 level: "INFO"
 format: "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
-file: null
+# Путь к файлу лога (относительно корня проекта). Если null — лог только в консоль.
+file: "data/parser.log"
 file_level: "DEBUG"
 console: true
+# Очищать ли файл лога при старте сервиса:
+#   true  — файл обнуляется при каждом запуске
+#   false — записи дописываются в конец (по умолчанию)
+truncate_on_start: false

@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - changeSet:
+      id: 2
+      author: zakupki-parser
+      changes:
+        - addColumn:
+            tableName: procurements
+            columns:
+              - column:
+                  name: publication_date
+                  type: TIMESTAMP WITH TIME ZONE
+                  remarks: "Дата публикации закупки (из строки «с … до …»)"
+              - column:
+                  name: dates
+                  type: TEXT
+                  remarks: "Исходная строка дат «с … до … HH:MM (МСК)»"

@@ -46,6 +46,8 @@ class Procurement(Base):
     law: Mapped[str | None] = mapped_column(String(16))
     subject: Mapped[str | None] = mapped_column(Text)
     nmck: Mapped[float | None] = mapped_column(Float)
+    publication_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dates: Mapped[str | None] = mapped_column(Text)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     execution_term: Mapped[str | None] = mapped_column(Text)
     okpd2_codes: Mapped[str | None] = mapped_column(Text)

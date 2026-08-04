@@ -6,7 +6,7 @@ browser:
   # Путь к ПОЛНОЙ версии Chromium (не headless-shell). Полная версия лучше
   # обходит антибот zakupki.mos.ru, который блокирует headless-shell.
   # Задаётся под конкретную машину/контейнер; пусто — используется headless-shell.
-  chromium_executable_path: null
+  chromium_executable_path: "/home/igorvolk/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
   # user_agent:            # если пусто — браузер подставит реальный UA
   viewport_width: 1366
   viewport_height: 768

@@ -55,10 +55,12 @@ class ProcurementRepository:
             law=data.get("law"),
             subject=data.get("subject"),
             nmck=data.get("nmck"),
+            publication_date=data.get("publication_date"),
+            dates=data.get("dates"),
             deadline=data.get("deadline"),
             execution_term=data.get("execution_term"),
-            okpd2_codes=data.get("okpd2_codes"),
-            kpgz_codes=data.get("kpgz_codes"),
+            okpd2_codes=data.get("okpd2_codes") or data.get("okpd2_code"),
+            kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
             detail_json=data.get("detail_json"),
         )
         async with self._db.session() as session:

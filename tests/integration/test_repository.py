@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -41,12 +42,15 @@ async def db() -> AsyncIterator[Database]:
 @pytest.mark.asyncio
 async def test_upsert_creates(db: Database) -> None:
     repo = ProcurementRepository(db)
+    deadline = datetime(2026, 8, 6, 15, 0, tzinfo=timezone(timedelta(hours=3)))
     ok = await repo.upsert(
         {
             "number": "ABC-1",
             "source_platform": "zakupki_mos",
             "subject": "Тест",
             "url": "https://example.com/need/1",
+            "deadline": deadline,
+            "detail_json": {"deadline": deadline.isoformat(), "nested": [1, 2]},
         }
     )
     assert ok is True

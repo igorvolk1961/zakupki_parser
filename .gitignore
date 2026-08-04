@@ -31,5 +31,8 @@ documents/
 .idea/
 .vscode/
 
+# Kilo workspace state (планы, служебные файлы)
+.kilo/
+
 # OS
 .DS_Store

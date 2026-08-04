@@ -74,9 +74,20 @@ class DomVariable(BaseModel):
     name: str
     selector: str
     attribute: str | None = None
+    index: int | None = Field(
+        default=None,
+        ge=0,
+        description="взять N-й элемент, совпавший с селектором (вместо первого)",
+    )
     handler: str | None = Field(
         default=None,
-        description="опциональная постобработка: none|strip|float|int|date_iso|lower",
+        description=(
+            "опциональная постобработка: none|strip|float|int|date_iso|lower|"
+            "pub_date|deadline|law|regex"
+        ),
+    )
+    handler_arg: str | None = Field(
+        default=None, description="аргумент для обработчика (например, regex-паттерн)"
     )
     default: Any = None
 
@@ -88,8 +99,9 @@ class DomListConfig(BaseModel):
     variables: list[DomVariable] = Field(default_factory=list)
     detail_link: str = Field(description="CSS-селектор ссылки на детальную страницу")
     next_page: str = Field(description="CSS-селектор кнопки/ссылки следующей страницы")
-    update_date: str | None = Field(
-        default=None, description="селектор элемента с датой обновления записи"
+    publication_date: str = Field(
+        default="publication_date",
+        description="имя переменной в list.variables с датой публикации (для стоп-порога)",
     )
 
 
@@ -146,11 +158,21 @@ class PurchaseFilter(BaseModel):
     steps: list[FilterStep] = Field(description="DOM-шаги, приводящие к выбору значения")
 
 
+class SortConfig(BaseModel):
+    """Установка порядка сортировки списка закупок."""
+
+    dropdown: str | None = Field(default=None, description="селектор выпадающего списка сортировки")
+    option_text: str | None = Field(
+        default=None, description="текст пункта сортировки (например, «По дате публикации»)"
+    )
+
+
 class FiltersConfig(BaseModel):
     """Конфигурация фильтров и порядка их применения."""
 
+    sort: SortConfig = Field(default_factory=SortConfig, description="установка сортировки списка")
     sort_descending_by: str = Field(
-        default="update_date", description="поле сортировки по убыванию"
+        default="publication_date", description="поле сортировки по убыванию"
     )
     apply_button: str | None = Field(default=None, description="селектор кнопки применения")
     wait_ms_after_apply: int = Field(default=1000, ge=0)
@@ -233,6 +255,10 @@ class LoggingConfig(BaseModel):
     file: str | None = Field(default=None, description="путь к файлу лога")
     file_level: str = Field(default="DEBUG")
     console: bool = Field(default=True)
+    truncate_on_start: bool = Field(
+        default=False,
+        description="очищать файл лога при старте сервиса (True) или дописывать (False)",
+    )
 
 
 # --------------------------------------------------------------------------- #

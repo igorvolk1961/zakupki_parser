@@ -1,9 +1,8 @@
 # DOM-конфигурация площадок закупок: URL, переменные, селекторы контейнеров
 # и путей к значениям переменных. Изменяется без правки кода.
 #
-# Внимание: селекторы основаны на CSS-классах Semantic UI (стабильные) и
-# styled-components (хешированные, могут меняться при деплое). Точные значения
-# переменных для площадки требуется верифицировать на живом сайте (см. TODO).
+# Целевой раздел — Реестр закупок (/purchase/list). Классы styled-components
+# хешированные (sc-…) и могут меняться при деплое — правки выполняются только здесь.
 
 platforms:
   zakupki_mos:
@@ -12,31 +11,34 @@ platforms:
     list_path: "/purchase/list"
 
     list:
-      # Контейнер записи о закупке в списке (Semantic UI grid-column одной карточки)
-      container: "div.nine.wide.computer"
+      # Контейнер карточки закупки: прямой ребёнок списка, содержащий MainInfoContainer
+      # (внутри него и MainInfo, и AdditionalInfo — регион/закон/даты).
+      container: "div.PublicListStyles__PublicListContentContainer-sc-1epmhkd-1 > div:has(div.CardStyles__MainInfoContainer-sc-1rn3iq8-1)"
       # Ссылка на детальную страницу закупки
-      detail_link: "a[href^='/need/']"
-      # Селектор элемента перехода на следующую страницу (уточнить на живом сайте)
-      next_page: "a:has-text('Следующая')"
-      # Дата обновления записи в списке (уточнить на живом сайте)
-      update_date: null
+      detail_link: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6"
+      # Селектор перехода на следующую страницу (Semantic UI пагинация)
+      next_page: "div.ui.pagination.menu a[type='nextItem']"
+      # Имя переменной с датой публикации (используется для стоп-порога)
+      publication_date: "publication_date"
       variables:
-        # number/type/customer подтверждены на живом сайте; остальные требуют
-        # верификации селекторов (см. TODO).
-        - { name: "number",        selector: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6", handler: "strip" }
-        - { name: "purchase_type", selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3 span", handler: "strip", default: "" }
-        - { name: "customer",      selector: ".PurchaseCardStyles__MainInfoCustomerHeader-sc-xhk4mt-0", handler: "strip", default: "" }
-        - { name: "status",        selector: "div.CardStyles__MainInfoStatusHeader-sc-1rn3iq8-4", handler: "strip", default: "" }
-        - { name: "subject",       selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3", handler: "strip", default: "" }
-        - { name: "nmck",          selector: "span.CardStyles__MainInfoPrice-sc-1rn3iq8-8", handler: "money", default: null }
-        - { name: "law",           selector: "div.CardStyles__MainInfoBottomTagContainer-sc-1rn3iq8-10", handler: "strip", default: "" }
+        - { name: "number",          selector: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6", handler: "strip" }
+        - { name: "purchase_type",   selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3 span", handler: "strip", default: "" }
+        - { name: "status",          selector: "span.EllipsedSpan__WordBreakSpan-sc-5i2ox1-0", index: 1, handler: "strip", default: "" }
+        - { name: "subject",         selector: "span.EllipsedSpan__WordBreakSpan-sc-5i2ox1-0", index: 2, handler: "strip", default: "" }
+        - { name: "customer",        selector: ".PurchaseCardStyles__MainInfoCustomerHeader-sc-xhk4mt-0", handler: "strip", default: "" }
+        - { name: "nmck",            selector: "div.CardStyles__PriceInfoNumber-sc-1rn3iq8-11", handler: "money", default: null }
+        - { name: "region",          selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 0, handler: "strip", default: "" }
+        - { name: "law",             selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 1, handler: "strip", default: "" }
+        # Строка «с <дата> до <дата> <время> (МСК)» и производные от неё
+        - { name: "dates",           selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 2, handler: "strip", default: "" }
+        - { name: "publication_date", selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 2, handler: "pub_date", default: null }
+        - { name: "deadline",        selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 2, handler: "deadline", default: null }
 
     detail:
       variables:
-        - { name: "number",   selector: "h1.CardStyles__...", handler: "strip", default: "" }
-        - { name: "subject",  selector: "h1", handler: "strip", default: "" }
-        - { name: "customer", selector: "span:has-text('Заказчик')", handler: "strip", default: "" }
-        - { name: "okpd2",    selector: "span:has-text('Код ОКПД2')", handler: "strip", default: "" }
-        - { name: "deadline", selector: "span:has-text('Дата окончания')", handler: "strip", default: "" }
+        - { name: "customer",    selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Заказчик')) > div", handler: "strip", default: "" }
+        - { name: "nmck",        selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Начальная цена')) > div", handler: "money", default: null }
+        - { name: "okpd2_name",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Наименование ОКПД2')) > div", handler: "strip", default: "" }
+        - { name: "okpd2_code",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Код ОКПД2')) > div", handler: "strip", default: "" }
       files:
         - { name: "document", selector: "a[href*='FileStorage/Download']", attribute: "href", handler: "strip" }

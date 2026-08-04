@@ -10,6 +10,7 @@ from zakupki_parser.browser.manager import BrowserManager
 from zakupki_parser.circuit import CircuitBreaker
 from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.file_processor import FileProcessor
+from zakupki_parser.logging_conf import setup_logging
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.storage.db import Database
@@ -47,6 +48,7 @@ class Scheduler:
         )
 
     async def start(self) -> None:
+        setup_logging(self._cfg.logging)
         await self._db.connect()
 
     async def stop(self) -> None:
@@ -104,6 +106,7 @@ class Scheduler:
                 last_seen=self._last_seen,
                 site_cb=self._site_cb,
                 db_cb=self._db_cb,
+                new_page=browser.new_page,
             )
             try:
                 await orchestrator.run(page)
