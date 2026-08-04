@@ -26,6 +26,9 @@ db:
   connect_timeout_seconds: 5
   pool_min: 1
   pool_max: 5
+  # Повторы записи при транзиентной ошибке БД (недоступность), до открытия circuit breaker
+  retry_max_attempts: 3
+  retry_backoff_seconds: 1.0
 
 # --- Webhook-уведомления (сейчас заглушка/лог) ---
 webhook:

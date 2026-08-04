@@ -5,13 +5,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import asyncpg
 from playwright.async_api import Locator, Page
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
@@ -66,6 +69,33 @@ def _json_safe(data: Any) -> Any:
     if isinstance(data, datetime):
         return data.isoformat()
     return data
+
+
+def _unwrap_db_error(exc: BaseException) -> BaseException:
+    """Распаковывает SQLAlchemy DBAPIError до исходного (asyncpg) исключения."""
+    while isinstance(exc, DBAPIError) and exc.orig is not None:
+        exc = exc.orig
+    return exc
+
+
+def _is_transient_db_error(exc: BaseException) -> bool:
+    """Транзиентная ошибка (недоступность БД/сети) — учитывается circuit breaker'ом."""
+    exc = _unwrap_db_error(exc)
+    return isinstance(
+        exc,
+        (
+            asyncpg.PostgresConnectionError,
+            asyncpg.InterfaceError,
+            OSError,
+            TimeoutError,
+        ),
+    )
+
+
+def _is_data_db_error(exc: BaseException) -> bool:
+    """Ошибка данных/схемы (не транзиентная) — НЕ учитывается circuit breaker'ом."""
+    exc = _unwrap_db_error(exc)
+    return isinstance(exc, asyncpg.DataError)
 
 
 class Orchestrator:
@@ -124,20 +154,48 @@ class Orchestrator:
         return False
 
     async def _persist(self, record: dict[str, Any]) -> bool:
-        """Сохраняет заявку в БД с вежливой деградацией."""
+        """Сохраняет заявку в БД с вежливой деградацией.
+
+        Circuit breaker учитывает ТОЛЬКО транзиентные ошибки доступности БД;
+        ошибки данных/схемы (например, усечение значения) не открывают CB.
+        Транзиентные ошибки повторяются с линейным backoff до исчерпания попыток.
+        """
         if not self._cfg.service.db.enabled or self._repository is None:
             return False
         if not self._db_cb.allow_request():
             logger.warning("БД недоступна (circuit open), запись пропущена")
             return False
-        try:
-            saved = await self._repository.upsert(record)
-            self._db_cb.record_success()
-            return saved
-        except Exception as exc:  # noqa: BLE001
-            self._db_cb.record_failure()
-            logger.error("Ошибка записи в БД: %s", exc)
-            return False
+
+        db_cfg = self._cfg.service.db
+        attempts = db_cfg.retry_max_attempts
+        for attempt in range(1, attempts + 1):
+            try:
+                saved = await self._repository.upsert(record)
+                self._db_cb.record_success()
+                return saved
+            except IntegrityError as exc:
+                # Конкурентная вставка того же номера — не ошибка доступности.
+                logger.info("Дубликат по unique-констрейнту: %s", exc)
+                return False
+            except Exception as exc:  # noqa: BLE001
+                if _is_data_db_error(exc):
+                    logger.error("Ошибка данных при записи заявки: %s", exc)
+                    return False
+                if _is_transient_db_error(exc) and attempt < attempts:
+                    delay = db_cfg.retry_backoff_seconds * attempt
+                    logger.warning(
+                        "Транзиентная ошибка БД (%s), retry %d/%d через %.1f с",
+                        exc,
+                        attempt,
+                        attempts,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                self._db_cb.record_failure()
+                logger.error("Ошибка записи в БД: %s", exc)
+                return False
+        return False
 
     async def _process_container(self, page: Page, container: Locator) -> None:
         """Обрабатывает один контейнер записи о закупке."""

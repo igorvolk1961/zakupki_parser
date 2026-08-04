@@ -193,6 +193,12 @@ class DbConfig(BaseModel):
     connect_timeout_seconds: float = Field(default=5.0, ge=0)
     pool_min: int = Field(default=1, ge=0)
     pool_max: int = Field(default=5, ge=1)
+    retry_max_attempts: int = Field(
+        default=3, ge=1, description="повторы записи при транзиентной ошибке БД"
+    )
+    retry_backoff_seconds: float = Field(
+        default=1.0, ge=0, description="базовая пауза между повторами (растёт линейно)"
+    )
 
 
 class WebhookConfig(BaseModel):
