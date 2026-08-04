@@ -120,7 +120,8 @@ async def open_list_page(
     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
     # networkidle на этой SPA не наступает (аналитика/чат), ждём фиксированно.
     await page.wait_for_timeout(SETTLE_MS)
-    logger.info("Открыта страница списка: %s", page.url)
+    # Логируем путь без query: полный filter-URL (URL-encoded JSON) слишком длинный.
+    logger.info("Открыта страница списка: %s", page.url.split("?", 1)[0])
 
 
 async def setup_sort_and_filters(
