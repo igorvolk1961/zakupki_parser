@@ -10,7 +10,7 @@ platforms:
     url: "https://zakupki.mos.ru"
     list_path: "/purchase/list"
 
-    list:
+    list_config:
       # Контейнер карточки закупки: прямой ребёнок списка, содержащий MainInfoContainer
       # (внутри него и MainInfo, и AdditionalInfo — регион/закон/даты).
       container: "div.PublicListStyles__PublicListContentContainer-sc-1epmhkd-1 > div:has(div.CardStyles__MainInfoContainer-sc-1rn3iq8-1)"
@@ -42,3 +42,12 @@ platforms:
         - { name: "okpd2_code",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Код ОКПД2')) > div", handler: "strip", default: "" }
       files:
         - { name: "document", selector: "a[href*='FileStorage/Download']", attribute: "href", handler: "strip" }
+
+    # --- Сортировка списка закупок (DOM) ---
+    sort:
+      dropdown: "div.SortDropdownStyles__SortDropdownContainer-sc-1j5g9d7-0 .ui.dropdown"
+      option_text: "По дате публикации"
+
+    # --- Фильтры (DOM-шаги). Пока не заполнены — точные селекторы панели
+    #     фильтров Реестра закупок требуют верификации (см. TODO). ---
+    filters: []

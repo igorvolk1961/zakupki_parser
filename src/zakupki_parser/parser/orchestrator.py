@@ -17,7 +17,6 @@ from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import (
     AppConfig,
-    FiltersConfig,
     PlatformDom,
 )
 from zakupki_parser.downloader import download_files
@@ -77,7 +76,6 @@ class Orchestrator:
         cfg: AppConfig,
         platform_id: str,
         platform: PlatformDom,
-        filters_cfg: FiltersConfig,
         delayer: Delayer,
         repository: ProcurementRepository | None,
         notifier: Notifier,
@@ -91,7 +89,6 @@ class Orchestrator:
         self._cfg = cfg
         self._platform_id = platform_id
         self._platform = platform
-        self._filters = filters_cfg
         self._delayer = delayer
         self._repository = repository
         self._notifier = notifier
@@ -145,11 +142,11 @@ class Orchestrator:
     async def _process_container(self, page: Page, container: Locator) -> None:
         """Обрабатывает один контейнер записи о закупке."""
         # 1) list-vars
-        list_vars = await extract_from_scope(container, self._platform.list.variables)
+        list_vars = await extract_from_scope(container, self._platform.list_config.variables)
         number = list_vars.get("number")
 
         # 2) ссылка на детальную страницу
-        detail_link_loc = container.locator(self._platform.list.detail_link)
+        detail_link_loc = container.locator(self._platform.list_config.detail_link)
         if await detail_link_loc.count() == 0:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
             return
@@ -232,7 +229,7 @@ class Orchestrator:
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
         await open_list_page(page, self._platform)
-        await setup_sort_and_filters(page, self._platform, self._filters)
+        await setup_sort_and_filters(page, self._platform)
         await self._delayer.sleep()
 
         while True:
@@ -242,14 +239,14 @@ class Orchestrator:
                 pub_var = next(
                     (
                         v
-                        for v in self._platform.list.variables
-                        if v.name == self._platform.list.publication_date
+                        for v in self._platform.list_config.variables
+                        if v.name == self._platform.list_config.publication_date
                     ),
                     None,
                 )
                 if pub_var is not None:
                     pub = await extract_from_scope(container, [pub_var])
-                    pub_val = pub.get(self._platform.list.publication_date)
+                    pub_val = pub.get(self._platform.list_config.publication_date)
                     older = is_older_than_cutoff(pub_val, cutoff)
                     if older:
                         logger.info(

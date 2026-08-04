@@ -11,7 +11,6 @@ import yaml
 from zakupki_parser.config.models import (
     AppConfig,
     DomConfig,
-    FiltersConfig,
     LoggingConfig,
     ParserConfig,
     ServiceConfig,
@@ -20,7 +19,6 @@ from zakupki_parser.config.models import (
 CONFIG_FILES = {
     "parser": "config_parser.yaml",
     "dom": "config_dom.yaml",
-    "filters": "config_filters.yaml",
     "service": "config_service.yaml",
     "logging": "config_log.yaml",
 }
@@ -44,7 +42,6 @@ def load_config(configs_dir: str | Path) -> AppConfig:
 
     parser_data = _load_yaml(base / CONFIG_FILES["parser"])
     dom_data = _load_yaml(base / CONFIG_FILES["dom"])
-    filters_data = _load_yaml(base / CONFIG_FILES["filters"])
     service_data = _load_yaml(base / CONFIG_FILES["service"])
     logging_data = _load_yaml(base / CONFIG_FILES["logging"])
 
@@ -67,7 +64,6 @@ def load_config(configs_dir: str | Path) -> AppConfig:
         configs_dir=base,
         parser=ParserConfig.model_validate(parser_data),
         dom=DomConfig.model_validate(dom_data),
-        filters=FiltersConfig.model_validate(filters_data),
         service=service_model,
         logging=logging_model,
     )

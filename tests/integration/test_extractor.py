@@ -17,7 +17,7 @@ from zakupki_parser.parser.extractor import extract_from_scope
 async def test_list_container_count(app_config: AppConfig, page: Page) -> None:
     await set_html(page, load_fixture("list_cardregion.html"))
     platform = app_config.dom.platforms["zakupki_mos"]
-    containers = page.locator(platform.list.container)
+    containers = page.locator(platform.list_config.container)
     count = await containers.count()
     assert count > 0, "Должны находиться контейнеры записей в фикстуре списка"
 
@@ -26,8 +26,8 @@ async def test_list_container_count(app_config: AppConfig, page: Page) -> None:
 async def test_extract_list_variables(app_config: AppConfig, page: Page) -> None:
     await set_html(page, load_fixture("list_cardregion.html"))
     platform = app_config.dom.platforms["zakupki_mos"]
-    containers = page.locator(platform.list.container)
-    data = await extract_from_scope(containers.first, platform.list.variables)
+    containers = page.locator(platform.list_config.container)
+    data = await extract_from_scope(containers.first, platform.list_config.variables)
 
     assert data.get("number"), "Номер заявки должен извлекаться из карточки"
     assert data.get("customer"), "Заказчик должен извлекаться из карточки"
@@ -43,8 +43,8 @@ async def test_extract_list_variables(app_config: AppConfig, page: Page) -> None
 async def test_publication_date_and_deadline(app_config: AppConfig, page: Page) -> None:
     await set_html(page, load_fixture("list_cardregion.html"))
     platform = app_config.dom.platforms["zakupki_mos"]
-    containers = page.locator(platform.list.container)
-    data = await extract_from_scope(containers.first, platform.list.variables)
+    containers = page.locator(platform.list_config.container)
+    data = await extract_from_scope(containers.first, platform.list_config.variables)
     pub = data.get("publication_date")
     dl = data.get("deadline")
     assert isinstance(pub, datetime), "Дата публикации должна быть datetime"
@@ -56,8 +56,8 @@ async def test_publication_date_and_deadline(app_config: AppConfig, page: Page) 
 async def test_detail_link_present(app_config: AppConfig, page: Page) -> None:
     await set_html(page, load_fixture("list_cardregion.html"))
     platform = app_config.dom.platforms["zakupki_mos"]
-    containers = page.locator(platform.list.container)
-    link = containers.first.locator(platform.list.detail_link).first
+    containers = page.locator(platform.list_config.container)
+    link = containers.first.locator(platform.list_config.detail_link).first
     href = await link.get_attribute("href")
     assert href and "/need/" in href
 

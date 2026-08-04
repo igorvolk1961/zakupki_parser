@@ -19,6 +19,6 @@ def test_stop_conditions_defaults(app_config: AppConfig) -> None:
 
 def test_platform_has_list_and_detail(app_config: AppConfig) -> None:
     platform = app_config.dom.platforms["zakupki_mos"]
-    assert platform.list.container
-    assert platform.list.detail_link
+    assert platform.list_config.container
+    assert platform.list_config.detail_link
     assert platform.detail.variables is not None

@@ -114,33 +114,8 @@ class DomDetailConfig(BaseModel):
     )
 
 
-class PlatformDom(BaseModel):
-    """DOM-конфигурация одной площадки закупок."""
-
-    name: str
-    url: str = Field(description="базовый адрес платформы")
-    list_path: str = Field(default="", description="путь к странице списка закупок")
-    list: DomListConfig
-    detail: DomDetailConfig
-
-
-class DomConfig(BaseModel):
-    """Конфигурация DOM-элементов по площадкам."""
-
-    platforms: dict[str, PlatformDom] = Field(
-        description="ключ platform_id -> конфигурация площадки"
-    )
-
-    @field_validator("platforms")
-    @classmethod
-    def _non_empty(cls, v: dict[str, PlatformDom]) -> dict[str, PlatformDom]:
-        if not v:
-            raise ValueError("config_dom должен содержать хотя бы одну площадку")
-        return v
-
-
 # --------------------------------------------------------------------------- #
-# config_filters.yaml
+# Фильтры и сортировка (задаются внутри config_dom.yaml, в блоке площадки)
 # --------------------------------------------------------------------------- #
 class FilterStep(BaseModel):
     """Один шаг DOM-манипуляции для установки/применения фильтра."""
@@ -167,16 +142,37 @@ class SortConfig(BaseModel):
     )
 
 
-class FiltersConfig(BaseModel):
-    """Конфигурация фильтров и порядка их применения."""
+class PlatformDom(BaseModel):
+    """DOM-конфигурация одной площадки закупок.
 
-    sort: SortConfig = Field(default_factory=SortConfig, description="установка сортировки списка")
-    sort_descending_by: str = Field(
-        default="publication_date", description="поле сортировки по убыванию"
+    Содержит и селекторы извлечения (``list``/``detail``), и селекторы
+    сортировки/фильтров (``sort``/``filters``) — всё, что связано с DOM площадки.
+    """
+
+    name: str
+    url: str = Field(description="базовый адрес платформы")
+    list_path: str = Field(default="", description="путь к странице списка закупок")
+    list_config: DomListConfig
+    detail: DomDetailConfig
+    sort: SortConfig | None = Field(default=None, description="установка сортировки списка")
+    filters: list[PurchaseFilter] = Field(
+        default_factory=list, description="фильтры и порядок их DOM-шагов"
     )
-    apply_button: str | None = Field(default=None, description="селектор кнопки применения")
-    wait_ms_after_apply: int = Field(default=1000, ge=0)
-    filters: list[PurchaseFilter] = Field(default_factory=list)
+
+
+class DomConfig(BaseModel):
+    """Конфигурация DOM-элементов по площадкам."""
+
+    platforms: dict[str, PlatformDom] = Field(
+        description="ключ platform_id -> конфигурация площадки"
+    )
+
+    @field_validator("platforms")
+    @classmethod
+    def _non_empty(cls, v: dict[str, PlatformDom]) -> dict[str, PlatformDom]:
+        if not v:
+            raise ValueError("config_dom должен содержать хотя бы одну площадку")
+        return v
 
 
 # --------------------------------------------------------------------------- #
@@ -270,6 +266,5 @@ class AppConfig(BaseModel):
     configs_dir: Path
     parser: ParserConfig
     dom: DomConfig
-    filters: FiltersConfig
     service: ServiceConfig
     logging: LoggingConfig

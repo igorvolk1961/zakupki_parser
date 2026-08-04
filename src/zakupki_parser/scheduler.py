@@ -98,7 +98,6 @@ class Scheduler:
                 cfg=self._cfg,
                 platform_id=platform_id,
                 platform=platform,
-                filters_cfg=self._cfg.filters,
                 delayer=Delayer(self._cfg.parser.browser),
                 repository=self._repository,
                 notifier=self._notifier,

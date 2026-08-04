@@ -17,7 +17,6 @@ async def test_deadline_expired_skips(app_config: AppConfig) -> None:
         cfg=app_config,
         platform_id="zakupki_mos",
         platform=app_config.dom.platforms["zakupki_mos"],
-        filters_cfg=app_config.filters,
         delayer=object(),  # type: ignore[arg-type]
         repository=None,
         notifier=None,  # type: ignore[arg-type]
@@ -38,7 +37,6 @@ async def test_deadline_future_not_skipped(app_config: AppConfig) -> None:
         cfg=app_config,
         platform_id="zakupki_mos",
         platform=app_config.dom.platforms["zakupki_mos"],
-        filters_cfg=app_config.filters,
         delayer=object(),  # type: ignore[arg-type]
         repository=None,
         notifier=None,  # type: ignore[arg-type]
