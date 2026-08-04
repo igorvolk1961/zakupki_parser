@@ -202,7 +202,7 @@ class Orchestrator:
         if extracted:
             record.update(extracted)
 
-        # 7) удаление файлов (по флагу)
+        # 7) удаление файлов (по флагу) + удаление опустевшей папки заявки
         if self._cfg.service.delete_files_after_processing:
             for path in downloaded:
                 try:
@@ -211,6 +211,13 @@ class Orchestrator:
                         logger.debug("Удалён файл %s", path)
                 except OSError as exc:
                     logger.warning("Не удалось удалить %s: %s", path, exc)
+            if downloaded:
+                target_dir = downloaded[0].parent
+                try:
+                    target_dir.rmdir()  # удаляется только пустая папка
+                    logger.debug("Удалена пустая папка %s", target_dir)
+                except OSError:
+                    logger.debug("Папка %s не удалена (не пуста или отсутствует)", target_dir)
 
         # 8) запись в БД + защита от дубликатов
         saved = await self._persist(record)

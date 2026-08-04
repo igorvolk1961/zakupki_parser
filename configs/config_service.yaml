@@ -12,7 +12,7 @@ sites:
 default_cutoff_days: 7
 
 # Скачивание файлов (в подпапку documents/<номер заявки>/)
-download_files: true
+download_files: false
 # Удалять файлы после дополнительной обработки
 delete_files_after_processing: true
 
