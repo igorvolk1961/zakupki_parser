@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from zakupki_parser.config.models import AppConfig
+import pytest
+from pydantic import ValidationError
+
+from zakupki_parser.config.models import AppConfig, SortConfig
 
 
 def test_load_config_ok(app_config: AppConfig) -> None:
@@ -22,3 +25,18 @@ def test_platform_has_list_and_detail(app_config: AppConfig) -> None:
     assert platform.list_config.container
     assert platform.list_config.detail_link
     assert platform.detail.variables is not None
+
+
+def test_platform_sort_order_fixed(app_config: AppConfig) -> None:
+    sort = app_config.dom.platforms["zakupki_mos"].sort
+    assert sort is not None
+    assert sort.order == "publication_date_desc"
+
+
+def test_sort_order_other_value_rejected() -> None:
+    with pytest.raises(ValidationError):
+        SortConfig.model_validate({"order": "relevance"})
+
+
+def test_sort_default_order() -> None:
+    assert SortConfig().order == "publication_date_desc"

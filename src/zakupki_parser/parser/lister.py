@@ -32,9 +32,13 @@ async def setup_sort_and_filters(
 
     Селекторы сортировки и шаги фильтров заданы в ``config_dom.yaml``
     (блоки ``platform.sort`` и ``platform.filters``).
+
+    Порядок сортировки фиксирован (``publication_date_desc``) — на нём основана
+    стоп-логика last_seen; конфиг-схема исключает другие значения.
     """
     sort = platform.sort
     if sort and sort.dropdown and sort.option_text:
+        logger.info("Сортировка: %s (порядок фиксирован %s)", sort.option_text, sort.order)
         dropdown = page.locator(sort.dropdown)
         # SPA рендерит панель сортировки с задержкой — ждём появления.
         try:

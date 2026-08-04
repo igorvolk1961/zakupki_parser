@@ -134,11 +134,18 @@ class PurchaseFilter(BaseModel):
 
 
 class SortConfig(BaseModel):
-    """Установка порядка сортировки списка закупок."""
+    """Сортировка списка закупок.
 
+    Порядок сортировки **фиксирован** — по дате публикации по убыванию
+    (``publication_date_desc``): на нём основана стоп-логика last_seen.
+    Другой порядок исключён (единственное допустимое значение в перечислении).
+    Настраиваются только DOM-детали: где дропдаун и как называется нужный пункт.
+    """
+
+    order: Literal["publication_date_desc"] = "publication_date_desc"
     dropdown: str | None = Field(default=None, description="селектор выпадающего списка сортировки")
     option_text: str | None = Field(
-        default=None, description="текст пункта сортировки (например, «По дате публикации»)"
+        default=None, description="текст пункта «по дате публикации» (для клика в меню)"
     )
 
 
