@@ -175,6 +175,17 @@ class SearchFilterConfig(BaseModel):
         default="%d.%m.%Y 00:00:00",
         description="формат даты порога для плейсхолдера publish_date_great_equal",
     )
+    okpd_tree_file: str | None = Field(
+        default=None,
+        description="путь к маппингу ОКПД2 (код -> путь); обязателен при okpd_codes",
+    )
+    okpd_codes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "коды ОКПД2 для фильтрации; резолвятся в okpdPaths через okpd_tree_file "
+            "(выбор предка включает потомков)"
+        ),
+    )
 
 
 class PlatformDom(BaseModel):

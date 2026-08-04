@@ -47,6 +47,7 @@ def load_config(configs_dir: str | Path) -> AppConfig:
 
     service_model = ServiceConfig.model_validate(service_data)
     logging_model = LoggingConfig.model_validate(logging_data)
+    dom_model = DomConfig.model_validate(dom_data)
 
     # Относительный путь файла лога — относительно корня проекта (родителя configs).
     if logging_model.file:
@@ -54,6 +55,14 @@ def load_config(configs_dir: str | Path) -> AppConfig:
         if not log_path.is_absolute():
             log_path = base.parent / log_path
         logging_model.file = str(log_path)
+
+    # Относительный путь маппинга ОКПД2 — относительно корня проекта.
+    for platform in dom_model.platforms.values():
+        if platform.search and platform.search.okpd_tree_file:
+            tree_path = Path(platform.search.okpd_tree_file)
+            if not tree_path.is_absolute():
+                tree_path = base.parent / tree_path
+            platform.search.okpd_tree_file = str(tree_path)
 
     # Переопределение через переменные окружения (для Docker/CI).
     env_dsn = os.environ.get("ZAKUPKI_DB_DSN")
@@ -63,7 +72,7 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     return AppConfig(
         configs_dir=base,
         parser=ParserConfig.model_validate(parser_data),
-        dom=DomConfig.model_validate(dom_data),
+        dom=dom_model,
         service=service_model,
         logging=logging_model,
     )

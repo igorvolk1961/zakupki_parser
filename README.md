@@ -66,7 +66,8 @@ uv run zakupki-parser --configs configs capture-fixture --platform zakupki_mos
 ## Конфигурация
 - `config_parser.yaml` — браузер и антиблок-меры.
 - `config_dom.yaml` — URL, переменные, селекторы контейнеров и значений, а также
-  селекторы сортировки и фильтров (блоки `sort`/`filters`).
+  селекторы сортировки и фильтров (блоки `sort`/`filters`) и URL-фильтр `search`
+  (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
 - `config_service.yaml` — таймер, список сайтов, пороги дат, флаги, БД, webhook,
   stop-условия, circuit breaker.
 - `config_log.yaml` — логирование.

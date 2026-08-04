@@ -14,6 +14,7 @@ from playwright.async_api import Locator, Page
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.config.models import PlatformDom, SearchFilterConfig
+from zakupki_parser.okpd import load_okpd_tree, resolve_okpd_codes
 from zakupki_parser.parser.filters import apply_filters
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,20 @@ def build_query(search: SearchFilterConfig, cutoff: datetime | None) -> str:
     if cutoff is not None:
         date_str = cutoff.astimezone(MSK).strftime(search.date_great_equal_format)
         _replace_placeholder(filter_json, "{publish_date_great_equal}", date_str)
+
+    # Резолв кодов ОКПД2 в пути узлов дерева (через маппинг из конфига).
+    if search.okpd_codes:
+        if not search.okpd_tree_file:
+            logger.warning("search.okpd_codes заданы, но okpd_tree_file не указан")
+        else:
+            try:
+                tree = load_okpd_tree(search.okpd_tree_file)
+                paths = resolve_okpd_codes(search.okpd_codes, tree)
+                if paths:
+                    need = filter_json.setdefault("needSpecificFilter", {})
+                    need["okpdPaths"] = paths
+            except (OSError, ValueError) as exc:
+                logger.warning("Не удалось загрузить дерево ОКПД2: %s", exc)
 
     filter_encoded = urllib.parse.quote(
         json.dumps(filter_json, ensure_ascii=False, separators=(",", ":"))
