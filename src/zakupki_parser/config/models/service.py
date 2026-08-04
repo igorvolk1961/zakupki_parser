@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class DbConfig(BaseModel):
@@ -97,3 +97,13 @@ class ServiceConfig(BaseModel):
     stop_conditions: StopConditions = Field(default_factory=StopConditions)
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
     circuit_breaker_reset_timeout_seconds: float = Field(default=60.0, ge=1)
+
+    @model_validator(mode="after")
+    def _check_ts_keywords(self) -> ServiceConfig:
+        """Защита: флаг «только ТЗ» без ключевых слов — ошибка конфигурации."""
+        if self.download_technical_spec_only and not self.technical_spec_keywords:
+            raise ValueError(
+                "download_technical_spec_only=true, но technical_spec_keywords пуст — "
+                "не будет скачано ни одного файла"
+            )
+        return self
