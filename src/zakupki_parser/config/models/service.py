@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -66,6 +68,22 @@ class SearchCriteria(BaseModel):
     )
 
 
+class StorageConfig(BaseModel):
+    """Хранилище скачанных файлов (например, только технического задания).
+
+    ``type``: ``local`` — каталог ``documents_dir``; ``s3`` — MinIO/совместимое
+    объектное хранилище (в БД пишется URL объекта, а не бинарник).
+    """
+
+    type: Literal["local", "s3"] = Field(default="local")
+    endpoint: str = Field(default="http://localhost:9000", description="для type=s3 (MinIO)")
+    access_key: str | None = Field(default=None)
+    secret_key: str | None = Field(default=None)
+    bucket: str = Field(default="zakupki-documents")
+    secure: bool = Field(default=False, description="HTTPS для s3")
+    region: str = Field(default="us-east-1")
+
+
 class ServiceConfig(BaseModel):
     """Сервисная конфигурация: таймер, список сайтов, пороги, флаги."""
 
@@ -94,6 +112,7 @@ class ServiceConfig(BaseModel):
     data_dir: str = Field(default="data")
     db: DbConfig = Field(default_factory=DbConfig)
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
     stop_conditions: StopConditions = Field(default_factory=StopConditions)
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
     circuit_breaker_reset_timeout_seconds: float = Field(default=60.0, ge=1)

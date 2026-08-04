@@ -34,6 +34,7 @@ from zakupki_parser.parser.lister import (
 )
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
 from zakupki_parser.storage.last_seen import LastSeenStore
+from zakupki_parser.storage.object_store import FileRef, build_object_store
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -69,12 +70,11 @@ class Orchestrator:
         self._db_cb = db_cb
         self._new_page = new_page
         self._now = now or datetime.now(UTC)
+        self._object_store = build_object_store(
+            cfg.service.storage, Path(cfg.service.documents_dir).resolve()
+        )
 
     # -- приватные помощники -------------------------------------------------
-    @staticmethod
-    def _documents_dir(cfg: AppConfig) -> Path:
-        return Path(cfg.service.documents_dir).resolve()
-
     def _check_stop_conditions(self, record: dict[str, Any]) -> bool:
         """Проверяет набор флагов прекращения обработки заявки.
 
@@ -184,7 +184,8 @@ class Orchestrator:
 
         # 5) скачивание файлов (URL собраны с детальной страницы).
         #    При download_technical_spec_only — только файлы с ключевыми словами.
-        downloaded: list[Path] = []
+        #    Файлы сохраняются в хранилище (local или s3/MinIO), в БД — ссылка (url).
+        downloaded: list[FileRef] = []
         if self._cfg.service.download_files:
             only_keywords: list[str] | None = None
             if self._cfg.service.download_technical_spec_only:
@@ -193,7 +194,7 @@ class Orchestrator:
                 downloaded = await download_files(
                     page,
                     self._platform,
-                    self._documents_dir(self._cfg),
+                    self._object_store,
                     str(number),
                     file_urls,
                     only_keywords,
@@ -201,27 +202,27 @@ class Orchestrator:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Ошибка скачивания файлов заявки %s: %s", number, exc)
 
+        # Ссылка на техническое задание (первый сохранённый ТЗ-файл) для БД.
+        if downloaded and self._cfg.service.download_technical_spec_only:
+            record["technical_spec_url"] = downloaded[0].url
+
         # 6) доп. обработка файлов (заглушка)
         extracted = await self._file_processor.process(downloaded, str(number))
         if extracted:
             record.update(extracted)
 
-        # 7) удаление файлов (по флагу) + удаление опустевшей папки заявки
+        # 7) удаление файлов (по флагу). Техническое задание сохраняется — на него
+        #    ссылается БД (technical_spec_url).
         if self._cfg.service.delete_files_after_processing:
-            for path in downloaded:
+            for ref in downloaded:
+                if ref.url == record.get("technical_spec_url"):
+                    logger.debug("ТЗ сохраняется: %s", ref.url)
+                    continue
                 try:
-                    if path.is_file():
-                        path.unlink()
-                        logger.debug("Удалён файл %s", path)
-                except OSError as exc:
-                    logger.warning("Не удалось удалить %s: %s", path, exc)
-            if downloaded:
-                target_dir = downloaded[0].parent
-                try:
-                    target_dir.rmdir()  # удаляется только пустая папка
-                    logger.debug("Удалена пустая папка %s", target_dir)
-                except OSError:
-                    logger.debug("Папка %s не удалена (не пуста или отсутствует)", target_dir)
+                    await self._object_store.delete(ref.key)
+                    logger.debug("Удалён файл %s", ref.key)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Не удалось удалить %s: %s", ref.key, exc)
 
         # 8) запись в БД + защита от дубликатов
         saved = await self._persist(record)

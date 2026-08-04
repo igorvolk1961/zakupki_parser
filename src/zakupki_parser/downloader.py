@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 
 from playwright.async_api import Page
 
 from zakupki_parser.config.models import PlatformDom
 from zakupki_parser.parser.detail import detail_file_urls
+from zakupki_parser.storage.object_store import FileRef, ObjectStore
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,12 @@ async def _file_name(page: Page, full: str) -> str | None:
 async def download_files(
     page: Page,
     platform: PlatformDom,
-    documents_dir: Path,
+    store: ObjectStore,
     number: str,
     urls: list[str] | None = None,
     only_keywords: list[str] | None = None,
-) -> list[Path]:
-    """Скачивает файлы заявки ``number`` в ``documents_dir/number/``.
+) -> list[FileRef]:
+    """Скачивает файлы заявки ``number`` в хранилище ``store``.
 
     URL файлов либо передаются явно (``urls``), либо извлекаются из ``page``
     через ``config_dom.yaml -> detail.files``. Скачивание идёт через
@@ -68,13 +68,11 @@ async def download_files(
     ``only_keywords`` — если задано, скачиваются только файлы, в имени которых
     есть хотя бы одно ключевое слово (например, только «техническое задание»).
 
-    Возвращает список сохранённых путей.
+    Возвращает ссылки на сохранённые файлы (``FileRef``).
     """
-    target = documents_dir / number
-    target.mkdir(parents=True, exist_ok=True)
     if urls is None:
         urls = await detail_file_urls(page, platform)
-    saved: list[Path] = []
+    refs: list[FileRef] = []
     for i, url in enumerate(urls, start=1):
         full = url if url.startswith("http") else platform.url.rstrip("/") + url
 
@@ -97,10 +95,10 @@ async def download_files(
             fname = (
                 _filename_from_disposition(resp.headers.get("content-disposition")) or f"file_{i}"
             )
-            dest = target / fname
-            dest.write_bytes(content)
-            saved.append(dest)
-            logger.info("Скачан файл: %s (%d байт)", dest, len(content))
+            key = f"{number}/{fname}"
+            ref = await store.put(key, content)
+            refs.append(ref)
+            logger.info("Сохранён файл заявки %s: %s", number, ref.url)
         finally:
             await resp.dispose()
-    return saved
+    return refs

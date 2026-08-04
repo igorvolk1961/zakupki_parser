@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 4
+      author: zakupki-parser
+      changes:
+        - addColumn:
+            tableName: procurements
+            columns:
+              - column:
+                  name: technical_spec_url
+                  type: TEXT
+                  remarks: "Ссылка на файл технического задания (URL объекта в MinIO или путь в documents)"

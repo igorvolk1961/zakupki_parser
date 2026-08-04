@@ -61,6 +61,7 @@ class ProcurementRepository:
             execution_term=data.get("execution_term"),
             okpd2_codes=data.get("okpd2_codes") or data.get("okpd2_code"),
             kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
+            technical_spec_url=data.get("technical_spec_url"),
             detail_json=data.get("detail_json"),
         )
         async with self._db.session() as session:

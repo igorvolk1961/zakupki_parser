@@ -7,8 +7,9 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any
+
+from zakupki_parser.storage.object_store import FileRef
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +17,11 @@ logger = logging.getLogger(__name__)
 class FileProcessor:
     """Обрабатывает скачанные файлы и возвращает извлечённые переменные."""
 
-    async def process(self, files: list[Path], number: str) -> dict[str, Any]:
+    async def process(self, files: list[FileRef], number: str) -> dict[str, Any]:
         """Заглушка. Возвращает пустой dict.
 
         Args:
-            files: пути к скачанным файлам заявки.
+            files: ссылки на скачанные файлы заявки (в хранилище).
             number: номер заявки.
 
         Returns:
