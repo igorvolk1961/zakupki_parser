@@ -28,11 +28,13 @@ platforms:
         - { name: "customer",        selector: ".PurchaseCardStyles__MainInfoCustomerHeader-sc-xhk4mt-0", handler: "strip", default: "" }
         - { name: "nmck",            selector: "div.CardStyles__PriceInfoNumber-sc-1rn3iq8-11", handler: "money", default: null }
         - { name: "region",          selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 0, handler: "strip", default: "" }
-        - { name: "law",             selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 1, handler: "strip", default: "" }
-        # Строка «с <дата> до <дата> <время> (МСК)» и производные от неё
-        - { name: "dates",           selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 2, handler: "strip", default: "" }
-        - { name: "publication_date", selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 2, handler: "pub_date", default: null }
-        - { name: "deadline",        selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 2, handler: "deadline", default: null }
+        # Закон, строка дат и производные извлекаются regex-обработчиками из всего
+        # нижнего блока карточки — это не зависит от расклада полей внутри блока
+        # (у карточек «B2B-закупка» позиции отличаются).
+        - { name: "law",             selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "law", default: null }
+        - { name: "dates",           selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "dates", default: "" }
+        - { name: "publication_date", selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "pub_date", default: null }
+        - { name: "deadline",        selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "deadline", default: null }
 
     detail:
       variables:
