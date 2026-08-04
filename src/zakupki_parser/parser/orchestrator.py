@@ -293,7 +293,12 @@ class Orchestrator:
         cutoff = self._last_seen.load(self._platform_id, self._now)
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
-        await open_list_page(page, self._platform, cutoff)
+        await open_list_page(
+            page,
+            self._platform,
+            cutoff,
+            self._cfg.service.search_criteria.okpd_codes,
+        )
         await setup_sort_and_filters(page, self._platform)
         await self._delayer.sleep()
 

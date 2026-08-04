@@ -69,9 +69,9 @@ platforms:
         sortDesc: "true"
         filter: "{filter_json}"
         state: "{state_json}"
-      # Структура параметра filter (значения фильтров задаются здесь).
-      # Коды ОКПД2 задаются отдельно (okpd_codes) и резолвятся в okpdPaths
-      # через okpd_tree_file (выбор предка включает потомков).
+      # Структура параметра filter. Коды ОКПД2 — бизнес-критерий, задаётся в
+      # config_service.yaml -> search_criteria.okpd_codes и резолвится в okpdPaths
+      # через маппинг okpd_tree_file (выбор предка включает потомков).
       filter_json:
         typeIn:
           values: [2]
@@ -82,7 +82,3 @@ platforms:
       date_great_equal_format: "%d.%m.%Y 00:00:00"
       # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. docs/codes/okpd2_tree.json)
       okpd_tree_file: "docs/codes/okpd2_tree.json"
-      # Тематика фильтра: коды ОКПД2 (62 — разработка ПО/ИТ-услуги, 63 — услуги в области ИТ)
-      okpd_codes:
-        - "62"
-        - "63"

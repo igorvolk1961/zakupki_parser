@@ -43,20 +43,73 @@ def load_okpd_tree(path: str | Path) -> dict[str, Any]:
     return data
 
 
+def _digits(code: str) -> str:
+    """Приводит код к цифровой строке (убирает точки/дефисы/пробелы)."""
+    return re.sub(r"\D", "", code)
+
+
+def _append_unique(paths: list[str], path: str) -> None:
+    if path not in paths:
+        paths.append(path)
+
+
 def resolve_okpd_codes(
     codes: list[str], tree: dict[str, Any], *, warn_missing: bool = True
 ) -> list[str]:
-    """Преобразует коды ОКПД2 в пути узлов дерева площадки.
+    """Преобразует коды ОКПД2 любой вложенности в пути узлов дерева площадки.
 
-    Возвращает список путей для ``okpdPaths``. Коды, отсутствующие в маппинге,
-    пропускаются (с предупреждением) — парсинг не ломается.
+    Пользователь может указать любой известный ему код, не зная состава маппинга.
+    Резолв по приоритету:
+      1) точный код есть в маппинге — его путь;
+      2) точного кода нет, но есть его ПОТОМКИ — объединяем пути всех потомков
+         (точно покрывает запрошенную ветвь, напр. «62.02» = 62.02.1+62.02.2+…);
+      3) иначе — путь ближайшего ПРЕДКА из маппинга (его путь включает потомков).
+    Ввод нормализуется (точки/дефисы/пробелы не важны). Результат дедуплицируется;
+    код без предка/потомков пропускается с предупреждением.
     """
     code_to_path = tree.get("code_to_path", {})
+    # индекс: цифровая строка кода -> (исходный код, путь)
+    index = {_digits(key): (key, path) for key, path in code_to_path.items()}
     paths: list[str] = []
     for code in codes:
-        path = code_to_path.get(code)
-        if path:
-            paths.append(path)
+        digits = _digits(code)
+        if not digits:
+            continue
+
+        # 1) точный код
+        exact = index.get(digits)
+        if exact is not None:
+            _append_unique(paths, exact[1])
+            continue
+
+        # 2) потомки (объединение путей всех узлов с данным префиксом)
+        descendants = sorted(
+            (key, path)
+            for key_digits, (key, path) in index.items()
+            if len(key_digits) > len(digits) and key_digits.startswith(digits)
+        )
+        if descendants:
+            for _, path in descendants:
+                _append_unique(paths, path)
+            logger.info(
+                "ОКПД2 %s: нет точного кода, объединяем потомков: %s",
+                code,
+                [key for key, _ in descendants],
+            )
+            continue
+
+        # 3) ближайший предок
+        best_len = 0
+        best_key: str | None = None
+        best_path: str | None = None
+        for key_digits, (key, path) in index.items():
+            if digits.startswith(key_digits) and len(key_digits) > best_len:
+                best_len = len(key_digits)
+                best_key = key
+                best_path = path
+        if best_path is not None:
+            _append_unique(paths, best_path)
+            logger.info("ОКПД2 %s: используем ближайшего предка %s", code, best_key)
         elif warn_missing:
-            logger.warning("Код ОКПД2 %s не найден в дереве, пропущен", code)
+            logger.warning("Код ОКПД2 %s не имеет предка/потомков в маппинге, пропущен", code)
     return paths

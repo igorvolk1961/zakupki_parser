@@ -177,14 +177,7 @@ class SearchFilterConfig(BaseModel):
     )
     okpd_tree_file: str | None = Field(
         default=None,
-        description="путь к маппингу ОКПД2 (код -> путь); обязателен при okpd_codes",
-    )
-    okpd_codes: list[str] = Field(
-        default_factory=list,
-        description=(
-            "коды ОКПД2 для фильтрации; резолвятся в okpdPaths через okpd_tree_file "
-            "(выбор предка включает потомков)"
-        ),
+        description="путь к маппингу ОКПД2 (код -> путь) для этой площадки",
     )
 
 
@@ -277,6 +270,18 @@ class StopConditions(BaseModel):
     )
 
 
+class SearchCriteria(BaseModel):
+    """Бизнес-критерии поиска (задаются в config_service.yaml)."""
+
+    okpd_codes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "коды ОКПД2 для фильтрации; резолвятся в okpdPaths через маппинг "
+            "площадки (search.okpd_tree_file); выбор предка включает потомков"
+        ),
+    )
+
+
 class ServiceConfig(BaseModel):
     """Сервисная конфигурация: таймер, список сайтов, пороги, флаги."""
 
@@ -284,6 +289,9 @@ class ServiceConfig(BaseModel):
     sites: list[SiteServiceEntry] = Field(default_factory=list)
     default_cutoff_days: int = Field(
         default=7, ge=0, description="порог 'дата последней обработанной записи' в днях"
+    )
+    search_criteria: SearchCriteria = Field(
+        default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
     )
     download_files: bool = Field(default=False)
     delete_files_after_processing: bool = Field(default=True)

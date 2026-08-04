@@ -42,11 +42,17 @@ def _replace_placeholder(data: Any, placeholder: str, value: Any) -> None:
                 _replace_placeholder(v, placeholder, value)
 
 
-def build_query(search: SearchFilterConfig, cutoff: datetime | None) -> str:
+def build_query(
+    search: SearchFilterConfig,
+    cutoff: datetime | None,
+    okpd_codes: list[str] | None = None,
+) -> str:
     """Строит строку запроса по конфигурации ``search`` (маппинг только из конфига).
 
     Плейсхолдеры в ``query_params``: ``{filter_json}``, ``{state_json}`` и
-    ``{publish_date_great_equal}``.
+    ``{publish_date_great_equal}``. Коды ОКПД2 (бизнес-критерий из
+    ``config_service.yaml -> search_criteria.okpd_codes``) резолвятся в пути
+    через ``search.okpd_tree_file``.
     """
     filter_json = copy.deepcopy(search.filter_json)
     date_str: str | None = None
@@ -54,14 +60,14 @@ def build_query(search: SearchFilterConfig, cutoff: datetime | None) -> str:
         date_str = cutoff.astimezone(MSK).strftime(search.date_great_equal_format)
         _replace_placeholder(filter_json, "{publish_date_great_equal}", date_str)
 
-    # Резолв кодов ОКПД2 в пути узлов дерева (через маппинг из конфига).
-    if search.okpd_codes:
+    # Резолв кодов ОКПД2 в пути узлов дерева (через маппинг площадки).
+    if okpd_codes:
         if not search.okpd_tree_file:
-            logger.warning("search.okpd_codes заданы, но okpd_tree_file не указан")
+            logger.warning("okpd_codes заданы, но search.okpd_tree_file не указан")
         else:
             try:
                 tree = load_okpd_tree(search.okpd_tree_file)
-                paths = resolve_okpd_codes(search.okpd_codes, tree)
+                paths = resolve_okpd_codes(okpd_codes, tree)
                 if paths:
                     need = filter_json.setdefault("needSpecificFilter", {})
                     need["okpdPaths"] = paths
@@ -86,7 +92,11 @@ def build_query(search: SearchFilterConfig, cutoff: datetime | None) -> str:
     return "&".join(parts)
 
 
-def build_list_url(platform: PlatformDom, cutoff: datetime | None = None) -> str:
+def build_list_url(
+    platform: PlatformDom,
+    cutoff: datetime | None = None,
+    okpd_codes: list[str] | None = None,
+) -> str:
     """Возвращает URL страницы списка.
 
     Если у площадки задан ``search`` (URL-фильтр) и он включён — URL с фильтром;
@@ -96,12 +106,17 @@ def build_list_url(platform: PlatformDom, cutoff: datetime | None = None) -> str
     search = platform.search
     if search is None or not search.enabled:
         return base
-    query = build_query(search, cutoff)
+    query = build_query(search, cutoff, okpd_codes)
     return f"{base}?{query}"
 
 
-async def open_list_page(page: Page, platform: PlatformDom, cutoff: datetime | None = None) -> None:
-    url = build_list_url(platform, cutoff)
+async def open_list_page(
+    page: Page,
+    platform: PlatformDom,
+    cutoff: datetime | None = None,
+    okpd_codes: list[str] | None = None,
+) -> None:
+    url = build_list_url(platform, cutoff, okpd_codes)
     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
     # networkidle на этой SPA не наступает (аналитика/чат), ждём фиксированно.
     await page.wait_for_timeout(SETTLE_MS)
