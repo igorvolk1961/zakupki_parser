@@ -14,13 +14,40 @@ from zakupki_parser.parser.detail import detail_file_urls
 logger = logging.getLogger(__name__)
 
 _FILENAME_RE = re.compile(r'filename="?([^";]+)"?')
+_FILENAME_STAR_RE = re.compile(r"filename\*\s*=\s*(?:UTF-8'')?([^;]+)", re.IGNORECASE)
 
 
 def _filename_from_disposition(header: str | None) -> str | None:
     if not header:
         return None
-    m = _FILENAME_RE.search(header)
-    return m.group(1).strip() if m else None
+    m = _FILENAME_STAR_RE.search(header) or _FILENAME_RE.search(header)
+    if not m:
+        return None
+    return m.group(1).strip().strip('"') if m else None
+
+
+def _matches_keywords(filename: str | None, keywords: list[str]) -> bool:
+    """Проверяет, содержит ли имя файла хотя бы одно из ключевых слов."""
+    if not filename:
+        return False
+    low = filename.lower()
+    return any(k.lower() in low for k in keywords)
+
+
+async def _file_name(page: Page, full: str) -> str | None:
+    """Имя файла из Content-Disposition без скачивания тела (HEAD, затем GET)."""
+    for method in ("head", "get"):
+        try:
+            resp = await getattr(page.request, method)(full, timeout=30000)
+        except Exception:  # noqa: BLE001
+            return None
+        try:
+            fname = _filename_from_disposition(resp.headers.get("content-disposition"))
+            if fname:
+                return fname
+        finally:
+            await resp.dispose()
+    return None
 
 
 async def download_files(
@@ -29,6 +56,7 @@ async def download_files(
     documents_dir: Path,
     number: str,
     urls: list[str] | None = None,
+    only_keywords: list[str] | None = None,
 ) -> list[Path]:
     """Скачивает файлы заявки ``number`` в ``documents_dir/number/``.
 
@@ -36,6 +64,9 @@ async def download_files(
     через ``config_dom.yaml -> detail.files``. Скачивание идёт через
     ``page.request`` (APIRequestContext браузерного контекста) — он делит
     куки/сессию и UA с браузером и корректно обрабатывает ответ-файл.
+
+    ``only_keywords`` — если задано, скачиваются только файлы, в имени которых
+    есть хотя бы одно ключевое слово (например, только «техническое задание»).
 
     Возвращает список сохранённых путей.
     """
@@ -46,6 +77,17 @@ async def download_files(
     saved: list[Path] = []
     for i, url in enumerate(urls, start=1):
         full = url if url.startswith("http") else platform.url.rstrip("/") + url
+
+        if only_keywords:
+            fname = await _file_name(page, full)
+            if not _matches_keywords(fname, only_keywords):
+                logger.info(
+                    "Пропущен файл %s: имя не содержит ключевые слова %s",
+                    fname or full,
+                    only_keywords,
+                )
+                continue
+
         resp = await page.request.get(full, timeout=30000)
         try:
             if not resp.ok:

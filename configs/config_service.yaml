@@ -22,6 +22,11 @@ search_criteria:
 
 # Скачивание файлов (в подпапку documents/<номер заявки>/)
 download_files: false
+# Скачивать только файлы, в имени которых есть одно из технических ключевых слов
+# (например, только техническое задание). Работает при download_files: true.
+download_technical_spec_only: false
+technical_spec_keywords:
+  - "техническое задание"
 # Удалять файлы после дополнительной обработки
 delete_files_after_processing: true
 

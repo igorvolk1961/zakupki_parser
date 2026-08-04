@@ -78,6 +78,17 @@ class ServiceConfig(BaseModel):
         default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
     )
     download_files: bool = Field(default=False)
+    download_technical_spec_only: bool = Field(
+        default=False,
+        description=(
+            "скачивать только файлы, в имени которых есть ключевые слова "
+            "(например, только техническое задание)"
+        ),
+    )
+    technical_spec_keywords: list[str] = Field(
+        default_factory=lambda: ["техническое задание"],
+        description="тексты для поиска в имени файла при download_technical_spec_only",
+    )
     delete_files_after_processing: bool = Field(default=True)
     documents_dir: str = Field(default="documents")
     data_dir: str = Field(default="data")

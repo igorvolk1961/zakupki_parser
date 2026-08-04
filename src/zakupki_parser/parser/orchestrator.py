@@ -182,9 +182,13 @@ class Orchestrator:
         if self._check_stop_conditions(record):
             return
 
-        # 5) скачивание файлов (URL собраны с детальной страницы)
+        # 5) скачивание файлов (URL собраны с детальной страницы).
+        #    При download_technical_spec_only — только файлы с ключевыми словами.
         downloaded: list[Path] = []
         if self._cfg.service.download_files:
+            only_keywords: list[str] | None = None
+            if self._cfg.service.download_technical_spec_only:
+                only_keywords = self._cfg.service.technical_spec_keywords
             try:
                 downloaded = await download_files(
                     page,
@@ -192,6 +196,7 @@ class Orchestrator:
                     self._documents_dir(self._cfg),
                     str(number),
                     file_urls,
+                    only_keywords,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Ошибка скачивания файлов заявки %s: %s", number, exc)
