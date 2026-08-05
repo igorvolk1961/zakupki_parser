@@ -15,6 +15,7 @@
 | `config_parser.yaml` | Параметры браузера и антиблок-мер (задержки, UA, stealth, лимиты).   |
 | `config_dom.yaml`    | URL площадки, имена переменных, селекторы контейнеров и значений, а также селекторы сортировки и фильтров (блоки `sort`/`filters`). |
 | `config_service.yaml`| Таймер, список сайтов, пороги дат, флаги, БД, webhook, stop-условия. |
+| `config_score.yaml`  | Скоринг: метод (default/external), fit-таблица ОКПД2, адрес внешнего сервиса и способ вызова (before_save/worker). |
 | `config_log.yaml`    | Конфигурация логирования.                                           |
 
 Все параметры загружаются и валидируются через pydantic-модели
@@ -142,6 +143,23 @@
 - `truncate_on_start` — флаг: `true` очищает файл лога при старте сервиса, `false`
   дописывает в конец (по умолчанию). Плюс ротация по размеру (10 МБ, 5 файлов).
 - `console` — дублирование в консоль.
+
+## 8а. Скоринг закупок (`config_score.yaml`)
+Формула: **Score = Fit(ОКПД2) × P(win) × Margin** (простейшая эвристика:
+Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml -> fit_table`).
+- `method: default` — внутренний расчёт в парсере (`score_method=default`);
+- **Просроченный срок подачи заявок** (`deadline < now`) → `score = 0`,
+  `score_method = deadline_expired`;
+- `method: external` — расчёт внешним сервисом (на вход — все характеристики
+  закупки, `external_service_url`); способ вызова `external_call_mode`:
+  - `before_save` — вызов перед записью закупки в БД (при ошибке — fallback на default);
+  - `worker` — отдельный воркер (`score-worker`/шаг цикла): пробегает по записям
+    со `score_method=default`, ставит `score_method=calculating` (чтобы не вызывать
+    внешний сервис повторно), вызывает сервис и обновляет `score`;
+  - также внешний сервис может сам обновить `score` через
+    `POST /api/procurements/{id}/score`.
+- `fit_table` — коэффициент соответствия по ОКПД2 (подбор по ближайшему предку,
+  если точного кода нет); `default_fit` — для неизвестных кодов.
 
 ## 9. Таймерный запуск (scheduler)
 `src/zakupki_parser/scheduler.py` циклически проходит по списку сайтов из

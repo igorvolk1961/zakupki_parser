@@ -51,6 +51,8 @@ class ProcurementOut(BaseModel):
     technical_spec_key: str | None = None
     technical_spec_name: str | None = None
     files_json: list[dict[str, Any]] | None = None
+    score: float | None = None
+    score_method: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -70,6 +72,13 @@ class HealthOut(BaseModel):
     status: str
     db: bool
     storage: str
+
+
+class ScoreUpdate(BaseModel):
+    """Обновление score внешним сервисом (по его инициативе)."""
+
+    score: float
+    score_method: str = "external"
 
 
 # --------------------------------------------------------------------------- #
@@ -137,7 +146,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> ProcurementListOut:
-        rows, total = await _repo().list(
+        rows, total = await _repo().list_procurements(
             number=number,
             source_platform=source_platform,
             okpd2=okpd2,
@@ -154,6 +163,18 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         row = await _repo().get_by_id(procurement_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return ProcurementDetailOut.model_validate(row)
+
+    @app.post(
+        "/api/procurements/{procurement_id}/score",
+        response_model=ProcurementDetailOut,
+    )
+    async def set_score(procurement_id: int, body: ScoreUpdate) -> ProcurementDetailOut:
+        """Обновление score внешним сервисом по его инициативе."""
+        if await _repo().get_by_id(procurement_id) is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        await _repo().update_score(procurement_id, body.score, body.score_method)
+        row = await _repo().get_by_id(procurement_id)
         return ProcurementDetailOut.model_validate(row)
 
     @app.get("/api/procurements/{procurement_id}/technical-spec")

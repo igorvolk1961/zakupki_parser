@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
@@ -13,11 +14,38 @@ from zakupki_parser.file_processor import FileProcessor
 from zakupki_parser.logging_conf import setup_logging
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
+from zakupki_parser.scoring import ExternalScoreClient
 from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.last_seen import LastSeenStore
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
+
+_SCORE_PAYLOAD_FIELDS = (
+    "number",
+    "source_platform",
+    "url",
+    "customer",
+    "law",
+    "subject",
+    "nmck",
+    "publication_date",
+    "deadline",
+    "execution_term",
+    "security_amount",
+    "advance",
+    "okpd2_codes",
+    "kpgz_codes",
+    "technical_spec_url",
+    "technical_spec_name",
+    "detail_json",
+    "files_json",
+)
+
+
+def _row_payload(row: Any) -> dict[str, Any]:
+    """Все характеристики закупки (для внешнего сервиса скоринга)."""
+    return {k: getattr(row, k) for k in _SCORE_PAYLOAD_FIELDS if getattr(row, k) is not None}
 
 
 class Scheduler:
@@ -74,11 +102,12 @@ class Scheduler:
                 logger.error("Ошибка обработки площадки %s: %s", entry.platform_id, exc)
 
     async def run_service(self) -> None:
-        """Бесконечный цикл: проход -> ожидание таймера."""
+        """Бесконечный цикл: проход -> воркер скоринга -> ожидание таймера."""
         await self.start()
         try:
             while not self._stop.is_set():
                 await self.run_once()
+                await self.run_scoring_worker()
                 logger.info("Цикл завершён, ожидание %d с", self._cfg.service.timeout_seconds)
                 try:
                     await asyncio.wait_for(
@@ -88,6 +117,33 @@ class Scheduler:
                     continue
         finally:
             await self.stop()
+
+    async def run_scoring_worker(self) -> None:
+        """Воркер внешнего скоринга (метод external + режим worker).
+
+        Пробегает по записям со score_method=default, ставит score_method=calculating
+        (чтобы не вызывать внешний сервис повторно), вызывает внешний сервис
+        и обновляет score (score_method=external).
+        """
+        cfg = self._cfg.score
+        if cfg.method != "external" or cfg.external_call_mode != "worker":
+            return
+        if not cfg.external_service_url:
+            logger.warning("Воркер скоринга: external_service_url не задан")
+            return
+        client = ExternalScoreClient(cfg)
+        batch = 50
+        while True:
+            rows = await self._repository.list_for_scoring("default", limit=batch)
+            if not rows:
+                break
+            for row in rows:
+                await self._repository.set_score_method(row.id, "calculating")
+                try:
+                    value = await client.score(_row_payload(row))
+                    await self._repository.update_score(row.id, value, "external")
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Ошибка внешнего скоринга заявки %s: %s", row.id, exc)
 
     async def _parse_platform(self, platform_id: str, platform: PlatformDom) -> None:
         browser = BrowserManager(self._cfg.parser.browser)

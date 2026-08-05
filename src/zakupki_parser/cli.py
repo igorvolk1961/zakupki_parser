@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check-config", help="Проверить конфигурацию")
     sub.add_parser("run-once", help="Один проход по всем площадкам")
     sub.add_parser("run-service", help="Периодический запуск по таймеру")
+    sub.add_parser("score-worker", help="Разовый запуск воркера внешнего скоринга")
 
     serve = sub.add_parser("serve", help="Запустить FastAPI-сервис (API)")
     serve.add_argument("--host", default="0.0.0.0", help="адрес (по умолчанию 0.0.0.0)")
@@ -70,6 +71,13 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
         return 0
     if cmd == "run-service":
         await scheduler.run_service()
+        return 0
+    if cmd == "score-worker":
+        await scheduler.start()
+        try:
+            await scheduler.run_scoring_worker()
+        finally:
+            await scheduler.stop()
         return 0
     return 1
 

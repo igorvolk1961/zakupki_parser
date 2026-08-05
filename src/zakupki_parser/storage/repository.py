@@ -25,7 +25,7 @@ class ProcurementRepository:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
 
-    async def list(
+    async def list_procurements(
         self,
         *,
         number: str | None = None,
@@ -96,12 +96,16 @@ class ProcurementRepository:
             dates=data.get("dates"),
             deadline=data.get("deadline"),
             execution_term=data.get("execution_term"),
+            security_amount=data.get("security_amount"),
+            advance=data.get("advance"),
             okpd2_codes=data.get("okpd2_codes") or data.get("okpd2_code"),
             kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
             technical_spec_url=data.get("technical_spec_url"),
             technical_spec_key=data.get("technical_spec_key"),
             technical_spec_name=data.get("technical_spec_name"),
             files_json=data.get("files_json"),
+            score=data.get("score"),
+            score_method=data.get("score_method"),
             detail_json=data.get("detail_json"),
         )
         async with self._db.session() as session:
@@ -109,3 +113,39 @@ class ProcurementRepository:
             await session.commit()
         logger.info("Сохранена заявка %s (%s)", number, source_platform)
         return True
+
+    async def list_for_scoring(
+        self, method: str, *, limit: int = 50, offset: int = 0
+    ) -> list[Procurement]:
+        """Записи, ожидающие внешнего скоринга (score_method == method)."""
+        stmt = (
+            select(Procurement)
+            .where(Procurement.score_method == method)
+            .order_by(Procurement.id.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        async with self._db.session() as session:
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    async def set_score_method(self, procurement_id: int, method: str) -> None:
+        async with self._db.session() as session:
+            obj = await session.get(Procurement, procurement_id)
+            if obj is not None:
+                obj.score_method = method
+                await session.commit()
+
+    async def update_score(self, procurement_id: int, score: float, method: str) -> None:
+        async with self._db.session() as session:
+            obj = await session.get(Procurement, procurement_id)
+            if obj is not None:
+                obj.score = score
+                obj.score_method = method
+                await session.commit()
+                logger.info(
+                    "Обновлён score заявки %s: %s (метод %s)",
+                    procurement_id,
+                    score,
+                    method,
+                )

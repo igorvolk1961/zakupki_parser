@@ -65,6 +65,9 @@ uv run zakupki-parser --configs configs run-once
 # периодический запуск по таймеру (timeout_seconds из config_service.yaml)
 uv run zakupki-parser --configs configs run-service
 
+# разовый запуск воркера внешнего скоринга (score_method=default -> external)
+uv run zakupki-parser --configs configs score-worker
+
 # FastAPI-сервис (health, списки закупок, скачивание ТЗ)
 uv run zakupki-parser --configs configs serve --host 0.0.0.0 --port 8000
 
@@ -79,6 +82,8 @@ uv run zakupki-parser --configs configs capture-fixture --platform zakupki_mos
   (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
 - `config_service.yaml` — таймер, список сайтов, пороги дат, флаги, БД, webhook,
   stop-условия, circuit breaker.
+- `config_score.yaml` — скоринг: метод (default/external), fit-таблица ОКПД2,
+  адрес внешнего сервиса и способ его вызова (before_save/worker).
 - `config_log.yaml` — логирование.
 
 Переменные окружения (для Docker/CI):

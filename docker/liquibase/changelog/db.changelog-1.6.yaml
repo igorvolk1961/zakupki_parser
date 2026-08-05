@@ -1,0 +1,33 @@
+databaseChangeLog:
+  - changeSet:
+      id: 8
+      author: zakupki-parser
+      comment: "Комментарии ко всем полям таблицы procurements"
+      changes:
+        - sql:
+            sql: |
+              COMMENT ON COLUMN procurements.id IS 'Внутренний идентификатор';
+              COMMENT ON COLUMN procurements.number IS 'Реестровый номер закупки';
+              COMMENT ON COLUMN procurements.source_platform IS 'Площадка (platform_id из config_dom.yaml)';
+              COMMENT ON COLUMN procurements.url IS 'Ссылка на карточку закупки';
+              COMMENT ON COLUMN procurements.customer IS 'Заказчик';
+              COMMENT ON COLUMN procurements.law IS 'Закон/правовое основание (44-ФЗ/223-ФЗ/статья)';
+              COMMENT ON COLUMN procurements.subject IS 'Предмет закупки';
+              COMMENT ON COLUMN procurements.nmck IS 'Начальная (максимальная) цена контракта, ₽';
+              COMMENT ON COLUMN procurements.publication_date IS 'Дата публикации закупки';
+              COMMENT ON COLUMN procurements.dates IS 'Исходная строка дат «с … до … (МСК)»';
+              COMMENT ON COLUMN procurements.deadline IS 'Срок окончания приёма заявок';
+              COMMENT ON COLUMN procurements.execution_term IS 'Срок исполнения контракта';
+              COMMENT ON COLUMN procurements.security_amount IS 'Обеспечение заявки/контракта, ₽';
+              COMMENT ON COLUMN procurements.advance IS 'Аванс, ₽';
+              COMMENT ON COLUMN procurements.okpd2_codes IS 'Коды ОКПД2 (один или несколько, через запятую)';
+              COMMENT ON COLUMN procurements.kpgz_codes IS 'Коды КПГЗ (один или несколько, через запятую)';
+              COMMENT ON COLUMN procurements.technical_spec_url IS 'URL скачивания ТЗ с ЭТП (или URL объекта в MinIO)';
+              COMMENT ON COLUMN procurements.technical_spec_key IS 'Ключ объекта ТЗ в хранилище (при скачивании)';
+              COMMENT ON COLUMN procurements.technical_spec_name IS 'Имя файла технического задания';
+              COMMENT ON COLUMN procurements.files_json IS 'Остальные файлы: [{name, url скачивания с ЭТП}]';
+              COMMENT ON COLUMN procurements.score IS 'Скоринг закупки (Fit × P(win) × Margin)';
+              COMMENT ON COLUMN procurements.score_method IS 'Способ скоринга: default | external | calculating';
+              COMMENT ON COLUMN procurements.detail_json IS 'Полный снимок переменных карточки (JSONB)';
+              COMMENT ON COLUMN procurements.created_at IS 'Дата создания записи';
+              COMMENT ON COLUMN procurements.updated_at IS 'Дата последнего обновления записи';

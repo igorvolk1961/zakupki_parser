@@ -1,0 +1,14 @@
+databaseChangeLog:
+  - changeSet:
+      id: 9
+      author: zakupki-parser
+      changes:
+        - modifyDataType:
+            tableName: procurements
+            columnName: score_method
+            newDataType: VARCHAR(64)
+            remarks: "Способ скоринга: default | external | calculating | deadline_expired"
+        - sql:
+            sql: |
+              COMMENT ON COLUMN procurements.score_method
+                IS 'Способ скоринга: default | external | calculating | deadline_expired';

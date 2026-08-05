@@ -60,7 +60,7 @@ async def inserted_id(api_client: tuple[TestClient, Path]) -> AsyncIterator[int]
             "technical_spec_key": "API-1/ТЗ.pdf",
         }
     )
-    rows, _ = await repo.list(number="API-1")
+    rows, _ = await repo.list_procurements(number="API-1")
     await db.dispose()
     yield rows[0].id
 
@@ -101,3 +101,25 @@ def test_technical_spec_download(api_client: tuple[TestClient, Path], inserted_i
     assert resp.status_code == 200
     assert resp.content == b"%PDF-fake"
     assert "attachment" in resp.headers["content-disposition"]
+
+
+def test_set_score_by_external_service(
+    api_client: tuple[TestClient, Path], inserted_id: int
+) -> None:
+    client, _ = api_client
+    resp = client.post(
+        f"/api/procurements/{inserted_id}/score",
+        json={"score": 123.5, "score_method": "external"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["score"] == 123.5
+    assert body["score_method"] == "external"
+
+    detail = client.get(f"/api/procurements/{inserted_id}").json()
+    assert detail["score"] == 123.5
+
+
+def test_set_score_404(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    assert client.post("/api/procurements/999999/score", json={"score": 1.0}).status_code == 404

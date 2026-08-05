@@ -17,6 +17,7 @@ dependencies = [
     "boto3>=1.34",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
 ]
 
 [dependency-groups]
@@ -27,7 +28,6 @@ dev = [
     "mypy>=1.10",
     "types-PyYAML>=6.0",
     "pytest-docker>=3.0",
-    "httpx>=0.27",
 ]
 
 [project.scripts]

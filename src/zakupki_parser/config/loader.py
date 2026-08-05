@@ -13,6 +13,7 @@ from zakupki_parser.config.models import (
     DomConfig,
     LoggingConfig,
     ParserConfig,
+    ScoreConfig,
     ServiceConfig,
 )
 
@@ -21,6 +22,7 @@ CONFIG_FILES = {
     "dom": "config_dom.yaml",
     "service": "config_service.yaml",
     "logging": "config_log.yaml",
+    "score": "config_score.yaml",
 }
 
 
@@ -44,10 +46,12 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     dom_data = _load_yaml(base / CONFIG_FILES["dom"])
     service_data = _load_yaml(base / CONFIG_FILES["service"])
     logging_data = _load_yaml(base / CONFIG_FILES["logging"])
+    score_data = _load_yaml(base / CONFIG_FILES["score"])
 
     service_model = ServiceConfig.model_validate(service_data)
     logging_model = LoggingConfig.model_validate(logging_data)
     dom_model = DomConfig.model_validate(dom_data)
+    score_model = ScoreConfig.model_validate(score_data)
 
     # Относительный путь файла лога — относительно корня проекта (родителя configs).
     if logging_model.file:
@@ -75,4 +79,5 @@ def load_config(configs_dir: str | Path) -> AppConfig:
         dom=dom_model,
         service=service_model,
         logging=logging_model,
+        score=score_model,
     )

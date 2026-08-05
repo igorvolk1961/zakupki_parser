@@ -32,6 +32,7 @@ from zakupki_parser.parser.lister import (
     open_list_page,
     setup_sort_and_filters,
 )
+from zakupki_parser.scoring import ExternalScoreClient, score_for_record
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
 from zakupki_parser.storage.last_seen import LastSeenStore
 from zakupki_parser.storage.object_store import FileRef, build_object_store
@@ -72,6 +73,11 @@ class Orchestrator:
         self._now = now or datetime.now(UTC)
         self._object_store = build_object_store(
             cfg.service.storage, Path(cfg.service.documents_dir).resolve()
+        )
+        self._external_scorer: ExternalScoreClient | None = (
+            ExternalScoreClient(cfg.score)
+            if cfg.score.method == "external" and cfg.score.external_call_mode == "before_save"
+            else None
         )
 
     # -- приватные помощники -------------------------------------------------
@@ -235,10 +241,19 @@ class Orchestrator:
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Не удалось удалить %s: %s", ref.key, exc)
 
-        # 8) запись в БД + защита от дубликатов
+        # 8) скоринг закупки (Score = Fit × P(win) × Margin).
+        #    Просроченный срок подачи заявок -> score=0, score_method=deadline_expired.
+        if "score" not in record:
+            score, method = await score_for_record(
+                record, self._cfg.score, self._external_scorer, self._now
+            )
+            record["score"] = score
+            record["score_method"] = method
+
+        # 9) запись в БД + защита от дубликатов
         saved = await self._persist(record)
 
-        # 9) webhook только для новых записей
+        # 10) webhook только для новых записей
         if saved:
             await self._notifier.notify(record)
 

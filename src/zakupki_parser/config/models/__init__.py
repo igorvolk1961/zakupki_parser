@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from zakupki_parser.config.models.dom import (
     DomConfig,
@@ -31,6 +31,13 @@ from zakupki_parser.config.models.parser import (
     ParserConfig,
     RequestLimits,
     RetryConfig,
+)
+from zakupki_parser.config.models.score import (
+    SCORE_METHOD_CALCULATING,
+    SCORE_METHOD_DEADLINE_EXPIRED,
+    SCORE_METHOD_DEFAULT,
+    SCORE_METHOD_EXTERNAL,
+    ScoreConfig,
 )
 from zakupki_parser.config.models.service import (
     DbConfig,
@@ -58,6 +65,11 @@ __all__ = [
     "PurchaseFilter",
     "RequestLimits",
     "RetryConfig",
+    "SCORE_METHOD_CALCULATING",
+    "SCORE_METHOD_DEADLINE_EXPIRED",
+    "SCORE_METHOD_DEFAULT",
+    "SCORE_METHOD_EXTERNAL",
+    "ScoreConfig",
     "SearchCriteria",
     "SearchFilterConfig",
     "ServiceConfig",
@@ -77,3 +89,4 @@ class AppConfig(BaseModel):
     dom: DomConfig
     service: ServiceConfig
     logging: LoggingConfig
+    score: ScoreConfig = Field(default_factory=ScoreConfig)

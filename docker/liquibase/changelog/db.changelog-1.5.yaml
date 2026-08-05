@@ -1,0 +1,24 @@
+databaseChangeLog:
+  - changeSet:
+      id: 7
+      author: zakupki-parser
+      changes:
+        - addColumn:
+            tableName: procurements
+            columns:
+              - column:
+                  name: security_amount
+                  type: FLOAT
+                  remarks: "Обеспечение заявки/контракта (₽)"
+              - column:
+                  name: advance
+                  type: FLOAT
+                  remarks: "Аванс (₽)"
+              - column:
+                  name: score
+                  type: FLOAT
+                  remarks: "Скоринг закупки (Fit × P(win) × Margin)"
+              - column:
+                  name: score_method
+                  type: VARCHAR(16)
+                  remarks: "Способ скоринга: default | external | calculating"
