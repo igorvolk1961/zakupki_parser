@@ -1,5 +1,5 @@
 # Сервисная конфигурация: таймер, список сайтов, пороги дат, флаги,
-# подключение к БД, webhook и условия прекращения обработки заявки.
+# подключение к БД, уведомления и условия прекращения обработки заявки.
 
 # Период запуска парсера по таймеру (в секундах)
 timeout_seconds: 3600
@@ -80,12 +80,19 @@ db:
   retry_max_attempts: 3
   retry_backoff_seconds: 1.0
 
-# --- Webhook-уведомления (сейчас заглушка/лог) ---
-webhook:
-  enabled: false
-  url: null
-  token: null
-  timeout_seconds: 10
+# --- Уведомления подписчиков (telegram | webhook) ---
+# Токен Telegram-бота НЕ хранится в конфиге — задаётся env ZAKUPKI_TELEGRAM_TOKEN.
+notifications:
+  backend: "webhook"        # telegram | webhook
+  telegram:
+    enabled: false
+    chat_id: null           # '@my_zakupki_channel' или числовой id (для приватного)
+    timeout_seconds: 10
+  webhook:
+    enabled: false
+    url: null
+    token: null
+    timeout_seconds: 10
 
 # --- Набор флагов-условий прекращения обработки очередной заявки ---
 # Каждый флаг — условие, при котором заявка пропускается (не сохраняется,

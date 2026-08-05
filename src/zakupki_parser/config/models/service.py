@@ -32,6 +32,43 @@ class WebhookConfig(BaseModel):
     timeout_seconds: float = Field(default=10.0, ge=0)
 
 
+class TelegramConfig(BaseModel):
+    """Параметры Telegram-уведомлений.
+
+    ``chat_id`` — адрес канала: ``@username`` для публичного или числовой id
+    (отрицательный, например ``-1001234567890``) для приватного.
+    Токен бота не хранится здесь в YAML — он секрет и подкладывается из env
+    ``ZAKUPKI_TELEGRAM_TOKEN`` в ``config/loader.py``.
+    """
+
+    enabled: bool = Field(default=False)
+    chat_id: str | None = Field(
+        default=None, description="@username канала или числовой id (для приватного)"
+    )
+    timeout_seconds: float = Field(default=10.0, ge=0)
+    token: str | None = Field(
+        default=None, description="токен бота, из env; не сериализуется в YAML"
+    )
+
+
+class NotificationsConfig(BaseModel):
+    """Настройки уведомлений: выбор бэкенда и его параметры."""
+
+    backend: Literal["telegram", "webhook"] = Field(default="webhook")
+    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+    webhook: WebhookConfig = Field(default_factory=WebhookConfig)
+
+    @model_validator(mode="after")
+    def _check_telegram_chat_id(self) -> NotificationsConfig:
+        """Telegram требует адрес канала: включённый бэкенд без chat_id — ошибка."""
+        if self.backend == "telegram" and self.telegram.enabled and not self.telegram.chat_id:
+            raise ValueError(
+                "notifications.backend=telegram и telegram.enabled=true, но "
+                "telegram.chat_id не задан (нужен '@username' или числовой id канала)"
+            )
+        return self
+
+
 class SiteServiceEntry(BaseModel):
     """Одна запись в списке сайтов для периодического обхода."""
 
@@ -166,7 +203,7 @@ class ServiceConfig(BaseModel):
     documents_dir: str = Field(default="documents")
     data_dir: str = Field(default="data")
     db: DbConfig = Field(default_factory=DbConfig)
-    webhook: WebhookConfig = Field(default_factory=WebhookConfig)
+    notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     stop_conditions: StopConditions = Field(default_factory=StopConditions)
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)

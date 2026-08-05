@@ -22,7 +22,8 @@
   (скачивание ТЗ).
 - Защита от повторной записи заявки с тем же номером.
 - Circuit Breaker и вежливая деградация при отказе БД/сайта.
-- Таймерный запуск по списку сайтов, webhook (заглушка), логирование.
+- Таймерный запуск по списку сайтов, уведомления подписчиков
+  (Telegram / webhook), логирование.
 - Линтеры (ruff, mypy), тесты, GitHub Actions CI, Docker.
 
 ## Структура
@@ -36,7 +37,7 @@ src/zakupki_parser/
   browser/                     # менеджер браузера, stealth, задержки
   storage/                     # SQLAlchemy (БД), last_seen, object_store (MinIO/local)
   circuit.py                   # circuit breaker
-  notify.py                    # webhook (заглушка)
+  notify.py                    # уведомления: Telegram / webhook
   file_processor.py            # обработка файлов (заглушка)
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
@@ -111,3 +112,4 @@ uv run mypy src tests
 
 Подробности алгоритма и конфигурации — в [specification.md](specification.md).
 Текущие незавершённые работы — в [TODO.md](TODO.md). Диаграммы — в [docs/c4](docs/c4/).
+Настройка Telegram-подписчика — в [docs/telegram-subscriber.md](docs/telegram-subscriber.md).

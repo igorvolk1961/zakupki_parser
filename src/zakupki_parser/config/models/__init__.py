@@ -42,11 +42,13 @@ from zakupki_parser.config.models.score import (
 )
 from zakupki_parser.config.models.service import (
     DbConfig,
+    NotificationsConfig,
     SearchCriteria,
     ServiceConfig,
     SiteServiceEntry,
     StopConditions,
     StorageConfig,
+    TelegramConfig,
     WebhookConfig,
 )
 
@@ -62,6 +64,7 @@ __all__ = [
     "FileSpec",
     "FilterStep",
     "LoggingConfig",
+    "NotificationsConfig",
     "ParserConfig",
     "PlatformDom",
     "PurchaseFilter",
@@ -79,6 +82,7 @@ __all__ = [
     "SortConfig",
     "StorageConfig",
     "StopConditions",
+    "TelegramConfig",
     "WebhookConfig",
 ]
 

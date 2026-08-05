@@ -58,7 +58,7 @@ class Scheduler:
         base_dir = cfg.configs_dir.parent
         self._db = Database(cfg.service.db)
         self._repository = ProcurementRepository(self._db)
-        self._notifier = Notifier(cfg.service.webhook)
+        self._notifier = Notifier(cfg.service.notifications)
         self._file_processor = FileProcessor()
         self._last_seen = LastSeenStore(
             (base_dir / cfg.service.data_dir).resolve(),

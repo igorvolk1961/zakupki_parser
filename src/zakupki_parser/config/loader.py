@@ -73,6 +73,11 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     if env_dsn:
         service_model.db.dsn = env_dsn
 
+    # Секрет токена Telegram-бота — только из env, не хранится в YAML.
+    env_token = os.environ.get("ZAKUPKI_TELEGRAM_TOKEN")
+    if env_token:
+        service_model.notifications.telegram.token = env_token
+
     return AppConfig(
         configs_dir=base,
         parser=ParserConfig.model_validate(parser_data),

@@ -1,33 +1,167 @@
-"""Уведомления о появлении новой записи о закупке (webhook).
+"""Уведомления подписчиков о новых записях о закупке.
 
-Сейчас — заглушка/лог. Реальная отправка HTTP POST реализуется позже (см. TODO).
+Плагинный ``Notifier``-диспетчер выбирает активный бэкенд из конфигурации
+(``notifications.backend``): ``telegram`` (``sendMessage`` через REST API)
+или ``webhook`` (POST JSON на произвольный URL).
+
+Ошибки отправки логируются как ``warning`` и не пробрасываются наружу, чтобы
+сбой уведомления не ломал проход парсера (вежливая деградация).
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
-from zakupki_parser.config.models import WebhookConfig
+import httpx
+
+from zakupki_parser.config.models import (
+    NotificationsConfig,
+    TelegramConfig,
+    WebhookConfig,
+)
+from zakupki_parser.parser.json_utils import json_safe
 
 logger = logging.getLogger(__name__)
 
+_HTML_ESCAPE = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+}
 
-class Notifier:
-    """Оповещает подписчиков о новой записи о закупке."""
+
+def _html_escape(text: str) -> str:
+    """Экранирует HTML-сущности (значения приходят со скрейпленных страниц)."""
+    return "".join(_HTML_ESCAPE.get(ch, ch) for ch in text)
+
+
+def _as_text(value: Any) -> str | None:
+    """Приводит значение записи к строке; ``None``/пусто → пропуск."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    text = str(value).strip()
+    return text or None
+
+
+def render_telegram_message(record: dict[str, Any]) -> str:
+    """HTML-карточка закупки для ``sendMessage`` (``parse_mode="HTML"``).
+
+    Пустые поля пропускаются. Все значения экранируются (контент со скрейпленных
+    страниц считается ненадёжным).
+    """
+    fields: list[tuple[str, Any]] = [
+        ("№", "number"),
+        ("Площадка", "source_platform"),
+        ("Предмет", "subject"),
+        ("Заказчик", "customer"),
+        ("Закон", "law"),
+        ("НМЦК", "nmck"),
+        ("Опубликовано", "publication_date"),
+        ("Срок подачи", "deadline"),
+        ("Оценка", "score"),
+    ]
+    lines: list[str] = []
+    for label, key in fields:
+        value = _as_text(record.get(key))
+        if value is None:
+            continue
+        lines.append(f"{label}: {_html_escape(value)}")
+    url = _as_text(record.get("url"))
+    if url is not None:
+        escaped_url = _html_escape(url)
+        lines.append(f'<a href="{escaped_url}">{escaped_url}</a>')
+    return "\n".join(lines)
+
+
+class TelegramBackend:
+    """Отправляет карточку закупки в Telegram-канал через REST API."""
+
+    def __init__(self, cfg: TelegramConfig) -> None:
+        self._chat_id = cfg.chat_id
+        self._token = cfg.token
+        self._timeout = cfg.timeout_seconds
+        self._url = f"https://api.telegram.org/bot{cfg.token}/sendMessage"
+
+    async def send(
+        self, record: dict[str, Any], transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
+        """Шлёт ``sendMessage`` с HTML-карточкой."""
+        if not self._token:
+            raise ValueError(
+                "telegram.enabled=true, но не задан токен бота (env ZAKUPKI_TELEGRAM_TOKEN)"
+            )
+        payload = {
+            "chat_id": self._chat_id,
+            "text": render_telegram_message(record),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:
+            resp = await client.post(self._url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+        if not isinstance(data, dict) or data.get("ok") is not True:
+            raise ValueError(f"Telegram вернул ошибку: {data!r}")
+
+
+class WebhookBackend:
+    """POST JSON-карточки закупки на произвольный URL."""
 
     def __init__(self, cfg: WebhookConfig) -> None:
-        self._cfg = cfg
+        self._url = cfg.url
+        self._token = cfg.token
+        self._timeout = cfg.timeout_seconds
+
+    async def send(
+        self, record: dict[str, Any], transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
+        """Шлёт JSON-карточку; при заданном ``token`` — как Bearer-заголовок."""
+        if not self._url:
+            raise ValueError("webhook.enabled=true, но url не задан")
+        headers: dict[str, str] = {}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:
+            resp = await client.post(self._url, json=json_safe(record), headers=headers)
+            resp.raise_for_status()
+
+
+class Notifier:
+    """Диспетчер уведомлений: собирает активные бэкенды и рассылает карточку.
+
+    Бэкенд активен, только если он выбран в ``notifications.backend`` и у него
+    включён собственный флаг ``enabled``.
+    """
+
+    def __init__(self, cfg: NotificationsConfig) -> None:
+        self._backends: list[TelegramBackend | WebhookBackend] = []
+        if cfg.backend == "telegram" and cfg.telegram.enabled:
+            self._backends.append(TelegramBackend(cfg.telegram))
+        if cfg.backend == "webhook" and cfg.webhook.enabled:
+            self._backends.append(WebhookBackend(cfg.webhook))
 
     async def notify(self, record: dict[str, Any]) -> None:
-        """Отправляет уведомление (заглушка: логирует)."""
-        number = record.get("number")
-        platform = record.get("source_platform")
-        if not self._cfg.enabled:
+        """Рассылает уведомление всем активным бэкендам; ошибки логируются."""
+        if not self._backends:
             logger.info(
-                "webhook отключён; пропущено уведомление о заявке %s (%s)",
-                number,
-                platform,
+                "уведомления отключены; пропущена заявка %s (%s)",
+                record.get("number"),
+                record.get("source_platform"),
             )
             return
-        logger.info("webhook: новая заявка %s (%s), payload=%r", number, platform, record)
+        for backend in self._backends:
+            try:
+                await backend.send(record)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Не удалось отправить уведомление о заявке %s (%s): %s",
+                    record.get("number"),
+                    record.get("source_platform"),
+                    exc,
+                )
