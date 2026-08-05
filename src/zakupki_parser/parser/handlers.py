@@ -85,9 +85,6 @@ def handler_date(value: Any) -> datetime | None:
 _PUB_DATE_RE = re.compile(r"с\s+(\d{2}\.\d{2}\.\d{4})")
 _DEADLINE_RE = re.compile(r"до\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{1,2}:\d{2})")
 _LAW_RE = re.compile(r"(44-ФЗ|223-ФЗ)")
-_DATES_FULL_RE = re.compile(
-    r"с\s+\d{2}\.\d{2}\.\d{4}\s+до\s+\d{2}\.\d{2}\.\d{4}\s+\d{1,2}:\d{2}\s+\(МСК\)"
-)
 
 
 def _parse_dt(day: str, time_: str | None) -> datetime:
@@ -121,14 +118,6 @@ def handler_law(value: Any) -> str | None:
     if value is None:
         return None
     m = _LAW_RE.search(str(value))
-    return m.group(0) if m else None
-
-
-def handler_dates(value: Any) -> str | None:
-    """Извлекает подстроку «с … до … HH:MM (МСК)» из текста карточки."""
-    if value is None:
-        return None
-    m = _DATES_FULL_RE.search(str(value))
     return m.group(0) if m else None
 
 
@@ -185,7 +174,6 @@ HANDLERS: dict[str, Any] = {
     "pub_date": handler_pub_date,
     "deadline": handler_deadline,
     "law": handler_law,
-    "dates": handler_dates,
     "regex": handler_regex,
     "security": handler_security,
     "security_unit": handler_security_unit,

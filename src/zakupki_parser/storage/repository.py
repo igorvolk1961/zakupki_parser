@@ -100,7 +100,6 @@ class ProcurementRepository:
             subject=data.get("subject"),
             nmck=data.get("nmck"),
             publication_date=data.get("publication_date"),
-            dates=data.get("dates"),
             deadline=data.get("deadline"),
             execution_term=data.get("execution_term"),
             security_amount=data.get("security_amount"),

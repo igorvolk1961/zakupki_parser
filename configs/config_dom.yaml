@@ -32,7 +32,6 @@ platforms:
         # нижнего блока карточки — это не зависит от расклада полей внутри блока
         # (у карточек «B2B-закупка» позиции отличаются).
         - { name: "law",             selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "law", default: null }
-        - { name: "dates",           selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "dates", default: "" }
         - { name: "publication_date", selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "pub_date", default: null }
         - { name: "deadline",        selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "deadline", default: null }
 

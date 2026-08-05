@@ -36,7 +36,6 @@ async def test_extract_list_variables(app_config: AppConfig, page: Page) -> None
     assert data.get("nmck") is not None, "НМЦК должна извлекаться из карточки"
     assert data.get("law"), "Закон должен извлекаться из карточки"
     assert data.get("region"), "Регион должен извлекаться из карточки"
-    assert "с " in (data.get("dates") or ""), "Строка дат должна извлекаться"
 
 
 @pytest.mark.asyncio

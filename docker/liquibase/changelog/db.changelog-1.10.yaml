@@ -1,0 +1,9 @@
+databaseChangeLog:
+  - changeSet:
+      id: 12
+      author: zakupki-parser
+      comment: "Убрать неиспользуемую колонку dates (сырая строка дат mos.ru; на ЕИС даты уже в отдельных колонках)"
+      changes:
+        - dropColumn:
+            tableName: procurements
+            columnName: dates
