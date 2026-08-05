@@ -37,8 +37,7 @@ src/zakupki_parser/
   browser/                     # менеджер браузера, stealth, задержки
   storage/                     # SQLAlchemy (БД), last_seen, object_store (MinIO/local)
   circuit.py                   # circuit breaker
-  notify.py                    # уведомления: Telegram / webhook
-  file_processor.py            # обработка файлов (заглушка)
+  notify.py                    # webhook (заглушка)
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
 docs/c4/                       # C4-диаграммы (Mermaid)

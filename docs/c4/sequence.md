@@ -13,7 +13,6 @@ sequenceDiagram
     participant E as Extractor
     participant D as Detail
     participant DL as Downloader
-    participant FP as FileProcessor
     participant R as ProcurementRepository
     participant N as Notifier
     participant LS as LastSeenStore

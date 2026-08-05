@@ -41,7 +41,6 @@
 - [x] Фильтр «только техническое задание» (`download_technical_spec_only` + keywords)
 - [x] Удаление опустевшей папки, сохранение ТЗ-файла
 - [x] Защита от path traversal (имя из Content-Disposition)
-- [ ] 🟡 `file_processor` — заглушка; извлечение переменных из PDF/DOCX
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - [x] ORM (SQLAlchemy 2.x async) и репозиторий (upsert, дубликаты, чтение)
@@ -78,7 +77,6 @@
 - [x] `GET /api/procurements` (фильтры + пагинация), `GET /api/procurements/{id}`
 - [x] `GET /api/procurements/{id}/technical-spec` (скачивание ТЗ)
 - [x] `POST /api/procurements/{id}/score` (внешний сервис обновляет score)
-- [ ] 🟡 Авторизация/токен для эндпоинтов записи (внешний скоринг)
 
 ## 11. Уведомления
 - [x] Webhook-заглушка (лог)
@@ -105,8 +103,17 @@
 - [x] `docs/adr.md` (ADR-1…4)
 - [x] `docs/codes/okpd2_tree.json` (маппинг ОКПД2 mos.ru)
 
+## 15. Code Review и оптимизация кода
+- [x] Первичный code review и устранение замечаний (last_seen при пороге, сброс CB,
+      path traversal, detail_json из финальной записи)
+- [ ] 🟡 Регулярный code review после каждой крупной фичи (ЕИС, критерии поиска, скоринг)
+- [ ] ⬜ Оптимизация цикла парсинга:
+- [ ] ⬜ Оптимизация работы с БД: батчи, индексы под типовые запросы, пагинация.
+- [ ] ⬜ Аудит асинхронных утечек и таймаутов (page.request, сессии, пул БД).
+- [ ] ⬜ Устранение дублирования кода между площадками (общие хелперы селекторов/дат).
+
 ## Текущий фокус
 - ЕИС: ОКПД2-фильтр (блокер, нужен реальный запрос из DevTools), детальные поля ea20
   (deadline/execution_term/security_amount/subject — обработчик `datetime` готов к внедрению),
   файлы (`documents.html`).
-- Webhook и `file_processor` — закрытие заглушек.
+- Webhook — закрытие заглушек.

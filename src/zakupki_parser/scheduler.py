@@ -10,7 +10,6 @@ from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import AppConfig, PlatformDom
-from zakupki_parser.file_processor import FileProcessor
 from zakupki_parser.logging_conf import setup_logging
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
@@ -59,7 +58,6 @@ class Scheduler:
         self._db = Database(cfg.service.db)
         self._repository = ProcurementRepository(self._db)
         self._notifier = Notifier(cfg.service.notifications)
-        self._file_processor = FileProcessor()
         self._last_seen = LastSeenStore(
             (base_dir / cfg.service.data_dir).resolve(),
             cfg.service.default_cutoff_days,
@@ -157,7 +155,6 @@ class Scheduler:
                 delayer=Delayer(self._cfg.parser.browser),
                 repository=self._repository,
                 notifier=self._notifier,
-                file_processor=self._file_processor,
                 last_seen=self._last_seen,
                 site_cb=self._site_cb,
                 db_cb=self._db_cb,

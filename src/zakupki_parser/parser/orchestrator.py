@@ -19,7 +19,6 @@ from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.downloader import download_files, split_technical_spec
-from zakupki_parser.file_processor import FileProcessor
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.cutoff import is_older_than_cutoff
 from zakupki_parser.parser.detail import detail_files, extract_detail_vars, open_detail
@@ -52,7 +51,6 @@ class Orchestrator:
         delayer: Delayer,
         repository: ProcurementRepository | None,
         notifier: Notifier,
-        file_processor: FileProcessor,
         last_seen: LastSeenStore,
         site_cb: CircuitBreaker,
         db_cb: CircuitBreaker,
@@ -65,7 +63,6 @@ class Orchestrator:
         self._delayer = delayer
         self._repository = repository
         self._notifier = notifier
-        self._file_processor = file_processor
         self._last_seen = last_seen
         self._site_cb = site_cb
         self._db_cb = db_cb
@@ -239,13 +236,9 @@ class Orchestrator:
                 except ValueError:
                     pass
 
-        # 7) доп. обработка файлов (заглушка)
-        extracted = await self._file_processor.process(downloaded, str(number))
-        if extracted:
-            record.update(extracted)
-
-        # 8) удаление скачанных файлов (по флагу). ТЗ сохраняется — на него
-        #    ссылается БД (technical_spec_key).
+        # 7) удаление скачанных файлов (по флагу). ТЗ сохраняется — на него
+        #    ссылается БД (technical_spec_key). Обработку файлов (извлечение
+        #    переменных) выполняет внешний сервис.
         if self._cfg.service.download_files and self._cfg.service.delete_files_after_processing:
             kept = {record.get("technical_spec_key")}
             for ref in downloaded:

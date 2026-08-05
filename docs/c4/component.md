@@ -22,7 +22,6 @@ flowchart TB
     subgraph Infra["Инфраструктура"]
         CB["CircuitBreaker<br/>CLOSED / OPEN / HALF_OPEN"]
         NOT["Notifier<br/>webhook (заглушка)"]
-        FPR["FileProcessor<br/>файлы (заглушка)"]
     end
 
     ORC --> LST
@@ -36,7 +35,6 @@ flowchart TB
     ORC --> LS
     ORC --> CB
     ORC --> NOT
-    ORC --> FPR
 ```
 
 ## Комментарии
