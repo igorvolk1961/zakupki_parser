@@ -238,7 +238,7 @@ async def setup_sort_and_filters(
     (блоки ``platform.sort`` и ``platform.filters``).
 
     Порядок сортировки фиксирован (``publication_date_desc``) — на нём основана
-    стоп-логика last_seen; конфиг-схема исключает другие значения.
+    стоп-логика по дате последней записи площадки; конфиг-схема исключает другие значения.
     """
     sort = platform.sort
     if sort and sort.dropdown and sort.option_text:

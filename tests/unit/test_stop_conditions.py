@@ -20,7 +20,6 @@ async def test_deadline_expired_skips(app_config: AppConfig) -> None:
         delayer=object(),  # type: ignore[arg-type]
         repository=None,
         notifier=None,  # type: ignore[arg-type]
-        last_seen=None,  # type: ignore[arg-type]
         site_cb=None,  # type: ignore[arg-type]
         db_cb=None,  # type: ignore[arg-type]
         now=now,
@@ -39,7 +38,6 @@ async def test_deadline_future_not_skipped(app_config: AppConfig) -> None:
         delayer=object(),  # type: ignore[arg-type]
         repository=None,
         notifier=None,  # type: ignore[arg-type]
-        last_seen=None,  # type: ignore[arg-type]
         site_cb=None,  # type: ignore[arg-type]
         db_cb=None,  # type: ignore[arg-type]
         now=now,
@@ -58,7 +56,6 @@ def _make_orch(app_config: AppConfig, now: datetime, min_deadline_days: int | No
         delayer=object(),  # type: ignore[arg-type]
         repository=None,
         notifier=None,  # type: ignore[arg-type]
-        last_seen=None,  # type: ignore[arg-type]
         site_cb=None,  # type: ignore[arg-type]
         db_cb=None,  # type: ignore[arg-type]
         now=now,

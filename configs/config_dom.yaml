@@ -47,7 +47,7 @@ platforms:
 
     # --- Сортировка списка закупок ---
     # ВАЖНО: порядок фиксирован — «по дате публикации по убыванию»
-    # (единственное значение order). Стоп-логика last_seen основана на нём.
+    # (единственное значение order). Стоп-логика по дате последней записи основана на нём.
     sort:
       order: publication_date_desc
       dropdown: "div.SortDropdownStyles__SortDropdownContainer-sc-1j5g9d7-0 .ui.dropdown"

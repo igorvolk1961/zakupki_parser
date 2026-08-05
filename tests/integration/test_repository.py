@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -85,3 +85,22 @@ async def test_count_one(db: Database) -> None:
         result = await session.execute(text("SELECT count(*) FROM procurements"))
         count = result.scalar_one()
     assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_last_processed_date(db: Database) -> None:
+    repo = ProcurementRepository(db)
+    await repo.upsert(
+        {
+            "number": "ABC-4",
+            "source_platform": "zakupki_mos",
+            "subject": "x",
+            "update_date": datetime(2026, 8, 4, 0, 0, tzinfo=timezone(timedelta(hours=3))),
+        }
+    )
+    now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+    cutoff = await repo.last_processed_date("zakupki_mos", now, default_cutoff_days=7)
+    assert cutoff == datetime(2026, 8, 3, 21, 0, tzinfo=UTC)
+
+    unknown = await repo.last_processed_date("nope", now, default_cutoff_days=7)
+    assert unknown == now - timedelta(days=7)

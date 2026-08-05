@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +38,6 @@ from zakupki_parser.parser.lister import (
 )
 from zakupki_parser.scoring import ExternalScoreClient, score_for_record
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
-from zakupki_parser.storage.last_seen import LastSeenStore
 from zakupki_parser.storage.object_store import FileRef, build_object_store
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -56,7 +55,6 @@ class Orchestrator:
         delayer: Delayer,
         repository: ProcurementRepository | None,
         notifier: Notifier,
-        last_seen: LastSeenStore,
         site_cb: CircuitBreaker,
         db_cb: CircuitBreaker,
         new_page: Callable[[], Awaitable[Page]] | None = None,
@@ -68,7 +66,6 @@ class Orchestrator:
         self._delayer = delayer
         self._repository = repository
         self._notifier = notifier
-        self._last_seen = last_seen
         self._site_cb = site_cb
         self._db_cb = db_cb
         self._new_page = new_page
@@ -304,7 +301,12 @@ class Orchestrator:
         if not self._site_cb.allow_request():
             raise CircuitOpenError("Сайт недоступен (circuit open)")
 
-        cutoff = self._last_seen.load(self._platform_id, self._now)
+        if self._repository is None:
+            cutoff = self._now - timedelta(days=self._cfg.service.default_cutoff_days)
+        else:
+            cutoff = await self._repository.last_processed_date(
+                self._platform_id, self._now, self._cfg.service.default_cutoff_days
+            )
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
         await open_list_page(
@@ -344,7 +346,7 @@ class Orchestrator:
                 await self._process_container(page, container)
 
             # Доcтигли порога дат — завершаем весь проход (не переходим на
-            # следующую страницу), чтобы обновить last_seen и сбросить CB.
+            # следующую страницу) и сбрасываем CB.
             if reached_cutoff:
                 break
 
@@ -358,6 +360,4 @@ class Orchestrator:
                 break
             await self._delayer.sleep()
 
-        # обновляем дату последней обработки
-        self._last_seen.save(self._platform_id, self._now)
         self._site_cb.record_success()

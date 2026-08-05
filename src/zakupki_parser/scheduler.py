@@ -15,7 +15,6 @@ from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.scoring import ExternalScoreClient
 from zakupki_parser.storage.db import Database
-from zakupki_parser.storage.last_seen import LastSeenStore
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -56,14 +55,9 @@ class Scheduler:
         self._cfg = cfg
         self._stop = asyncio.Event()
 
-        base_dir = cfg.configs_dir.parent
         self._db = Database(cfg.service.db)
         self._repository = ProcurementRepository(self._db)
         self._notifier = Notifier(cfg.service.notifications)
-        self._last_seen = LastSeenStore(
-            (base_dir / cfg.service.data_dir).resolve(),
-            cfg.service.default_cutoff_days,
-        )
         self._site_cb = CircuitBreaker(
             "site",
             cfg.service.circuit_breaker_failure_threshold,
@@ -157,7 +151,6 @@ class Scheduler:
                 delayer=Delayer(self._cfg.parser.browser),
                 repository=self._repository,
                 notifier=self._notifier,
-                last_seen=self._last_seen,
                 site_cb=self._site_cb,
                 db_cb=self._db_cb,
                 new_page=browser.new_page,

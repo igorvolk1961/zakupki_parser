@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -25,6 +26,22 @@ class ProcurementRepository:
 
     def __init__(self, db: Database) -> None:
         self._db = db
+
+    async def last_processed_date(
+        self, platform_id: str, now: datetime, default_cutoff_days: int
+    ) -> datetime:
+        """Дата последней обработанной записи площадки (MAX(update_date)).
+
+        Если для площадки ещё нет ни одной записи — ``now - default_cutoff_days``.
+        """
+        stmt = select(func.max(Procurement.update_date)).where(
+            Procurement.source_platform == platform_id
+        )
+        async with self._db.session() as session:
+            max_date = (await session.execute(stmt)).scalar_one_or_none()
+        if max_date is None:
+            return now - timedelta(days=default_cutoff_days)
+        return max_date
 
     async def get_by_id(self, procurement_id: int) -> Procurement | None:
         stmt = select(Procurement).where(Procurement.id == procurement_id)
