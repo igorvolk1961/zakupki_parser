@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from zakupki_parser.config.models import StorageConfig
 from zakupki_parser.storage.object_store import (
@@ -46,6 +47,28 @@ def test_build_store_s3(tmp_path: Path) -> None:
         tmp_path,
     )
     assert isinstance(store, S3ObjectStore)
+
+
+def test_storage_defaults_to_local() -> None:
+    cfg = StorageConfig()
+    assert cfg.type == "local"
+
+
+def test_storage_local_ok_without_s3_params() -> None:
+    cfg = StorageConfig(type="local")
+    assert cfg.endpoint  # дефолт не мешает, параметры не обязательны
+
+
+def test_storage_s3_requires_params() -> None:
+    with pytest.raises(ValidationError):
+        StorageConfig(type="s3")
+    with pytest.raises(ValidationError):
+        StorageConfig(type="s3", endpoint="http://x", access_key="k")  # нет secret_key
+
+
+def test_storage_s3_ok_with_all_params() -> None:
+    cfg = StorageConfig(type="s3", endpoint="http://x", access_key="k", secret_key="s")
+    assert cfg.type == "s3"
 
 
 @pytest.mark.asyncio

@@ -44,11 +44,25 @@ class DomListConfig(BaseModel):
     )
 
 
+class FileSpec(BaseModel):
+    """Селектор элемента-ссылки на скачиваемый файл.
+
+    Имя файла берётся из текста элемента (или атрибута ``name_attribute``),
+    URL скачивания с ЭТП — из атрибута ``url_attribute`` (по умолчанию href).
+    """
+
+    selector: str
+    name_attribute: str | None = Field(
+        default=None, description="атрибут с именем файла; None — текст элемента"
+    )
+    url_attribute: str = Field(default="href", description="атрибут с URL скачивания")
+
+
 class DomDetailConfig(BaseModel):
     """Селекторы страницы детальной информации."""
 
     variables: list[DomVariable] = Field(default_factory=list)
-    files: list[DomVariable] = Field(
+    files: list[FileSpec] = Field(
         default_factory=list, description="элементы ссылок на скачиваемые файлы"
     )
 

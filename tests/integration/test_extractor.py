@@ -9,7 +9,7 @@ from playwright.async_api import Page
 from tests.conftest import load_fixture, set_html
 
 from zakupki_parser.config.models import AppConfig
-from zakupki_parser.parser.detail import extract_detail_vars
+from zakupki_parser.parser.detail import detail_files, extract_detail_vars
 from zakupki_parser.parser.extractor import extract_from_scope
 
 
@@ -70,3 +70,13 @@ async def test_detail_variables(app_config: AppConfig, page: Page) -> None:
     assert data.get("customer"), "Заказчик должен извлекаться с деталей"
     assert data.get("nmck") is not None, "НМЦК должна извлекаться с деталей"
     assert data.get("okpd2_code"), "Код ОКПД2 должен извлекаться с деталей"
+
+
+@pytest.mark.asyncio
+async def test_detail_files(app_config: AppConfig, page: Page) -> None:
+    await set_html(page, load_fixture("detail_content.html"))
+    platform = app_config.dom.platforms["zakupki_mos"]
+    files = await detail_files(page, platform)
+    assert files, "Должны быть найдены ссылки на файлы"
+    assert all(f["name"] for f in files), "У каждого файла должно быть имя"
+    assert all("FileStorage/Download" in f["url"] for f in files)

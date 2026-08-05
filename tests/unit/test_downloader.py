@@ -6,7 +6,11 @@ import pytest
 from pydantic import ValidationError
 
 from zakupki_parser.config.models import ServiceConfig
-from zakupki_parser.downloader import _filename_from_disposition, _matches_keywords
+from zakupki_parser.downloader import (
+    _filename_from_disposition,
+    _matches_keywords,
+    split_technical_spec,
+)
 
 
 def test_filename_from_disposition() -> None:
@@ -25,6 +29,18 @@ def test_matches_keywords() -> None:
     assert _matches_keywords(None, ["техническое задание"]) is False
     # несколько ключевых слов — достаточно одного
     assert _matches_keywords("ТЗ на поставку", ["техническое задание", "тз"]) is True
+
+
+def test_split_technical_spec() -> None:
+    files = [
+        {"name": "Техническое задание.pdf", "url": "https://etp/1"},
+        {"name": "Приложение 1.docx", "url": "https://etp/2"},
+        {"name": "проект договора.docx", "url": "https://etp/3"},
+    ]
+    ts, others = split_technical_spec(files, ["техническое задание"])
+    assert ts == [{"name": "Техническое задание.pdf", "url": "https://etp/1"}]
+    assert len(others) == 2
+    assert all(f["name"] != "Техническое задание.pdf" for f in others)
 
 
 def test_ts_only_without_keywords_rejected() -> None:

@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - changeSet:
+      id: 6
+      author: zakupki-parser
+      changes:
+        - addColumn:
+            tableName: procurements
+            columns:
+              - column:
+                  name: technical_spec_name
+                  type: TEXT
+                  remarks: "Имя файла технического задания (скачивание не выполняется)"
+              - column:
+                  name: files_json
+                  type: JSONB
+                  remarks: "Список остальных файлов: [{name, url скачивания с ЭТП}]"

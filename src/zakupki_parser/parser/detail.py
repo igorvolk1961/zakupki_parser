@@ -26,15 +26,27 @@ async def extract_detail_vars(page: Page, platform: PlatformDom) -> dict[str, An
     return await extract_from_scope(page, platform.detail.variables)
 
 
-async def detail_file_urls(page: Page, platform: PlatformDom) -> list[str]:
-    """Возвращает абсолютные URL скачиваемых файлов закупки."""
-    result: list[str] = []
-    for var in platform.detail.files:
-        locators = page.locator(var.selector)
+async def detail_files(page: Page, platform: PlatformDom) -> list[dict[str, str]]:
+    """Возвращает список файлов закупки: ``{"name": ..., "url": ...}``.
+
+    Имя — из текста элемента (или атрибута ``name_attribute``), URL скачивания
+    с ЭТП — из атрибута ``url_attribute`` (по умолчанию ``href``).
+    """
+    result: list[dict[str, str]] = []
+    for spec in platform.detail.files:
+        locators = page.locator(spec.selector)
         count = await locators.count()
         for i in range(count):
-            href = await locators.nth(i).get_attribute("href")
-            if not href:
+            element = locators.nth(i)
+            name = (
+                await element.inner_text()
+                if not spec.name_attribute
+                else await element.get_attribute(spec.name_attribute)
+            )
+            url = await element.get_attribute(spec.url_attribute)
+            if not url:
                 continue
-            result.append(href)
+            if url.startswith("/"):
+                url = platform.url.rstrip("/") + url
+            result.append({"name": (name or "").strip(), "url": url})
     return result

@@ -8,7 +8,6 @@ import re
 from playwright.async_api import Page
 
 from zakupki_parser.config.models import PlatformDom
-from zakupki_parser.parser.detail import detail_file_urls
 from zakupki_parser.storage.object_store import FileRef, ObjectStore
 
 logger = logging.getLogger(__name__)
@@ -34,6 +33,15 @@ def _matches_keywords(filename: str | None, keywords: list[str]) -> bool:
     return any(k.lower() in low for k in keywords)
 
 
+def split_technical_spec(
+    files: list[dict[str, str]], keywords: list[str]
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Разделяет файлы на техническое задание и остальные (по имени)."""
+    ts = [f for f in files if _matches_keywords(f.get("name"), keywords)]
+    others = [f for f in files if f not in ts]
+    return ts, others
+
+
 async def _file_name(page: Page, full: str) -> str | None:
     """Имя файла из Content-Disposition без скачивания тела (HEAD, затем GET)."""
     for method in ("head", "get"):
@@ -55,13 +63,12 @@ async def download_files(
     platform: PlatformDom,
     store: ObjectStore,
     number: str,
-    urls: list[str] | None = None,
+    urls: list[str],
     only_keywords: list[str] | None = None,
 ) -> list[FileRef]:
     """Скачивает файлы заявки ``number`` в хранилище ``store``.
 
-    URL файлов либо передаются явно (``urls``), либо извлекаются из ``page``
-    через ``config_dom.yaml -> detail.files``. Скачивание идёт через
+    ``urls`` — список URL скачивания файлов (с ЭТП). Скачивание идёт через
     ``page.request`` (APIRequestContext браузерного контекста) — он делит
     куки/сессию и UA с браузером и корректно обрабатывает ответ-файл.
 
@@ -70,8 +77,7 @@ async def download_files(
 
     Возвращает ссылки на сохранённые файлы (``FileRef``).
     """
-    if urls is None:
-        urls = await detail_file_urls(page, platform)
+    assert urls is not None, "urls обязательны"
     refs: list[FileRef] = []
     for i, url in enumerate(urls, start=1):
         full = url if url.startswith("http") else platform.url.rstrip("/") + url

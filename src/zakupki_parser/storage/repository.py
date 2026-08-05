@@ -100,6 +100,8 @@ class ProcurementRepository:
             kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
             technical_spec_url=data.get("technical_spec_url"),
             technical_spec_key=data.get("technical_spec_key"),
+            technical_spec_name=data.get("technical_spec_name"),
+            files_json=data.get("files_json"),
             detail_json=data.get("detail_json"),
         )
         async with self._db.session() as session:

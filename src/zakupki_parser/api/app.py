@@ -49,6 +49,8 @@ class ProcurementOut(BaseModel):
     kpgz_codes: str | None = None
     technical_spec_url: str | None = None
     technical_spec_key: str | None = None
+    technical_spec_name: str | None = None
+    files_json: list[dict[str, Any]] | None = None
     created_at: datetime
     updated_at: datetime
 

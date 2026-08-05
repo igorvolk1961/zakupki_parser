@@ -18,11 +18,11 @@ from sqlalchemy.exc import IntegrityError
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import AppConfig, PlatformDom
-from zakupki_parser.downloader import download_files
+from zakupki_parser.downloader import download_files, split_technical_spec
 from zakupki_parser.file_processor import FileProcessor
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.cutoff import is_older_than_cutoff
-from zakupki_parser.parser.detail import detail_file_urls, extract_detail_vars, open_detail
+from zakupki_parser.parser.detail import detail_files, extract_detail_vars, open_detail
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
@@ -159,7 +159,7 @@ class Orchestrator:
         #    «Возврат к списку» (п.10 ТЗ) — закрытие этой вкладки.
         detail_page: Page
         close_detail = False
-        file_urls: list[str] = []
+        files: list[dict[str, str]] = []
         if self._new_page is not None:
             detail_page = await self._new_page()
             close_detail = True
@@ -168,7 +168,7 @@ class Orchestrator:
         try:
             await open_detail(detail_page, detail_url, self._platform)
             detail_vars = await extract_detail_vars(detail_page, self._platform)
-            file_urls = await detail_file_urls(detail_page, self._platform)
+            files = await detail_files(detail_page, self._platform)
         finally:
             if close_detail:
                 await detail_page.close()
@@ -182,42 +182,52 @@ class Orchestrator:
         if self._check_stop_conditions(record):
             return
 
-        # 5) скачивание файлов (URL собраны с детальной страницы).
-        #    При download_technical_spec_only — только файлы с ключевыми словами.
-        #    Файлы сохраняются в хранилище (local или s3/MinIO), в БД — ссылка (url).
+        # 5) файлы: имена и URL скачивания с ЭТП сохраняются в БД (скачивание
+        #    по умолчанию НЕ выполняется). ТЗ — два отдельных поля, остальные —
+        #    files_json (список пар name/url).
+        keywords = self._cfg.service.technical_spec_keywords
+        ts_files, other_files = split_technical_spec(files, keywords)
+        if ts_files:
+            record["technical_spec_name"] = ts_files[0]["name"]
+            record["technical_spec_url"] = ts_files[0]["url"]
+        if other_files:
+            record["files_json"] = other_files
+
+        # 6) скачивание файлов в хранилище (опционально, не основной режим).
         downloaded: list[FileRef] = []
         if self._cfg.service.download_files:
-            only_keywords: list[str] | None = None
-            if self._cfg.service.download_technical_spec_only:
-                only_keywords = self._cfg.service.technical_spec_keywords
+            to_download = ts_files if self._cfg.service.download_technical_spec_only else files
+            urls = [f["url"] for f in to_download]
             try:
                 downloaded = await download_files(
                     page,
                     self._platform,
                     self._object_store,
                     str(number),
-                    file_urls,
-                    only_keywords,
+                    urls,
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Ошибка скачивания файлов заявки %s: %s", number, exc)
+            # Ключ сохранённого ТЗ (если ТЗ было среди скачанных).
+            if ts_files and downloaded:
+                try:
+                    idx = urls.index(ts_files[0]["url"])
+                    record["technical_spec_key"] = downloaded[idx].key
+                except ValueError:
+                    pass
 
-        # Ссылка на техническое задание (первый сохранённый ТЗ-файл) для БД.
-        if downloaded and self._cfg.service.download_technical_spec_only:
-            record["technical_spec_url"] = downloaded[0].url
-            record["technical_spec_key"] = downloaded[0].key
-
-        # 6) доп. обработка файлов (заглушка)
+        # 7) доп. обработка файлов (заглушка)
         extracted = await self._file_processor.process(downloaded, str(number))
         if extracted:
             record.update(extracted)
 
-        # 7) удаление файлов (по флагу). Техническое задание сохраняется — на него
-        #    ссылается БД (technical_spec_url).
-        if self._cfg.service.delete_files_after_processing:
+        # 8) удаление скачанных файлов (по флагу). ТЗ сохраняется — на него
+        #    ссылается БД (technical_spec_key).
+        if self._cfg.service.download_files and self._cfg.service.delete_files_after_processing:
+            kept = {record.get("technical_spec_key")}
             for ref in downloaded:
-                if ref.url == record.get("technical_spec_url"):
-                    logger.debug("ТЗ сохраняется: %s", ref.url)
+                if ref.key in kept:
+                    logger.debug("ТЗ сохраняется: %s", ref.key)
                     continue
                 try:
                     await self._object_store.delete(ref.key)

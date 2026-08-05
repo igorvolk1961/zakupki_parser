@@ -43,7 +43,8 @@ platforms:
         - { name: "okpd2_name",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Наименование ОКПД2')) > div", handler: "strip", default: "" }
         - { name: "okpd2_code",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Код ОКПД2')) > div", handler: "strip", default: "" }
       files:
-        - { name: "document", selector: "a[href*='FileStorage/Download']", attribute: "href", handler: "strip" }
+        # Ссылки на скачиваемые файлы: имя — текст ссылки, url скачивания с ЭТП — href
+        - { selector: "a[href*='FileStorage/Download']", name_attribute: null, url_attribute: "href" }
 
     # --- Сортировка списка закупок ---
     # ВАЖНО: порядок фиксирован — «по дате публикации по убыванию»

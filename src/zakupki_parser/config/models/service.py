@@ -83,6 +83,23 @@ class StorageConfig(BaseModel):
     secure: bool = Field(default=False, description="HTTPS для s3")
     region: str = Field(default="us-east-1")
 
+    @model_validator(mode="after")
+    def _check_s3_params(self) -> StorageConfig:
+        """S3 опционален: при type=local параметры не нужны; при type=s3 — обязательны."""
+        if self.type == "s3":
+            missing = [
+                name
+                for name, value in (
+                    ("endpoint", self.endpoint),
+                    ("access_key", self.access_key),
+                    ("secret_key", self.secret_key),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(f"storage.type=s3, но не заданы: {', '.join(missing)}")
+        return self
+
 
 class ServiceConfig(BaseModel):
     """Сервисная конфигурация: таймер, список сайтов, пороги, флаги."""
