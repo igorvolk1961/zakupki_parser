@@ -47,6 +47,7 @@ class Procurement(Base):
     subject: Mapped[str | None] = mapped_column(Text)
     nmck: Mapped[float | None] = mapped_column(Float)
     publication_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    update_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     execution_term: Mapped[str | None] = mapped_column(Text)
     security_amount: Mapped[float | None] = mapped_column(Float)

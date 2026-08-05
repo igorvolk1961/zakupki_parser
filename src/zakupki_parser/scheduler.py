@@ -29,6 +29,7 @@ _SCORE_PAYLOAD_FIELDS = (
     "subject",
     "nmck",
     "publication_date",
+    "update_date",
     "deadline",
     "execution_term",
     "security_amount",

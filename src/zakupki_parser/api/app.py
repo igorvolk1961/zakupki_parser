@@ -42,6 +42,7 @@ class ProcurementOut(BaseModel):
     subject: str | None = None
     nmck: float | None = None
     publication_date: datetime | None = None
+    update_date: datetime | None = None
     deadline: datetime | None = None
     execution_term: str | None = None
     okpd2_codes: str | None = None
