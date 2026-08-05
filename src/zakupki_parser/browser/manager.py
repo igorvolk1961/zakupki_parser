@@ -70,6 +70,7 @@ class BrowserManager:
                 "height": self._cfg.viewport_height,
             },
             "user_agent": self._cfg.user_agent or DEFAULT_UA,
+            "ignore_https_errors": self._cfg.ignore_https_errors,
         }
         if self._cfg.persist_session:
             storage_path = self.session_dir / "storage.json"

@@ -80,3 +80,29 @@ async def test_detail_files(app_config: AppConfig, page: Page) -> None:
     assert files, "Должны быть найдены ссылки на файлы"
     assert all(f["name"] for f in files), "У каждого файла должно быть имя"
     assert all("FileStorage/Download" in f["url"] for f in files)
+
+
+@pytest.mark.asyncio
+async def test_eis_list_extraction(app_config: AppConfig, page: Page) -> None:
+    await set_html(page, load_fixture("eis_list.html"))
+    platform = app_config.dom.platforms["zakupki_gov"]
+    containers = page.locator(platform.list_config.container)
+    count = await containers.count()
+    assert count > 0, "Должны находиться карточки ЕИС"
+
+    data = await extract_from_scope(containers.first, platform.list_config.variables)
+    assert data.get("number"), "Реестровый номер должен извлекаться"
+    assert data.get("customer"), "Заказчик должен извлекаться"
+    assert data.get("nmck") is not None, "НМЦК должна извлекаться"
+    assert data.get("law") in ("44-ФЗ", "223-ФЗ", None)
+    assert data.get("update_date"), "Дата обновления должна извлекаться"
+
+
+@pytest.mark.asyncio
+async def test_eis_detail_link(app_config: AppConfig, page: Page) -> None:
+    await set_html(page, load_fixture("eis_list.html"))
+    platform = app_config.dom.platforms["zakupki_gov"]
+    containers = page.locator(platform.list_config.container)
+    link = containers.first.locator(platform.list_config.detail_link).first
+    href = await link.get_attribute("href")
+    assert href and "common-info.html" in href

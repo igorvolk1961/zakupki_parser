@@ -13,10 +13,20 @@ from zakupki_parser.parser.extractor import extract_from_scope
 logger = logging.getLogger(__name__)
 
 
+def _absolute(base_url: str, href: str) -> str:
+    """Возвращает абсолютный URL (href может быть абсолютным или относительным)."""
+    if href.startswith("http"):
+        return href
+    return base_url.rstrip("/") + href
+
+
 async def open_detail(page: Page, detail_url: str, platform: PlatformDom) -> None:
     """Переходит на детальную страницу закупки."""
-    url = platform.url.rstrip("/") + detail_url
-    await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    await page.goto(
+        _absolute(platform.url, detail_url),
+        wait_until="domcontentloaded",
+        timeout=60000,
+    )
     # networkidle на этой SPA не наступает, ждём фиксированно.
     await page.wait_for_timeout(3000)
 

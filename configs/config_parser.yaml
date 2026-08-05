@@ -18,6 +18,9 @@ browser:
   hide_user_agent_override: true    # не палить переопределённый UA
   persist_session: true             # сохранять куки/хранилище между запусками
   session_dir: data/session
+  # Игнорировать ошибки SSL-сертификата (ЕИС zakupki.gov.ru использует сертификат,
+  # не доверяемый локально). Отключите в безопасном окружении.
+  ignore_https_errors: true
   scroll_randomly: true             # «человеческий» скролл
   random_mouse_moves: true          # «человеческие» движения мыши
   delay_between_actions_seconds: [4, 12]   # вежливая рандомная задержка между действиями
