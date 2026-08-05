@@ -205,6 +205,7 @@ class Orchestrator:
         # Ссылка на техническое задание (первый сохранённый ТЗ-файл) для БД.
         if downloaded and self._cfg.service.download_technical_spec_only:
             record["technical_spec_url"] = downloaded[0].url
+            record["technical_spec_key"] = downloaded[0].key
 
         # 6) доп. обработка файлов (заглушка)
         extracted = await self._file_processor.process(downloaded, str(number))

@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 5
+      author: zakupki-parser
+      changes:
+        - addColumn:
+            tableName: procurements
+            columns:
+              - column:
+                  name: technical_spec_key
+                  type: TEXT
+                  remarks: "Ключ объекта ТЗ в хранилище (MinIO key или путь в documents)"

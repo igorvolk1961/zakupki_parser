@@ -27,9 +27,12 @@ class FileRef:
 
 
 class ObjectStore:
-    """Сохранение/удаление файлов скачанных из закупок."""
+    """Сохранение/чтение/удаление файлов скачанных из закупок."""
 
     async def put(self, key: str, data: bytes, content_type: str | None = None) -> FileRef:
+        raise NotImplementedError
+
+    async def get(self, key: str) -> bytes:
         raise NotImplementedError
 
     async def delete(self, key: str) -> None:
@@ -47,6 +50,9 @@ class LocalObjectStore(ObjectStore):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
         return FileRef(key=str(key), url=str(dest.resolve()), filename=dest.name)
+
+    async def get(self, key: str) -> bytes:
+        return (self._dir / key).read_bytes()
 
     async def delete(self, key: str) -> None:
         path = self._dir / key
@@ -103,6 +109,14 @@ class S3ObjectStore(ObjectStore):
         filename = key.rsplit("/", 1)[-1]
         logger.info("Загружен объект s3://%s/%s", self._cfg.bucket, key)
         return FileRef(key=key, url=url, filename=filename)
+
+    async def get(self, key: str) -> bytes:
+        resp = await asyncio.to_thread(self._s3().get_object, Bucket=self._cfg.bucket, Key=key)
+        body = resp["Body"]
+        try:
+            return await asyncio.to_thread(body.read)
+        finally:
+            await asyncio.to_thread(body.close)
 
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self._s3().delete_object, Bucket=self._cfg.bucket, Key=key)

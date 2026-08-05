@@ -60,6 +60,26 @@ services:
       - parser-documents:/app/documents
     restart: unless-stopped
 
+  api:
+    build: .
+    depends_on:
+      liquibase:
+        condition: service_completed_successfully
+      minio:
+        condition: service_started
+    environment:
+      ZAKUPKI_CONFIGS: /app/configs
+      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki
+    ports:
+      - "8000:8000"
+    command: >
+      uv run uvicorn zakupki_parser.api.app:create_app
+      --factory --host 0.0.0.0 --port 8000
+    volumes:
+      - ./configs:/app/configs
+      - parser-documents:/app/documents
+    restart: unless-stopped
+
 volumes:
   pgdata:
   parser-data:

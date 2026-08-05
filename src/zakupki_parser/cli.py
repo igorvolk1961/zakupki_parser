@@ -34,6 +34,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-once", help="Один проход по всем площадкам")
     sub.add_parser("run-service", help="Периодический запуск по таймеру")
 
+    serve = sub.add_parser("serve", help="Запустить FastAPI-сервис (API)")
+    serve.add_argument("--host", default="0.0.0.0", help="адрес (по умолчанию 0.0.0.0)")
+    serve.add_argument("--port", default=8000, type=int, help="порт (по умолчанию 8000)")
+
     cap = sub.add_parser("capture-fixture", help="Сохранение HTML-фикстур")
     cap.add_argument("--platform", default="zakupki_mos", help="platform_id из config_dom")
     cap.add_argument("--out", default="tests/fixtures", help="каталог вывода")
@@ -82,12 +86,28 @@ def _print_summary(cfg: AppConfig) -> None:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+    if args.command == "serve":
+        code = _serve(args.configs, args.host, args.port)
+        sys.exit(code)
     try:
         code = asyncio.run(_run(args.command, args.configs, args))
     except FileNotFoundError as exc:
         print(exc, file=sys.stderr)
         code = 1
     sys.exit(code)
+
+
+def _serve(cfg_dir: str, host: str, port: int) -> int:
+    """Запускает FastAPI-сервис (uvicorn)."""
+    import uvicorn
+
+    from zakupki_parser.api.app import create_app
+
+    cfg = load_config(cfg_dir)
+    setup_logging(cfg.logging)
+    app = create_app(cfg_dir)
+    uvicorn.run(app, host=host, port=port)
+    return 0
 
 
 if __name__ == "__main__":

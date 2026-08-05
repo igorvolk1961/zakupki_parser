@@ -53,6 +53,7 @@ class Procurement(Base):
     okpd2_codes: Mapped[str | None] = mapped_column(Text)
     kpgz_codes: Mapped[str | None] = mapped_column(Text)
     technical_spec_url: Mapped[str | None] = mapped_column(Text)
+    technical_spec_key: Mapped[str | None] = mapped_column(Text)
     detail_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

@@ -1,11 +1,12 @@
-"""Репозиторий закупок: запись с контролем дубликатов."""
+"""Репозиторий закупок: запись с контролем дубликатов и чтение."""
 
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.sql.elements import ColumnElement
 
 from zakupki_parser.storage.db import Database, Procurement
 
@@ -17,6 +18,42 @@ class ProcurementRepository:
 
     def __init__(self, db: Database) -> None:
         self._db = db
+
+    async def get_by_id(self, procurement_id: int) -> Procurement | None:
+        stmt = select(Procurement).where(Procurement.id == procurement_id)
+        async with self._db.session() as session:
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+    async def list(
+        self,
+        *,
+        number: str | None = None,
+        source_platform: str | None = None,
+        okpd2: str | None = None,
+        customer: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[Procurement], int]:
+        """Возвращает записи и их общее количество по фильтрам."""
+        conditions: list[ColumnElement[bool]] = []
+        if number:
+            conditions.append(Procurement.number.ilike(f"%{number}%"))
+        if source_platform:
+            conditions.append(Procurement.source_platform == source_platform)
+        if okpd2:
+            conditions.append(Procurement.okpd2_codes.ilike(f"%{okpd2}%"))
+        if customer:
+            conditions.append(Procurement.customer.ilike(f"%{customer}%"))
+
+        stmt = select(Procurement).where(*conditions).order_by(Procurement.id.desc())
+        count_stmt = select(func.count(Procurement.id)).where(*conditions)
+
+        async with self._db.session() as session:
+            result = await session.execute(stmt.limit(limit).offset(offset))
+            rows = list(result.scalars().all())
+            total = (await session.execute(count_stmt)).scalar_one()
+        return rows, total
 
     async def exists(self, number: str, source_platform: str) -> bool:
         """Проверяет наличие заявки с указанным номером на площадке."""
@@ -62,6 +99,7 @@ class ProcurementRepository:
             okpd2_codes=data.get("okpd2_codes") or data.get("okpd2_code"),
             kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
             technical_spec_url=data.get("technical_spec_url"),
+            technical_spec_key=data.get("technical_spec_key"),
             detail_json=data.get("detail_json"),
         )
         async with self._db.session() as session:

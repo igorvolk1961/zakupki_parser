@@ -15,6 +15,11 @@
 - Антиблок-меры: полноценный Chromium, stealth, вежливые задержки (4–12 с), лимиты,
   персистентная сессия.
 - Хранилище: SQLAlchemy 2.x (async) + PostgreSQL, миграции Liquibase.
+- Скачанные файлы (техническое задание) — в MinIO/локальном хранилище, в БД — ссылка,
+  а не бинарник.
+- **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры),
+  `GET /api/procurements/{id}` (карточка), `GET /api/procurements/{id}/technical-spec`
+  (скачивание ТЗ).
 - Защита от повторной записи заявки с тем же номером.
 - Circuit Breaker и вежливая деградация при отказе БД/сайта.
 - Таймерный запуск по списку сайтов, webhook (заглушка), логирование.
@@ -24,11 +29,12 @@
 ```
 configs/                       # YAML-конфигурация парсера
 src/zakupki_parser/
-  cli.py                       # CLI (check-config, run-once, run-service, capture-fixture)
+  cli.py                       # CLI (check-config, run-once, run-service, serve, capture-fixture)
   scheduler.py                 # таймерный цикл по сайтам
+  api/                         # FastAPI-сервис (health, procurements, ТЗ)
   parser/                      # оркестратор, lister, extractor, detail, filters
   browser/                     # менеджер браузера, stealth, задержки
-  storage/                     # SQLAlchemy (БД), last_seen
+  storage/                     # SQLAlchemy (БД), last_seen, object_store (MinIO/local)
   circuit.py                   # circuit breaker
   notify.py                    # webhook (заглушка)
   file_processor.py            # обработка файлов (заглушка)
@@ -58,6 +64,9 @@ uv run zakupki-parser --configs configs run-once
 
 # периодический запуск по таймеру (timeout_seconds из config_service.yaml)
 uv run zakupki-parser --configs configs run-service
+
+# FastAPI-сервис (health, списки закупок, скачивание ТЗ)
+uv run zakupki-parser --configs configs serve --host 0.0.0.0 --port 8000
 
 # пересоздать HTML-фикстуры для тестов
 uv run zakupki-parser --configs configs capture-fixture --platform zakupki_mos

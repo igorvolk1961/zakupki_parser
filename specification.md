@@ -149,14 +149,27 @@
 - `zakupki-parser check-config` — проверка конфигов;
 - `zakupki-parser run-once` — один проход;
 - `zakupki-parser run-service` — периодический запуск;
-- `zakupki-parser capture-fixture` — сохранение HTML-фикстур для тестов.
+- `zakupki-parser capture-fixture` — сохранение HTML-фикстур для тестов;
+- `zakupki-parser serve [--host H] [--port P]` — запуск FastAPI-сервиса.
 
-## 11. Тестирование
-- Unit: обработчики значений, конфиг, circuit breaker, last_seen, stop-условия.
+## 11. API-сервис (FastAPI)
+Поднимается командой `serve` (или сервисом `api` в docker-compose). Читает
+конфиг (БД и хранилище) и отдаёт:
+- `GET /health` — статус: ok, доступность БД, тип хранилища;
+- `GET /api/procurements` — список с фильтрами (`number`, `source_platform`,
+  `okpd2`, `customer`) и пагинацией (`limit`, `offset`);
+- `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
+- `GET /api/procurements/{id}/technical-spec` — скачивание файла ТЗ из хранилища
+  (по `technical_spec_key`).
+
+## 12. Тестирование
+- Unit: обработчики значений, конфиг, circuit breaker, last_seen, stop-условия,
+  резолв ОКПД2, хранилище файлов.
 - Integration: извлечение из HTML-фикстур (реальные страницы площадки), репозиторий БД
-  (PostgreSQL, DSN через `ZAKUPKI_TEST_DSN`).
+  и API-роуты (PostgreSQL, DSN через `ZAKUPKI_TEST_DSN`).
 - Фикстуры — в `tests/fixtures/` (урезанные реальные HTML списка и деталей).
 
-## 12. Docker
+## 13. Docker
 `docker/docker-compose.yml`: сервисы `db` (PostgreSQL), `liquibase` (миграции),
-`parser` (приложение + Chromium). DSN задаётся через `ZAKUPKI_DB_DSN`.
+`minio` (объектное хранилище), `parser` (приложение + Chromium), `api` (FastAPI,
+порт 8000). DSN задаётся через `ZAKUPKI_DB_DSN`.

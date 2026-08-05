@@ -20,6 +20,7 @@ erDiagram
         TEXT execution_term "срок исполнения"
         TEXT okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
         TEXT technical_spec_url "ссылка на файл ТЗ (URL в MinIO или путь в documents)"
+        TEXT technical_spec_key "ключ объекта ТЗ в хранилище (для извлечения через API)"
         TEXT kpgz_codes "коды КПГЗ (один или несколько, через запятую)"
         JSONB detail_json "полный набор переменных карточки"
         TIMESTAMPTZ created_at "server_default now()"
