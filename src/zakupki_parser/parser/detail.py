@@ -20,6 +20,18 @@ def _absolute(base_url: str, href: str) -> str:
     return base_url.rstrip("/") + href
 
 
+def files_page_url(detail_url: str, files_page: str) -> str:
+    """URL страницы файлов: детальный URL с заменой имени html-файла.
+
+    Например, ``.../view/common-info.html?regNumber=X`` + ``documents.html`` ->
+    ``.../view/documents.html?regNumber=X``.
+    """
+    base, _, query = detail_url.partition("?")
+    dir_part, _, _ = base.rpartition("/")
+    result = f"{dir_part}/{files_page}"
+    return f"{result}?{query}" if query else result
+
+
 async def open_detail(page: Page, detail_url: str, platform: PlatformDom) -> None:
     """Переходит на детальную страницу закупки."""
     await page.goto(

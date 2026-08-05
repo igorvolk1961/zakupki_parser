@@ -106,3 +106,13 @@ async def test_eis_detail_link(app_config: AppConfig, page: Page) -> None:
     link = containers.first.locator(platform.list_config.detail_link).first
     href = await link.get_attribute("href")
     assert href and "common-info.html" in href
+
+
+@pytest.mark.asyncio
+async def test_eis_documents_files(app_config: AppConfig, page: Page) -> None:
+    await set_html(page, load_fixture("eis_documents.html"))
+    platform = app_config.dom.platforms["zakupki_gov"]
+    files = await detail_files(page, platform)
+    assert files, "Должны быть найдены файлы на documents.html ЕИС"
+    assert all(f["name"] for f in files), "У каждого файла должно быть имя"
+    assert all("filestore/public/" in f["url"] for f in files)

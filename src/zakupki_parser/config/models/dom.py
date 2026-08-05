@@ -65,6 +65,13 @@ class DomDetailConfig(BaseModel):
     files: list[FileSpec] = Field(
         default_factory=list, description="элементы ссылок на скачиваемые файлы"
     )
+    files_page: str | None = Field(
+        default=None,
+        description=(
+            "имя html-файла страницы файлов (например, documents.html); если задано, "
+            "файлы извлекаются с неё (URL = детальный URL с заменой имени html-файла)"
+        ),
+    )
 
 
 class FilterStep(BaseModel):

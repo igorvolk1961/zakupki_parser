@@ -21,7 +21,12 @@ from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.downloader import download_files, split_technical_spec
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.cutoff import is_older_than_cutoff
-from zakupki_parser.parser.detail import detail_files, extract_detail_vars, open_detail
+from zakupki_parser.parser.detail import (
+    detail_files,
+    extract_detail_vars,
+    files_page_url,
+    open_detail,
+)
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
@@ -185,6 +190,16 @@ class Orchestrator:
         try:
             await open_detail(detail_page, detail_url, self._platform)
             detail_vars = await extract_detail_vars(detail_page, self._platform)
+            # Файлы: если задана отдельная страница файлов (напр. ЕИС documents.html) —
+            # переходим на неё (URL = детальный URL с заменой имени html-файла).
+            files_page = self._platform.detail.files_page
+            if files_page:
+                await detail_page.goto(
+                    files_page_url(detail_url, files_page),
+                    wait_until="domcontentloaded",
+                    timeout=60000,
+                )
+                await detail_page.wait_for_timeout(3000)
             files = await detail_files(detail_page, self._platform)
         finally:
             if close_detail:

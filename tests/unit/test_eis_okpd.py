@@ -40,6 +40,19 @@ def test_resolve_okpd2_eis_unknown_code() -> None:
     assert _resolve_okpd2_eis(["11.1"], _tree_file()) is None
 
 
+def test_files_page_url() -> None:
+    from zakupki_parser.parser.detail import files_page_url
+
+    detail = "https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=0338"
+    assert files_page_url(detail, "documents.html") == (
+        "https://zakupki.gov.ru/epz/order/notice/ea20/view/documents.html?regNumber=0338"
+    )
+    # без query
+    assert files_page_url("https://x.ru/a/view/common-info.html", "documents.html") == (
+        "https://x.ru/a/view/documents.html"
+    )
+
+
 def test_build_list_url_includes_okpd_lists() -> None:
     cfg = load_config("configs")
     platform = cfg.dom.platforms["zakupki_gov"]

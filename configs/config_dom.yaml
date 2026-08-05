@@ -123,8 +123,11 @@ platforms:
       # Заказчик/НМЦК уже извлекаются из карточки списка. Детальные поля ЕИС
       # зависят от типа извещения (common-info) — уточнить при необходимости (TODO).
       variables: []
-      # Файлы ЕИС — на отдельной странице documents.html (по типам извещений); см. TODO
-      files: []
+      # Файлы закупки — на отдельной странице documents.html (файлы по
+      # 44fz/filestore/public/...), имя файла — текст ссылки.
+      files:
+        - { selector: "a[href*='filestore/public/']", name_attribute: null, url_attribute: "href" }
+      files_page: "documents.html"
 
     # Сортировка: фиксированный порядок — по дате обновления по убыванию
     sort:
