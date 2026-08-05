@@ -13,8 +13,8 @@ from typing import Any
 from playwright.async_api import Locator, Page
 
 from zakupki_parser.browser.delayer import Delayer
-from zakupki_parser.config.models import PlatformDom, SearchFilterConfig
-from zakupki_parser.okpd import load_okpd_tree, resolve_okpd_codes
+from zakupki_parser.config.models import PlatformDom, SearchCriteria, SearchFilterConfig
+from zakupki_parser.okpd import load_okpd_tree, resolve_codes_to_paths
 from zakupki_parser.parser.filters import apply_filters
 
 logger = logging.getLogger(__name__)
@@ -26,59 +26,103 @@ SETTLE_MS = 3000
 MSK = timezone(timedelta(hours=3))
 
 
-def _replace_placeholder(data: Any, placeholder: str, value: Any) -> None:
-    """Рекурсивно заменяет строковые значения, равные ``placeholder``."""
-    if isinstance(data, dict):
-        for k, v in list(data.items()):
-            if v == placeholder:
-                data[k] = value
-            else:
-                _replace_placeholder(v, placeholder, value)
-    elif isinstance(data, list):
-        for i, v in enumerate(data):
-            if v == placeholder:
-                data[i] = value
-            else:
-                _replace_placeholder(v, placeholder, value)
+def _resolve_paths(codes: list[str], tree_file: str | None, label: str) -> list[str] | None:
+    """Резолвит коды (ОКПД2/регион) в пути через маппинг площадки.
+
+    Возвращает None, если маппинг недоступен (коды не применятся).
+    """
+    if not codes:
+        return []
+    if not tree_file:
+        logger.warning("%s коды заданы, но search-маппинг не указан", label)
+        return None
+    try:
+        tree = load_okpd_tree(tree_file)
+        return resolve_codes_to_paths(codes, tree, label=label)
+    except (OSError, ValueError) as exc:
+        logger.warning("Не удалось загрузить %s дерево %s: %s", label, tree_file, exc)
+        return None
+
+
+def _set_json_path(data: dict[str, Any], path: str, value: Any) -> None:
+    """Вставляет ``value`` в ``data`` по точечному пути ``path`` (создаёт словари)."""
+    parts = path.split(".")
+    node = data
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = value
+
+
+def _value_to_str(value: Any) -> str:
+    """Приводит значение критерия к строке для query-параметра."""
+    if isinstance(value, list):
+        return ",".join(str(v) for v in value)
+    if isinstance(value, float):
+        return str(int(value) if value.is_integer() else value)
+    return str(value)
+
+
+def _criteria_value(
+    key: str,
+    criteria: SearchCriteria,
+    cutoff: datetime | None,
+    search: SearchFilterConfig,
+) -> Any:
+    """Вычисляет значение обобщённого критерия по его ключу.
+
+    Возвращает None (или пустой список), если критерий не задан — такой критерий
+    пропускается и в запрос не попадает.
+    """
+    if key == "publish_date":
+        if cutoff is None:
+            return None
+        return cutoff.astimezone(MSK).strftime(search.date_great_equal_format)
+    if key == "okpd2":
+        return _resolve_paths(criteria.okpd_codes, search.okpd_tree_file, "ОКПД2")
+    if key == "region":
+        return _resolve_paths(criteria.region_codes, search.region_tree_file, "региона")
+    if key == "keywords":
+        joined = " ".join(criteria.keywords).strip()
+        return joined or None
+    if key == "nmck_min":
+        return criteria.nmck_min
+    if key == "nmck_max":
+        return criteria.nmck_max
+    logger.warning("Неизвестный критерий поиска в criteria_map: %s", key)
+    return None
 
 
 def build_query(
     search: SearchFilterConfig,
     cutoff: datetime | None,
-    okpd_codes: list[str] | None = None,
+    criteria: SearchCriteria | None = None,
 ) -> str:
-    """Строит строку запроса по конфигурации ``search`` (маппинг только из конфига).
+    """Строит строку запроса по конфигурации ``search``.
 
-    Плейсхолдеры в ``query_params``: ``{filter_json}``, ``{state_json}`` и
-    ``{publish_date_great_equal}``. Коды ОКПД2 (бизнес-критерий из
-    ``config_service.yaml -> search_criteria.okpd_codes``) резолвятся в пути
-    через ``search.okpd_tree_file``.
+    Обобщённые критерии из ``config_service.yaml -> search_criteria`` подставляются
+    в запрос через ``search.criteria_map`` (см. ``_criteria_value``): каждый критерий
+    уходит либо в ``filter_json`` (по JSON-пути), либо в плоский query-параметр,
+    либо в оба места. Не заданные критерии в запрос не попадают.
     """
+    criteria = criteria or SearchCriteria()
     filter_json = copy.deepcopy(search.filter_json)
-    date_str: str | None = None
-    if cutoff is not None:
-        date_str = cutoff.astimezone(MSK).strftime(search.date_great_equal_format)
-        _replace_placeholder(filter_json, "{publish_date_great_equal}", date_str)
+    state_json = copy.deepcopy(search.state_json)
 
-    # Резолв кодов ОКПД2 в пути узлов дерева (через маппинг площадки).
-    if okpd_codes:
-        if not search.okpd_tree_file:
-            logger.warning("okpd_codes заданы, но search.okpd_tree_file не указан")
-        else:
-            try:
-                tree = load_okpd_tree(search.okpd_tree_file)
-                paths = resolve_okpd_codes(okpd_codes, tree)
-                if paths:
-                    need = filter_json.setdefault("needSpecificFilter", {})
-                    need["okpdPaths"] = paths
-            except (OSError, ValueError) as exc:
-                logger.warning("Не удалось загрузить дерево ОКПД2: %s", exc)
+    extra_params: dict[str, str] = {}
+    for key, mapping in (search.criteria_map or {}).items():
+        value = _criteria_value(key, criteria, cutoff, search)
+        if value is None or (isinstance(value, list) and not value):
+            continue
+        if mapping.json_path:
+            _set_json_path(filter_json, mapping.json_path, value)
+        if mapping.query_param:
+            extra_params[mapping.query_param] = _value_to_str(value)
 
     filter_encoded = urllib.parse.quote(
         json.dumps(filter_json, ensure_ascii=False, separators=(",", ":"))
     )
     state_encoded = urllib.parse.quote(
-        json.dumps(search.state_json, ensure_ascii=False, separators=(",", ":"))
+        json.dumps(state_json, ensure_ascii=False, separators=(",", ":"))
     )
 
     parts: list[str] = []
@@ -86,16 +130,16 @@ def build_query(
         value = template
         value = value.replace("{filter_json}", filter_encoded)
         value = value.replace("{state_json}", state_encoded)
-        if date_str is not None:
-            value = value.replace("{publish_date_great_equal}", urllib.parse.quote(date_str))
         parts.append(f"{key}={value}")
+    for name, value in extra_params.items():
+        parts.append(f"{name}={urllib.parse.quote(value)}")
     return "&".join(parts)
 
 
 def build_list_url(
     platform: PlatformDom,
     cutoff: datetime | None = None,
-    okpd_codes: list[str] | None = None,
+    criteria: SearchCriteria | None = None,
 ) -> str:
     """Возвращает URL страницы списка.
 
@@ -106,7 +150,7 @@ def build_list_url(
     search = platform.search
     if search is None or not search.enabled:
         return base
-    query = build_query(search, cutoff, okpd_codes)
+    query = build_query(search, cutoff, criteria)
     return f"{base}?{query}"
 
 
@@ -114,9 +158,9 @@ async def open_list_page(
     page: Page,
     platform: PlatformDom,
     cutoff: datetime | None = None,
-    okpd_codes: list[str] | None = None,
+    criteria: SearchCriteria | None = None,
 ) -> None:
-    url = build_list_url(platform, cutoff, okpd_codes)
+    url = build_list_url(platform, cutoff, criteria)
     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
     # networkidle на этой SPA не наступает (аналитика/чат), ждём фиксированно.
     await page.wait_for_timeout(SETTLE_MS)

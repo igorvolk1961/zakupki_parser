@@ -53,13 +53,18 @@ def _append_unique(paths: list[str], path: str) -> None:
         paths.append(path)
 
 
-def resolve_okpd_codes(
-    codes: list[str], tree: dict[str, Any], *, warn_missing: bool = True
+def resolve_codes_to_paths(
+    codes: list[str],
+    tree: dict[str, Any],
+    *,
+    label: str = "ОКПД2",
+    warn_missing: bool = True,
 ) -> list[str]:
-    """Преобразует коды ОКПД2 любой вложенности в пути узлов дерева площадки.
+    """Преобразует коды любой вложенности в пути узлов дерева площадки.
 
-    Пользователь может указать любой известный ему код, не зная состава маппинга.
-    Резолв по приоритету:
+    Используется и для ОКПД2, и для регионов (формат маппинга одинаков —
+    ``code_to_path``). Пользователь может указать любой известный ему код, не зная
+    состава маппинга. Резолв по приоритету:
       1) точный код есть в маппинге — его путь;
       2) точного кода нет, но есть его ПОТОМКИ — объединяем пути всех потомков
          (точно покрывает запрошенную ветвь, напр. «62.02» = 62.02.1+62.02.2+…);
@@ -92,7 +97,8 @@ def resolve_okpd_codes(
             for _, path in descendants:
                 _append_unique(paths, path)
             logger.info(
-                "ОКПД2 %s: нет точного кода, объединяем потомков: %s",
+                "%s %s: нет точного кода, объединяем потомков: %s",
+                label,
                 code,
                 [key for key, _ in descendants],
             )
@@ -109,7 +115,14 @@ def resolve_okpd_codes(
                 best_path = path
         if best_path is not None:
             _append_unique(paths, best_path)
-            logger.info("ОКПД2 %s: используем ближайшего предка %s", code, best_key)
+            logger.info("%s %s: используем ближайшего предка %s", label, code, best_key)
         elif warn_missing:
-            logger.warning("Код ОКПД2 %s не имеет предка/потомков в маппинге, пропущен", code)
+            logger.warning("Код %s %s не имеет предка/потомков в маппинге, пропущен", label, code)
     return paths
+
+
+def resolve_okpd_codes(
+    codes: list[str], tree: dict[str, Any], *, warn_missing: bool = True
+) -> list[str]:
+    """Преобразует коды ОКПД2 любой вложенности в пути узлов дерева площадки."""
+    return resolve_codes_to_paths(codes, tree, label="ОКПД2", warn_missing=warn_missing)

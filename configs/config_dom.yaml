@@ -59,8 +59,9 @@ platforms:
     filters: []
 
     # --- URL-фильтр списка закупок (механизм для этой площадки). ---
-    # Маппинг полностью из конфига: имена параметров, структуры JSON, формат даты.
-    # Плейсхолдеры: {filter_json}, {state_json}, {publish_date_great_equal}.
+    # Обобщённые критерии (config_service.yaml -> search_criteria) подставляются
+    # через criteria_map: критерий -> JSON-путь внутри filter и/или query-параметр.
+    # Плейсхолдеры: {filter_json}, {state_json}.
     search:
       enabled: true
       query_params:
@@ -70,16 +71,25 @@ platforms:
         sortDesc: "true"
         filter: "{filter_json}"
         state: "{state_json}"
-      # Структура параметра filter. Коды ОКПД2 — бизнес-критерий, задаётся в
-      # config_service.yaml -> search_criteria.okpd_codes и резолвится в okpdPaths
-      # через маппинг okpd_tree_file (выбор предка включает потомков).
+      # Статичная часть параметра filter.
       filter_json:
         typeIn:
           values: [2]
-        publishDateGreatEqual: "{publish_date_great_equal}"
         needSpecificFilter: {}
       state_json:
         currentTab: 2
+      # Привязка обобщённых критериев к структуре запроса площадки.
+      # Коды ОКПД2/регионов резолвятся в пути через okpd_tree_file/region_tree_file
+      # (выбор предка включает потомков).
+      criteria_map:
+        publish_date:  { json_path: "publishDateGreatEqual" }
+        okpd2:         { json_path: "needSpecificFilter.okpdPaths" }
+        region:        { json_path: "needSpecificFilter.regionPaths" }
+        keywords:      { json_path: "searchString" }
+        nmck_min:      { json_path: "priceFrom" }
+        nmck_max:      { json_path: "priceTo" }
       date_great_equal_format: "%d.%m.%Y 00:00:00"
       # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. docs/codes/okpd2_tree.json)
       okpd_tree_file: "docs/codes/okpd2_tree.json"
+      # Маппинг «код региона -> путь» (опционально; формат как у okpd_tree_file)
+      region_tree_file: null

@@ -54,16 +54,54 @@ class StopConditions(BaseModel):
             "из config_dom.yaml) истёк к текущей дате"
         ),
     )
+    min_deadline_days: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "если задано — не обрабатывать заявку, до срока подачи которой осталось "
+            "меньше указанного числа календарных дней (нужно время на подготовку заявки)"
+        ),
+    )
 
 
 class SearchCriteria(BaseModel):
-    """Бизнес-критерии поиска (задаются в config_service.yaml)."""
+    """Бизнес-критерии поиска — задаются в config_service.yaml в ОБОБЩЁННЫХ терминах.
+
+    Эти поля платформонезависимы (ОКПД2, НМЦК, ключевые слова, регионы — это
+    понятия закупочной тематики). Конкретная привязка каждого критерия к параметрам
+    URL-запроса или DOM-селекторам площадки выполняется в config_dom.yaml
+    (``search.criteria_map``), поэтому здесь нет ни селекторов, ни имён query-параметров.
+    """
 
     okpd_codes: list[str] = Field(
         default_factory=list,
         description=(
-            "коды ОКПД2 для фильтрации; резолвятся в okpdPaths через маппинг "
-            "площадки (search.okpd_tree_file); выбор предка включает потомков"
+            "коды ОКПД2 (тематика). Резолвятся в пути узлов дерева площадки "
+            "через маппинг (search.okpd_tree_file); выбор предка включает потомков"
+        ),
+    )
+    keywords: list[str] = Field(
+        default_factory=list,
+        description=(
+            "ключевые слова для поиска в предмете/наименовании закупки (ИИ, "
+            "автоматизация, разработка и т.п.). Пусто — поиск по словам не применяется."
+        ),
+    )
+    nmck_min: float | None = Field(
+        default=None,
+        ge=0,
+        description="минимальная НМЦК (отсекает мелкие лоты, не окупающие консалтинг)",
+    )
+    nmck_max: float | None = Field(
+        default=None,
+        ge=0,
+        description="максимальная НМЦК",
+    )
+    region_codes: list[str] = Field(
+        default_factory=list,
+        description=(
+            "коды регионов для фильтрации. Резолвятся в пути узлов дерева площадки "
+            "через маппинг (search.region_tree_file, формат как у ОКПД2)"
         ),
     )
 

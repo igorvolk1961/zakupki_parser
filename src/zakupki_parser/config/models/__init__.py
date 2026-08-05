@@ -14,6 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from zakupki_parser.config.models.dom import (
+    CriteriaMapping,
     DomConfig,
     DomDetailConfig,
     DomListConfig,
@@ -52,6 +53,7 @@ from zakupki_parser.config.models.service import (
 __all__ = [
     "AppConfig",
     "BrowserConfig",
+    "CriteriaMapping",
     "DbConfig",
     "DomConfig",
     "DomDetailConfig",
