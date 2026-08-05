@@ -6,7 +6,7 @@ timeout_seconds: 3600
 
 # Список сайтов закупок (platform_id должен присутствовать в config_dom.yaml)
 sites:
-  - { platform_id: "zakupki_mos", enabled: false }
+  - { platform_id: "zakupki_mos", enabled: true }
   - { platform_id: "zakupki_gov", enabled: true }
 
 # Порог «дата последней обработанной записи» в днях (по умолчанию «сейчас − 7 дней»).
@@ -22,10 +22,8 @@ search_criteria:
   # 1) точный код -> его путь; 2) иначе объединение путей потомков;
   # 3) иначе путь ближайшего предка. Маппинг — config_dom.yaml -> search.okpd_tree_file.
   okpd_codes:
-    - "58"    # программные продукты и услуги по разработке ПО
     - "62"    # разработка ПО, ИТ-услуги и оригиналы ПО
     - "63"    # услуги в области ИТ
-    - "71.1"  # инженерно-техническое проектирование / ИТ-консалтинг
   # Диапазон НМЦК. Задайте минимальный порог, чтобы отсечь мелкие лоты,
   # не окупающие консалтинг. Подставляется через criteria_map (nmck_min/nmck_max).
   nmck_min: null
@@ -76,13 +74,13 @@ db:
 # --- Уведомления подписчиков (telegram | webhook) ---
 # Токен Telegram-бота НЕ хранится в конфиге — задаётся env ZAKUPKI_TELEGRAM_TOKEN.
 notifications:
-  backend: "webhook"        # telegram | webhook
+  backend: "telegram"        # telegram | webhook
   telegram:
-    enabled: false
-    chat_id: null           # '@my_zakupki_channel' или числовой id (для приватного)
+    enabled: true
+    chat_id: "-1004416405744"           # '@my_zakupki_channel' или числовой id (для приватного)
     timeout_seconds: 10
   webhook:
-    enabled: false
+    enabled: true
     url: null
     token: null
     timeout_seconds: 10

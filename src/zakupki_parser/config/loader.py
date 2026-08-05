@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import load_dotenv
 
 from zakupki_parser.config.models import (
     AppConfig,
@@ -41,6 +42,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 def load_config(configs_dir: str | Path) -> AppConfig:
     """Загружает все конфиги из ``configs_dir`` и возвращает ``AppConfig``."""
     base = Path(configs_dir).expanduser().resolve()
+
+    # Секреты из .env в корне проекта (переменные окружения приоритетнее).
+    load_dotenv(base.parent / ".env")
 
     parser_data = _load_yaml(base / CONFIG_FILES["parser"])
     dom_data = _load_yaml(base / CONFIG_FILES["dom"])

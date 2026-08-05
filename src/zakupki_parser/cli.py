@@ -4,6 +4,7 @@
 - check-config   — проверить корректность YAML-конфигов
 - run-once       — один проход по всем площадкам
 - run-service    — периодический запуск по таймеру
+- stop           — остановить запущенные процессы парсера
 - capture-fixture— сохранить HTML страниц (список/деталь) в tests/fixtures
 """
 
@@ -34,6 +35,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-once", help="Один проход по всем площадкам")
     sub.add_parser("run-service", help="Периодический запуск по таймеру")
     sub.add_parser("score-worker", help="Разовый запуск воркера внешнего скоринга")
+
+    stop = sub.add_parser("stop", help="Остановить запущенные процессы парсера")
+    stop.add_argument(
+        "--force", action="store_true", help="убить сразу (SIGKILL) без мягкого закрытия"
+    )
 
     serve = sub.add_parser("serve", help="Запустить FastAPI-сервис (API)")
     serve.add_argument("--host", default="0.0.0.0", help="адрес (по умолчанию 0.0.0.0)")
@@ -94,6 +100,23 @@ def _print_summary(cfg: AppConfig) -> None:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
+    if args.command == "stop":
+        from zakupki_parser.stopper import stop_parser
+
+        try:
+            remaining = stop_parser(force=args.force)
+        except RuntimeError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(1)
+        if remaining:
+            print(
+                "Не удалось остановить процессы: "
+                + ", ".join(str(pid) for pid in remaining),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print("Парсер остановлен.")
+        sys.exit(0)
     if args.command == "serve":
         code = _serve(args.configs, args.host, args.port)
         sys.exit(code)
