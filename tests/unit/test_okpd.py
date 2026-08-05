@@ -7,7 +7,11 @@ import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
-from zakupki_parser.config.models import SearchFilterConfig
+from zakupki_parser.config.models import (
+    CriteriaMapping,
+    SearchCriteria,
+    SearchFilterConfig,
+)
 from zakupki_parser.okpd import parse_tree_html, resolve_okpd_codes
 from zakupki_parser.parser.lister import build_query
 
@@ -93,8 +97,9 @@ def test_build_query_with_okpd_codes(tmp_path: Path) -> None:
         query_params={"filter": "{filter_json}"},
         filter_json={"typeIn": {"values": [2]}, "needSpecificFilter": {}},
         okpd_tree_file=str(tmp_path / "okpd.json"),
+        criteria_map={"okpd2": CriteriaMapping(json_path="needSpecificFilter.okpdPaths")},
     )
-    q = build_query(search, datetime(2026, 8, 4), okpd_codes=["62", "63"])
+    q = build_query(search, datetime(2026, 8, 4), SearchCriteria(okpd_codes=["62", "63"]))
     params = dict(urllib.parse.parse_qsl(q))
     filt = json.loads(urllib.parse.unquote(params["filter"]))
     assert filt["needSpecificFilter"]["okpdPaths"] == [
@@ -118,7 +123,8 @@ def test_missing_tree_warns(tmp_path: Path) -> None:
         query_params={"filter": "{filter_json}"},
         filter_json={},
         okpd_tree_file=str(tmp_path / "нет_файла.json"),
+        criteria_map={"okpd2": CriteriaMapping(json_path="needSpecificFilter.okpdPaths")},
     )
     # не должно бросать исключение
-    q = build_query(search, None, okpd_codes=["62"])
+    q = build_query(search, None, SearchCriteria(okpd_codes=["62"]))
     assert q == "filter=%7B%7D"

@@ -40,6 +40,13 @@ class BrowserConfig(BaseModel):
     disable_webdriver_flag: bool = Field(default=True)
     persist_session: bool = Field(default=True)
     session_dir: str = Field(default="data/session")
+    ignore_https_errors: bool = Field(
+        default=False,
+        description=(
+            "игнорировать ошибки SSL-сертификата (нужно для площадок с "
+            "некорректным/корпоративным сертификатом, напр. zakupki.gov.ru)"
+        ),
+    )
     delay_between_actions_seconds: tuple[float, float] = Field(
         default=(4.0, 12.0), description="рандомная задержка между действиями"
     )

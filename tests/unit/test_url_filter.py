@@ -1,4 +1,4 @@
-"""Unit-тесты URL-фильтра списка закупок (маппинг из конфига)."""
+"""Unit-тесты URL-фильтра списка закупок (маппинг критериев из конфига)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import urllib.parse
 from datetime import datetime
 
-from zakupki_parser.config.models import AppConfig, SearchFilterConfig
+from zakupki_parser.config.models import AppConfig, CriteriaMapping, SearchFilterConfig
 from zakupki_parser.parser.lister import build_list_url, build_query
 
 
@@ -21,14 +21,16 @@ def _search() -> SearchFilterConfig:
         },
         filter_json={
             "typeIn": {"values": [2]},
-            "publishDateGreatEqual": "{publish_date_great_equal}",
             "needSpecificFilter": {"okpdPaths": ["x.y.", "a.b."]},
         },
         state_json={"currentTab": 2},
+        criteria_map={
+            "publish_date": CriteriaMapping(json_path="publishDateGreatEqual"),
+        },
     )
 
 
-def test_build_query_replaces_placeholders() -> None:
+def test_build_query_maps_criteria() -> None:
     cutoff = datetime(2026, 8, 4)
     q = build_query(_search(), cutoff)
     params = dict(urllib.parse.parse_qsl(q))
@@ -44,11 +46,11 @@ def test_build_query_replaces_placeholders() -> None:
     assert state == {"currentTab": 2}
 
 
-def test_build_query_without_cutoff_keeps_placeholder_literal() -> None:
+def test_build_query_without_cutoff_omits_date() -> None:
     q = build_query(_search(), None)
     params = dict(urllib.parse.parse_qsl(q))
     filt = json.loads(urllib.parse.unquote(params["filter"]))
-    assert filt["publishDateGreatEqual"] == "{publish_date_great_equal}"
+    assert "publishDateGreatEqual" not in filt
 
 
 def test_build_list_url_with_search(app_config: AppConfig) -> None:

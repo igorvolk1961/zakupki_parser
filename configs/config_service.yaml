@@ -6,7 +6,8 @@ timeout_seconds: 3600
 
 # Список сайтов закупок (platform_id должен присутствовать в config_dom.yaml)
 sites:
-  - { platform_id: "zakupki_mos", enabled: true }
+  - { platform_id: "zakupki_mos", enabled: false }
+  - { platform_id: "zakupki_gov", enabled: true }
 
 # Порог «дата последней обработанной записи» в днях (по умолчанию «сейчас − 7 дней»)
 default_cutoff_days: 7

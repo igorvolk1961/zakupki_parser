@@ -70,6 +70,18 @@ def handler_date_iso(value: Any) -> str | None:
 
 # Часовой пояс площадки — МСК (UTC+3). Даты в строках «с … до … (МСК)».
 MSK = timezone(timedelta(hours=3))
+
+
+def handler_date(value: Any) -> datetime | None:
+    """Дата «ДД.ММ.ГГГГ» -> aware datetime (МСК). Для колонок DateTime."""
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(str(value).strip(), "%d.%m.%Y").replace(tzinfo=MSK)
+    except ValueError:
+        return None
+
+
 _PUB_DATE_RE = re.compile(r"с\s+(\d{2}\.\d{2}\.\d{4})")
 _DEADLINE_RE = re.compile(r"до\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{1,2}:\d{2})")
 _LAW_RE = re.compile(r"(44-ФЗ|223-ФЗ)")
@@ -136,6 +148,7 @@ HANDLERS: dict[str, Any] = {
     "float": handler_float,
     "int": handler_int,
     "date_iso": handler_date_iso,
+    "date": handler_date,
     "pub_date": handler_pub_date,
     "deadline": handler_deadline,
     "law": handler_law,

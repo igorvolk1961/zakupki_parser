@@ -98,6 +98,18 @@ class Orchestrator:
                     deadline,
                 )
                 return True
+        if sc.min_deadline_days is not None:
+            deadline = record.get("deadline")
+            if isinstance(deadline, datetime):
+                days_left = (deadline - self._now).total_seconds() / 86400
+                if days_left < sc.min_deadline_days:
+                    logger.info(
+                        "Заявка %s пропущена: до срока подачи %.1f дн. < %d",
+                        record.get("number"),
+                        days_left,
+                        sc.min_deadline_days,
+                    )
+                    return True
         return False
 
     async def _persist(self, record: dict[str, Any]) -> bool:
@@ -180,7 +192,11 @@ class Orchestrator:
                 await detail_page.close()
 
         record: dict[str, Any] = {**list_vars, **detail_vars}
-        record["url"] = self._platform.url.rstrip("/") + detail_url
+        record["url"] = (
+            detail_url
+            if detail_url.startswith("http")
+            else self._platform.url.rstrip("/") + detail_url
+        )
         record["source_platform"] = self._platform_id
         record["detail_json"] = json_safe(record)
 
@@ -270,7 +286,7 @@ class Orchestrator:
             page,
             self._platform,
             cutoff,
-            self._cfg.service.search_criteria.okpd_codes,
+            self._cfg.service.search_criteria,
         )
         await setup_sort_and_filters(page, self._platform)
         await self._delayer.sleep()

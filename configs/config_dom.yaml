@@ -83,3 +83,56 @@ platforms:
       date_great_equal_format: "%d.%m.%Y 00:00:00"
       # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. docs/codes/okpd2_tree.json)
       okpd_tree_file: "docs/codes/okpd2_tree.json"
+
+  # ------------------------------------------------------------------------- #
+  # ЕИС (zakupki.gov.ru) — 44-ФЗ/223-ФЗ
+  # Серверный рендеринг; фильтрация через query-параметры расширенного поиска.
+  # Внимание: ОКПД2-фильтр (okpd2Ids) через GET пока не подтверждён — см. TODO.
+  # ------------------------------------------------------------------------- #
+  zakupki_gov:
+    name: "ЕИС (zakupki.gov.ru)"
+    url: "https://zakupki.gov.ru"
+    list_path: "/epz/order/extendedsearch/results.html"
+
+    list_config:
+      container: "div.search-registry-entry-block"
+      detail_link: "a[href*='common-info.html']"
+      next_page: "a.paginator-button-next"
+      # Стоп-порог по дате «Обновлено» (task.md: дата обновления закупки)
+      publication_date: "update_date"
+      variables:
+        - { name: "number",          selector: "a[href*='common-info.html']", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
+        - { name: "law",             selector: "div.registry-entry__header-top__title", handler: "law", default: null }
+        - { name: "subject",         selector: "div.registry-entry__header-top__title", handler: "strip", default: "" }
+        - { name: "status",          selector: "div.registry-entry__header-mid__title", handler: "strip", default: "" }
+        - { name: "customer",        selector: "a[href*='organization/view/info.html']", handler: "strip", default: "" }
+        - { name: "nmck",            selector: "div.price-block__value", handler: "money", default: null }
+        - { name: "publication_date", selector: "div.data-block__value", index: 0, handler: "date", default: null }
+        - { name: "update_date",     selector: "div.data-block__value", index: 1, handler: "date", default: null }
+
+    detail:
+      # Заказчик/НМЦК уже извлекаются из карточки списка. Детальные поля ЕИС
+      # зависят от типа извещения (common-info) — уточнить при необходимости (TODO).
+      variables: []
+      # Файлы ЕИС — на отдельной странице documents.html (по типам извещений); см. TODO
+      files: []
+
+    # Сортировка: фиксированный порядок — по дате обновления по убыванию
+    sort:
+      order: publication_date_desc
+      dropdown: null
+      option_text: null
+
+    # URL-фильтр расширенного поиска ЕИС
+    search:
+      enabled: true
+      query_params:
+        fz44: "on"
+        publishDateFrom: "{publish_date_great_equal}"
+        pageNumber: "1"
+        sortDirection: "false"
+        sortBy: "UPDATE_DATE"
+        recordsPerPage: "_50"
+      filter_json: {}
+      state_json: {}
+      date_great_equal_format: "%d.%m.%Y"

@@ -99,35 +99,73 @@ class SortConfig(BaseModel):
     )
 
 
+class CriteriaMapping(BaseModel):
+    """Привязка одного ОБОБЩЁННОГО критерия поиска к конкретному запросу площадки.
+
+    Критерии задаются в config_service.yaml (SearchCriteria) в бизнес-терминах;
+    здесь каждый из них маппится на то, куда его подставить в запрос площадки:
+      - ``json_path`` — точечный путь внутри ``filter_json`` (напр.
+        ``needSpecificFilter.okpdPaths``, ``priceFrom``);
+      - ``query_param`` — имя плоского query-параметра (напр. ``searchString``,
+        ``priceFrom``, ``publishDateFrom``).
+    Можно указать оба сразу (например, критерий попадает и в JSON, и в параметр).
+    Ключ словаря criteria_map — один из известных критериев: ``publish_date``,
+    ``okpd2``, ``keywords``, ``nmck_min``, ``nmck_max``, ``region``.
+    """
+
+    json_path: str | None = Field(
+        default=None, description="точечный путь внутри filter_json для значения"
+    )
+    query_param: str | None = Field(
+        default=None, description="имя плоского query-параметра для значения"
+    )
+
+
 class SearchFilterConfig(BaseModel):
     """URL-фильтр списка закупок — полностью конфигурируемый.
 
-    Маппинг URL строится только из конфига: имена параметров запроса, структура
-    JSON-параметров ``filter``/``state`` и формат даты порога. Плейсхолдеры:
-      - ``{filter_json}`` — URL-encoded JSON из ``filter_json``;
-      - ``{state_json}``  — URL-encoded JSON из ``state_json``;
-      - ``{publish_date_great_equal}`` — дата порога (cutoff) в формате
-        ``date_great_equal_format``.
+    Статичная часть запроса задаётся ``query_params`` (имена и шаблоны значений с
+    плейсхолдерами ``{filter_json}``/``{state_json}``), структуры JSON-параметров
+    ``filter_json``/``state_json``, а формат даты порога — ``date_great_equal_format``.
+
+    ОБОБЩЁННЫЕ критерии из config_service.yaml (SearchCriteria) подставляются через
+    ``criteria_map``: ключ критерия -> куда его положить (JSON-путь и/или query-параметр).
+    Это убирает зависимость кода от конкретных имён параметров площадки.
     """
 
     enabled: bool = Field(default=True)
     query_params: dict[str, str] = Field(
         default_factory=dict,
-        description="имя параметра запроса -> шаблон значения (с плейсхолдерами)",
+        description=(
+            "имя параметра запроса -> шаблон значения; плейсхолдеры {filter_json}, {state_json}"
+        ),
     )
     filter_json: dict[str, Any] = Field(
-        default_factory=dict, description="структура параметра filter (JSON)"
+        default_factory=dict, description="статичная структура параметра filter (JSON)"
     )
     state_json: dict[str, Any] = Field(
-        default_factory=dict, description="структура параметра state (JSON)"
+        default_factory=dict, description="статичная структура параметра state (JSON)"
     )
     date_great_equal_format: str = Field(
         default="%d.%m.%Y 00:00:00",
-        description="формат даты порога для плейсхолдера publish_date_great_equal",
+        description="формат даты порога (критерий publish_date)",
     )
     okpd_tree_file: str | None = Field(
         default=None,
         description="путь к маппингу ОКПД2 (код -> путь) для этой площадки",
+    )
+    region_tree_file: str | None = Field(
+        default=None,
+        description=(
+            "путь к маппингу регионов (код -> путь) для этой площадки; резолвится в критерий region"
+        ),
+    )
+    criteria_map: dict[str, CriteriaMapping] = Field(
+        default_factory=dict,
+        description=(
+            "обобщённый критерий (publish_date|okpd2|keywords|nmck_min|nmck_max|region) "
+            "-> привязка к запросу площадки (JSON-путь и/или query-параметр)"
+        ),
     )
 
 
