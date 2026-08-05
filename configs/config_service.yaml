@@ -28,6 +28,10 @@ search_criteria:
   # не окупающие консалтинг. Подставляется через criteria_map (nmck_min/nmck_max).
   nmck_min: null
   nmck_max: null
+  # Законы: включать/выключать 44-ФЗ и 223-ФЗ (применяется на ЕИС: fz44=on/fz223=on).
+  # false — параметр не передаётся, закупки по этому закону в выдачу не попадают.
+  fz44: true
+  fz223: true
 
 # Файлы: ОСНОВНОЙ режим — не скачиваются; в БД сохраняются имя и URL скачивания
 # с ЭТП (ТЗ — поля technical_spec_name/technical_spec_url, остальные — files_json).

@@ -127,6 +127,14 @@ class SearchCriteria(BaseModel):
         ge=0,
         description="максимальная НМЦК",
     )
+    fz44: bool = Field(
+        default=True,
+        description="включать закупки по 44-ФЗ (применяется на ЕИС: fz44=on)",
+    )
+    fz223: bool = Field(
+        default=True,
+        description="включать закупки по 223-ФЗ (применяется на ЕИС: fz223=on)",
+    )
 
 
 class StorageConfig(BaseModel):

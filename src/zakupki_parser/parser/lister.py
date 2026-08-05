@@ -138,6 +138,10 @@ def _criteria_value(
         return datetime.now(MSK).strftime(search.date_great_equal_format)
     if key == "okpd2":
         return _resolve_paths(criteria.okpd_codes, search.okpd_tree_file, "ОКПД2")
+    if key == "fz44":
+        return "on" if criteria.fz44 else None
+    if key == "fz223":
+        return "on" if criteria.fz223 else None
     if key == "nmck_min":
         return criteria.nmck_min
     if key == "nmck_max":
