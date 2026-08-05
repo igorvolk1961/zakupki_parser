@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from zakupki_parser.config.models import AppConfig
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS_DIR = REPO_ROOT / "configs"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
+
+_SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script>", re.DOTALL | re.IGNORECASE)
 
 
 @pytest.fixture(scope="session")
@@ -40,5 +43,10 @@ def load_fixture(name: str) -> str:
     return (FIXTURES_DIR / name).read_text(encoding="utf-8")
 
 
+def strip_scripts(html: str) -> str:
+    """Убирает <script>…</script>: внешние скрипты в CI зависают и блокируют domcontentloaded."""
+    return _SCRIPT_RE.sub("", html)
+
+
 async def set_html(page: Page, html: str) -> None:
-    await page.set_content(html, wait_until="domcontentloaded")
+    await page.set_content(strip_scripts(html), wait_until="domcontentloaded")
