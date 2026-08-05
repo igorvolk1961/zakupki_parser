@@ -210,11 +210,6 @@ class Orchestrator:
                 await detail_page.close()
 
         record: dict[str, Any] = {**list_vars, **detail_vars}
-        # subject для 223-ФЗ берём из «Объект закупки» (subject_223), если заголовочный пуст
-        subject_223 = record.get("subject_223")
-        if subject_223 and not record.get("subject"):
-            record["subject"] = subject_223
-        record.pop("subject_223", None)
         record["url"] = (
             detail_url
             if detail_url.startswith("http")

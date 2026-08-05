@@ -112,20 +112,19 @@ platforms:
       variables:
         - { name: "number",          selector: "a[href*='common-info.html']", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
         - { name: "law",             selector: "div.registry-entry__header-top__title", handler: "law", default: null }
-        # Предмет: 44-ФЗ — в заголовке; 223-ФЗ — «Объект закупки» (registry-entry__body-value).
-        - { name: "subject",         selector: "div.registry-entry__header-top__title", handler: "strip", default: "" }
-        - { name: "subject_223",     selector: "div.registry-entry__body-value", handler: "strip", default: "" }
+        # Предмет закупки — «Объект закупки» в карточке списка (общий для 44-ФЗ и 223-ФЗ)
+        - { name: "subject",         selector: "div.registry-entry__body-value", handler: "strip", default: "" }
         - { name: "status",          selector: "div.registry-entry__header-mid__title", handler: "strip", default: "" }
         # Заказчик: 44-ФЗ — organization/view/info.html, 223-ФЗ — organization/view223/info.html
         - { name: "customer",        selector: "a[href*='organization/view']", handler: "strip", default: "" }
         - { name: "nmck",            selector: "div.price-block__value", handler: "money", default: null }
         - { name: "publication_date", selector: "div.data-block__value", index: 0, handler: "date", default: null }
         - { name: "update_date",     selector: "div.data-block__value", index: 1, handler: "date", default: null }
-        # «Окончание подачи заявок» — третий data-block (только у 223-ФЗ)
+        # «Окончание подачи заявок» — третий data-block (у 44-ФЗ и 223-ФЗ)
         - { name: "deadline",        selector: "div.data-block__value", index: 2, handler: "date", default: null }
 
     detail:
-      # Заказчик/НМЦК уже извлекаются из карточки списка. Детальные поля ЕИС
+      # Основные поля уже извлекаются из карточки списка. Детальные поля ЕИС
       # зависят от типа извещения (common-info) — уточнить при необходимости (TODO).
       variables: []
       # Файлы закупки — на отдельной странице documents.html (файлы по

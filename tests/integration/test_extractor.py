@@ -129,5 +129,5 @@ async def test_eis_223_extraction(app_config: AppConfig, page: Page) -> None:
     assert len(data.get("number", "")) == 11, "Номер 223-ФЗ должен быть 11-значным"
     assert data.get("law") == "223-ФЗ"
     assert data.get("customer"), "Заказчик должен извлекаться (view223)"
-    assert data.get("subject_223"), "Предмет 223-ФЗ должен извлекаться из body-value"
+    assert data.get("subject"), "Предмет 223-ФЗ должен извлекаться из body-value"
     assert data.get("deadline"), "Дедлайн (Окончание подачи) должен извлекаться"
