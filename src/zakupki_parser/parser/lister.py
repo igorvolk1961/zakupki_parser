@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import urllib.parse
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -44,6 +45,55 @@ def _resolve_paths(codes: list[str], tree_file: str | None, label: str) -> list[
         return None
 
 
+def _digits(code: str) -> str:
+    return re.sub(r"\D", "", code)
+
+
+def _resolve_okpd2_eis(codes: list[str], tree_file: str | None) -> dict[str, str] | None:
+    """Резолвит коды ОКПД2 для ЕИС в параметр ``okpd2Ids``.
+
+    Возвращает ``{"okpd2Ids": ...}`` — только собственные id выбранных кодов.
+    Дочерние узлы подключаются флагом ``okpd2IdsWithNested=on`` (в статических
+    query_params), поэтому перечислять всё поддерево не нужно. Для кода без
+    собственного id берётся ближайший предок.
+    """
+    if not codes:
+        return None
+    if not tree_file:
+        logger.warning("ОКПД2 коды заданы, но search-маппинг (ЕИС) не указан")
+        return None
+    try:
+        tree = load_okpd_tree(tree_file)
+    except (OSError, ValueError) as exc:
+        logger.warning("Не удалось загрузить дерево ОКПД2 ЕИС %s: %s", tree_file, exc)
+        return None
+
+    code_to_id = tree.get("code_to_id") or {}
+    ids: list[str] = []
+    for code in codes:
+        cid = code_to_id.get(code)
+        if cid is None:
+            cid = _nearest_ancestor_id(code, code_to_id)
+        if cid and cid not in ids:
+            ids.append(cid)
+    if not ids:
+        return None
+    return {"okpd2Ids": ",".join(ids)}
+
+
+def _nearest_ancestor_id(code: str, code_to_id: dict[str, str]) -> str | None:
+    """id ближайшего предка кода (по цифровому префиксу) или None."""
+    digits = _digits(code)
+    best_len = 0
+    best_id: str | None = None
+    for c, cid in code_to_id.items():
+        key_digits = _digits(c)
+        if key_digits and digits.startswith(key_digits) and len(key_digits) > best_len:
+            best_len = len(key_digits)
+            best_id = cid
+    return best_id
+
+
 def _set_json_path(data: dict[str, Any], path: str, value: Any) -> None:
     """Вставляет ``value`` в ``data`` по точечному пути ``path`` (создаёт словари)."""
     parts = path.split(".")
@@ -77,6 +127,15 @@ def _criteria_value(
         if cutoff is None:
             return None
         return cutoff.astimezone(MSK).strftime(search.date_great_equal_format)
+    if key == "update_date":
+        # Дата «Обновлено» (ЕИС updateDateFrom) — тот же порог cutoff.
+        if cutoff is None:
+            return None
+        return cutoff.astimezone(MSK).strftime(search.date_great_equal_format)
+    if key == "deadline_from":
+        # Срок подачи заявок не раньше сегодня (заявки с просроченным дедлайном
+        # отсекаются сервером — дополняет stop_conditions.deadline_not_expired).
+        return datetime.now(MSK).strftime(search.date_great_equal_format)
     if key == "okpd2":
         return _resolve_paths(criteria.okpd_codes, search.okpd_tree_file, "ОКПД2")
     if key == "region":
@@ -110,6 +169,12 @@ def build_query(
 
     extra_params: dict[str, str] = {}
     for key, mapping in (search.criteria_map or {}).items():
+        if key == "okpd2" and mapping.query_params:
+            values = _resolve_okpd2_eis(criteria.okpd_codes, search.okpd_tree_file)
+            if values:
+                for param, value in values.items():
+                    extra_params[param] = value
+            continue
         value = _criteria_value(key, criteria, cutoff, search)
         if value is None or (isinstance(value, list) and not value):
             continue
@@ -118,21 +183,18 @@ def build_query(
         if mapping.query_param:
             extra_params[mapping.query_param] = _value_to_str(value)
 
-    filter_encoded = urllib.parse.quote(
-        json.dumps(filter_json, ensure_ascii=False, separators=(",", ":"))
-    )
-    state_encoded = urllib.parse.quote(
-        json.dumps(state_json, ensure_ascii=False, separators=(",", ":"))
-    )
+    filter_json_str = json.dumps(filter_json, ensure_ascii=False, separators=(",", ":"))
+    state_json_str = json.dumps(state_json, ensure_ascii=False, separators=(",", ":"))
 
     parts: list[str] = []
     for key, template in search.query_params.items():
         value = template
-        value = value.replace("{filter_json}", filter_encoded)
-        value = value.replace("{state_json}", state_encoded)
-        parts.append(f"{key}={value}")
+        value = value.replace("{filter_json}", filter_json_str)
+        value = value.replace("{state_json}", state_json_str)
+        # Статические значения (в т.ч. кириллица/пробелы) URL-кодируются целиком.
+        parts.append(f"{key}={urllib.parse.quote(value, safe='')}")
     for name, value in extra_params.items():
-        parts.append(f"{name}={urllib.parse.quote(value)}")
+        parts.append(f"{name}={urllib.parse.quote(value, safe='')}")
     return "&".join(parts)
 
 

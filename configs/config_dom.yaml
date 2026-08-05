@@ -133,21 +133,40 @@ platforms:
       option_text: null
 
     # URL-фильтр расширенного поиска ЕИС. Обобщённые критерии мапятся на плоские
-    # query-параметры. ВАЖНО: ОКПД2-фильтр (okpd2Ids) через GET не подтверждён — см. TODO.
+    # query-параметры. ОКПД2: сервер игнорирует корневой id — нужен полный список
+    # id/кодов поддерева (okpd2Ids + okpd2IdsCodes), см. docs/codes/gov_okpd2_tree.json.
     search:
       enabled: true
       query_params:
-        fz44: "on"
+        morphology: "on"
+        search-filter: "Дате размещения"
         pageNumber: "1"
         sortDirection: "false"
-        sortBy: "UPDATE_DATE"
         recordsPerPage: "_50"
+        showLotsInfoHidden: "false"
+        sortBy: "UPDATE_DATE"
+        fz44: "on"
+        currencyIdGeneral: "-1"
+        okpd2IdsWithNested: "on"
       filter_json: {}
       state_json: {}
       criteria_map:
         publish_date:  { query_param: "publishDateFrom" }
-        okpd2:         { query_param: "okpd2Ids" }
-        keywords:      { query_param: "searchString" }
-        nmck_min:      { query_param: "priceFrom" }
-        nmck_max:      { query_param: "priceTo" }
+        # Дата «Обновлено» (ЕИС updateDateFrom) — как в реальном URL; соответствует
+        # стоп-логике по дате обновления закупки.
+        update_date:   { query_param: "updateDateFrom" }
+        # Срок подачи заявок (applSubmissionCloseDateFrom) = сегодня — отсекает
+        # просроченные заявки (дедлайн обязателен).
+        deadline_from: { query_param: "applSubmissionCloseDateFrom" }
+        # okpd2IdsWithNested=on (в query_params) включает дочерние узлы — перечислять
+        # всё поддерево не нужно, достаточно собственных id выбранных кодов.
+        okpd2:
+          query_params:
+            okpd2Ids: "{okpd2_ids}"
+        # keywords (searchString) для ЕИС не применяется: тематику задаёт ОКПД2,
+        # а текстовый поиск по нескольким словам даёт 0 результатов.
+        nmck_min:      { query_param: "priceFromGeneral" }
+        nmck_max:      { query_param: "priceToGeneral" }
       date_great_equal_format: "%d.%m.%Y"
+      # Маппинг «код ОКПД2 -> id ЕИС» (полное поддерево 62/63, см. gov.html)
+      okpd_tree_file: "docs/codes/gov_okpd2_tree.json"

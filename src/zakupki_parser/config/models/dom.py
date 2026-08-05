@@ -119,6 +119,14 @@ class CriteriaMapping(BaseModel):
     query_param: str | None = Field(
         default=None, description="имя плоского query-параметра для значения"
     )
+    query_params: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "несколько query-параметров (значения — шаблоны с плейсхолдерами "
+            "{okpd2_ids}/{okpd2_codes}); используется для ОКПД2 на ЕИС "
+            "(okpd2Ids + okpd2IdsCodes)"
+        ),
+    )
 
 
 class SearchFilterConfig(BaseModel):
