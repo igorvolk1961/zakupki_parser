@@ -133,7 +133,7 @@ class CriteriaMapping(BaseModel):
         ``priceFrom``, ``publishDateFrom``).
     Можно указать оба сразу (например, критерий попадает и в JSON, и в параметр).
     Ключ словаря criteria_map — один из известных критериев: ``publish_date``,
-    ``okpd2``, ``keywords``, ``nmck_min``, ``nmck_max``, ``region``.
+    ``okpd2``, ``nmck_min``, ``nmck_max``.
     """
 
     json_path: str | None = Field(
@@ -185,16 +185,10 @@ class SearchFilterConfig(BaseModel):
         default=None,
         description="путь к маппингу ОКПД2 (код -> путь) для этой площадки",
     )
-    region_tree_file: str | None = Field(
-        default=None,
-        description=(
-            "путь к маппингу регионов (код -> путь) для этой площадки; резолвится в критерий region"
-        ),
-    )
     criteria_map: dict[str, CriteriaMapping] = Field(
         default_factory=dict,
         description=(
-            "обобщённый критерий (publish_date|okpd2|keywords|nmck_min|nmck_max|region) "
+            "обобщённый критерий (publish_date|okpd2|nmck_min|nmck_max) "
             "-> привязка к запросу площадки (JSON-путь и/или query-параметр)"
         ),
     )

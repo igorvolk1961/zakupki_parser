@@ -77,20 +77,16 @@ platforms:
         needSpecificFilter: {}
       state_json:
         currentTab: 2
-      # Привязка обобщённых критериев к структуре запроса площадки. Коды
-      # ОКПД2/регионов резолвятся в пути через okpd_tree_file/region_tree_file.
+      # Привязка обобщённых критериев к структуре запроса площадки. Коды ОКПД2
+      # резолвятся в пути через okpd_tree_file.
       criteria_map:
         publish_date:  { json_path: "publishDateGreatEqual" }
         okpd2:         { json_path: "needSpecificFilter.okpdPaths" }
-        region:        { json_path: "needSpecificFilter.regionPaths" }
-        keywords:      { json_path: "searchString" }
         nmck_min:      { json_path: "priceFrom" }
         nmck_max:      { json_path: "priceTo" }
       date_great_equal_format: "%d.%m.%Y 00:00:00"
       # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. docs/codes/okpd2_tree.json)
       okpd_tree_file: "docs/codes/okpd2_tree.json"
-      # Маппинг «код региона -> путь» (опционально; формат как у okpd_tree_file)
-      region_tree_file: null
 
   # ------------------------------------------------------------------------- #
   # ЕИС (zakupki.gov.ru) — 44-ФЗ/223-ФЗ
@@ -132,6 +128,7 @@ platforms:
         - { name: "security_amount", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Размер обеспечения исполнения контракта']]//span[contains(@class,'section__info')]", handler: "security", default: null }
         - { name: "security_amount_unit", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Размер обеспечения исполнения контракта']]//span[contains(@class,'section__info')]", handler: "security_unit", default: null }
         - { name: "execution_term", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Срок исполнения контракта']]//span[contains(@class,'section__info')]", handler: "strip", default: null }
+        - { name: "region", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Регион']]//span[contains(@class,'section__info')]", handler: "strip", default: null }
       additional_pages:
         - link_selector: "a[href*='lot-list.html']"
           variables:
@@ -180,8 +177,8 @@ platforms:
         okpd2:
           query_params:
             okpd2Ids: "{okpd2_ids}"
-        # keywords (searchString) для ЕИС не применяется: тематику задаёт ОКПД2,
-        # а текстовый поиск по нескольким словам даёт 0 результатов.
+        # Текстовый поиск (searchString) не применяется: тематику задаёт ОКПД2,
+        # а поиск по словам сужает выдачу (AND-семантика).
         nmck_min:      { query_param: "priceFromGeneral" }
         nmck_max:      { query_param: "priceToGeneral" }
       date_great_equal_format: "%d.%m.%Y"

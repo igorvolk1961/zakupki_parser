@@ -138,11 +138,6 @@ def _criteria_value(
         return datetime.now(MSK).strftime(search.date_great_equal_format)
     if key == "okpd2":
         return _resolve_paths(criteria.okpd_codes, search.okpd_tree_file, "ОКПД2")
-    if key == "region":
-        return _resolve_paths(criteria.region_codes, search.region_tree_file, "региона")
-    if key == "keywords":
-        joined = " ".join(criteria.keywords).strip()
-        return joined or None
     if key == "nmck_min":
         return criteria.nmck_min
     if key == "nmck_max":

@@ -117,13 +117,6 @@ class SearchCriteria(BaseModel):
             "через маппинг (search.okpd_tree_file); выбор предка включает потомков"
         ),
     )
-    keywords: list[str] = Field(
-        default_factory=list,
-        description=(
-            "ключевые слова для поиска в предмете/наименовании закупки (ИИ, "
-            "автоматизация, разработка и т.п.). Пусто — поиск по словам не применяется."
-        ),
-    )
     nmck_min: float | None = Field(
         default=None,
         ge=0,
@@ -133,13 +126,6 @@ class SearchCriteria(BaseModel):
         default=None,
         ge=0,
         description="максимальная НМЦК",
-    )
-    region_codes: list[str] = Field(
-        default_factory=list,
-        description=(
-            "коды регионов для фильтрации. Резолвятся в пути узлов дерева площадки "
-            "через маппинг (search.region_tree_file, формат как у ОКПД2)"
-        ),
     )
 
 

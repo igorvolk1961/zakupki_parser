@@ -29,19 +29,6 @@ def _mos(criteria_map: dict[str, CriteriaMapping]) -> SearchFilterConfig:
     )
 
 
-def test_keywords_into_filter_json() -> None:
-    search = _mos({"keywords": CriteriaMapping(json_path="searchString")})
-    criteria = SearchCriteria(keywords=["искусственный интеллект", "автоматизация"])
-    filt = _decode_filter(build_query(search, None, criteria))
-    assert filt["searchString"] == "искусственный интеллект автоматизация"
-
-
-def test_keywords_empty_not_in_filter() -> None:
-    search = _mos({"keywords": CriteriaMapping(json_path="searchString")})
-    filt = _decode_filter(build_query(search, None, SearchCriteria()))
-    assert "searchString" not in filt
-
-
 def test_nmck_range_into_filter_json() -> None:
     search = _mos(
         {
@@ -75,22 +62,6 @@ def test_okpd2_resolved_into_need_specific(tmp_path: Path) -> None:
     search.okpd_tree_file = str(tree_file)
     filt = _decode_filter(build_query(search, None, SearchCriteria(okpd_codes=["77", "50"])))
     assert filt["needSpecificFilter"]["okpdPaths"] == [".77.100.", ".50.200."]
-
-
-def test_region_resolved_into_need_specific(tmp_path: Path) -> None:
-    tree = {"code_to_path": {"77": ".77.100."}}
-    tree_file = tmp_path / "region.json"
-    tree_file.write_text(json.dumps(tree, ensure_ascii=False), encoding="utf-8")
-    search = _mos({"region": CriteriaMapping(json_path="needSpecificFilter.regionPaths")})
-    search.region_tree_file = str(tree_file)
-    filt = _decode_filter(build_query(search, None, SearchCriteria(region_codes=["77"])))
-    assert filt["needSpecificFilter"]["regionPaths"] == [".77.100."]
-
-
-def test_region_skipped_without_mapping(tmp_path: Path) -> None:
-    search = _mos({"region": CriteriaMapping(json_path="needSpecificFilter.regionPaths")})
-    filt = _decode_filter(build_query(search, None, SearchCriteria(region_codes=["77"])))
-    assert "regionPaths" not in filt.get("needSpecificFilter", {})
 
 
 def test_publish_date_omitted_without_cutoff() -> None:
