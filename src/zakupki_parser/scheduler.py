@@ -8,7 +8,7 @@ from typing import Any
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
-from zakupki_parser.circuit import CircuitBreaker
+from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.file_processor import FileProcessor
 from zakupki_parser.logging_conf import setup_logging
@@ -165,6 +165,14 @@ class Scheduler:
             )
             try:
                 await orchestrator.run(page)
+            except CircuitOpenError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                # Ошибка обработки площадки (сайт недоступен/изменился и т.п.) —
+                # учитываем в circuit breaker'е сайта для graceful degradation.
+                self._site_cb.record_failure()
+                logger.error("Ошибка парсинга площадки %s: %s", platform_id, exc)
+                raise
             finally:
                 await browser.save_session()
         finally:

@@ -134,7 +134,9 @@ class Orchestrator:
                 return saved
             except IntegrityError as exc:
                 # Конкурентная вставка того же номера — не ошибка доступности.
+                # БД доступна, поэтому сбрасываем счётчик отказов CB.
                 logger.info("Дубликат по unique-констрейнту: %s", exc)
+                self._db_cb.record_success()
                 return False
             except Exception as exc:  # noqa: BLE001
                 if is_data_db_error(exc):
@@ -198,7 +200,6 @@ class Orchestrator:
             else self._platform.url.rstrip("/") + detail_url
         )
         record["source_platform"] = self._platform_id
-        record["detail_json"] = json_safe(record)
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record):
@@ -266,10 +267,14 @@ class Orchestrator:
             record["score"] = score
             record["score_method"] = method
 
-        # 9) запись в БД + защита от дубликатов
+        # 9) JSONB-карточка формируется из ФИНАЛЬНОЙ записи (включая файлы, score,
+        #    результаты доп. обработки), чтобы снимок соответствовал сохранённому.
+        record["detail_json"] = json_safe(record)
+
+        # 10) запись в БД + защита от дубликатов
         saved = await self._persist(record)
 
-        # 10) webhook только для новых записей
+        # 11) webhook только для новых записей
         if saved:
             await self._notifier.notify(record)
 
@@ -292,6 +297,7 @@ class Orchestrator:
         await self._delayer.sleep()
 
         while True:
+            reached_cutoff = False
             async for container in iter_container_records(page, self._platform, self._delayer):
                 # Выход по порогу даты публикации. Обрабатываем записи с датой >=
                 # дня порога и останавливаемся при записи со строго более ранним днём.
@@ -313,8 +319,14 @@ class Orchestrator:
                             pub_val,
                             cutoff,
                         )
-                        return
+                        reached_cutoff = True
+                        break
                 await self._process_container(page, container)
+
+            # Доcтигли порога дат — завершаем весь проход (не переходим на
+            # следующую страницу), чтобы обновить last_seen и сбросить CB.
+            if reached_cutoff:
+                break
 
             # переход на следующую страницу
             if not await next_page_exists(page, self._platform):

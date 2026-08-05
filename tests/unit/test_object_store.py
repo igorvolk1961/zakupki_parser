@@ -30,6 +30,15 @@ async def test_local_store_put_delete(tmp_path: Path) -> None:
     assert not (tmp_path / "123").exists()
 
 
+@pytest.mark.asyncio
+async def test_local_store_put_rejects_escape(tmp_path: Path) -> None:
+    store = LocalObjectStore(tmp_path)
+    with pytest.raises(ValueError):
+        await store.put("../../outside.pdf", b"data")
+    # файл не создан за пределами каталога
+    assert not (tmp_path.parent / "outside.pdf").exists()
+
+
 def test_build_store_local(tmp_path: Path) -> None:
     store = build_object_store(StorageConfig(type="local"), tmp_path)
     assert isinstance(store, LocalObjectStore)

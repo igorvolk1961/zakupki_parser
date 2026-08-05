@@ -22,6 +22,13 @@ def test_filename_from_disposition() -> None:
     assert _filename_from_disposition(None) is None
 
 
+def test_filename_from_disposition_blocks_traversal() -> None:
+    # Попытка выйти за пределы каталога хранилища нейтрализуется.
+    assert _filename_from_disposition('attachment; filename="../../../../etc/cron.d/x"') == "x"
+    assert _filename_from_disposition('attachment; filename="..\\..\\evil.txt"') == "evil.txt"
+    assert _filename_from_disposition('attachment; filename="..."') == "..."
+
+
 def test_matches_keywords() -> None:
     assert _matches_keywords("Техническое задание.pdf", ["техническое задание"]) is True
     assert _matches_keywords("техническое задание.pdf", ["Техническое задание"]) is True

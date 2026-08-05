@@ -43,13 +43,16 @@ class LocalObjectStore(ObjectStore):
     """Локальный каталог (documents_dir). URL — абсолютный путь к файлу."""
 
     def __init__(self, documents_dir: Path) -> None:
-        self._dir = documents_dir
+        self._dir = documents_dir.resolve()
 
     async def put(self, key: str, data: bytes, content_type: str | None = None) -> FileRef:
-        dest = self._dir / key
+        dest = (self._dir / key).resolve()
+        # Защита от выхода за пределы каталога (key может прийти извне).
+        if not dest.is_relative_to(self._dir):
+            raise ValueError(f"Ключ файла выходит за пределы хранилища: {key!r}")
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
-        return FileRef(key=str(key), url=str(dest.resolve()), filename=dest.name)
+        return FileRef(key=str(key), url=str(dest), filename=dest.name)
 
     async def get(self, key: str) -> bytes:
         return (self._dir / key).read_bytes()

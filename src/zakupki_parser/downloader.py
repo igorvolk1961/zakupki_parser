@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 
 from playwright.async_api import Page
@@ -16,13 +17,25 @@ _FILENAME_RE = re.compile(r'filename="?([^";]+)"?')
 _FILENAME_STAR_RE = re.compile(r"filename\*\s*=\s*(?:UTF-8'')?([^;]+)", re.IGNORECASE)
 
 
+def _safe_filename(name: str) -> str:
+    """Возвращает безопасное имя файла (только базовое имя, без путей).
+
+    Имя приходит с сервера в Content-Disposition и может содержать ``../`` или
+    разделители путей — не допускаем запись за пределы каталога хранилища.
+    """
+    base = os.path.basename(name.replace("\\", "/")).strip().strip('"')
+    if base in ("", ".", ".."):
+        return ""
+    return base
+
+
 def _filename_from_disposition(header: str | None) -> str | None:
     if not header:
         return None
     m = _FILENAME_STAR_RE.search(header) or _FILENAME_RE.search(header)
     if not m:
         return None
-    return m.group(1).strip().strip('"') if m else None
+    return _safe_filename(m.group(1)) if m else None
 
 
 def _matches_keywords(filename: str | None, keywords: list[str]) -> bool:
@@ -47,14 +60,14 @@ async def _file_name(page: Page, full: str) -> str | None:
     for method in ("head", "get"):
         try:
             resp = await getattr(page.request, method)(full, timeout=30000)
+            try:
+                fname = _filename_from_disposition(resp.headers.get("content-disposition"))
+                if fname:
+                    return fname
+            finally:
+                await resp.dispose()
         except Exception:  # noqa: BLE001
-            return None
-        try:
-            fname = _filename_from_disposition(resp.headers.get("content-disposition"))
-            if fname:
-                return fname
-        finally:
-            await resp.dispose()
+            continue
     return None
 
 
@@ -77,7 +90,8 @@ async def download_files(
 
     Возвращает ссылки на сохранённые файлы (``FileRef``).
     """
-    assert urls is not None, "urls обязательны"
+    if urls is None:
+        raise ValueError("urls обязательны")
     refs: list[FileRef] = []
     for i, url in enumerate(urls, start=1):
         full = url if url.startswith("http") else platform.url.rstrip("/") + url
@@ -101,6 +115,9 @@ async def download_files(
             fname = (
                 _filename_from_disposition(resp.headers.get("content-disposition")) or f"file_{i}"
             )
+            if not fname:
+                logger.warning("Пустое имя файла из %s, пропуск", full)
+                continue
             key = f"{number}/{fname}"
             ref = await store.put(key, content)
             refs.append(ref)
