@@ -43,8 +43,8 @@ search_criteria:
 # с ЭТП (ТЗ — поля technical_spec_name/technical_spec_url, остальные — files_json).
 # download_files: true включает скачивание в хранилище (MinIO/local).
 download_files: false
-# Скачивать только файлы, в имени которых есть одно из технических ключевых слов
-# (например, только техническое задание). Работает при download_files: true.
+# Скачивать только файлы, в имени которых есть одно из ключевых словосочетаний
+# (например, "техническое задание"). Работает при download_files: true.
 download_technical_spec_only: true
 technical_spec_keywords:
   - "техническое задание"

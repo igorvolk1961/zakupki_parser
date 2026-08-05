@@ -51,6 +51,7 @@ class Procurement(Base):
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     execution_term: Mapped[str | None] = mapped_column(Text)
     security_amount: Mapped[float | None] = mapped_column(Float)
+    security_amount_unit: Mapped[str | None] = mapped_column(String(16))
     advance: Mapped[float | None] = mapped_column(Float)
     okpd2_codes: Mapped[str | None] = mapped_column(Text)
     kpgz_codes: Mapped[str | None] = mapped_column(Text)

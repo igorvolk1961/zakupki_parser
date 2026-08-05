@@ -17,3 +17,5 @@ databaseChangeLog:
       file: db.changelog-1.7.yaml
   - include:
       file: db.changelog-1.8.yaml
+  - include:
+      file: db.changelog-1.9.yaml

@@ -53,7 +53,7 @@ def compute_default_score(record: dict[str, Any], cfg: ScoreConfig) -> float:
     """Внутренняя эвристика: Fit × P(win) × Margin (Margin = НМЦК)."""
     fit = _fit_for_code(_okpd2_code(record), cfg.fit_table, cfg.default_fit)
     margin = float(record.get("nmck") or 0.0)
-    return float(fit * cfg.p_win * margin)
+    return round(fit * cfg.p_win * margin, 2)
 
 
 class ExternalScoreClient:
@@ -102,7 +102,7 @@ async def score_for_record(
             external = ExternalScoreClient(cfg)
         try:
             value = await external.score(record)
-            return value, SCORE_METHOD_EXTERNAL
+            return round(value, 2), SCORE_METHOD_EXTERNAL
         except Exception as exc:  # noqa: BLE001
             logger.warning("Ошибка внешнего скоринга, fallback на default: %s", exc)
             return compute_default_score(record, cfg), SCORE_METHOD_DEFAULT

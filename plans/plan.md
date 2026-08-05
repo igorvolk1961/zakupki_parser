@@ -47,7 +47,7 @@
 - [x] Миграции Liquibase (1.0–1.7): колонки, даты, score, `technical_spec_*`, комментарии
 - [x] Поля task.md: number, customer, law, subject, nmck, deadline, okpd2, ТЗ, files_json
 - [x] Колонки security_amount/advance (обеспечение/аванс)
-- [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (в работе)
+- [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (в работе: окпд2/обеспечение+единица/срок — сделано, kpgz/аванс — осталось)
 - [ ] ⬜ Нормализация БД (справочники) — ADR-4, при разработке скорингового сервиса
 
 ## 7. Circuit Breaker и graceful degradation

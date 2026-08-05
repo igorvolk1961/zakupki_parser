@@ -13,6 +13,13 @@ from zakupki_parser.storage.db import Database, Procurement
 logger = logging.getLogger(__name__)
 
 
+def _round_score(value: Any) -> float | None:
+    """Округляет score до копеек (0.01 ₽) перед записью в БД."""
+    if value is None:
+        return None
+    return round(float(value), 2)
+
+
 class ProcurementRepository:
     """Операции с таблицей ``procurements``."""
 
@@ -97,13 +104,14 @@ class ProcurementRepository:
             deadline=data.get("deadline"),
             execution_term=data.get("execution_term"),
             security_amount=data.get("security_amount"),
+            security_amount_unit=data.get("security_amount_unit"),
             advance=data.get("advance"),
             okpd2_codes=data.get("okpd2_codes") or data.get("okpd2_code"),
             kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
             technical_spec_url=data.get("technical_spec_url"),
             technical_spec_name=data.get("technical_spec_name"),
             files_json=data.get("files_json"),
-            score=data.get("score"),
+            score=_round_score(data.get("score")),
             score_method=data.get("score_method"),
             detail_json=data.get("detail_json"),
         )
@@ -139,13 +147,14 @@ class ProcurementRepository:
         async with self._db.session() as session:
             obj = await session.get(Procurement, procurement_id)
             if obj is not None:
-                obj.score = score
+                rounded = _round_score(score)
+                obj.score = rounded
                 obj.score_method = method
                 await session.commit()
                 logger.info(
                     "Обновлён score заявки %s: %s (метод %s)",
                     procurement_id,
-                    score,
+                    rounded,
                     method,
                 )
 

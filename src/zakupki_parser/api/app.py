@@ -47,6 +47,8 @@ class ProcurementOut(BaseModel):
     execution_term: str | None = None
     okpd2_codes: str | None = None
     kpgz_codes: str | None = None
+    security_amount: float | None = None
+    security_amount_unit: str | None = None
     technical_spec_url: str | None = None
     technical_spec_name: str | None = None
     files_json: list[dict[str, Any]] | None = None

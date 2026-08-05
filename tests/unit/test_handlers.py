@@ -12,6 +12,8 @@ from zakupki_parser.parser.handlers import (
     handler_money,
     handler_pub_date,
     handler_regex,
+    handler_security,
+    handler_security_unit,
     handler_strip,
 )
 
@@ -25,6 +27,20 @@ def test_money() -> None:
     assert handler_money("3 250,00 ₽") == 3250.0
     assert handler_money("186 000,00 ₽") == 186000.0
     assert handler_money(None) is None
+
+
+def test_security() -> None:
+    assert handler_security("10 %") == 10.0
+    assert handler_security("3 600 239,70 Российский рубль (12,5 %)") == 3600239.7
+    assert handler_security("10\u00a0%") == 10.0
+    assert handler_security(None) is None
+
+
+def test_security_unit() -> None:
+    assert handler_security_unit("10 %") == "%"
+    assert handler_security_unit("10\u00a0%") == "%"
+    assert handler_security_unit("3 600 239,70 Российский рубль (12,5 %)") == "руб."
+    assert handler_security_unit(None) is None
 
 
 def test_int() -> None:

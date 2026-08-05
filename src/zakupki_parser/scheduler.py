@@ -32,6 +32,7 @@ _SCORE_PAYLOAD_FIELDS = (
     "deadline",
     "execution_term",
     "security_amount",
+    "security_amount_unit",
     "advance",
     "okpd2_codes",
     "kpgz_codes",

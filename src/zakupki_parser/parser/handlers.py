@@ -140,6 +140,39 @@ def handler_regex(value: Any, arg: str | None = None) -> str | None:
     return m.group(1) if m else None
 
 
+def handler_security(value: Any) -> float | None:
+    """Обеспечение исполнения контракта на ЕИС.
+
+    Поле может быть процентным («10 %») или рублёвым
+    («3 600 239,70 Российский рубль (12,5 %)») — берём первое денежное
+    значение (сумму), иначе первое число (процент).
+    """
+    if value is None:
+        return None
+    text = str(value)
+    m = re.search(r"\d[\d\s]*,\d{2}", text)
+    if not m:
+        m = re.search(r"\d[\d\s]*", text)
+    if not m:
+        return None
+    return handler_money(m.group(0))
+
+
+def handler_security_unit(value: Any) -> str | None:
+    """Единица измерения обеспечения исполнения контракта.
+
+    Рублёвая сумма («3 600 239,70 …») — «руб.», иначе процент («10 %») — «%».
+    """
+    if value is None:
+        return None
+    text = str(value)
+    if re.search(r"\d[\d\s]*,\d{2}", text):
+        return "руб."
+    if "%" in text:
+        return "%"
+    return None
+
+
 HANDLERS: dict[str, Any] = {
     "none": lambda v: v,
     "strip": handler_strip,
@@ -154,6 +187,8 @@ HANDLERS: dict[str, Any] = {
     "law": handler_law,
     "dates": handler_dates,
     "regex": handler_regex,
+    "security": handler_security,
+    "security_unit": handler_security_unit,
 }
 
 

@@ -22,7 +22,7 @@ class DomVariable(BaseModel):
         default=None,
         description=(
             "опциональная постобработка: none|strip|float|int|date_iso|lower|"
-            "pub_date|deadline|law|regex"
+            "pub_date|deadline|law|regex|money|dates|security"
         ),
     )
     handler_arg: str | None = Field(
@@ -58,6 +58,18 @@ class FileSpec(BaseModel):
     url_attribute: str = Field(default="href", description="атрибут с URL скачивания")
 
 
+class DetailPageSpec(BaseModel):
+    """Дополнительная страница деталей (например, позиции/лоты).
+
+    Ссылка на неё находится на детальной странице по ``link_selector``; после
+    перехода извлекаются ``variables``. Используется для полей, отсутствующих
+    на основной детальной странице (например, ОКПД2 223-ФЗ на lot-list).
+    """
+
+    link_selector: str = Field(description="селектор ссылки на доп. страницу")
+    variables: list[DomVariable] = Field(default_factory=list)
+
+
 class DomDetailConfig(BaseModel):
     """Селекторы страницы детальной информации."""
 
@@ -71,6 +83,10 @@ class DomDetailConfig(BaseModel):
             "имя html-файла страницы файлов (например, documents.html); если задано, "
             "файлы извлекаются с неё (URL = детальный URL с заменой имени html-файла)"
         ),
+    )
+    additional_pages: list[DetailPageSpec] = Field(
+        default_factory=list,
+        description="доп. страницы деталей (переход по ссылке с детальной страницы)",
     )
 
 

@@ -190,6 +190,27 @@ class Orchestrator:
         try:
             await open_detail(detail_page, detail_url, self._platform)
             detail_vars = await extract_detail_vars(detail_page, self._platform)
+            # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход
+            # по ссылке с детальной страницы и извлечение дополнительных переменных.
+            for spec in self._platform.detail.additional_pages:
+                try:
+                    link = detail_page.locator(spec.link_selector).first
+                    if await link.count() == 0:
+                        continue
+                    href = await link.get_attribute("href")
+                    if not href:
+                        continue
+                    page_url = (
+                        href if href.startswith("http") else self._platform.url.rstrip("/") + href
+                    )
+                    await detail_page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
+                    await detail_page.wait_for_timeout(3000)
+                    extra = await extract_from_scope(detail_page, spec.variables)
+                    # Не затираем значение основной страницы, если на доп. странице
+                    # поле отсутствует (extract_from_scope вернул default=None).
+                    detail_vars.update({k: v for k, v in extra.items() if v is not None})
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Доп. страница деталей не обработана: %s", exc)
             # Файлы: если задана отдельная страница файлов (напр. ЕИС documents.html) —
             # переходим на неё (URL = детальный URL с заменой имени html-файла).
             # У 223-ФЗ путь документов иной — переход может не найтись, это не критично.

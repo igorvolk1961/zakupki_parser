@@ -1,0 +1,17 @@
+databaseChangeLog:
+  - changeSet:
+      id: 11
+      author: zakupki-parser
+      comment: "Единица измерения обеспечения исполнения контракта (security_amount_unit): % или руб."
+      changes:
+        - addColumn:
+            tableName: procurements
+            columns:
+              - column:
+                  name: security_amount_unit
+                  type: VARCHAR(16)
+                  remarks: "Единица измерения обеспечения исполнения контракта: % (процент) или руб."
+        - sql:
+            sql: |
+              COMMENT ON COLUMN procurements.security_amount_unit
+                IS 'Единица измерения обеспечения исполнения контракта: % (процент) или руб.';

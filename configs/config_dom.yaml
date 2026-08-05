@@ -124,9 +124,19 @@ platforms:
         - { name: "deadline",        selector: "div.data-block__value", index: 2, handler: "date", default: null }
 
     detail:
-      # Основные поля уже извлекаются из карточки списка. Детальные поля ЕИС
-      # зависят от типа извещения (common-info) — уточнить при необходимости (TODO).
-      variables: []
+      # ОКПД2: 44-ФЗ — таблица позиций на common-info (заголовок «Код позиции»,
+      # первая позиция); 223-ФЗ — доп. страница лотов (notice223/lot-list.html),
+      # где значение отсутствует, значение основной страницы сохраняется.
+      # Обеспечение/срок исполнения — секции «blockInfo__section» (44-ФЗ).
+      variables:
+        - { name: "okpd2_code", selector: "xpath=//table[.//th[contains(.,'Код позиции')]]//tbody/tr/td[2]", handler: "regex", handler_arg: "(?<![,\\d])(\\d{2}(?:\\.\\d{1,4})*)", default: null }
+        - { name: "security_amount", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Размер обеспечения исполнения контракта']]//span[contains(@class,'section__info')]", handler: "security", default: null }
+        - { name: "security_amount_unit", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Размер обеспечения исполнения контракта']]//span[contains(@class,'section__info')]", handler: "security_unit", default: null }
+        - { name: "execution_term", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Срок исполнения контракта']]//span[contains(@class,'section__info')]", handler: "strip", default: null }
+      additional_pages:
+        - link_selector: "a[href*='lot-list.html']"
+          variables:
+            - { name: "okpd2_code", selector: "table.table.mb-0 td:nth-child(4)", handler: "regex", handler_arg: "(?<![,\\d])(\\d{2}(?:\\.\\d{1,4})*)", default: null }
       # Файлы закупки — на отдельной странице documents.html (файлы по
       # 44fz/filestore/public/...), имя файла — текст ссылки.
       files:

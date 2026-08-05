@@ -38,6 +38,12 @@ def test_default_score_no_nmck_zero() -> None:
     assert compute_default_score({"okpd2_codes": "62.01"}, cfg) == 0.0
 
 
+def test_default_score_rounded_to_cents() -> None:
+    # Точность score в БД — не более 0.01 ₽
+    cfg = ScoreConfig(fit_table={"62.01": 0.1}, p_win=1.0)
+    assert compute_default_score({"okpd2_codes": "62.01", "nmck": 1234.567}, cfg) == 123.46
+
+
 @pytest.mark.asyncio
 async def test_score_for_record_default_method() -> None:
     cfg = ScoreConfig(method="default", fit_table={"62.01": 0.9})

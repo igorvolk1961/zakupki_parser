@@ -8,4 +8,4 @@ console: true
 # Очищать ли файл лога при старте сервиса:
 #   true  — файл обнуляется при каждом запуске
 #   false — записи дописываются в конец (по умолчанию)
-truncate_on_start: false
+truncate_on_start: true
