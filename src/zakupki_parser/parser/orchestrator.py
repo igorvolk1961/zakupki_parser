@@ -192,20 +192,29 @@ class Orchestrator:
             detail_vars = await extract_detail_vars(detail_page, self._platform)
             # Файлы: если задана отдельная страница файлов (напр. ЕИС documents.html) —
             # переходим на неё (URL = детальный URL с заменой имени html-файла).
+            # У 223-ФЗ путь документов иной — переход может не найтись, это не критично.
             files_page = self._platform.detail.files_page
             if files_page:
-                await detail_page.goto(
-                    files_page_url(detail_url, files_page),
-                    wait_until="domcontentloaded",
-                    timeout=60000,
-                )
-                await detail_page.wait_for_timeout(3000)
+                try:
+                    await detail_page.goto(
+                        files_page_url(detail_url, files_page),
+                        wait_until="domcontentloaded",
+                        timeout=45000,
+                    )
+                    await detail_page.wait_for_timeout(3000)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
             files = await detail_files(detail_page, self._platform)
         finally:
             if close_detail:
                 await detail_page.close()
 
         record: dict[str, Any] = {**list_vars, **detail_vars}
+        # subject для 223-ФЗ берём из «Объект закупки» (subject_223), если заголовочный пуст
+        subject_223 = record.get("subject_223")
+        if subject_223 and not record.get("subject"):
+            record["subject"] = subject_223
+        record.pop("subject_223", None)
         record["url"] = (
             detail_url
             if detail_url.startswith("http")

@@ -116,3 +116,18 @@ async def test_eis_documents_files(app_config: AppConfig, page: Page) -> None:
     assert files, "Должны быть найдены файлы на documents.html ЕИС"
     assert all(f["name"] for f in files), "У каждого файла должно быть имя"
     assert all("filestore/public/" in f["url"] for f in files)
+
+
+@pytest.mark.asyncio
+async def test_eis_223_extraction(app_config: AppConfig, page: Page) -> None:
+    await set_html(page, load_fixture("eis_list_223.html"))
+    platform = app_config.dom.platforms["zakupki_gov"]
+    containers = page.locator(platform.list_config.container)
+    assert await containers.count() > 0
+    data = await extract_from_scope(containers.first, platform.list_config.variables)
+    # 223-ФЗ: 11-значный номер, закон, предмет из «Объект закупки», дедлайн
+    assert len(data.get("number", "")) == 11, "Номер 223-ФЗ должен быть 11-значным"
+    assert data.get("law") == "223-ФЗ"
+    assert data.get("customer"), "Заказчик должен извлекаться (view223)"
+    assert data.get("subject_223"), "Предмет 223-ФЗ должен извлекаться из body-value"
+    assert data.get("deadline"), "Дедлайн (Окончание подачи) должен извлекаться"
