@@ -48,9 +48,6 @@ download_files: false
 download_technical_spec_only: true
 technical_spec_keywords:
   - "техническое задание"
-# Удалять файлы после дополнительной обработки (техническое задание сохраняется —
-# на него ссылается БД)
-delete_files_after_processing: true
 
 documents_dir: "documents"
 data_dir: "data"

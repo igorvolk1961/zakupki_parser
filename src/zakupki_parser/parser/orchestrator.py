@@ -278,22 +278,7 @@ class Orchestrator:
                 except ValueError:
                     pass
 
-        # 7) удаление скачанных файлов (по флагу). ТЗ сохраняется — на него
-        #    ссылается БД (technical_spec_url). Обработку файлов (извлечение
-        #    переменных) выполняет внешний сервис.
-        if self._cfg.service.download_files and self._cfg.service.delete_files_after_processing:
-            kept = {record.get("technical_spec_url")}
-            for ref in downloaded:
-                if ref.url in kept:
-                    logger.debug("ТЗ сохраняется: %s", ref.url)
-                    continue
-                try:
-                    await self._object_store.delete(ref.key)
-                    logger.debug("Удалён файл %s", ref.key)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Не удалось удалить %s: %s", ref.key, exc)
-
-        # 8) скоринг закупки (Score = Fit × P(win) × Margin).
+        # 7) скоринг закупки (Score = Fit × P(win) × Margin).
         #    Просроченный срок подачи заявок -> score=0, score_method=deadline_expired.
         if "score" not in record:
             score, method = await score_for_record(
@@ -302,14 +287,14 @@ class Orchestrator:
             record["score"] = score
             record["score_method"] = method
 
-        # 9) JSONB-карточка формируется из ФИНАЛЬНОЙ записи (включая файлы, score,
+        # 8) JSONB-карточка формируется из ФИНАЛЬНОЙ записи (включая файлы, score,
         #    результаты доп. обработки), чтобы снимок соответствовал сохранённому.
         record["detail_json"] = json_safe(record)
 
-        # 10) запись в БД + защита от дубликатов
+        # 9) запись в БД + защита от дубликатов
         saved = await self._persist(record)
 
-        # 11) webhook только для новых записей
+        # 10) webhook только для новых записей
         if saved:
             await self._notifier.notify(record)
 

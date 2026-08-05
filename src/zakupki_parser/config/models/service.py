@@ -199,7 +199,6 @@ class ServiceConfig(BaseModel):
         default_factory=lambda: ["техническое задание"],
         description="тексты для поиска в имени файла при download_technical_spec_only",
     )
-    delete_files_after_processing: bool = Field(default=True)
     documents_dir: str = Field(default="documents")
     data_dir: str = Field(default="data")
     db: DbConfig = Field(default_factory=DbConfig)

@@ -43,7 +43,6 @@ sequenceDiagram
                 DL-->>S: paths
                 S->>FP: process(files)
                 FP-->>S: extracted (заглушка)
-                Note over S: delete_files_after_processing
             end
             S->>R: upsert(record) (контроль дубликатов)
             alt новая запись

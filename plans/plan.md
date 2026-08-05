@@ -78,6 +78,9 @@
 - [x] `GET /api/procurements` (фильтры + пагинация), `GET /api/procurements/{id}`
 - [x] `GET /api/procurements/{id}/technical-spec` (скачивание ТЗ)
 - [x] `POST /api/procurements/{id}/score` (внешний сервис обновляет score)
+- [ ] ⬜ TODO: эндпойнт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту записи) —
+      при удалении записей удалять и связанные файлы из хранилища (S3/local), ссылки на которые
+      хранятся в `technical_spec_url` и `files_json`
 
 ## 11. Уведомления
 - [x] Webhook-заглушка (лог)
