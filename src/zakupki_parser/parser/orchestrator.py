@@ -36,6 +36,7 @@ from zakupki_parser.parser.lister import (
     open_list_page,
     setup_sort_and_filters,
 )
+from zakupki_parser.retry import run_with_retry
 from zakupki_parser.scoring import ExternalScoreClient, score_for_record
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
 from zakupki_parser.storage.object_store import FileRef, build_object_store
@@ -116,7 +117,8 @@ class Orchestrator:
 
         Circuit breaker учитывает ТОЛЬКО транзиентные ошибки доступности БД;
         ошибки данных/схемы (например, усечение значения) не открывают CB.
-        Транзиентные ошибки повторяются с линейным backoff до исчерпания попыток.
+        Транзиентные ошибки повторяются с экспоненциальным backoff
+        (base × 2^(n-1)) до исчерпания попыток.
         """
         if not self._cfg.service.db.enabled or self._repository is None:
             return False
@@ -142,7 +144,7 @@ class Orchestrator:
                     logger.error("Ошибка данных при записи заявки: %s", exc)
                     return False
                 if is_transient_db_error(exc) and attempt < attempts:
-                    delay = db_cfg.retry_backoff_seconds * attempt
+                    delay = db_cfg.retry_backoff_seconds * (2 ** (attempt - 1))
                     logger.warning(
                         "Транзиентная ошибка БД (%s), retry %d/%d через %.1f с",
                         exc,
@@ -185,7 +187,13 @@ class Orchestrator:
         else:
             detail_page = page
         try:
-            await open_detail(detail_page, detail_url, self._platform)
+            retry_cfg = self._cfg.parser.retry
+            await run_with_retry(
+                lambda: open_detail(detail_page, detail_url, self._platform),
+                retry=retry_cfg,
+                circuit=self._site_cb,
+                label=f"Детали {number}",
+            )
             detail_vars = await extract_detail_vars(detail_page, self._platform)
             # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход
             # по ссылке с детальной страницы и извлечение дополнительных переменных.
@@ -200,8 +208,19 @@ class Orchestrator:
                     page_url = (
                         href if href.startswith("http") else self._platform.url.rstrip("/") + href
                     )
-                    await detail_page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
-                    await detail_page.wait_for_timeout(3000)
+
+                    async def _open_additional(_url: str = page_url) -> None:
+                        await detail_page.goto(
+                            _url, wait_until="domcontentloaded", timeout=45000
+                        )
+                        await detail_page.wait_for_timeout(3000)
+
+                    await run_with_retry(
+                        _open_additional,
+                        retry=retry_cfg,
+                        circuit=self._site_cb,
+                        label=f"Доп. страница {number}",
+                    )
                     extra = await extract_from_scope(detail_page, spec.variables)
                     # Не затираем значение основной страницы, если на доп. странице
                     # поле отсутствует (extract_from_scope вернул default=None).
@@ -214,12 +233,20 @@ class Orchestrator:
             files_page = self._platform.detail.files_page
             if files_page:
                 try:
-                    await detail_page.goto(
-                        files_page_url(detail_url, files_page),
-                        wait_until="domcontentloaded",
-                        timeout=45000,
+                    async def _open_files() -> None:
+                        await detail_page.goto(
+                            files_page_url(detail_url, files_page),
+                            wait_until="domcontentloaded",
+                            timeout=45000,
+                        )
+                        await detail_page.wait_for_timeout(3000)
+
+                    await run_with_retry(
+                        _open_files,
+                        retry=retry_cfg,
+                        circuit=self._site_cb,
+                        label=f"Файлы {number}",
                     )
-                    await detail_page.wait_for_timeout(3000)
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
             files = await detail_files(detail_page, self._platform)
@@ -309,11 +336,14 @@ class Orchestrator:
             )
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
-        await open_list_page(
-            page,
-            self._platform,
-            cutoff,
-            self._cfg.service.search_criteria,
+        retry_cfg = self._cfg.parser.retry
+        await run_with_retry(
+            lambda: open_list_page(
+                page, self._platform, cutoff, self._cfg.service.search_criteria
+            ),
+            retry=retry_cfg,
+            circuit=self._site_cb,
+            label="Открытие списка",
         )
         await setup_sort_and_filters(page, self._platform)
         await self._delayer.sleep()
@@ -354,7 +384,12 @@ class Orchestrator:
             if not await next_page_exists(page, self._platform):
                 logger.info("Достигнут конец пагинации")
                 break
-            moved = await goto_next_page(page, self._platform, self._delayer)
+            moved = await run_with_retry(
+                lambda: goto_next_page(page, self._platform, self._delayer),
+                retry=retry_cfg,
+                circuit=self._site_cb,
+                label="Следующая страница",
+            )
             if not moved:
                 logger.info("Не удалось перейти на следующую страницу")
                 break
