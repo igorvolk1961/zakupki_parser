@@ -1,0 +1,13 @@
+databaseChangeLog:
+  - changeSet:
+      id: 10
+      author: zakupki-parser
+      comment: "Убрать technical_spec_key: файлы в S3/MinIO доступны по URL (technical_spec_url)"
+      changes:
+        - dropColumn:
+            tableName: procurements
+            columnName: technical_spec_key
+        - sql:
+            sql: |
+              COMMENT ON COLUMN procurements.technical_spec_url
+                IS 'URL файла ТЗ: в метаданном режиме — адрес скачивания с ЭТП; при download_files — URL сохранённой копии в хранилище (S3/MinIO)';

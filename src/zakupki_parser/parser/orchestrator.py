@@ -228,7 +228,8 @@ class Orchestrator:
 
         # 5) файлы: имена и URL скачивания с ЭТП сохраняются в БД (скачивание
         #    по умолчанию НЕ выполняется). ТЗ — два отдельных поля, остальные —
-        #    files_json (список пар name/url).
+        # 5) файлы: имена и URL. В метаданном режиме technical_spec_url — адрес
+        #    скачивания с ЭТП; в download-режиме — URL сохранённой копии в хранилище.
         keywords = self._cfg.service.technical_spec_keywords
         ts_files, other_files = split_technical_spec(files, keywords)
         if ts_files:
@@ -252,22 +253,23 @@ class Orchestrator:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Ошибка скачивания файлов заявки %s: %s", number, exc)
-            # Ключ сохранённого ТЗ (если ТЗ было среди скачанных).
+            # URL сохранённой копии ТЗ (если ТЗ было среди скачанных) — файл доступен
+            # напрямую по URL (S3 endpoint/bucket/key или локальный путь).
             if ts_files and downloaded:
                 try:
                     idx = urls.index(ts_files[0]["url"])
-                    record["technical_spec_key"] = downloaded[idx].key
+                    record["technical_spec_url"] = downloaded[idx].url
                 except ValueError:
                     pass
 
         # 7) удаление скачанных файлов (по флагу). ТЗ сохраняется — на него
-        #    ссылается БД (technical_spec_key). Обработку файлов (извлечение
+        #    ссылается БД (technical_spec_url). Обработку файлов (извлечение
         #    переменных) выполняет внешний сервис.
         if self._cfg.service.download_files and self._cfg.service.delete_files_after_processing:
-            kept = {record.get("technical_spec_key")}
+            kept = {record.get("technical_spec_url")}
             for ref in downloaded:
-                if ref.key in kept:
-                    logger.debug("ТЗ сохраняется: %s", ref.key)
+                if ref.url in kept:
+                    logger.debug("ТЗ сохраняется: %s", ref.url)
                     continue
                 try:
                     await self._object_store.delete(ref.key)

@@ -48,7 +48,6 @@ class ProcurementOut(BaseModel):
     okpd2_codes: str | None = None
     kpgz_codes: str | None = None
     technical_spec_url: str | None = None
-    technical_spec_key: str | None = None
     technical_spec_name: str | None = None
     files_json: list[dict[str, Any]] | None = None
     score: float | None = None
@@ -79,6 +78,17 @@ class ScoreUpdate(BaseModel):
 
     score: float
     score_method: str = "external"
+
+
+class TechnicalSpecUpdate(BaseModel):
+    """Метаданные ТЗ, возвращаемые внешним сервисом обработки файлов.
+
+    Внешний сервис скачивает файлы закупки (в т.ч. извлекает ТЗ из ZIP-архивов)
+    и возвращает имя/URL файла технического задания для записи в БД.
+    """
+
+    name: str | None = None
+    url: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -177,18 +187,43 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         row = await _repo().get_by_id(procurement_id)
         return ProcurementDetailOut.model_validate(row)
 
+    @app.post(
+        "/api/procurements/{procurement_id}/technical-spec",
+        response_model=ProcurementDetailOut,
+    )
+    async def set_technical_spec(
+        procurement_id: int, body: TechnicalSpecUpdate
+    ) -> ProcurementDetailOut:
+        """Обновление метаданных ТЗ внешним сервисом обработки файлов.
+
+        Внешний сервис скачивает файлы (в т.ч. извлекает ТЗ из ZIP-архивов) и
+        возвращает имя/URL файла технического задания.
+        """
+        if await _repo().get_by_id(procurement_id) is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        await _repo().update_technical_spec(procurement_id, name=body.name, url=body.url)
+        row = await _repo().get_by_id(procurement_id)
+        return ProcurementDetailOut.model_validate(row)
+
     @app.get("/api/procurements/{procurement_id}/technical-spec")
     async def download_technical_spec(procurement_id: int) -> Response:
         row = await _repo().get_by_id(procurement_id)
-        if row is None or not row.technical_spec_key:
+        if row is None or not row.technical_spec_url:
             raise HTTPException(status_code=404, detail="ТЗ не найдено")
-        try:
-            data = await state.store.get(row.technical_spec_key)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Не удалось прочитать файл ТЗ %s: %s", row.technical_spec_key, exc)
-            raise HTTPException(status_code=404, detail="Файл ТЗ недоступен в хранилище") from exc
 
-        filename = row.technical_spec_key.rsplit("/", 1)[-1]
+        ts_url = row.technical_spec_url
+        # В проде файлы лежат в S3/MinIO и доступны по URL напрямую.
+        if ts_url.startswith("http"):
+            return Response(status_code=302, headers={"Location": ts_url})
+
+        # Локальное сохранение — только для отладки: читаем файл по пути.
+        try:
+            data = Path(ts_url).read_bytes()
+        except OSError as exc:
+            logger.error("Не удалось прочитать файл ТЗ %s: %s", ts_url, exc)
+            raise HTTPException(status_code=404, detail="Файл ТЗ недоступен") from exc
+
+        filename = ts_url.rsplit("/", 1)[-1]
         media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         # RFC 5987: не-ASCII имена в filename* (ASCII-имя в filename как запасной вариант)
         quoted = urlparse.quote(filename)

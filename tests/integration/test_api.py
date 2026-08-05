@@ -57,7 +57,6 @@ async def inserted_id(api_client: tuple[TestClient, Path]) -> AsyncIterator[int]
             "customer": "Заказчик ООО",
             "okpd2_codes": "62.01",
             "technical_spec_url": str((api_client[1] / "API-1" / "ТЗ.pdf").resolve()),
-            "technical_spec_key": "API-1/ТЗ.pdf",
         }
     )
     rows, _ = await repo.list_procurements(number="API-1")
@@ -123,3 +122,20 @@ def test_set_score_by_external_service(
 def test_set_score_404(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     assert client.post("/api/procurements/999999/score", json={"score": 1.0}).status_code == 404
+
+
+def test_set_technical_spec_by_external_service(
+    api_client: tuple[TestClient, Path], inserted_id: int
+) -> None:
+    client, _ = api_client
+    resp = client.post(
+        f"/api/procurements/{inserted_id}/technical-spec",
+        json={
+            "name": "Техническое задание (из ZIP).docx",
+            "url": "https://zakupki.gov.ru/44fz/filestore/public/1.0/download/priz/file.html?uid=ABC",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["technical_spec_name"] == "Техническое задание (из ZIP).docx"
+    assert body["technical_spec_url"].endswith("uid=ABC")
