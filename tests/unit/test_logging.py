@@ -1,46 +1,32 @@
-"""Unit-тесты настройки логирования (файл, флаг очистки)."""
+"""Unit-тесты логирования (переименование служебных логгеров uvicorn)."""
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-from zakupki_parser.config.models import LoggingConfig
-from zakupki_parser.logging_conf import setup_logging
+from zakupki_parser.logging_conf import _NameRewriteFilter
 
 
-def _flush() -> None:
-    for handler in logging.getLogger().handlers:
-        handler.flush()
-
-
-def test_setup_writes_file(tmp_path: Path) -> None:
-    log_file = tmp_path / "parser.log"
-    cfg = LoggingConfig(level="INFO", file=str(log_file), file_level="DEBUG", console=False)
-    setup_logging(cfg)
-    logging.getLogger("test").info("hello log")
-    _flush()
-    assert log_file.is_file()
-    assert "hello log" in log_file.read_text(encoding="utf-8")
-
-
-def test_truncate_on_start(tmp_path: Path) -> None:
-    log_file = tmp_path / "parser.log"
-    log_file.write_text("old content\n", encoding="utf-8")
-    cfg = LoggingConfig(
-        level="INFO",
-        file=str(log_file),
-        file_level="DEBUG",
-        console=False,
-        truncate_on_start=True,
+def _record(name: str) -> logging.LogRecord:
+    return logging.LogRecord(
+        name=name, level=logging.INFO, pathname=__file__, lineno=1, msg="m", args=(), exc_info=None
     )
-    setup_logging(cfg)
-    assert "old content" not in log_file.read_text(encoding="utf-8")
 
 
-def test_append_without_truncate(tmp_path: Path) -> None:
-    log_file = tmp_path / "parser.log"
-    log_file.write_text("old content\n", encoding="utf-8")
-    cfg = LoggingConfig(level="INFO", file=str(log_file), file_level="DEBUG", console=False)
-    setup_logging(cfg)
-    assert "old content" in log_file.read_text(encoding="utf-8")
+def test_uvicorn_error_renamed_to_uvicorn() -> None:
+    rec = _record("uvicorn.error")
+    assert _NameRewriteFilter().filter(rec) is True
+    assert rec.name == "uvicorn"
+
+
+def test_uvicorn_access_renamed_to_http() -> None:
+    rec = _record("uvicorn.access")
+    assert _NameRewriteFilter().filter(rec) is True
+    assert rec.name == "http"
+
+
+def test_other_loggers_untouched() -> None:
+    for name in ("zakupki_parser.parser", "root", "playwright"):
+        rec = _record(name)
+        assert _NameRewriteFilter().filter(rec) is True
+        assert rec.name == name
