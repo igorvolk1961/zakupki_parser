@@ -58,6 +58,8 @@
   table.cust { width:100%; border-collapse:collapse; font-size:13px; background: var(--panel); border-radius:12px;}
   table.cust th, table.cust td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line);}
   .muted { color: var(--muted); }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px;}
+  .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
   a { color: var(--accent); }
 </style>
 </head>
@@ -75,6 +77,15 @@
     <div class="stat"><div class="k">Заказчиков</div><div class="v" id="st_customers">–</div></div>
     <div class="stat"><div class="k">Сумма НМЦК</div><div class="v" id="st_nmck">–</div></div>
     <div class="stat"><div class="k">С источников</div><div class="v" id="st_platforms">–</div></div>
+  </div>
+
+  <div class="panel" id="parser-panel">
+    <div class="panel-title">Парсер</div>
+    <div class="toolbar">
+      <button class="primary" id="parser-start">▶ Запустить сбор</button>
+      <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
+      <span id="parser-status" class="muted">проверка…</span>
+    </div>
   </div>
 
   <div class="tabs">
@@ -299,13 +310,52 @@ $("#tab-cfg").addEventListener("click", () => {
 });
 window.addEventListener("beforeunload", (e) => { if (cfgDirty) { e.preventDefault(); e.returnValue = ""; } });
 
+let parserTimer = null;
+async function refreshParserStatus() {
+  let s;
+  try { s = await api("parser/status"); } catch { return; }
+  const el = $("#parser-status");
+  const startBtn = $("#parser-start"), stopBtn = $("#parser-stop");
+  if (s.running) {
+    startBtn.disabled = true; stopBtn.disabled = false;
+    el.textContent = "работает…" + (s.started_at ? " (с " + new Date(s.started_at).toLocaleTimeString("ru-RU") + ")" : "");
+  } else {
+    startBtn.disabled = false; stopBtn.disabled = true;
+    let txt = "простой";
+    if (s.error) txt += " · ошибка: " + s.error;
+    else if (s.stopped) txt += " · остановлен";
+    if (s.finished_at) txt += " · завершён " + new Date(s.finished_at).toLocaleTimeString("ru-RU");
+    el.textContent = txt;
+  }
+}
+function pollParser() {
+  if (parserTimer) clearInterval(parserTimer);
+  parserTimer = setInterval(async () => {
+    await refreshParserStatus();
+    const s = await api("parser/status");
+    if (!s.running) { clearInterval(parserTimer); parserTimer = null; }
+  }, 3000);
+}
+$("#parser-start").addEventListener("click", async () => {
+  $("#parser-status").textContent = "запуск…";
+  const r = await fetch("/api/parser/start", { method: "POST" });
+  if (!r.ok) { $("#parser-status").textContent = "не удалось запустить (возможно, уже работает)"; return; }
+  refreshParserStatus(); pollParser();
+});
+$("#parser-stop").addEventListener("click", async () => {
+  $("#parser-status").textContent = "остановка…";
+  await fetch("/api/parser/stop", { method: "POST" });
+  refreshParserStatus(); pollParser();
+});
+refreshParserStatus();
+
 (async function init() {
   try {
     await loadPlatforms();
     await loadProc();
     await loadCustomers();
   } catch (err) {
-    $("#cards").innerHTML = `<div class="empty">Не удалось загрузить данные: ${escapeHtml(String(err))}<br>Запустите парсер и API (zakupki-parser serve).</div>`;
+    $("#cards").innerHTML = `<div class="empty">Не удалось загрузить данные: ${escapeHtml(String(err))}<br>Запустите парсер и API (zp serve).</div>`;
   }
 })();
 </script>

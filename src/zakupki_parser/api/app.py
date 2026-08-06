@@ -1,12 +1,13 @@
-"""FastAPI-сервис: чтение закупок из БД и извлечение файлов из хранилища."""
+"""FastAPI-сервис: чтение закупок из БД, web-демо и управление парсером."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from datetime import datetime
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib import parse as urlparse
@@ -127,6 +128,37 @@ class AppState:
         self.configs_dir = configs_dir
         self.db: Database | None = None
         self.repository: ProcurementRepository | None = None
+        # Управление парсером (запуск/остановка из web-демо).
+        self.parser_lock = asyncio.Lock()
+        self.parser_task: asyncio.Task[None] | None = None
+        self.parser_status: dict[str, Any] = {
+            "running": False,
+            "stopped": False,
+            "error": None,
+            "started_at": None,
+            "finished_at": None,
+        }
+
+
+async def _run_parser(state: AppState) -> None:
+    """Запускает один проход парсера (run-once) в фоне."""
+    from zakupki_parser.scheduler import Scheduler
+
+    scheduler = Scheduler(state.cfg)
+    try:
+        await scheduler.start()
+        await scheduler.run_once()
+    except asyncio.CancelledError:
+        state.parser_status["stopped"] = True
+        state.parser_status["error"] = "остановлено пользователем"
+    except Exception as exc:  # noqa: BLE001
+        state.parser_status["error"] = str(exc)
+    finally:
+        with suppress(Exception):
+            await scheduler.stop()
+        state.parser_status["running"] = False
+        state.parser_status["finished_at"] = datetime.now(UTC).isoformat()
+        state.parser_task = None
 
 
 def _create_state(configs_dir: str) -> AppState:
@@ -308,6 +340,41 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=404, detail="Заказчик не найден")
         row = await _repo().get_customer(customer_id)
         return CustomerOut.model_validate(row)
+
+    @app.get("/api/parser/status", include_in_schema=False)
+    async def parser_status() -> dict[str, Any]:
+        """Текущее состояние парсера (запущен/остановлен, ошибка, время)."""
+        status = dict(state.parser_status)
+        if state.parser_task is not None and not state.parser_task.done():
+            status["running"] = True
+        return status
+
+    @app.post("/api/parser/start", include_in_schema=False)
+    async def start_parser() -> dict[str, Any]:
+        """Запускает один проход парсера (run-once) в фоне."""
+        async with state.parser_lock:
+            if state.parser_task is not None and not state.parser_task.done():
+                raise HTTPException(status_code=409, detail="Парсер уже запущен")
+            state.parser_status = {
+                "running": True,
+                "stopped": False,
+                "error": None,
+                "started_at": datetime.now(UTC).isoformat(),
+                "finished_at": None,
+            }
+            state.parser_task = asyncio.create_task(_run_parser(state))
+        logger.info("Запущен парсер (run-once) по команде из web-демо")
+        return {"status": "started"}
+
+    @app.post("/api/parser/stop", include_in_schema=False)
+    async def stop_parser() -> dict[str, Any]:
+        """Останавливает запущенный проход парсера."""
+        task = state.parser_task
+        if task is None or task.done():
+            return {"status": "idle"}
+        task.cancel()
+        logger.info("Запрошена остановка парсера из web-демо")
+        return {"status": "stopping"}
 
     # ------------------------------------------------------------------ #
     # Конфигурация сервиса (config_service.yaml) — просмотр/редактирование

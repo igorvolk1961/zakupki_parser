@@ -71,6 +71,20 @@ def test_health(api_client: tuple[TestClient, Path]) -> None:
     assert body["db"] is True
 
 
+def test_parser_status_initial(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    body = client.get("/api/parser/status").json()
+    assert body["running"] is False
+    assert body["error"] is None
+
+
+def test_parser_stop_when_idle(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.post("/api/parser/stop")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "idle"
+
+
 def test_demo_page_served(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     resp = client.get("/")
