@@ -1,0 +1,9 @@
+# Локальная конфигурация ruff для подпроекта scoring_service.
+# extend = корневого pyproject.toml. Свой pyproject.toml (выше) приоритетнее,
+# но extend сохраняет совместимость правил с остальным репо.
+extend = "../../pyproject.toml"
+
+[lint.per-file-ignores]
+"tests/*" = ["ANN001", "ANN201", "ANN202"]
+"scoring_service/eval/*" = ["ANN001"]
+"scoring_service/pipeline/prompts.py" = ["E501"]

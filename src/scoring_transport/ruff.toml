@@ -1,0 +1,5 @@
+# Локальная конфигурация ruff для подпроекта scoring_transport.
+extend = "../../pyproject.toml"
+
+[lint.per-file-ignores]
+"tests/*" = ["ANN001", "ANN201"]
