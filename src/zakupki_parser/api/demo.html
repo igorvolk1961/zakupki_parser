@@ -5,10 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Парсер закупок</title>
 <style>
-  :root {
+  /* Тема по умолчанию — светлая; тёмная переключается через data-theme="dark". */
+  html[data-theme="light"], :root {
+    --bg: #f5f6fa; --panel: #ffffff; --panel2: #eef1f6; --line: #d8dde6;
+    --text: #1f2937; --muted: #6b7280; --accent: #0284c7; --good: #16a34a; --warn: #d97706;
+    --on-accent: #ffffff; --sel-bg: #dbeafe;
+    --pill-score-bg: #e0f2fe; --pill-score-border: #bae6fd; --pill-score-text: #075985;
+  }
+  html[data-theme="dark"] {
     --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
-    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --good: #4ade80;
-    --warn: #fbbf24;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --good: #4ade80; --warn: #fbbf24;
+    --on-accent: #06283a; --sel-bg: #0c4a6e;
+    --pill-score-bg: #082f49; --pill-score-border: #0c4a6e; --pill-score-text: #38bdf8;
   }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -31,11 +39,11 @@
   input:focus, select:focus { outline:none; border-color: var(--accent);}
   button { cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
-  button.primary { background: var(--accent); border-color: var(--accent); color:#06283a; font-weight:600;}
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
   button.ghost { background: transparent; }
   .tabs { display:flex; gap:6px; margin-bottom:16px;}
   .tabs button { border-radius:20px; }
-  .tabs button.active { background: var(--accent); border-color: var(--accent); color:#06283a; font-weight:600;}
+  .tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
   .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px;}
   .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
   .empty { text-align:center; color: var(--muted); padding: 60px 0;}
@@ -47,7 +55,7 @@
   .proc-list th { position:sticky; top:0; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
   .proc-list tr { cursor:pointer; }
   .proc-list tr:hover { background: var(--panel2); }
-  .proc-list tr.sel { background:#0c4a6e; }
+  .proc-list tr.sel { background: var(--sel-bg); }
   .proc-list td.id { color: var(--muted); width:64px; font-family:ui-monospace,monospace; }
   .proc-list .num { color: var(--accent); font-size:12px; font-family:ui-monospace,monospace;}
   .proc-list .subj { margin-top:2px; }
@@ -61,7 +69,7 @@
                padding:3px 0; border-top:1px dashed var(--line);}
   .card .row b { color: var(--text); font-weight:600;}
   .pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line);}
-  .pill.score { background:#082f49; border-color:#0c4a6e; color: var(--accent); font-weight:700;}
+  .pill.score { background: var(--pill-score-bg); border-color: var(--pill-score-border); color: var(--pill-score-text); font-weight:700;}
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
@@ -85,6 +93,10 @@
     <h1>Парсер закупок</h1>
   </div>
   <div class="header-right">
+    <select id="theme" title="Цветовая схема">
+      <option value="light">Светлая</option>
+      <option value="dark">Тёмная</option>
+    </select>
     <label class="admin-toggle" title="Доступ к «Очистить БД» и «Параметры»">
       <input type="checkbox" id="admin"> Режим администратора
     </label>
@@ -425,6 +437,17 @@ async function refreshParserStatus() {
   return s;
 }
 $("#admin").addEventListener("change", (e) => { adminMode = e.target.checked; updateControls(); });
+
+// Цветовая схема (по умолчанию светлая; выбор запоминается в localStorage).
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("zp_theme", theme);
+}
+const themeSel = $("#theme");
+const savedTheme = localStorage.getItem("zp_theme");
+themeSel.value = savedTheme === "dark" ? "dark" : "light";
+applyTheme(themeSel.value);
+themeSel.addEventListener("change", () => applyTheme(themeSel.value));
 function pollParser() {
   if (parserTimer) clearInterval(parserTimer);
   parserTimer = setInterval(async () => {
