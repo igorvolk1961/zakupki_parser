@@ -150,6 +150,9 @@ class TestMaxBackend:
         with pytest.raises(ValueError):
             await backend.send(_RECORD)
 
+    def test_insecure_tls_defaults_to_true(self) -> None:
+        assert MaxConfig().insecure_tls is True
+
 
 class TestWebhookBackend:
     async def test_send_posts_json_with_auth(self) -> None:

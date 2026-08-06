@@ -64,6 +64,13 @@ class MaxConfig(BaseModel):
         default=None, description="числовой id канала (int64), из подписки на события"
     )
     timeout_seconds: float = Field(default=10.0, ge=0)
+    insecure_tls: bool = Field(
+        default=True,
+        description=(
+            "не проверять TLS-сертификат MAX (сертификат Минцифры может отсутствовать "
+            "в доверенных); по умолчанию выключено"
+        ),
+    )
     token: str | None = Field(
         default=None, description="access_token бота, из env; не сериализуется в YAML"
     )

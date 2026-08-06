@@ -85,6 +85,9 @@ notifications:
     enabled: false
     chat_id: null
     timeout_seconds: 10
+    # Не проверять TLS-сертификат MAX (сертификат Минцифры может отсутствовать
+    # в доверенных). По умолчанию true — Не проверять.
+    insecure_tls: true
   webhook:
     enabled: false
     url: null

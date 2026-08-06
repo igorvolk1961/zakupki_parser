@@ -122,6 +122,7 @@ class MaxBackend:
     _BASE_URL = "https://platform-api2.max.ru"
 
     def __init__(self, cfg: MaxConfig) -> None:
+        self._cfg = cfg
         self._chat_id = cfg.chat_id
         self._token = cfg.token
         self._timeout = cfg.timeout_seconds
@@ -131,9 +132,7 @@ class MaxBackend:
     ) -> None:
         """Шлёт HTML-карточку в канал MAX."""
         if not self._token:
-            raise ValueError(
-                "max.enabled=true, но не задан токен бота (env ZAKUPKI_MAX_TOKEN)"
-            )
+            raise ValueError("max.enabled=true, но не задан токен бота (env ZAKUPKI_MAX_TOKEN)")
         payload = {
             "text": render_telegram_message(record),
             "format": "html",
@@ -141,7 +140,10 @@ class MaxBackend:
         }
         headers = {"Authorization": self._token}
         url = f"{self._BASE_URL}/messages?chat_id={self._chat_id}"
-        async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:
+        verify = not self._cfg.insecure_tls
+        async with httpx.AsyncClient(
+            timeout=self._timeout, transport=transport, verify=verify
+        ) as client:
             resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
 
