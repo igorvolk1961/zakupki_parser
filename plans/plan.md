@@ -54,7 +54,10 @@
 - [x] Поля task.md: number, customer, law, subject, nmck, deadline, okpd2, ТЗ, files_json
 - [x] Колонки security_amount/advance (обеспечение/аванс), security_amount_unit, update_date
 - [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (сделано: okpd2, обеспечение+единица, срок; осталось: kpgz_codes/advance)
-- [ ] ⬜ Нормализация БД (справочник заказчиков `customers`, рейтинг) — ADR-4, при разработке скорингового сервиса
+- [x] Нормализация БД по ADR-4: таблица `customers` (имя/нормализованное имя/ИНН/рейтинг),
+      `procurements.customer_id` (FK, `customer` удалена), миграция 1.13 (create+backfill+drop),
+      эндпоинты `/api/customers` и `POST /api/customers/{id}/rating`;
+      ИНН — универсальный механизм (из org-ссылки или org-страницы, ADR-1/ADR-4).
 
 ## 7. Circuit Breaker и graceful degradation
 - [x] `circuit.py` (CLOSED/OPEN/HALF_OPEN), отдельные инстансы для сайта и БД
@@ -127,4 +130,3 @@
   (ezt20/zk20/ok504).
 - Имитатор микросервиса скоринга (mock) и очередь-«outbox» на PostgreSQL (ADR-3).
 - Эндпоинт чистки БД (`DELETE /api/procurements`) с удалением файлов из хранилища.
-- Нормализация заказчиков по ADR-4 (`customers`, эндпоинт рейтинга) для скорингового сервиса.
