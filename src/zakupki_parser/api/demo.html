@@ -17,6 +17,9 @@
            display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;}
   header h1 { font-size:18px; margin:0; }
   header .sub { color: var(--muted); font-size:13px; }
+  header .header-right { display:flex; align-items:center; gap:18px; }
+  .admin-toggle { color: var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;}
+  .admin-toggle input { margin:0; accent-color: var(--accent); }
   main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
   .stats { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:20px;}
   .stat { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
@@ -81,7 +84,12 @@
   <div>
     <h1>Zakupki Parser</h1>
   </div>
-  <button class="ghost" id="refresh">Обновить</button>
+  <div class="header-right">
+    <label class="admin-toggle" title="Доступ к «Очистить БД» и «Параметры»">
+      <input type="checkbox" id="admin"> Режим администратора
+    </label>
+    <button class="ghost" id="refresh">Обновить</button>
+  </div>
 </header>
 <main>
   <div class="stats">
@@ -337,16 +345,27 @@ window.addEventListener("beforeunload", (e) => { if (cfgDirty) { e.preventDefaul
 // --- Парсер ------------------------------------------------------------
 let parserTimer = null;
 let prevRunning = false;
+let adminMode = false;
+let parserRunning = false;
+
+function updateControls() {
+  $("#parser-start").disabled = parserRunning;
+  $("#parser-stop").disabled = !parserRunning;
+  // «Очистить БД» — только в режиме администратора и при остановленном сборе.
+  $("#db-clear").disabled = parserRunning || !adminMode;
+  // «Параметры» — только в режиме администратора.
+  $("#tab-cfg").disabled = !adminMode;
+}
+
 async function refreshParserStatus() {
   let s;
   try { s = await api("parser/status"); } catch { return; }
+  parserRunning = s.running;
+  updateControls();
   const el = $("#parser-status");
-  const startBtn = $("#parser-start"), stopBtn = $("#parser-stop"), clearBtn = $("#db-clear");
   if (s.running) {
-    startBtn.disabled = true; stopBtn.disabled = false; clearBtn.disabled = true;
     el.textContent = "работает…" + (s.started_at ? " (с " + new Date(s.started_at).toLocaleTimeString("ru-RU") + ")" : "");
   } else {
-    startBtn.disabled = false; stopBtn.disabled = true; clearBtn.disabled = false;
     let txt = "не запущен";
     if (s.error) txt += " · ошибка: " + s.error;
     else if (s.stopped) txt += " · остановлен";
@@ -355,6 +374,7 @@ async function refreshParserStatus() {
   }
   return s;
 }
+$("#admin").addEventListener("change", (e) => { adminMode = e.target.checked; updateControls(); });
 function pollParser() {
   if (parserTimer) clearInterval(parserTimer);
   parserTimer = setInterval(async () => {
