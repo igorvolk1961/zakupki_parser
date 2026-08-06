@@ -11,13 +11,14 @@ from pathlib import Path
 from typing import Any
 from urllib import parse as urlparse
 
+import yaml
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import text as sql_text
 
 from zakupki_parser.config.loader import load_config
-from zakupki_parser.config.models import AppConfig
+from zakupki_parser.config.models import AppConfig, ServiceConfig
 from zakupki_parser.storage.db import Database, Procurement
 from zakupki_parser.storage.object_store import ObjectStore, build_object_store
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -123,13 +124,19 @@ class TechnicalSpecUpdate(BaseModel):
 # Приложение
 # --------------------------------------------------------------------------- #
 class AppState:
-    def __init__(self, cfg: AppConfig) -> None:
+    def __init__(self, cfg: AppConfig, configs_dir: str) -> None:
         self.cfg = cfg
+        self.configs_dir = configs_dir
         self.db: Database | None = None
         self.repository: ProcurementRepository | None = None
         self.store: ObjectStore = build_object_store(
             cfg.service.storage, Path(cfg.service.documents_dir).resolve()
         )
+
+
+def _create_state(configs_dir: str) -> AppState:
+    cfg = load_config(configs_dir)
+    return AppState(cfg, configs_dir)
 
 
 def _procurement_out(row: Procurement) -> ProcurementOut:
@@ -145,11 +152,6 @@ def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
     out.customer_id = row.customer_id
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
     return out
-
-
-def _create_state(configs_dir: str) -> AppState:
-    cfg = load_config(configs_dir)
-    return AppState(cfg)
 
 
 def create_app(configs_dir: str = "configs") -> FastAPI:
@@ -310,5 +312,47 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=404, detail="Заказчик не найден")
         row = await _repo().get_customer(customer_id)
         return CustomerOut.model_validate(row)
+
+    # ------------------------------------------------------------------ #
+    # Конфигурация сервиса (config_service.yaml) — просмотр/редактирование
+    # ------------------------------------------------------------------ #
+    def _redacted_service(service: ServiceConfig) -> dict[str, Any]:
+        """Сервис-конфиг без секретов (токены ботов подставляются из env)."""
+        data = service.model_dump()
+        data.setdefault("notifications", {}).setdefault("telegram", {})["token"] = None
+        data["notifications"].setdefault("max", {})["token"] = None
+        return data
+
+    @app.get("/api/config", response_model=dict[str, Any], include_in_schema=False)
+    async def get_config() -> dict[str, Any]:
+        """Текущие параметры config_service.yaml (без секретов)."""
+        return _redacted_service(state.cfg.service)
+
+    @app.put("/api/config", response_model=dict[str, Any], include_in_schema=False)
+    async def put_config(body: dict[str, Any]) -> dict[str, Any]:
+        """Валидирует и сохраняет параметры config_service.yaml.
+
+        Секреты (токены ботов) не редактируются через API — они берутся из env.
+        """
+        try:
+            new_service = ServiceConfig.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        target = Path(state.configs_dir) / "config_service.yaml"
+        try:
+            target.write_text(
+                yaml.safe_dump(
+                    new_service.model_dump(exclude_none=True),
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            detail = f"Не удалось записать конфиг: {exc}"
+            raise HTTPException(status_code=500, detail=detail) from exc
+        state.cfg.service = new_service
+        logger.info("Сохранён config_service.yaml (%s)", target)
+        return _redacted_service(new_service)
 
     return app

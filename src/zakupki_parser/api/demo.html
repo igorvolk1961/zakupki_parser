@@ -65,7 +65,7 @@
 <header>
   <div>
     <h1>Zakupki Parser — MVP demo</h1>
-    <div class="sub">Данные собраны парсером (Playwright) и хранятся в PostgreSQL</div>
+    <div class="sub">Данные читаются из БД, источник не важен (живой парсер, имитатор ЭТП и др.)</div>
   </div>
   <button class="ghost" id="refresh">Обновить</button>
 </header>
@@ -80,6 +80,7 @@
   <div class="tabs">
     <button class="primary active" id="tab-proc">Закупки</button>
     <button id="tab-cust">Заказчики</button>
+    <button id="tab-cfg">Конфиг-сервис</button>
   </div>
 
   <div class="toolbar" id="toolbar-proc">
@@ -90,11 +91,21 @@
 
   <div id="view-proc">
     <div class="cards" id="cards"></div>
-    <div class="empty" id="proc-empty" style="display:none;">Закупок нет — запустите парсер или наполните БД демо-данными.</div>
+    <div class="empty" id="proc-empty" style="display:none;">Закупок нет — запустите парсер (или имитатор ЭТП), чтобы наполнить БД.</div>
   </div>
 
   <div id="view-cust" style="display:none;">
     <div class="table-wrap" id="customers"></div>
+  </div>
+
+  <div id="view-cfg" style="display:none;">
+    <p class="sub">Параметры <code>config_service.yaml</code> (секреты, например токены ботов, не редактируются — берутся из env). После сохранения применяются при следующем запуске парсера.</p>
+    <textarea id="cfg-editor" spellcheck="false" style="width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    <div class="toolbar" style="margin-top:12px;">
+      <button class="primary" id="cfg-save">Сохранить</button>
+      <button id="cfg-reload">Отменить изменения</button>
+      <span id="cfg-status" class="muted"></span>
+    </div>
   </div>
 </main>
 
@@ -239,9 +250,54 @@ $("#tab-proc").addEventListener("click", () => {
 });
 $("#tab-cust").addEventListener("click", () => {
   $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active");
+  $("#tab-cfg").classList.remove("active");
   $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none";
+  $("#view-cfg").style.display = "none";
   loadCustomers();
 });
+
+let cfgDirty = false;
+async function loadConfig() {
+  const cfg = await api("config");
+  $("#cfg-editor").value = JSON.stringify(cfg, null, 2);
+  $("#cfg-status").textContent = "config_service.yaml";
+  cfgDirty = false;
+}
+async function saveConfig() {
+  let payload;
+  try {
+    payload = JSON.parse($("#cfg-editor").value);
+  } catch (err) {
+    $("#cfg-status").textContent = "Ошибка JSON: " + err.message;
+    return;
+  }
+  $("#cfg-status").textContent = "Сохранение…";
+  try {
+    const r = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!r.ok) {
+      const detail = await r.json();
+      $("#cfg-status").textContent = "Ошибка валидации: " + JSON.stringify(detail.detail || detail);
+      return;
+    }
+    const saved = await r.json();
+    $("#cfg-editor").value = JSON.stringify(saved, null, 2);
+    $("#cfg-status").textContent = "Сохранено ✓ (применится при следующем запуске парсера)";
+    cfgDirty = false;
+  } catch (err) {
+    $("#cfg-status").textContent = "Ошибка: " + err.message;
+  }
+}
+$("#cfg-editor").addEventListener("input", () => { cfgDirty = true; $("#cfg-status").textContent = "несохранённые изменения"; });
+$("#cfg-save").addEventListener("click", saveConfig);
+$("#cfg-reload").addEventListener("click", loadConfig);
+$("#tab-cfg").addEventListener("click", () => {
+  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active");
+  $("#tab-cust").classList.remove("active");
+  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none";
+  $("#view-cust").style.display = "none";
+  if (!cfgDirty) loadConfig();
+});
+window.addEventListener("beforeunload", (e) => { if (cfgDirty) { e.preventDefault(); e.returnValue = ""; } });
 
 (async function init() {
   try {

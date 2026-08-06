@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -191,3 +192,36 @@ def test_customer_rating_404(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     assert client.post("/api/customers/999999/rating", json={"rating": 1.0}).status_code == 404
     assert client.get("/api/customers/999999").status_code == 404
+
+
+def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
+    """Конфиг-сервис: GET отдаёт без секретов, PUT валидирует и пишет в YAML.
+
+    Используем копию configs в tmp_path, чтобы не трогать реальный конфиг.
+    """
+    from zakupki_parser.api.app import create_app
+
+    cfgdir = tmp_path / "configs"
+    shutil.copytree(Path(__file__).resolve().parents[2] / "configs", cfgdir)
+    os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
+    app = create_app(str(cfgdir))
+    with TestClient(app) as client:
+        cfg = client.get("/api/config").json()
+        assert "timeout_seconds" in cfg
+        # Токены ботов — секреты из env, через API не отдаются.
+        assert cfg["notifications"]["telegram"]["token"] is None
+        assert cfg["notifications"]["max"]["token"] is None
+
+        old = cfg["default_cutoff_days"]
+        cfg["default_cutoff_days"] = old + 1
+        r = client.put("/api/config", json=cfg)
+        assert r.status_code == 200
+        assert r.json()["default_cutoff_days"] == old + 1
+
+        saved = (cfgdir / "config_service.yaml").read_text(encoding="utf-8")
+        assert f"default_cutoff_days: {old + 1}" in saved
+
+        # Некорректные данные — 422, файл не меняется.
+        bad = client.put("/api/config", json={"timeout_seconds": "not-a-number"})
+        assert bad.status_code == 422
+    os.environ.pop("ZAKUPKI_DB_DSN", None)
