@@ -375,9 +375,8 @@ async function refreshParserStatus() {
   if (s.running) {
     el.textContent = "работает…" + (s.started_at ? " (с " + new Date(s.started_at).toLocaleTimeString("ru-RU") + ")" : "");
   } else {
-    let txt = "не запущен";
+    let txt = s.stopped ? "остановлен" : "не запущен";
     if (s.error) txt += " · ошибка: " + s.error;
-    else if (s.stopped) txt += " · остановлен";
     if (s.finished_at) txt += " · завершён " + new Date(s.finished_at).toLocaleTimeString("ru-RU");
     el.textContent = txt;
   }
@@ -400,10 +399,10 @@ function pollParser() {
 }
 $("#parser-start").addEventListener("click", async () => {
   $("#parser-status").textContent = "запуск…";
-  parserRunning = true; updateControls(); // мгновенно блокируем «Запустить»
+  parserRunning = true; updateControls(); renderProc(); // мгновенно блокируем «Запустить» и убираем подсказку
   const r = await fetch("/api/parser/start", { method: "POST" });
   if (!r.ok) {
-    parserRunning = false; updateControls();
+    parserRunning = false; updateControls(); renderProc();
     $("#parser-status").textContent = "не удалось запустить (возможно, уже работает)";
     return;
   }
@@ -425,6 +424,11 @@ $("#db-clear").addEventListener("click", async () => {
 refreshParserStatus();
 
 (async function init() {
+  // Режим администратора всегда выключен при старте страницы (браузер может
+  // восстанавливать состояние формы после перезагрузки).
+  adminMode = false;
+  $("#admin").checked = false;
+  updateControls();
   try {
     await loadPlatforms();
     await loadProc();
