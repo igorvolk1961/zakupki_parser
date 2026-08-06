@@ -88,13 +88,151 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
     return 1
 
 
+def _yn(value: bool) -> str:
+    return "да" if value else "нет"
+
+
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """Русское склонение: 1 запись, 2 записи, 5 записей."""
+    n10, n100 = n % 10, n % 100
+    if 10 <= n100 <= 20:
+        return many
+    if n10 == 1:
+        return one
+    if 2 <= n10 <= 4:
+        return few
+    return many
+
+
+def _mask_dsn(dsn: str) -> str:
+    """DSN без пароля (для вывода в check-config)."""
+    # postgresql+asyncpg://user:pass@host:port/db
+    try:
+        scheme, _, rest = dsn.partition("://")
+        userinfo, _, after = rest.rpartition("@")
+        if not after:
+            return dsn
+        user, _, _ = userinfo.partition(":")
+        return f"{scheme}://{user}@{after}"
+    except Exception:  # noqa: BLE001
+        return dsn
+
+
 def _print_summary(cfg: AppConfig) -> None:
-    print("Конфигурация валидна:")
-    print(f"  Площадок в config_dom.yaml: {len(cfg.dom.platforms)}")
-    print(f"  Площадок в списке сайтов:   {len(cfg.service.sites)}")
-    print(f"  БД включена:                {cfg.service.db.enabled}")
-    print(f"  Порог дат (дней):           {cfg.service.default_cutoff_days}")
-    print(f"  Задержки между действиями:  {cfg.parser.browser.delay_between_actions_seconds}")
+    print("Конфигурация валидна.\n")
+
+    # --- Файлы конфигурации ---------------------------------------------
+    print("Файлы конфигурации:")
+    for path in sorted(Path(cfg.configs_dir).glob("*.yaml")):
+        size = path.stat().st_size
+        print(f"  {path.name:<22} {size:>7} байт")
+    print()
+
+    # --- Сервис ----------------------------------------------------------
+    print("Сервис (config_service.yaml):")
+    print(f"  Площадок в списке сайтов: {len(cfg.service.sites)}")
+    for site in cfg.service.sites:
+        mark = "вкл" if site.enabled else "ВЫКЛ"
+        plat = cfg.dom.platforms.get(site.platform_id)
+        name = plat.name if plat else "?"
+        url = plat.url if plat else "?"
+        print(f"    - {site.platform_id:<14} [{mark}]  {name} ({url})")
+    sc = cfg.service.search_criteria
+    okpd = ", ".join(sc.okpd_codes) if sc.okpd_codes else "–"
+    print(
+        f"  Критерии поиска: ОКПД2={okpd}; "
+        f"НМЦК {sc.nmck_min or '–'}…{sc.nmck_max or '–'}; "
+        f"44-ФЗ={_yn(sc.fz44)}; 223-ФЗ={_yn(sc.fz223)}"
+    )
+    print(f"  Порог дат (дней): {cfg.service.default_cutoff_days}")
+    ts_only = cfg.service.download_technical_spec_only
+    keywords = ", ".join(cfg.service.technical_spec_keywords) or "–"
+    print(
+        f"  Скачивание файлов: {_yn(cfg.service.download_files)}"
+        f" (только ТЗ: {_yn(ts_only)}; ключевые слова: {keywords})"
+    )
+    print(f"  Директории: документы '{cfg.service.documents_dir}', данные '{cfg.service.data_dir}'")
+    sc_cond = cfg.service.stop_conditions
+    min_days = sc_cond.min_deadline_days if sc_cond.min_deadline_days is not None else "–"
+    print(
+        f"  Stop-условия: {_yn(sc_cond.enabled)}"
+        f" (deadline истёк: {_yn(sc_cond.deadline_not_expired)}; мин. дней до срока: {min_days})"
+    )
+    print(
+        f"  Circuit breaker: порог сбоев {cfg.service.circuit_breaker_failure_threshold}, "
+        f"сброс {cfg.service.circuit_breaker_reset_timeout_seconds} сек"
+    )
+    print()
+
+    # --- Скоринг ---------------------------------------------------------
+    score = cfg.score
+    print("Скоринг (config_score.yaml):")
+    print(f"  Метод: {score.method}")
+    if score.method == "external":
+        print(f"  Внешний сервис: {score.external_service_url or '–'}")
+        print(f"  Режим вызова: {score.external_call_mode}")
+    print(f"  P(win): {score.p_win}; default_fit: {score.default_fit}")
+    n_fit = len(score.fit_table)
+    print(
+        f"  fit-таблица (ОКПД2 → коэффициент): {n_fit} "
+        f"{_plural(n_fit, 'запись', 'записи', 'записей')}"
+    )
+    print()
+
+    # --- Уведомления -----------------------------------------------------
+    notif = cfg.service.notifications
+    print("Уведомления (config_service.yaml):")
+    print(f"  Бэкенд: {notif.backend}")
+    tg = notif.telegram
+    mx = notif.max
+    wh = notif.webhook
+    print(f"  Telegram: {_yn(tg.enabled)}" + (f" (chat_id: {tg.chat_id})" if tg.enabled else ""))
+    print(f"  MAX:      {_yn(mx.enabled)}" + (f" (chat_id: {mx.chat_id})" if mx.enabled else ""))
+    print(f"  Webhook:  {_yn(wh.enabled)}" + (f" (url: {wh.url})" if wh.enabled else ""))
+    print()
+
+    # --- Хранилище -------------------------------------------------------
+    storage = cfg.service.storage
+    print("Хранилище (config_service.yaml):")
+    print(f"  Тип: {storage.type}")
+    if storage.type == "s3":
+        print(f"  Endpoint: {storage.endpoint}; bucket: {storage.bucket}; region: {storage.region}")
+    else:
+        print(f"  Каталог: {cfg.service.documents_dir}")
+    print()
+
+    # --- БД --------------------------------------------------------------
+    db = cfg.service.db
+    print("БД (config_service.yaml):")
+    print(f"  Включена: {_yn(db.enabled)}")
+    print(f"  Подключение: {_mask_dsn(db.dsn)}")
+    print(
+        f"  Пул: {db.pool_min}..{db.pool_max}; "
+        f"таймаут подключения: {db.connect_timeout_seconds} сек"
+    )
+    attempts = _plural(db.retry_max_attempts, "попытка", "попытки", "попыток")
+    print(f"  Ретраи: {db.retry_max_attempts} {attempts}, backoff {db.retry_backoff_seconds} сек")
+    print()
+
+    # --- Парсер / браузер ------------------------------------------------
+    br = cfg.parser.browser
+    print("Парсер / браузер (config_parser.yaml):")
+    print(f"  Headless: {_yn(br.headless)}")
+    print(f"  User-Agent: {br.user_agent or 'не задан (дефолт Chromium)'}")
+    d1, d2 = br.delay_between_actions_seconds
+    print(f"  Задержки между действиями: {d1}…{d2} сек")
+    print(f"  Persistent session: {_yn(br.persist_session)} ({br.session_dir})")
+    print(
+        f"  Ignore HTTPS-errors: {_yn(br.ignore_https_errors)}; "
+        f"stealth: {_yn(br.scroll_randomly or br.random_mouse_moves)}"
+    )
+    rl = cfg.parser.request_limits
+    print(f"  Лимит запросов: {_yn(rl.enabled)} ({rl.max_requests_per_minute}/мин)")
+    retry = cfg.parser.retry
+    print(
+        f"  Ретраи: до {retry.max_attempts}, backoff {retry.min_backoff_seconds}…"
+        f"{retry.max_backoff_seconds} сек (джиттер {retry.jitter_seconds} сек)"
+    )
 
 
 def main() -> None:
