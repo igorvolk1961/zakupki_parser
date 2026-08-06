@@ -172,6 +172,7 @@ class Scheduler:
                 site_cb=self._site_cb,
                 db_cb=self._db_cb,
                 new_page=browser.new_page,
+                on_record_saved=self._on_update,
             )
             try:
                 await orchestrator.run(page)

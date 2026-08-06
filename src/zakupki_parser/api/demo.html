@@ -466,10 +466,20 @@ $("#db-clear").addEventListener("click", async () => {
 refreshParserStatus();
 
 // Живые обновления через WebSocket (вместо кнопки «Обновить» и опроса).
+let refreshScheduled = false;
+function scheduleRefresh() {
+  if (refreshScheduled) return;
+  refreshScheduled = true;
+  setTimeout(() => {
+    refreshScheduled = false;
+    pollProc();
+    pollCustomers();
+  }, 500);
+}
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onmessage = () => { pollProc(); pollCustomers(); };
+  ws.onmessage = scheduleRefresh;
   ws.onclose = () => setTimeout(connectWS, 3000); // авто-переподключение
   ws.onerror = () => { try { ws.close(); } catch (err) {} };
 }

@@ -59,6 +59,7 @@ class Orchestrator:
         db_cb: CircuitBreaker,
         new_page: Callable[[], Awaitable[Page]] | None = None,
         now: datetime | None = None,
+        on_record_saved: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._cfg = cfg
         self._platform_id = platform_id
@@ -70,6 +71,8 @@ class Orchestrator:
         self._db_cb = db_cb
         self._new_page = new_page
         self._now = now or datetime.now(UTC)
+        # Колбэк при сохранении закупки (живые обновления в web-демо).
+        self._on_record_saved = on_record_saved
         self._external_scorer: ExternalScoreClient | None = (
             ExternalScoreClient(cfg.score)
             if cfg.score.method == "external" and cfg.score.external_call_mode == "before_save"
@@ -143,6 +146,8 @@ class Orchestrator:
             try:
                 saved = await self._repository.upsert(record)
                 self._db_cb.record_success()
+                if saved and self._on_record_saved is not None:
+                    await self._on_record_saved()
                 return saved
             except IntegrityError as exc:
                 # Конкурентная вставка того же номера — не ошибка доступности.
