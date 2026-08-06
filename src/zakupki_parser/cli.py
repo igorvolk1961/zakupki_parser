@@ -65,6 +65,12 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
         _print_summary(cfg)
         return 0
 
+    # Авто-миграции БД (Liquibase через CLI/подпроцесс) перед работой с БД.
+    if cmd in ("run-once", "run-service", "score-worker"):
+        from zakupki_parser.migrations import run_migrations
+
+        run_migrations(cfg_dir, cfg.service.db)
+
     from zakupki_parser.scheduler import Scheduler
 
     scheduler = Scheduler(cfg)
@@ -253,10 +259,15 @@ def _serve(cfg_dir: str, host: str, port: int) -> int:
     """Запускает FastAPI-сервис (uvicorn)."""
     import uvicorn
 
-    from zakupki_parser.api.app import create_app
-
     cfg = load_config(cfg_dir)
     setup_logging(cfg.logging)
+
+    from zakupki_parser.migrations import run_migrations
+
+    run_migrations(cfg_dir, cfg.service.db)
+
+    from zakupki_parser.api.app import create_app
+
     app = create_app(cfg_dir)
     # log_config=None: uvicorn использует наш root-логгер (config_log.yaml), чтобы
     # логи/ошибки (в т.ч. access и ASGI-ошибки) попадали в файл лога, а не только
