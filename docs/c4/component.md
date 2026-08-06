@@ -11,17 +11,19 @@ flowchart TB
         DET["Detail<br/>детальная страница, файлы"]
         FLT["Filters engine<br/>шаги фильтров"]
         HND["Handlers<br/>постобработка значений"]
+        SCD["Scoring<br/>default / deadline_expired / external"]
     end
 
     subgraph Store["Слой хранения"]
         REPO["ProcurementRepository<br/>upsert + контроль дубликатов"]
         DB["Database<br/>SQLAlchemy async"]
-        LS["LastSeenStore<br/>дата последней обработки"]
+        OOS["ObjectStore<br/>MinIO / local"]
     end
 
     subgraph Infra["Инфраструктура"]
         CB["CircuitBreaker<br/>CLOSED / OPEN / HALF_OPEN"]
-        NOT["Notifier<br/>webhook (заглушка)"]
+        NOT["Notifier<br/>telegram / max / webhook бэкенды"]
+        ESC["ExternalScorer<br/>вызов микросервиса скоринга (async)"]
     end
 
     ORC --> LST
@@ -30,9 +32,11 @@ flowchart TB
     ORC --> DET
     DET --> EXT
     EXT --> HND
+    ORC --> SCD
     ORC --> REPO
     REPO --> DB
-    ORC --> LS
+    ORC --> OOS
+    ORC --> ESC
     ORC --> CB
     ORC --> NOT
 ```
@@ -42,3 +46,7 @@ flowchart TB
 - **ProcurementRepository** гарантирует отсутствие повторной записи заявки с тем же
   номером (unique-констрейнт + проверка перед вставкой).
 - **stop_conditions** обрабатываются в **Orchestrator** перед сохранением/уведомлением.
+- **Обработка файлов** (PDF/DOCX/ZIP, поиск ТЗ) вынесена во **внешний сервис** (ADR-5):
+  парсер хранит метаданные, результат внешний сервис возвращает через API.
+- **ExternalScorer** вызывает микросервис скоринга после сохранения «сырой» записи;
+  подписчики уведомляются только после обновления score (ADR-3/ADR-6).

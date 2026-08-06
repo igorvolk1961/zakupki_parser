@@ -15,10 +15,11 @@ erDiagram
         TEXT subject "предмет закупки"
         FLOAT nmck "начальная макс. цена контракта"
         TIMESTAMPTZ publication_date "дата публикации (из «с …»)"
-        TEXT dates "исходная строка «с … до … (МСК)»"
+        TIMESTAMPTZ update_date "дата обновления закупки («Обновлено» на ЕИС)"
         TIMESTAMPTZ deadline "срок приёма заявок"
         TEXT execution_term "срок исполнения"
         FLOAT security_amount "обеспечение заявки/контракта"
+        VARCHAR(16) security_amount_unit "единица измерения обеспечения"
         FLOAT advance "аванс"
         TEXT okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
         TEXT technical_spec_url "URL файла ТЗ: адрес скачивания с ЭТП или URL сохранённой копии (S3/MinIO)"
@@ -31,19 +32,18 @@ erDiagram
         TIMESTAMPTZ created_at "server_default now()"
         TIMESTAMPTZ updated_at "server_default now(), onupdate"
     }
-
-    %% Схема имеет одну таблицу. Дата последней обработанной записи
-    %% НЕ хранится в БД — она получается SQL-запросом, а порог по умолчанию
-    %% хранится в state-файле data/last_seen.json и конфиге config_service.yaml.
 ```
 
 ## Замечания
-- **Таблица одна** — `procurements`. Отдельной таблицы дат последней обработки нет
-  (она получается SQL-запросом; текущий порог — в `data/last_seen.json`).
+- **Таблица одна** — `procurements`. Дата последней обработанной записи **не хранится**
+  в state-файле: порог берётся из БД (`MAX(update_date)` по площадке), а при отсутствии
+  записей — из `default_cutoff_days` в `config_service.yaml`.
 - **Защита от дубликатов**: уникальный констрейнт `uq_procurement_number_platform`
   на `(number, source_platform)`.
 - **Индекс** `ix_procurements_created_at` по `created_at`.
 - `detail_json` хранит весь набор извлечённых переменных карточки для аналитики.
+- Справочник заказчиков (`customers`, рейтинг) — **будущая работа** по ADR-4
+  (нормализация при разработке скорингового сервиса), ещё не реализована.
 
 ## Ключевые SQL-запросы
 - Проверка дубликата перед вставкой:
@@ -51,9 +51,9 @@ erDiagram
   SELECT id FROM procurements
   WHERE number = $1 AND source_platform = $2;
   ```
-- Дата последней обработанной записи по площадке:
+- Дата последней обработанной записи по площадке (порог):
   ```sql
-  SELECT MAX(updated_at) FROM procurements WHERE source_platform = $1;
+  SELECT MAX(update_date) FROM procurements WHERE source_platform = $1;
   ```
 - Одинарная/множественная вставка исключает повтор:
   ```sql

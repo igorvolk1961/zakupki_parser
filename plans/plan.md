@@ -22,8 +22,8 @@
 - [x] Stealth-скрипты (webdriver, языки/плагины), реалистичный UA
 - [x] Вежливые задержки (4–12 с), лимит запросов
 - [x] Персистентная сессия (куки), `ignore_https_errors` для ЕИС
+- [x] Экспоненциальный backoff для операций браузера и БД (`retry.py` + circuit breaker)
 - [ ] 🟡 Ротация прокси и пул IP (при появлении инфраструктуры)
-- [ ] ⬜ Экспоненциальный backoff для операций браузера (сейчас — только circuit breaker)
 
 ## 4. Движок парсинга
 - [x] Оркестратор основного алгоритма (`parser/orchestrator.py`)
@@ -31,7 +31,7 @@
 - [x] Extractor: извлечение по конфигу (selector/index/regex/обработчики)
 - [x] Обработчики значений: strip/money/float/int/date/datetime/law/regex/pub_date/deadline
 - [x] Детальные страницы в отдельной вкладке (список не теряется)
-- [x] Стоп-порог по календарному дню (`is_older_than_cutoff`), last_seen
+- [x] Стоп-порог по календарному дню (`is_older_than_cutoff`), порог из БД (`MAX(update_date)`)
 - [x] Метаданный режим файлов: имена+URL с ЭТП (ТЗ — 2 поля, остальные — `files_json`)
 - [x] Скоринг: default/external/worker/calculating/deadline_expired
 
@@ -44,16 +44,16 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - [x] ORM (SQLAlchemy 2.x async) и репозиторий (upsert, дубликаты, чтение)
-- [x] Миграции Liquibase (1.0–1.7): колонки, даты, score, `technical_spec_*`, комментарии
+- [x] Миграции Liquibase (1.0–1.11): колонки, даты, score, `technical_spec_*`, комментарии
 - [x] Поля task.md: number, customer, law, subject, nmck, deadline, okpd2, ТЗ, files_json
-- [x] Колонки security_amount/advance (обеспечение/аванс)
-- [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (в работе: окпд2/обеспечение+единица/срок — сделано, kpgz/аванс — осталось)
-- [ ] ⬜ Нормализация БД (справочники) — ADR-4, при разработке скорингового сервиса
+- [x] Колонки security_amount/advance (обеспечение/аванс), security_amount_unit, update_date
+- [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (сделано: okpd2, обеспечение+единица, срок; осталось: kpgz_codes/advance)
+- [ ] ⬜ Нормализация БД (справочник заказчиков `customers`, рейтинг) — ADR-4, при разработке скорингового сервиса
 
 ## 7. Circuit Breaker и graceful degradation
 - [x] `circuit.py` (CLOSED/OPEN/HALF_OPEN), отдельные инстансы для сайта и БД
 - [x] Классификация ошибок БД (транзиентные/данные/дубликаты), retry с backoff
-- [x] Сброс CB на дубликатах, last_seen при достижении порога
+- [x] Сброс CB на дубликатах, обновление даты последней обработки при достижении порога
 - [ ] ⬜ Тест с имитацией сбоя БД (retry + открытие CB)
 
 ## 8. Фильтрация закупок
@@ -69,8 +69,8 @@
 ## 9. Площадки
 - [x] Портал поставщиков Москвы (zakupki.mos.ru): Реестр закупок, детали, файлы
 - [x] ЕИС (zakupki.gov.ru): список, детали (blockInfo__section), URL-фильтр, «Обновлено»
+- [x] ЕИС: 223-ФЗ (11-значные номера), файлы закупок (`documents.html`)
 - [ ] 🟡 ЕИС: детальные поля по типам извещений (ea20 проработан; ezt20/zk20/ok504 — уточнить)
-- [ ] 🟡 ЕИС: файлы закупок (страница `documents.html`)
 - [ ] ⬜ Коммерческие ЭТП (Роселторг, B2B-Center и др.)
 
 ## 10. API-сервис (FastAPI)
@@ -83,12 +83,12 @@
       хранятся в `technical_spec_url` и `files_json`
 
 ## 11. Уведомления
-- [x] Webhook-заглушка (лог)
-- [ ] ⬜ Реальный HTTP POST (`config_service.yaml -> webhook`)
+- [x] Бэкенды Telegram / MAX / webhook (реальный HTTP POST, `notify.py`)
+- [x] `insecure_tls` для MAX-уведомлений, токены из env (`ZAKUPKI_TELEGRAM_TOKEN`, `ZAKUPKI_MAX_TOKEN`)
 
 ## 12. Тесты и CI
-- [x] Unit: обработчики, конфиг, circuit breaker, last_seen, stop-условия, ОКПД2, скоринг
-- [x] Integration: фикстуры (mos.ru, ЕИС), репозиторий, API (PostgreSQL)
+- [x] Unit: обработчики, конфиг, circuit breaker, дата последней обработки, stop-условия, ОКПД2, скоринг, retry
+- [x] Integration: фикстуры (mos.ru, ЕИС 44-ФЗ/223-ФЗ, documents.html), репозиторий, API (PostgreSQL)
 - [x] GitHub Actions CI: ruff, mypy, pytest (сервисный postgres), docker build
 - [x] Фикстуры реальных страниц (list/detail mos.ru и ЕИС)
 - [ ] ⬜ Полный оркестратор против локального HTTP-сервера
@@ -108,7 +108,7 @@
 - [x] `docs/codes/okpd2_tree.json` (маппинг ОКПД2 mos.ru)
 
 ## 15. Code Review и оптимизация кода
-- [x] Первичный code review и устранение замечаний (last_seen при пороге, сброс CB,
+- [x] Первичный code review и устранение замечаний (дата последней обработки при пороге, сброс CB,
       path traversal, detail_json из финальной записи)
 - [ ] 🟡 Регулярный code review после каждой крупной фичи (ЕИС, критерии поиска, скоринг)
 - [ ] ⬜ Оптимизация цикла парсинга:
@@ -117,7 +117,7 @@
 - [ ] ⬜ Устранение дублирования кода между площадками (общие хелперы селекторов/дат).
 
 ## Текущий фокус
-- ЕИС: ОКПД2-фильтр (блокер, нужен реальный запрос из DevTools), детальные поля ea20
-  (deadline/execution_term/security_amount/subject — обработчик `datetime` готов к внедрению),
-  файлы (`documents.html`).
-- Webhook — закрытие заглушек.
+- ЕИС: `kpgz_codes`/`advance` на детальных страницах, детальные поля по типам извещений
+  (ezt20/zk20/ok504).
+- Эндпоинт чистки БД (`DELETE /api/procurements`) с удалением файлов из хранилища.
+- Нормализация заказчиков по ADR-4 (`customers`, эндпоинт рейтинга) для скорингового сервиса.

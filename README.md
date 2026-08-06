@@ -13,17 +13,17 @@
 - Цикл по страницам и записям с остановкой по порогу даты / концу пагинации.
 - Набор флагов-условий прекращения обработки заявки (`stop_conditions`).
 - Антиблок-меры: полноценный Chromium, stealth, вежливые задержки (4–12 с), лимиты,
-  персистентная сессия.
+  персистентная сессия, ретраи с экспоненциальным backoff.
 - Хранилище: SQLAlchemy 2.x (async) + PostgreSQL, миграции Liquibase.
 - Скачанные файлы (техническое задание) — в MinIO/локальном хранилище, в БД — ссылка,
-  а не бинарник.
+  а не бинарник; глубокая обработка файлов (PDF/DOCX/ZIP, поиск ТЗ) — внешним сервисом.
 - **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры),
-  `GET /api/procurements/{id}` (карточка), `GET /api/procurements/{id}/technical-spec`
-  (скачивание ТЗ).
+  `GET /api/procurements/{id}` (карточка), `POST /{id}/score` (внешний скоринг),
+  `POST /{id}/technical-spec` и `GET /{id}/technical-spec` (ТЗ).
 - Защита от повторной записи заявки с тем же номером.
 - Circuit Breaker и вежливая деградация при отказе БД/сайта.
 - Таймерный запуск по списку сайтов, уведомления подписчиков
-  (Telegram / webhook), логирование.
+  (Telegram / MAX / webhook), логирование.
 - Линтеры (ruff, mypy), тесты, GitHub Actions CI, Docker.
 
 ## Структура
@@ -35,9 +35,9 @@ src/zakupki_parser/
   api/                         # FastAPI-сервис (health, procurements, ТЗ)
   parser/                      # оркестратор, lister, extractor, detail, filters
   browser/                     # менеджер браузера, stealth, задержки
-  storage/                     # SQLAlchemy (БД), last_seen, object_store (MinIO/local)
+  storage/                     # SQLAlchemy (БД), object_store (MinIO/local)
   circuit.py                   # circuit breaker
-  notify.py                    # webhook (заглушка)
+  notify.py                    # уведомления (telegram / max / webhook)
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
 docs/c4/                       # C4-диаграммы (Mermaid)
@@ -110,22 +110,28 @@ uv run zakupki-parser --configs configs stop --force
 ## Уведомления
 
 Доставка новых закупок подписчикам настраивается в `config_service.yaml ->
-notifications` (см. [docs/max-subscriber.md](docs/max-subscriber.md) и
-[docs/telegram-subscriber.md](docs/telegram-subscriber.md)).
+notifications` (`backend: telegram | max | webhook`). Подробности — в
+[docs/max-subscriber.md](docs/max-subscriber.md) и
+[docs/telegram-subscriber.md](docs/telegram-subscriber.md).
 
 - **MAX** — работает из РФ без прокси: рекомендован как основной способ.
 - **Telegram** — требует доступа к `api.telegram.org` (VPN/прокси). Важно:
   при включённом VPN ЕИС (`zakupki.gov.ru`) может быть недоступен, поэтому для
   одновременной работы Telegram + парсинга ЕИС нужна более сложная конфигурация
   с проксированием обращений к ЕИС.
+- **Webhook** — POST JSON-карточки на произвольный URL (при заданном `token` — как
+  Bearer-заголовок).
+
+Токены ботов не хранятся в конфиге и задаются через env:
+`ZAKUPKI_TELEGRAM_TOKEN` (Telegram), `ZAKUPKI_MAX_TOKEN` (MAX).
 
 ## Конфигурация
 - `config_parser.yaml` — браузер и антиблок-меры.
 - `config_dom.yaml` — URL, переменные, селекторы контейнеров и значений, а также
   селекторы сортировки и фильтров (блоки `sort`/`filters`) и URL-фильтр `search`
   (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
-- `config_service.yaml` — таймер, список сайтов, пороги дат, флаги, БД, webhook,
-  stop-условия, circuit breaker.
+- `config_service.yaml` — таймер, список сайтов, пороги дат, флаги, БД,
+  уведомления (telegram/max/webhook), stop-условия, circuit breaker.
 - `config_score.yaml` — скоринг: метод (default/external), fit-таблица ОКПД2,
   адрес внешнего сервиса и способ его вызова (before_save/worker).
 - `config_log.yaml` — логирование.

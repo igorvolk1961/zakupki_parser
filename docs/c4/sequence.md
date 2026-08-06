@@ -12,21 +12,20 @@ sequenceDiagram
     participant F as FiltersEngine
     participant E as Extractor
     participant D as Detail
-    participant DL as Downloader
     participant R as ProcurementRepository
+    participant SC as ExternalScorer
     participant N as Notifier
-    participant LS as LastSeenStore
 
     S->>B: start() (stealth, задержки)
     B-->>S: context/page
-    S->>L: open_list_page(url)
+    S->>L: open_list_page(url, cutoff)
     L-->>S: список загружен
     S->>L: setup_sort_and_filters()
     L->>F: apply_filters(steps)
     F-->>L: фильтры применены
 
     loop По страницам
-        Note over S,L: Выход: конец пагинации<br/>или запись старее порога дат
+        Note over S,L: Выход: конец пагинации<br/>или запись старее порога даты
         loop По контейнерам записей
             S->>L: next container
             L->>E: extract_from_scope(list.variables)
@@ -38,17 +37,17 @@ sequenceDiagram
             S->>S: merge record + stop_conditions
             alt условие stop (deadline истёк)
                 Note over S: заявка пропускается
-            else файлы скачиваются
-                S->>DL: download_files(number)
-                DL-->>S: paths
-                S->>FP: process(files)
-                FP-->>S: extracted (заглушка)
+            else файлы (метаданные)
+                Note over S: files_json + technical_spec_name/url<br/>(глубокая обработка — внешний сервис, ADR-5)
             end
+            S->>S: score (default / deadline_expired)
             S->>R: upsert(record) (контроль дубликатов)
             alt новая запись
-                S->>N: notify(record)
+                S->>SC: score(record) (асинхронно)
+                SC-->>S: score
+                S->>R: update score
+                S->>N: notify(record) (после score)
             end
-            S->>LS: save(last_processed)
         end
         S->>L: goto_next_page()
     end
@@ -58,9 +57,17 @@ sequenceDiagram
 
 ## Пояснения
 - **Выход из цикла страниц** — при достижении конца пагинации или при встрече записи
-  с датой обновления **старее** порога `last_processed_date` (по умолчанию «сейчас − 1 неделя»).
-- **stop_conditions** проверяются после извлечения деталей: если срок приёма заявок истёк —
-  заявка пропускается (не сохраняется, не уведомляется).
+  с датой публикации **старее** порога. Сравнение — по календарному дню; порог
+  берётся из БД (`MAX(update_date)` по площадке), а при отсутствии записей — из
+  `default_cutoff_days`.
+- **stop_conditions** проверяются после извлечения деталей: если срок приёма заявок истёк
+  (или до него меньше `min_deadline_days`) — заявка пропускается (не сохраняется,
+  не уведомляется).
+- **Файлы**: в основном режиме не скачиваются — сохраняются только метаданные
+  (`files_json`, `technical_spec_name/url`). Глубокую обработку (PDF/DOCX/ZIP, поиск ТЗ)
+  выполняет **внешний сервис** (ADR-5).
+- **Скоринг**: перед записью ставится `default` (или `deadline_expired` для просроченных);
+  микросервис скоринга вызывается асинхронно после сохранения, уведомление подписчиков
+  происходит только после обновления score (ADR-3/ADR-6).
 - **upsert** гарантирует отсутствие повторной записи заявки с тем же номером
   (unique-констрейнт + проверка перед вставкой).
-- Webhook и обработка файлов — сейчас заглушки (лог).

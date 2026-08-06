@@ -14,7 +14,7 @@
 |----------------------|---------------------------------------------------------------------|
 | `config_parser.yaml` | Параметры браузера и антиблок-мер (задержки, UA, stealth, лимиты).   |
 | `config_dom.yaml`    | URL площадки, имена переменных, селекторы контейнеров и значений, а также селекторы сортировки и фильтров (блоки `sort`/`filters`). |
-| `config_service.yaml`| Таймер, список сайтов, пороги дат, флаги, БД, webhook, stop-условия. |
+| `config_service.yaml`| Таймер, список сайтов, пороги дат, флаги, БД, уведомления (telegram/max/webhook), stop-условия. |
 | `config_score.yaml`  | Скоринг: метод (default/external), fit-таблица ОКПД2, адрес внешнего сервиса и способ вызова (before_save/worker). |
 | `config_log.yaml`    | Конфигурация логирования.                                           |
 
@@ -29,7 +29,8 @@
 2. **Сортировка** закупок по убыванию даты публикации (пункт «По дате публикации»
    в выпадающем списке сортировки, см. `config_dom.yaml -> sort`).
    **Порядок фиксирован** (`sort.order: publication_date_desc`, единственное допустимое
-   значение в схеме) — на нём основана стоп-логика last_seen; другие порядки исключены.
+   значение в схеме) — на нём основана стоп-логика по дате публикации (последняя
+   обработанная дата); другие порядки исключены.
 3. **Применение фильтров**. Поддерживается два механизма:
    - **URL-фильтр** (для площадок типа zakupki.mos.ru): параметр `filter` (JSON)
      строится из `config_dom.yaml -> search` — имена query-параметров, структуры
@@ -45,6 +46,11 @@
    1) точный код — его путь; 2) нет точного, но есть потомки — объединение путей
    всех потомков; 3) иначе — путь ближайшего предка (его путь включает потомков).
    Код без предка/потомков пропускается с предупреждением.
+
+   **Прочие критерии** (`config_service.yaml -> search_criteria`): диапазон НМЦК
+   (`nmck_min`/`nmck_max`, подставляется через `criteria_map`) и переключатели законов
+   `fz44`/`fz223` (на ЕИС передаются параметрами `fz44=on`/`fz223=on`). Текстовые
+   ключевые слова и фильтр региона из поиска убраны.
 4. **Бесконечный цикл по страницам** фильтрованного поиска.
    Выход из цикла при любом из условий:
    - достигнут конец пагинации;
@@ -84,14 +90,13 @@
    при `download_technical_spec_only: true` скачиваются только ТЗ-файлы.
    **Защита**: включённый флаг при пустых `technical_spec_keywords` — ошибка
    валидации конфига при загрузке; скачанный файл ТЗ сохраняется в хранилище
-   (ключ — `technical_spec_key`), остальные удаляются по флагу;
+   (ключ — `technical_spec_key`); остальные удаляются по флагу;
    7. извлечение переменных из скачанных файлов (в т.ч. распаковка ZIP и поиск ТЗ
       внутри) выполняет **внешний сервис** (в парсере не реализуется; контракт —
       `docs/external-service-contract.md`); найденное ТЗ внешний сервис возвращает
       через `POST /api/procurements/{id}/technical-spec`;
-      при `delete_files_after_processing: true` файлы удаляются;
    8. запись в БД (если доступна) с контролем дубликатов;
-   9. вызов webhook для новых записей (сейчас — лог/заглушка);
+   9. уведомление подписчиков (Telegram / MAX / webhook) для новых записей;
    10. обновление даты последней обработки;
    11. возврат к списку записей.
 
@@ -118,12 +123,17 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - Доступ к БД — SQLAlchemy 2.x (async, asyncpg).
-- Миграции — **Liquibase** (чанги в YAML), таблица `procurements`.
+- Миграции — **Liquibase** (чанги в YAML, до версии 1.11), таблица `procurements`.
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
-- Дата последней обработанной записи **не хранится в БД** (может быть получена
-  SQL-запросом); сохраняется в state-файле `data/last_seen.json`, порог по умолчанию —
-  из конфига.
+- Колонки: `number`, `customer`, `law`, `subject`, `nmck`, `publication_date`,
+  `update_date` (дата обновления закупки), `deadline`, `execution_term`,
+  `security_amount`+`security_amount_unit`, `advance`, `okpd2_codes`, `kpgz_codes`,
+  `technical_spec_name/url`, `files_json`, `score`/`score_method`, `detail_json`.
+- Дата последней обработанной записи **берётся из БД** — `MAX(update_date)` по площадке;
+  если записей ещё нет — порог по умолчанию `default_cutoff_days` из конфига.
+  Отдельного state-файла нет.
+- Справочник заказчиков (`customers`, рейтинг) — будущая нормализация по ADR-4.
 
 ## 7. Circuit Breaker и graceful degradation
 - `src/zakupki_parser/circuit.py` — состояния CLOSED / OPEN / HALF_OPEN.
@@ -133,9 +143,9 @@
 
 **Классификация ошибок записи в БД** (`Orchestrator._persist`):
 - Транзиентные (недоступность/сеть: `PostgresConnectionError`, `InterfaceError`, `OSError`,
-  `TimeoutError`) — повторяются с **линейным backoff**
-  (`db.retry_max_attempts`, `db.retry_backoff_seconds` в `config_service.yaml`), и только
-  после исчерпания попыток учитываются circuit breaker'ом.
+  `TimeoutError`) — повторяются с **экспоненциальным backoff**
+  (`db.retry_max_attempts`, `db.retry_backoff_seconds` в `config_service.yaml`; `retry.py`),
+  и только после исчерпания попыток учитываются circuit breaker'ом.
 - Ошибки данных/схемы (например, усечение значения `asyncpg.DataError`) и дубликаты
   (unique-констрейнт) — **НЕ открывают circuit breaker**: запись логируется и пропускается.
 - Неизвестные ошибки — логируются, для circuit breaker не считаются.
@@ -164,6 +174,10 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `fit_table` — коэффициент соответствия по ОКПД2 (подбор по ближайшему предку,
   если точного кода нет); `default_fit` — для неизвестных кодов.
 
+В дефолтной формуле компонента `P(win)` в будущем будет браться из рейтинга заказчика
+в таблице `customers` (ADR-4/ADR-6, заполняется через `POST /api/customers/{id}/rating`).
+Нормализация заказчиков ещё не реализована — пока `P(win)` берётся из конфига.
+
 ## 9. Таймерный запуск (scheduler)
 `src/zakupki_parser/scheduler.py` циклически проходит по списку сайтов из
 `config_service.yaml` (поле `sites`), после каждого цикла ожидает `timeout_seconds`.
@@ -172,6 +186,9 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `zakupki-parser check-config` — проверка конфигов;
 - `zakupki-parser run-once` — один проход;
 - `zakupki-parser run-service` — периодический запуск;
+- `zakupki-parser score-worker` — разовый запуск воркера внешнего скоринга
+  (перебирает записи со `score_method=default`);
+- `zakupki-parser stop [--force]` — остановка запущенных процессов парсера;
 - `zakupki-parser capture-fixture` — сохранение HTML-фикстур для тестов;
 - `zakupki-parser serve [--host H] [--port P]` — запуск FastAPI-сервиса.
 
@@ -182,11 +199,32 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `GET /api/procurements` — список с фильтрами (`number`, `source_platform`,
   `okpd2`, `customer`) и пагинацией (`limit`, `offset`);
 - `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
+- `POST /api/procurements/{id}/score` — внешний сервис обновляет `score` закупки;
+- `POST /api/procurements/{id}/technical-spec` — внешний сервис возвращает найденное
+  ТЗ (ADR-5), парсер записывает его в `technical_spec_name/url`;
 - `GET /api/procurements/{id}/technical-spec` — скачивание файла ТЗ из хранилища
   (по `technical_spec_key`).
 
+TODO: эндпоинт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту
+записи) с удалением связанных файлов из хранилища (ссылки в `technical_spec_url`
+и `files_json`).
+
+## 11а. Уведомления подписчиков
+Доставка новых закупок настраивается в `config_service.yaml -> notifications`:
+бэкенд выбирается полем `backend` (`telegram | max | webhook`). Бэкенд активен, только
+если выбран и у него включён флаг `enabled`.
+- **Telegram** — `sendMessage` через REST API (`chat_id` в конфиге, токен — env
+  `ZAKUPKI_TELEGRAM_TOKEN`);
+- **MAX** — `POST /messages` мессенджера MAX, токен — env `ZAKUPKI_MAX_TOKEN`;
+  опция `insecure_tls` отключает проверку TLS-сертификата (по умолчанию не проверять);
+- **Webhook** — POST JSON-карточки на произвольный URL (при заданном `token` — как
+  Bearer-заголовок).
+
+Уведомление отправляется только для новых записей и только после обновления
+`score` в БД (ADR-3). Ошибки отправки логируются и не прерывают проход парсера.
+
 ## 12. Тестирование
-- Unit: обработчики значений, конфиг, circuit breaker, last_seen, stop-условия,
+- Unit: обработчики значений, конфиг, circuit breaker, дата последней обработки, stop-условия,
   резолв ОКПД2, хранилище файлов.
 - Integration: извлечение из HTML-фикстур (реальные страницы площадки), репозиторий БД
   и API-роуты (PostgreSQL, DSN через `ZAKUPKI_TEST_DSN`).
