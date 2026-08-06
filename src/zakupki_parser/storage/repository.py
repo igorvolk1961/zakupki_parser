@@ -7,9 +7,13 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
-from zakupki_parser.storage.db import Database, Procurement
+from zakupki_parser.storage.customers import normalize_name
+from zakupki_parser.storage.db import Customer, Database, Procurement
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +48,11 @@ class ProcurementRepository:
         return max_date
 
     async def get_by_id(self, procurement_id: int) -> Procurement | None:
-        stmt = select(Procurement).where(Procurement.id == procurement_id)
+        stmt = (
+            select(Procurement)
+            .where(Procurement.id == procurement_id)
+            .options(selectinload(Procurement.customer_rel))
+        )
         async with self._db.session() as session:
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
@@ -68,10 +76,17 @@ class ProcurementRepository:
         if okpd2:
             conditions.append(Procurement.okpd2_codes.ilike(f"%{okpd2}%"))
         if customer:
-            conditions.append(Procurement.customer.ilike(f"%{customer}%"))
+            conditions.append(Customer.name.ilike(f"%{customer}%"))
 
-        stmt = select(Procurement).where(*conditions).order_by(Procurement.id.desc())
+        stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
+        if customer:
+            stmt = stmt.join(Customer, Procurement.customer_id == Customer.id)
+        stmt = stmt.where(*conditions).order_by(Procurement.id.desc())
         count_stmt = select(func.count(Procurement.id)).where(*conditions)
+        if customer:
+            count_stmt = count_stmt.select_from(Procurement).join(
+                Customer, Procurement.customer_id == Customer.id
+            )
 
         async with self._db.session() as session:
             result = await session.execute(stmt.limit(limit).offset(offset))
@@ -112,7 +127,6 @@ class ProcurementRepository:
             number=str(number),
             source_platform=source_platform,
             url=data.get("url"),
-            customer=data.get("customer"),
             law=data.get("law"),
             subject=data.get("subject"),
             nmck=data.get("nmck"),
@@ -133,10 +147,57 @@ class ProcurementRepository:
             detail_json=data.get("detail_json"),
         )
         async with self._db.session() as session:
+            record.customer_id = await self._resolve_customer_id(
+                session, data.get("customer"), data.get("inn")
+            )
             session.add(record)
             await session.commit()
         logger.info("Сохранена заявка %s (%s)", number, source_platform)
         return True
+
+    async def _resolve_customer_id(
+        self, session: AsyncSession, name: str | None, inn: str | None
+    ) -> int | None:
+        """Резолвит заказчика (ADR-4): find-or-create по нормализованному имени/ИНН.
+
+        Возвращает ``customers.id`` или None (нет имени заказчика). Конкурентные
+        вставки одного заказчика снимаются ``ON CONFLICT (normalized_name) DO NOTHING``
+        с последующим повторным SELECT.
+        """
+        normalized = normalize_name(name)
+        if not normalized:
+            return None
+
+        cust = (
+            await session.execute(select(Customer).where(Customer.normalized_name == normalized))
+        ).scalar_one_or_none()
+        if cust is not None:
+            if inn and not cust.inn:
+                cust.inn = inn
+                await session.flush()
+            return cust.id
+
+        if inn:
+            cust = (
+                await session.execute(select(Customer).where(Customer.inn == inn))
+            ).scalar_one_or_none()
+            if cust is not None:
+                return cust.id
+
+        stmt = (
+            pg_insert(Customer)
+            .values(name=name or normalized, normalized_name=normalized, inn=inn)
+            .on_conflict_do_nothing(index_elements=["normalized_name"])
+            .returning(Customer.id)
+        )
+        cid = (await session.execute(stmt)).scalar_one_or_none()
+        if cid is not None:
+            return cid
+        # Конфликт: другой процесс уже создал заказчика — берём существующего.
+        cust = (
+            await session.execute(select(Customer).where(Customer.normalized_name == normalized))
+        ).scalar_one()
+        return cust.id
 
     async def list_for_scoring(
         self, method: str, *, limit: int = 50, offset: int = 0
@@ -145,6 +206,7 @@ class ProcurementRepository:
         stmt = (
             select(Procurement)
             .where(Procurement.score_method == method)
+            .options(selectinload(Procurement.customer_rel))
             .order_by(Procurement.id.asc())
             .limit(limit)
             .offset(offset)
@@ -192,3 +254,44 @@ class ProcurementRepository:
                     obj.technical_spec_url = url
                 await session.commit()
                 logger.info("Обновлены метаданные ТЗ заявки %s", procurement_id)
+
+    async def get_customer(self, customer_id: int) -> Customer | None:
+        async with self._db.session() as session:
+            return await session.get(Customer, customer_id)
+
+    async def list_customers(
+        self,
+        *,
+        name: str | None = None,
+        inn: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[Customer], int]:
+        """Справочник заказчиков с фильтрами и общим количеством."""
+        conditions: list[ColumnElement[bool]] = []
+        if name:
+            conditions.append(Customer.name.ilike(f"%{name}%"))
+        if inn:
+            conditions.append(Customer.inn == inn)
+
+        stmt = select(Customer).where(*conditions).order_by(Customer.id.asc())
+        count_stmt = select(func.count(Customer.id)).where(*conditions)
+        async with self._db.session() as session:
+            result = await session.execute(stmt.limit(limit).offset(offset))
+            rows = list(result.scalars().all())
+            total = (await session.execute(count_stmt)).scalar_one()
+        return rows, total
+
+    async def set_customer_rating(self, customer_id: int, rating: float) -> bool:
+        """Устанавливает рейтинг заказчика (вызывается внешним сервисом).
+
+        Возвращает True, если заказчик найден и рейтинг обновлён.
+        """
+        async with self._db.session() as session:
+            obj = await session.get(Customer, customer_id)
+            if obj is None:
+                return False
+            obj.rating = rating
+            await session.commit()
+            logger.info("Обновлён рейтинг заказчика %s: %s", customer_id, rating)
+            return True

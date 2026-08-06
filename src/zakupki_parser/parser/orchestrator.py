@@ -36,6 +36,7 @@ from zakupki_parser.parser.lister import (
     open_list_page,
     setup_sort_and_filters,
 )
+from zakupki_parser.parser.organization import capture_customer_link, resolve_inn
 from zakupki_parser.retry import run_with_retry
 from zakupki_parser.scoring import ExternalScoreClient, score_for_record
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
@@ -79,6 +80,21 @@ class Orchestrator:
             if cfg.score.method == "external" and cfg.score.external_call_mode == "before_save"
             else None
         )
+        # Кеш ИНН по ссылке на организацию: страницу организации грузим не чаще раза за проход.
+        self._inn_cache: dict[str, str | None] = {}
+
+    async def _resolve_customer_inn(self, page: Page, customer_link: str | None) -> str | None:
+        """ИНН заказчика с кешированием по ссылке на организацию.
+
+        Сбой получения не прерывает обработку: возвращается None (ИНН nullable).
+        """
+        if not customer_link:
+            return None
+        if customer_link in self._inn_cache:
+            return self._inn_cache[customer_link]
+        inn = await resolve_inn(page, self._platform, customer_link)
+        self._inn_cache[customer_link] = inn
+        return inn
 
     # -- приватные помощники -------------------------------------------------
     def _check_stop_conditions(self, record: dict[str, Any]) -> bool:
@@ -181,6 +197,7 @@ class Orchestrator:
         detail_page: Page
         close_detail = False
         files: list[dict[str, str]] = []
+        customer_link: str | None = None
         if self._new_page is not None:
             detail_page = await self._new_page()
             close_detail = True
@@ -195,6 +212,7 @@ class Orchestrator:
                 label=f"Детали {number}",
             )
             detail_vars = await extract_detail_vars(detail_page, self._platform)
+            customer_link = await capture_customer_link(detail_page, self._platform)
             # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход
             # по ссылке с детальной страницы и извлечение дополнительных переменных.
             for spec in self._platform.detail.additional_pages:
@@ -260,6 +278,9 @@ class Orchestrator:
             else self._platform.url.rstrip("/") + detail_url
         )
         record["source_platform"] = self._platform_id
+
+        # ИНН заказчика (универсальный механизм, ADR-4). При сбое — None (nullable).
+        record["inn"] = await self._resolve_customer_inn(page, customer_link)
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record):

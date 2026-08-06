@@ -45,7 +45,16 @@ _SCORE_PAYLOAD_FIELDS = (
 
 def _row_payload(row: Any) -> dict[str, Any]:
     """Все характеристики закупки (для внешнего сервиса скоринга)."""
-    return {k: getattr(row, k) for k in _SCORE_PAYLOAD_FIELDS if getattr(row, k) is not None}
+    result: dict[str, Any] = {}
+    for k in _SCORE_PAYLOAD_FIELDS:
+        if k == "customer":
+            rel = getattr(row, "customer_rel", None)
+            value = rel.name if rel is not None else None
+        else:
+            value = getattr(row, k, None)
+        if value is not None:
+            result[k] = value
+    return result
 
 
 class Scheduler:

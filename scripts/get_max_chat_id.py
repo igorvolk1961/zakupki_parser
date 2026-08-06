@@ -13,12 +13,11 @@
 import argparse
 import os
 import time
-import warnings
 from pathlib import Path
+from typing import Any
 
-import requests
+import httpx
 from dotenv import load_dotenv
-from urllib3.exceptions import InsecureRequestWarning
 
 DEFAULT_URL = "https://platform-api2.max.ru/updates"
 TOKEN_ENV = "ZAKUPKI_MAX_TOKEN"
@@ -35,34 +34,33 @@ def _load_token() -> str:
 
 def poll_for_chat_id(token: str, url: str, timeout: float, insecure: bool = False) -> str:
     """Long Polling: ждёт событие и возвращает первый chat_id канала."""
-    session = requests.Session()
-    session.headers.update({"Authorization": token})
-    if insecure:
-        warnings.filterwarnings("ignore", category=InsecureRequestWarning)
-
     print(f"Ожидание события (Long Polling, до {timeout:.0f} сек)…")
     print("Напишите сообщение в канал или добавьте бота, чтобы получить chat_id.")
 
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            response = session.get(url, timeout=30, verify=not insecure)
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            print(f"Ошибка запроса: {exc}")
-            time.sleep(2)
-            continue
-
-        for update in response.json().get("updates", []):
-            if update.get("update_type") != "message_created":
+    with httpx.Client(
+        headers={"Authorization": token}, verify=not insecure, timeout=30.0
+    ) as client:
+        while time.monotonic() < deadline:
+            try:
+                response = client.get(url)
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                print(f"Ошибка запроса: {exc}")
+                time.sleep(2)
                 continue
-            message = update.get("message", {})
-            recipient = message.get("recipient", {})
-            if recipient.get("chat_type") == "channel":
-                chat_id = recipient.get("chat_id")
-                print(f"Найден chat_id канала: {chat_id}")
-                return str(chat_id)
-        time.sleep(1)
+
+            data: dict[str, Any] = response.json()
+            for update in data.get("updates", []):
+                if update.get("update_type") != "message_created":
+                    continue
+                message = update.get("message", {})
+                recipient = message.get("recipient", {})
+                if recipient.get("chat_type") == "channel":
+                    chat_id = recipient.get("chat_id")
+                    print(f"Найден chat_id канала: {chat_id}")
+                    return str(chat_id)
+            time.sleep(1)
 
     raise SystemExit(
         "События не получены за отведённое время. Проверьте, что бот добавлен "

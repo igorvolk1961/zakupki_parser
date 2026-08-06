@@ -18,7 +18,7 @@ from sqlalchemy import text as sql_text
 
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
-from zakupki_parser.storage.db import Database
+from zakupki_parser.storage.db import Database, Procurement
 from zakupki_parser.storage.object_store import ObjectStore, build_object_store
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -37,6 +37,7 @@ class ProcurementOut(BaseModel):
     number: str
     source_platform: str
     url: str | None = None
+    customer_id: int | None = None
     customer: str | None = None
     law: str | None = None
     subject: str | None = None
@@ -67,6 +68,31 @@ class ProcurementDetailOut(ProcurementOut):
 class ProcurementListOut(BaseModel):
     total: int
     items: list[ProcurementOut]
+
+
+class CustomerOut(BaseModel):
+    """Карточка заказчика (ADR-4)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    normalized_name: str
+    inn: str | None = None
+    rating: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CustomerListOut(BaseModel):
+    total: int
+    items: list[CustomerOut]
+
+
+class RatingUpdate(BaseModel):
+    """Установка рейтинга заказчика внешним сервисом (ADR-4)."""
+
+    rating: float
 
 
 class HealthOut(BaseModel):
@@ -104,6 +130,21 @@ class AppState:
         self.store: ObjectStore = build_object_store(
             cfg.service.storage, Path(cfg.service.documents_dir).resolve()
         )
+
+
+def _procurement_out(row: Procurement) -> ProcurementOut:
+    """Карточка закупки с именем заказчика (имя — из связи customers, не колонки)."""
+    out = ProcurementOut.model_validate(row)
+    out.customer_id = row.customer_id
+    out.customer = row.customer_rel.name if row.customer_rel is not None else None
+    return out
+
+
+def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
+    out = ProcurementDetailOut.model_validate(row)
+    out.customer_id = row.customer_id
+    out.customer = row.customer_rel.name if row.customer_rel is not None else None
+    return out
 
 
 def _create_state(configs_dir: str) -> AppState:
@@ -166,16 +207,14 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             limit=limit,
             offset=offset,
         )
-        return ProcurementListOut(
-            total=total, items=[ProcurementOut.model_validate(r) for r in rows]
-        )
+        return ProcurementListOut(total=total, items=[_procurement_out(r) for r in rows])
 
     @app.get("/api/procurements/{procurement_id}", response_model=ProcurementDetailOut)
     async def get_procurement(procurement_id: int) -> ProcurementDetailOut:
         row = await _repo().get_by_id(procurement_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
-        return ProcurementDetailOut.model_validate(row)
+        return _procurement_detail_out(row)
 
     @app.post(
         "/api/procurements/{procurement_id}/score",
@@ -187,7 +226,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _repo().update_score(procurement_id, body.score, body.score_method)
         row = await _repo().get_by_id(procurement_id)
-        return ProcurementDetailOut.model_validate(row)
+        if row is None:  # pragma: no cover - проверено выше
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return _procurement_detail_out(row)
 
     @app.post(
         "/api/procurements/{procurement_id}/technical-spec",
@@ -205,7 +246,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _repo().update_technical_spec(procurement_id, name=body.name, url=body.url)
         row = await _repo().get_by_id(procurement_id)
-        return ProcurementDetailOut.model_validate(row)
+        if row is None:  # pragma: no cover - проверено выше
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return _procurement_detail_out(row)
 
     @app.get("/api/procurements/{procurement_id}/technical-spec")
     async def download_technical_spec(procurement_id: int) -> Response:
@@ -235,5 +278,30 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             media_type=media_type,
             headers={"Content-Disposition": disposition},
         )
+
+    @app.get("/api/customers", response_model=CustomerListOut)
+    async def list_customers(
+        name: str | None = None,
+        inn: str | None = None,
+        limit: int = Query(default=20, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> CustomerListOut:
+        rows, total = await _repo().list_customers(name=name, inn=inn, limit=limit, offset=offset)
+        return CustomerListOut(total=total, items=[CustomerOut.model_validate(r) for r in rows])
+
+    @app.get("/api/customers/{customer_id}", response_model=CustomerOut)
+    async def get_customer(customer_id: int) -> CustomerOut:
+        row = await _repo().get_customer(customer_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Заказчик не найден")
+        return CustomerOut.model_validate(row)
+
+    @app.post("/api/customers/{customer_id}/rating", response_model=CustomerOut)
+    async def set_customer_rating(customer_id: int, body: RatingUpdate) -> CustomerOut:
+        """Установка рейтинга заказчика внешним сервисом (ADR-4)."""
+        if not await _repo().set_customer_rating(customer_id, body.rating):
+            raise HTTPException(status_code=404, detail="Заказчик не найден")
+        row = await _repo().get_customer(customer_id)
+        return CustomerOut.model_validate(row)
 
     return app

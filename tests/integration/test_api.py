@@ -139,3 +139,46 @@ def test_set_technical_spec_by_external_service(
     body = resp.json()
     assert body["technical_spec_name"] == "Техническое задание (из ZIP).docx"
     assert body["technical_spec_url"].endswith("uid=ABC")
+
+
+def test_procurement_has_customer_id_and_name(
+    api_client: tuple[TestClient, Path], inserted_id: int
+) -> None:
+    client, _ = api_client
+    body = client.get(f"/api/procurements/{inserted_id}").json()
+    assert body["customer_id"] is not None
+    assert body["customer"] == "Заказчик ООО"
+
+
+def test_procurements_filter_by_customer(
+    api_client: tuple[TestClient, Path], inserted_id: int
+) -> None:
+    client, _ = api_client
+    resp = client.get("/api/procurements", params={"customer": "заказчик"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] >= 1
+    assert any(item["id"] == inserted_id for item in body["items"])
+
+
+def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
+    client, _ = api_client
+    customer_id = client.get(f"/api/procurements/{inserted_id}").json()["customer_id"]
+
+    listed = client.get("/api/customers").json()
+    assert listed["total"] >= 1
+    assert any(item["id"] == customer_id for item in listed["items"])
+
+    got = client.get(f"/api/customers/{customer_id}")
+    assert got.status_code == 200
+    assert got.json()["name"] == "Заказчик ООО"
+
+    rated = client.post(f"/api/customers/{customer_id}/rating", json={"rating": 0.9})
+    assert rated.status_code == 200
+    assert rated.json()["rating"] == 0.9
+
+
+def test_customer_rating_404(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    assert client.post("/api/customers/999999/rating", json={"rating": 1.0}).status_code == 404
+    assert client.get("/api/customers/999999").status_code == 404

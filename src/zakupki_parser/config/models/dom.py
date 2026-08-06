@@ -195,6 +195,29 @@ class SearchFilterConfig(BaseModel):
     )
 
 
+class OrganizationConfig(BaseModel):
+    """Извлечение ИНН заказчика — универсальный механизм (ADR-4).
+
+    ``customer_link_selector`` — селектор ссылки на организацию (имя заказчика);
+    href этой ссылки — URL страницы организации. ИНН получается:
+      - прямо из href через ``inn_from_link_regex`` (ЕИС 223-ФЗ: ``inn=(\\d{10,12})``), или
+      - переходом на страницу организации и извлечением по ``inn_page_selector``
+        (mos.ru ``/companyProfile/customer/{id}``, ЕИС 44-ФЗ).
+    Если настроен только ``customer_link_selector`` без способа получения ИНН — ИНН
+    остаётся nullable (закупка сохраняется, ИНН дозаполняется позже).
+    """
+
+    customer_link_selector: str | None = Field(
+        default=None, description="селектор ссылки на организацию (href = URL страницы организации)"
+    )
+    inn_from_link_regex: str | None = Field(
+        default=None, description="regex извлечения ИНН из org-ссылки (например, inn=(\\d{10,12}))"
+    )
+    inn_page_selector: str | None = Field(
+        default=None, description="селектор ИНН на странице организации"
+    )
+
+
 class PlatformDom(BaseModel):
     """DOM-конфигурация одной площадки закупок.
 
@@ -214,6 +237,9 @@ class PlatformDom(BaseModel):
     )
     search: SearchFilterConfig | None = Field(
         default=None, description="URL-фильтр списка (приоритетнее DOM-шагов)"
+    )
+    organization: OrganizationConfig | None = Field(
+        default=None, description="извлечение ИНН заказчика (ADR-4)"
     )
 
 
