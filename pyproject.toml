@@ -60,7 +60,14 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src/zakupki_parser", "tests"]
-exclude = ["tests/fixtures"]
+# Отдельные каталоги параллельной работы (свои venv, дублирующиеся имена модулей)
+# не входят в типовую проверку основного проекта.
+exclude = [
+    "tests/fixtures",
+    "src/scoring_service",
+    "src/scoring_transport",
+    "src/zakupki_mos_simulator",
+]
 warn_unused_configs = true
 mypy_path = "src"
 
