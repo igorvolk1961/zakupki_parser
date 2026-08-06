@@ -50,7 +50,10 @@ jobs:
         run: uv run ruff format --check src tests
 
       - name: Type check (mypy)
-        run: uv run mypy src tests
+        # Область проверки — из [tool.mypy] files (src/zakupki_parser + tests).
+        # Подпроекты (scoring_service/scoring_transport) — отдельные пакеты и
+        # проверяются собственным mypy.
+        run: uv run mypy
 
       - name: Tests (pytest)
         run: uv run pytest
