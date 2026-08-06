@@ -114,7 +114,6 @@ uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 # открыть http://localhost:8000/
 ```
 
-
 ## Остановка
 
 Остановить запущенные процессы парсера (`run-once`, `run-service`, `score-worker`,

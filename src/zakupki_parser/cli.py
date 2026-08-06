@@ -30,7 +30,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Каталог с YAML-конфигами (по умолчанию: configs)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
-
     sub.add_parser("check-config", help="Проверить конфигурацию")
     sub.add_parser("run-once", help="Один проход по всем площадкам")
     sub.add_parser("run-service", help="Периодический запуск по таймеру")
