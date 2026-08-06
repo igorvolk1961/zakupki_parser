@@ -22,7 +22,7 @@ erDiagram
         VARCHAR(16) security_amount_unit "единица измерения обеспечения"
         FLOAT advance "аванс"
         TEXT okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
-        TEXT technical_spec_url "URL файла ТЗ: адрес скачивания с ЭТП или URL сохранённой копии (S3/MinIO)"
+        TEXT technical_spec_url "URL файла ТЗ (адрес скачивания с ЭТП)"
         TEXT technical_spec_name "имя файла технического задания"
         JSONB files_json "остальные файлы: [{name, url скачивания с ЭТП}]"
         FLOAT score "скоринг Fit × P(win) × Margin"

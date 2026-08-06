@@ -41,12 +41,12 @@
       прямой HTTP POST (`before_save`/`worker`, `ExternalScoreClient`); способ доставки
       (синхронный вызов или очередь) — открыт по ADR-3.
 
-## 5. Скачивание файлов и хранилище
-- [x] Скачивание через `page.request` (не `page.goto`)
-- [x] Хранилище `ObjectStore`: local (documents) и S3/MinIO (boto3)
-- [x] Фильтр «только техническое задание» (`download_technical_spec_only` + keywords)
-- [x] Удаление опустевшей папки, сохранение ТЗ-файла
-- [x] Защита от path traversal (имя из Content-Disposition)
+## 5. Файлы (метаданные, без скачивания)
+- [x] Парсер НЕ скачивает файлы: в БД сохраняются имя и URL скачивания с ЭТП
+  (ТЗ — `technical_spec_name`/`technical_spec_url`, остальные — `files_json`).
+- [x] Определение ТЗ по имени файла (по умолчанию «техническое задание»).
+- [x] Глубокая обработка файлов (PDF/DOCX/ZIP, поиск ТЗ) — внешний сервис (ADR-5).
+- ~~Скачивание файлов в хранилище (MinIO/local) — удалено~~
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - [x] ORM (SQLAlchemy 2.x async) и репозиторий (upsert, дубликаты, чтение)

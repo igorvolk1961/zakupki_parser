@@ -15,8 +15,8 @@
 - Антиблок-меры: полноценный Chromium, stealth, вежливые задержки (4–12 с), лимиты,
   персистентная сессия, ретраи с экспоненциальным backoff.
 - Хранилище: SQLAlchemy 2.x (async) + PostgreSQL, миграции Liquibase.
-- Скачанные файлы (техническое задание) — в MinIO/локальном хранилище, в БД — ссылка,
-  а не бинарник; глубокая обработка файлов (PDF/DOCX/ZIP, поиск ТЗ) — внешним сервисом.
+- Файлы закупки (в т.ч. техническое задание) — в БД сохраняются только метаданные
+  (имя и URL скачивания с ЭТП); парсер не скачивает файлы.
 - **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры),
   `GET /api/procurements/{id}` (карточка), `POST /{id}/score` (внешний скоринг),
   `POST /{id}/technical-spec` и `GET /{id}/technical-spec` (ТЗ).
@@ -35,7 +35,7 @@ src/zakupki_parser/
   api/                         # FastAPI-сервис (health, procurements, ТЗ)
   parser/                      # оркестратор, lister, extractor, detail, filters
   browser/                     # менеджер браузера, stealth, задержки
-  storage/                     # SQLAlchemy (БД), object_store (MinIO/local)
+  storage/                     # SQLAlchemy (БД), customers
   circuit.py                   # circuit breaker
   notify.py                    # уведомления (telegram / max / webhook)
 tests/                         # unit + integration тесты, HTML-фикстуры

@@ -17,7 +17,6 @@ flowchart TB
     subgraph Store["Слой хранения"]
         REPO["ProcurementRepository<br/>upsert + контроль дубликатов"]
         DB["Database<br/>SQLAlchemy async"]
-        OOS["ObjectStore<br/>MinIO / local"]
     end
 
     subgraph Infra["Инфраструктура"]
@@ -35,7 +34,6 @@ flowchart TB
     ORC --> SCD
     ORC --> REPO
     REPO --> DB
-    ORC --> OOS
     ORC --> ESC
     ORC --> CB
     ORC --> NOT

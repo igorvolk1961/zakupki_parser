@@ -9,7 +9,6 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from playwright.async_api import Locator, Page
@@ -18,7 +17,6 @@ from sqlalchemy.exc import IntegrityError
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import AppConfig, PlatformDom
-from zakupki_parser.downloader import download_files, split_technical_spec
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.cutoff import is_older_than_cutoff
 from zakupki_parser.parser.detail import (
@@ -28,6 +26,7 @@ from zakupki_parser.parser.detail import (
     open_detail,
 )
 from zakupki_parser.parser.extractor import extract_from_scope
+from zakupki_parser.parser.files import split_technical_spec
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
     goto_next_page,
@@ -40,7 +39,6 @@ from zakupki_parser.parser.organization import capture_customer_link, resolve_in
 from zakupki_parser.retry import run_with_retry
 from zakupki_parser.scoring import ExternalScoreClient, score_for_record
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
-from zakupki_parser.storage.object_store import FileRef, build_object_store
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -72,9 +70,6 @@ class Orchestrator:
         self._db_cb = db_cb
         self._new_page = new_page
         self._now = now or datetime.now(UTC)
-        self._object_store = build_object_store(
-            cfg.service.storage, Path(cfg.service.documents_dir).resolve()
-        )
         self._external_scorer: ExternalScoreClient | None = (
             ExternalScoreClient(cfg.score)
             if cfg.score.method == "external" and cfg.score.external_call_mode == "before_save"
@@ -286,43 +281,16 @@ class Orchestrator:
         if self._check_stop_conditions(record):
             return
 
-        # 5) файлы: имена и URL скачивания с ЭТП сохраняются в БД (скачивание
-        #    по умолчанию НЕ выполняется). ТЗ — два отдельных поля, остальные —
-        # 5) файлы: имена и URL. В метаданном режиме technical_spec_url — адрес
-        #    скачивания с ЭТП; в download-режиме — URL сохранённой копии в хранилище.
-        keywords = self._cfg.service.technical_spec_keywords
-        ts_files, other_files = split_technical_spec(files, keywords)
+        # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
+        #    (имя и URL скачивания с ЭТП). ТЗ — два отдельных поля, остальные — files_json.
+        ts_files, other_files = split_technical_spec(files)
         if ts_files:
             record["technical_spec_name"] = ts_files[0]["name"]
             record["technical_spec_url"] = ts_files[0]["url"]
         if other_files:
             record["files_json"] = other_files
 
-        # 6) скачивание файлов в хранилище (опционально, не основной режим).
-        downloaded: list[FileRef] = []
-        if self._cfg.service.download_files:
-            to_download = ts_files if self._cfg.service.download_technical_spec_only else files
-            urls = [f["url"] for f in to_download]
-            try:
-                downloaded = await download_files(
-                    page,
-                    self._platform,
-                    self._object_store,
-                    str(number),
-                    urls,
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Ошибка скачивания файлов заявки %s: %s", number, exc)
-            # URL сохранённой копии ТЗ (если ТЗ было среди скачанных) — файл доступен
-            # напрямую по URL (S3 endpoint/bucket/key или локальный путь).
-            if ts_files and downloaded:
-                try:
-                    idx = urls.index(ts_files[0]["url"])
-                    record["technical_spec_url"] = downloaded[idx].url
-                except ValueError:
-                    pass
-
-        # 7) скоринг закупки (Score = Fit × P(win) × Margin).
+        # 6) скоринг закупки (Score = Fit × P(win) × Margin).
         #    Просроченный срок подачи заявок -> score=0, score_method=deadline_expired.
         if "score" not in record:
             score, method = await score_for_record(

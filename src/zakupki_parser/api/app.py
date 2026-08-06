@@ -20,7 +20,6 @@ from sqlalchemy import text as sql_text
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig, ServiceConfig
 from zakupki_parser.storage.db import Database, Procurement
-from zakupki_parser.storage.object_store import ObjectStore, build_object_store
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -99,7 +98,6 @@ class RatingUpdate(BaseModel):
 class HealthOut(BaseModel):
     status: str
     db: bool
-    storage: str
 
 
 class ScoreUpdate(BaseModel):
@@ -129,9 +127,6 @@ class AppState:
         self.configs_dir = configs_dir
         self.db: Database | None = None
         self.repository: ProcurementRepository | None = None
-        self.store: ObjectStore = build_object_store(
-            cfg.service.storage, Path(cfg.service.documents_dir).resolve()
-        )
 
 
 def _create_state(configs_dir: str) -> AppState:
@@ -197,7 +192,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 db_ok = True
             except Exception:  # noqa: BLE001
                 db_ok = False
-        return HealthOut(status="ok", db=db_ok, storage=state.cfg.service.storage.type)
+        return HealthOut(status="ok", db=db_ok)
 
     @app.get("/api/procurements", response_model=ProcurementListOut)
     async def list_procurements(
@@ -266,11 +261,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=404, detail="ТЗ не найдено")
 
         ts_url = row.technical_spec_url
-        # В проде файлы лежат в S3/MinIO и доступны по URL напрямую.
+        # Парсер не скачивает файлы: technical_spec_url — URL скачивания с ЭТП,
+        # поэтому обычно делаем редирект на оригинал.
         if ts_url.startswith("http"):
             return Response(status_code=302, headers={"Location": ts_url})
 
-        # Локальное сохранение — только для отладки: читаем файл по пути.
+        # Локальный путь возможен в старых данных (до отказа от скачивания).
         try:
             data = Path(ts_url).read_bytes()
         except OSError as exc:

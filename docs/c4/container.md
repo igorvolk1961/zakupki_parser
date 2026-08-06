@@ -17,7 +17,6 @@ flowchart LR
 
     Z[Платформы закупок<br/>HTML через браузер]
     DB[(PostgreSQL<br/>хранилище закупок)]
-    OS[(Object store<br/>MinIO / local)]
     FS["Внешний сервис<br/>обработки файлов (ADR-5)"]
     SS["Микросервис скоринга<br/>(ADR-3 / ADR-6)"]
     SUB[Подписчики<br/>Telegram / MAX / Webhook]
@@ -28,7 +27,6 @@ flowchart LR
     AB --> Z
     ENG --> ST
     ST --> DB
-    ST --> OS
     ENG --> FS
     ENG --> SS
     ENG --> NOT
@@ -39,8 +37,8 @@ flowchart LR
 
 ## Замечания
 - **Слой хранения** пишет в PostgreSQL через SQLAlchemy 2.x (async) с контролем
-  дубликатов по `number + source_platform`; скачанные файлы — в объектное
-  хранилище (MinIO/local, `storage.object_store`), в БД — ссылка, а не бинарник.
+  дубликатов по `number + source_platform`. Парсер не скачивает файлы — в БД
+  хранятся только метаданные файлов (имя и URL скачивания с ЭТП).
 - **Обработка файлов** (PDF/DOCX/ZIP, поиск ТЗ) вынесена во **внешний сервис** (ADR-5);
   парсер хранит метаданные файлов, результат внешний сервис возвращает через
   `POST /api/procurements/{id}/technical-spec`.

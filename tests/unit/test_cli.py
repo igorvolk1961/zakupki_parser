@@ -20,7 +20,6 @@ def test_check_config_summary(app_config: AppConfig) -> None:
     assert "Сервис (config_service.yaml)" in out
     assert "Скоринг (config_score.yaml)" in out
     assert "Уведомления" in out
-    assert "Хранилище" in out
     assert "БД" in out
     assert "Парсер / браузер" in out
 

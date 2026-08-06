@@ -145,13 +145,7 @@ def _print_summary(cfg: AppConfig) -> None:
         f"44-ФЗ={_yn(sc.fz44)}; 223-ФЗ={_yn(sc.fz223)}"
     )
     print(f"  Порог дат (дней): {cfg.service.default_cutoff_days}")
-    ts_only = cfg.service.download_technical_spec_only
-    keywords = ", ".join(cfg.service.technical_spec_keywords) or "–"
-    print(
-        f"  Скачивание файлов: {_yn(cfg.service.download_files)}"
-        f" (только ТЗ: {_yn(ts_only)}; ключевые слова: {keywords})"
-    )
-    print(f"  Директории: документы '{cfg.service.documents_dir}', данные '{cfg.service.data_dir}'")
+    print(f"  Директория данных: '{cfg.service.data_dir}'")
     sc_cond = cfg.service.stop_conditions
     min_days = sc_cond.min_deadline_days if sc_cond.min_deadline_days is not None else "–"
     print(
@@ -189,16 +183,6 @@ def _print_summary(cfg: AppConfig) -> None:
     print(f"  Telegram: {_yn(tg.enabled)}" + (f" (chat_id: {tg.chat_id})" if tg.enabled else ""))
     print(f"  MAX:      {_yn(mx.enabled)}" + (f" (chat_id: {mx.chat_id})" if mx.enabled else ""))
     print(f"  Webhook:  {_yn(wh.enabled)}" + (f" (url: {wh.url})" if wh.enabled else ""))
-    print()
-
-    # --- Хранилище -------------------------------------------------------
-    storage = cfg.service.storage
-    print("Хранилище (config_service.yaml):")
-    print(f"  Тип: {storage.type}")
-    if storage.type == "s3":
-        print(f"  Endpoint: {storage.endpoint}; bucket: {storage.bucket}; region: {storage.region}")
-    else:
-        print(f"  Каталог: {cfg.service.documents_dir}")
     print()
 
     # --- БД --------------------------------------------------------------

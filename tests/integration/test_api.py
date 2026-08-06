@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from zakupki_parser.api.app import create_app
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
-from zakupki_parser.storage.object_store import LocalObjectStore
 from zakupki_parser.storage.repository import ProcurementRepository
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
@@ -37,8 +36,6 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
 
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
     app = create_app()
-    app.state.parser.store = LocalObjectStore(docs)
-    app.state.parser.cfg.service.storage.type = "local"
     with TestClient(app) as client:
         yield client, docs
     os.environ.pop("ZAKUPKI_DB_DSN", None)
@@ -72,7 +69,6 @@ def test_health(api_client: tuple[TestClient, Path]) -> None:
     body = resp.json()
     assert body["status"] == "ok"
     assert body["db"] is True
-    assert body["storage"] == "local"
 
 
 def test_demo_page_served(api_client: tuple[TestClient, Path]) -> None:

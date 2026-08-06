@@ -168,39 +168,6 @@ class SearchCriteria(BaseModel):
     )
 
 
-class StorageConfig(BaseModel):
-    """Хранилище скачанных файлов (например, только технического задания).
-
-    ``type``: ``local`` — каталог ``documents_dir``; ``s3`` — MinIO/совместимое
-    объектное хранилище (в БД пишется URL объекта, а не бинарник).
-    """
-
-    type: Literal["local", "s3"] = Field(default="local")
-    endpoint: str = Field(default="http://localhost:9000", description="для type=s3 (MinIO)")
-    access_key: str | None = Field(default=None)
-    secret_key: str | None = Field(default=None)
-    bucket: str = Field(default="zakupki-documents")
-    secure: bool = Field(default=False, description="HTTPS для s3")
-    region: str = Field(default="us-east-1")
-
-    @model_validator(mode="after")
-    def _check_s3_params(self) -> StorageConfig:
-        """S3 опционален: при type=local параметры не нужны; при type=s3 — обязательны."""
-        if self.type == "s3":
-            missing = [
-                name
-                for name, value in (
-                    ("endpoint", self.endpoint),
-                    ("access_key", self.access_key),
-                    ("secret_key", self.secret_key),
-                )
-                if not value
-            ]
-            if missing:
-                raise ValueError(f"storage.type=s3, но не заданы: {', '.join(missing)}")
-        return self
-
-
 class ServiceConfig(BaseModel):
     """Сервисная конфигурация: таймер, список сайтов, пороги, флаги."""
 
@@ -212,33 +179,9 @@ class ServiceConfig(BaseModel):
     search_criteria: SearchCriteria = Field(
         default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
     )
-    download_files: bool = Field(default=False)
-    download_technical_spec_only: bool = Field(
-        default=False,
-        description=(
-            "скачивать только файлы, в имени которых есть ключевые слова "
-            "(например, только техническое задание)"
-        ),
-    )
-    technical_spec_keywords: list[str] = Field(
-        default_factory=lambda: ["техническое задание"],
-        description="тексты для поиска в имени файла при download_technical_spec_only",
-    )
-    documents_dir: str = Field(default="documents")
     data_dir: str = Field(default="data")
     db: DbConfig = Field(default_factory=DbConfig)
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
-    storage: StorageConfig = Field(default_factory=StorageConfig)
     stop_conditions: StopConditions = Field(default_factory=StopConditions)
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
     circuit_breaker_reset_timeout_seconds: float = Field(default=60.0, ge=1)
-
-    @model_validator(mode="after")
-    def _check_ts_keywords(self) -> ServiceConfig:
-        """Защита: флаг «только ТЗ» без ключевых слов — ошибка конфигурации."""
-        if self.download_technical_spec_only and not self.technical_spec_keywords:
-            raise ValueError(
-                "download_technical_spec_only=true, но technical_spec_keywords пуст — "
-                "не будет скачано ни одного файла"
-            )
-        return self
