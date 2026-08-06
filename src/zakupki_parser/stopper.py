@@ -16,7 +16,7 @@ import time
 
 _RUN_PATTERNS = [
     r"cli\.py (run-once|run-service|score-worker|serve)",
-    r"zakupki-parser (run-once|run-service|score-worker|serve)",
+    r"(?:zakupki-parser|zp) (run-once|run-service|score-worker|serve)",
 ]
 
 # Осиротевшие браузерные дочерние процессы (если основной процесс уже умер).

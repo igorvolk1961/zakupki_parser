@@ -32,6 +32,8 @@ dev = [
 ]
 
 [project.scripts]
+# Короткое имя команды (основное); длинное — алиас для обратной совместимости.
+zp = "zakupki_parser.cli:main"
 zakupki-parser = "zakupki_parser.cli:main"
 
 [build-system]

@@ -127,8 +127,8 @@ notifications:
 Затем запустите один проход и проверьте, что карточка ушла в канал:
 
 ```bash
-uv run zakupki-parser --configs configs check-config
-uv run zakupki-parser --configs configs run-once
+uv run zp --configs configs check-config
+uv run zp --configs configs run-once
 ```
 
 ## 7. Ограничения и особенности

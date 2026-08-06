@@ -69,31 +69,33 @@ uv run playwright install chromium --with-deps
 
 ## Запуск
 
+Команда CLI — `zp` (сокращение от `zakupki-parser`; длинное имя доступно как алиас).
+
 Сначала поднимите БД (см. выше): `./scripts/db_up.sh`. Затем:
 
 ```bash
 # проверить конфигурацию
-uv run zakupki-parser --configs configs check-config
+uv run zp --configs configs check-config
 
 # один проход по всем площадкам
-uv run zakupki-parser --configs configs run-once
+uv run zp --configs configs run-once
 
 # периодический запуск по таймеру (timeout_seconds из config_service.yaml)
-uv run zakupki-parser --configs configs run-service
+uv run zp --configs configs run-service
 
 # разовый запуск воркера внешнего скоринга (score_method=default -> external)
-uv run zakupki-parser --configs configs score-worker
+uv run zp --configs configs score-worker
 
 # FastAPI-сервис (health, списки закупок, скачивание ТЗ, web-демо)
-uv run zakupki-parser --configs configs serve --host 0.0.0.0 --port 8000
+uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 
 # пересоздать HTML-фикстуры для тестов
-uv run zakupki-parser --configs configs capture-fixture --platform zakupki_mos
+uv run zp --configs configs capture-fixture --platform zakupki_mos
 ```
 
 ### Web-демо (MVP)
 
-`zakupki-parser serve` отдаёт простое web-приложение по адресу `http://localhost:8000/`:
+`zp serve` отдаёт простое web-приложение по адресу `http://localhost:8000/`:
 
 - **Закупки / Заказчики** — просмотр данных из БД (карточки, детали, справочник
   заказчиков с ИНН/рейтингом). Приложение **не зависит от источника данных** — ему
@@ -104,7 +106,7 @@ uv run zakupki-parser --configs configs capture-fixture --platform zakupki_mos
   запуске парсера.
 
 ```bash
-uv run zakupki-parser --configs configs serve --host 0.0.0.0 --port 8000
+uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 # открыть http://localhost:8000/
 ```
 
@@ -116,10 +118,10 @@ uv run zakupki-parser --configs configs serve --host 0.0.0.0 --port 8000
 
 ```bash
 # мягкая остановка (SIGINT — корректное закрытие браузера)
-uv run zakupki-parser --configs configs stop
+uv run zp --configs configs stop
 
 # принудительная остановка (SIGKILL), если мягкая не сработала
-uv run zakupki-parser --configs configs stop --force
+uv run zp --configs configs stop --force
 ```
 
 Требуется `pgrep` (пакет `procps`). Для одного процесса на переднем плане также

@@ -23,7 +23,7 @@ DEFAULT_CONFIGS_DIR = Path("configs")
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="zakupki-parser")
+    parser = argparse.ArgumentParser(prog="zp")
     parser.add_argument(
         "--configs",
         default=str(DEFAULT_CONFIGS_DIR),

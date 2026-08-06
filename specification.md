@@ -176,14 +176,14 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 `config_service.yaml` (поле `sites`), после каждого цикла ожидает `timeout_seconds`.
 
 ## 10. CLI
-- `zakupki-parser check-config` — проверка конфигов;
-- `zakupki-parser run-once` — один проход;
-- `zakupki-parser run-service` — периодический запуск;
-- `zakupki-parser score-worker` — разовый запуск воркера внешнего скоринга
+- `zp check-config` — проверка конфигов;
+- `zp run-once` — один проход;
+- `zp run-service` — периодический запуск;
+- `zp score-worker` — разовый запуск воркера внешнего скоринга
   (перебирает записи со `score_method=default`);
-- `zakupki-parser stop [--force]` — остановка запущенных процессов парсера;
-- `zakupki-parser capture-fixture` — сохранение HTML-фикстур для тестов;
-- `zakupki-parser serve [--host H] [--port P]` — запуск FastAPI-сервиса.
+- `zp stop [--force]` — остановка запущенных процессов парсера;
+- `zp capture-fixture` — сохранение HTML-фикстур для тестов;
+- `zp serve [--host H] [--port P]` — запуск FastAPI-сервиса.
 
 ## 11. API-сервис (FastAPI)
 Поднимается командой `serve` (или сервисом `api` в docker-compose). Читает

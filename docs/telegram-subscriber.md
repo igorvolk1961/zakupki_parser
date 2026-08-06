@@ -57,8 +57,8 @@ notifications:
 Включите площадку в `sites`, затем:
 
 ```bash
-uv run zakupki-parser --configs configs check-config
-uv run zakupki-parser --configs configs run-once
+uv run zp --configs configs check-config
+uv run zp --configs configs run-once
 ```
 
 В канале появится HTML-карточка закупки. Для ручной проверки без сайта —

@@ -43,4 +43,4 @@ RUN uv sync --frozen --no-dev && \
 COPY configs ./configs
 
 ENV ZAKUPKI_CONFIGS=/app/configs
-CMD ["uv", "run", "zakupki-parser", "--configs", "/app/configs", "run-service"]
+CMD ["uv", "run", "zp", "--configs", "/app/configs", "run-service"]
