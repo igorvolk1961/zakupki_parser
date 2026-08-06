@@ -258,7 +258,10 @@ def _serve(cfg_dir: str, host: str, port: int) -> int:
     cfg = load_config(cfg_dir)
     setup_logging(cfg.logging)
     app = create_app(cfg_dir)
-    uvicorn.run(app, host=host, port=port)
+    # log_config=None: uvicorn использует наш root-логгер (config_log.yaml), чтобы
+    # логи/ошибки (в т.ч. access и ASGI-ошибки) попадали в файл лога, а не только
+    # в консоль.
+    uvicorn.run(app, host=host, port=port, log_config=None)
     return 0
 
 
