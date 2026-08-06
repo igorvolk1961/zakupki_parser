@@ -19,7 +19,7 @@
   header .sub { color: var(--muted); font-size:13px; }
   header .header-right { display:flex; align-items:center; gap:18px; }
   .admin-toggle { color: var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;}
-  .admin-toggle input { margin:0; accent-color: var(--accent); }
+  .admin-toggle input { margin:0; }
   main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
   .stats { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:20px;}
   .stat { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
@@ -100,7 +100,7 @@
   <div class="panel" id="parser-panel">
     <div class="panel-title">Парсер</div>
     <div class="toolbar">
-      <button class="primary" id="parser-start">▶ Запустить</button>
+      <button id="parser-start">▶ Запустить</button>
       <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
       <button class="ghost" id="db-clear" disabled>Очистить БД</button>
       <select id="platform"><option value="">Все площадки</option></select>
@@ -109,7 +109,7 @@
   </div>
 
   <div class="tabs">
-    <button class="primary active" id="tab-proc">Закупки</button>
+    <button class="active" id="tab-proc">Закупки</button>
     <button id="tab-cust">Заказчики</button>
     <button id="tab-cfg">Параметры</button>
   </div>
@@ -121,7 +121,7 @@
           <thead><tr><th>ID</th><th>Закупка</th></tr></thead>
           <tbody id="proc-rows"></tbody>
         </table>
-        <div class="empty" id="proc-empty" style="display:none;">Закупок нет — запустите парсер, чтобы наполнить БД.</div>
+        <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
       </div>
       <div class="proc-detail" id="proc-detail">
         <div class="empty">Выберите закупку слева</div>
@@ -201,8 +201,16 @@ function renderDetail() {
 function renderProc() {
   const items = allItems;
   const tbody = $("#proc-rows"), empty = $("#proc-empty");
-  if (!items.length) { tbody.innerHTML = ""; empty.style.display = "block"; }
-  else { empty.style.display = "none"; tbody.innerHTML = items.map(procRow).join(""); }
+  if (!items.length) {
+    tbody.innerHTML = "";
+    empty.style.display = "block";
+    empty.textContent = parserRunning
+      ? "Идёт сбор закупок…"
+      : "Закупок нет — запустите парсер, чтобы наполнить БД.";
+  } else {
+    empty.style.display = "none";
+    tbody.innerHTML = items.map(procRow).join("");
+  }
   renderDetail();
 }
 
@@ -351,10 +359,11 @@ let parserRunning = false;
 function updateControls() {
   $("#parser-start").disabled = parserRunning;
   $("#parser-stop").disabled = !parserRunning;
-  // «Очистить БД» — только в режиме администратора и при остановленном сборе.
-  $("#db-clear").disabled = parserRunning || !adminMode;
-  // «Параметры» — только в режиме администратора.
-  $("#tab-cfg").disabled = !adminMode;
+  // Элементы режима администратора скрываются, а не просто блокируются.
+  const adminOn = adminMode;
+  $("#db-clear").style.display = adminOn ? "" : "none";
+  $("#db-clear").disabled = parserRunning;
+  $("#tab-cfg").style.display = adminOn ? "" : "none";
 }
 
 async function refreshParserStatus() {
@@ -391,12 +400,18 @@ function pollParser() {
 }
 $("#parser-start").addEventListener("click", async () => {
   $("#parser-status").textContent = "запуск…";
+  parserRunning = true; updateControls(); // мгновенно блокируем «Запустить»
   const r = await fetch("/api/parser/start", { method: "POST" });
-  if (!r.ok) { $("#parser-status").textContent = "не удалось запустить (возможно, уже работает)"; return; }
+  if (!r.ok) {
+    parserRunning = false; updateControls();
+    $("#parser-status").textContent = "не удалось запустить (возможно, уже работает)";
+    return;
+  }
   await refreshParserStatus(); pollParser();
 });
 $("#parser-stop").addEventListener("click", async () => {
   $("#parser-status").textContent = "остановка…";
+  parserRunning = false; updateControls(); // мгновенно блокируем «Остановить»
   await fetch("/api/parser/stop", { method: "POST" });
   await refreshParserStatus(); pollParser();
 });
