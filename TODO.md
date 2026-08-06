@@ -23,6 +23,15 @@
       ошибке (retry с backoff, затем открытие circuit breaker) и при ошибке данных
       (запись пропускается, circuit breaker НЕ открывается). Имитация — мок репозитория
       (поднимающий транзиентные/data-исключения) или остановка контейнера PostgreSQL.
+- [ ] **Повысить покрытие тестами** (сейчас ~64% строк при полном прогоне с БД;
+      без БД — 57%). Приоритеты:
+  - **Оркестратор против локального HTTP-сервера** (см. ниже) — главный разрыв:
+    `parser/orchestrator.py` сейчас 28% (основной цикл, `_persist`/ретраи/CB, скоринг);
+  - unit-тесты `parser/filters.py` (26%) — движок DOM-шагов фильтров;
+  - unit-тесты `downloader.py` (44%) — скачивание файлов;
+  - smoke-тесты entry-points с 0%: `cli.py` (`check-config`/`score-worker`/`stop`),
+    `scheduler.py`, `browser/manager.py`, `browser/stealth.py`.
+  Для замера: `ZAKUPKI_TEST_DSN=… python -m coverage run --source=zakupki_parser -m pytest`.
 - [ ] Пересоздание `uv.lock`.
 
 ## Развитие

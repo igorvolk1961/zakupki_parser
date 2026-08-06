@@ -13,13 +13,11 @@ env ``ZAKUPKI_MAX_CHAT_ID`` или из аргумента ``--chat-id``.
 
 import argparse
 import os
-import warnings
 from pathlib import Path
 from typing import Any
 
-import requests
+import httpx
 from dotenv import load_dotenv
-from urllib3.exceptions import InsecureRequestWarning
 
 DEFAULT_URL = "https://platform-api2.max.ru/messages"
 TOKEN_ENV = "ZAKUPKI_MAX_TOKEN"
@@ -40,20 +38,16 @@ def _load_secrets() -> tuple[str, str]:
 
 def send_test_message(token: str, chat_id: str, url: str, text: str, insecure: bool) -> None:
     """Шлёт тестовое сообщение в канал и проверяет ответ платформы."""
-    session = requests.Session()
-    session.headers.update({"Authorization": token})
-    if insecure:
-        warnings.filterwarnings("ignore", category=InsecureRequestWarning)
-
     payload: dict[str, Any] = {"text": text, "format": "html", "disable_link_preview": True}
     full_url = f"{url}?chat_id={chat_id}"
     try:
-        response = session.post(full_url, json=payload, verify=not insecure, timeout=30)
-    except requests.RequestException as exc:
+        with httpx.Client(
+            headers={"Authorization": token}, verify=not insecure, timeout=30.0
+        ) as client:
+            response = client.post(full_url, json=payload)
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
         raise SystemExit(f"Ошибка запроса: {exc}") from exc
-
-    if response.status_code >= 400:
-        raise SystemExit(f"Платформа вернула {response.status_code}: {response.text.strip()}")
 
     print(f"Сообщение отправлено (HTTP {response.status_code}).")
     print(f"Текст: {text}")

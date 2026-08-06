@@ -29,6 +29,7 @@ dev = [
     "mypy>=1.10",
     "types-PyYAML>=6.0",
     "pytest-docker>=3.0",
+    "pre-commit>=3.7",
 ]
 
 [project.scripts]
