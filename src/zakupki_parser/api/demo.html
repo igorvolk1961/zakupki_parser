@@ -29,10 +29,6 @@
   .admin-toggle { color: var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;}
   .admin-toggle input { margin:0; }
   main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
-  .stats { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:20px;}
-  .stat { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
-  .stat .k { color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
-  .stat .v { font-size:26px; font-weight:700; margin-top:4px;}
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center;}
   input, select, button { background: var(--panel2); border:1px solid var(--line); color: var(--text);
     padding:9px 12px; border-radius:8px; font-size:14px;}
@@ -44,6 +40,8 @@
   .tabs { display:flex; gap:6px; margin-bottom:16px;}
   .tabs button { border-radius:20px; }
   .tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
+  .tab-count { color: var(--muted); font-weight:400; margin-left:2px; }
+  .tabs button.active .tab-count { color: inherit; }
   .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px;}
   .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
   .empty { text-align:center; color: var(--muted); padding: 60px 0;}
@@ -103,11 +101,6 @@
   </div>
 </header>
 <main>
-  <div class="stats">
-    <div class="stat"><div class="k">Закупок всего</div><div class="v" id="st_total">–</div></div>
-    <div class="stat"><div class="k">Заказчиков</div><div class="v" id="st_customers">–</div></div>
-  </div>
-
   <div class="panel" id="parser-panel">
     <div class="panel-title">Парсер</div>
     <div class="toolbar">
@@ -120,8 +113,8 @@
   </div>
 
   <div class="tabs">
-    <button class="active" id="tab-proc">Закупки</button>
-    <button id="tab-cust">Заказчики</button>
+    <button class="active" id="tab-proc">Закупки <span class="tab-count" id="cnt-proc"></span></button>
+    <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
     <button id="tab-cfg">Параметры</button>
   </div>
 
@@ -164,6 +157,8 @@
 const $ = (s) => document.querySelector(s);
 const fmtMoney = (v) => v == null ? "–" : new Intl.NumberFormat("ru-RU").format(v) + " ₽";
 const fmtDate = (v) => v ? new Date(v).toLocaleString("ru-RU") : "–";
+// Дата и время без секунд.
+const fmtDT = (v) => v ? new Date(v).toLocaleString("ru-RU", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "–";
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -239,8 +234,8 @@ async function loadProc() {
   const data = await api("procurements", params);
   allItems = data.items;
   lastProcSig = sigOfProc(data);
+  $("#cnt-proc").textContent = data.total;
   renderProc();
-  updateStats(data.total);
 }
 
 // Авто-обновление: перерисовываем список только если данные в БД изменились.
@@ -253,8 +248,8 @@ async function pollProc() {
     if (sig !== lastProcSig) {
       lastProcSig = sig;
       allItems = data.items;
+      $("#cnt-proc").textContent = data.total;
       renderProc();
-      updateStats(data.total);
     }
   } catch (err) { /* временные сбои игнорируем — попробуем на следующем тике */ }
 }
@@ -288,7 +283,7 @@ async function openDetail(id) {
 }
 
 function renderCustomers(data) {
-  $("#st_customers").textContent = data.total;
+  $("#cnt-cust").textContent = data.total;
   const rows = data.items.map((c) => `
     <tr>
       <td>#${c.id}</td>
@@ -321,10 +316,6 @@ async function pollCustomers() {
     const sig = sigOfCust(data);
     if (sig !== lastCustSig) { lastCustSig = sig; renderCustomers(data); }
   } catch (err) { /* временные сбои игнорируем */ }
-}
-
-function updateStats(total) {
-  $("#st_total").textContent = total ?? "–";
 }
 
 async function loadPlatforms() {
@@ -427,11 +418,11 @@ async function refreshParserStatus() {
   updateControls();
   const el = $("#parser-status");
   if (s.running) {
-    el.textContent = "работает…" + (s.started_at ? " (с " + new Date(s.started_at).toLocaleTimeString("ru-RU") + ")" : "");
+    el.textContent = "работает…" + (s.started_at ? " (с " + fmtDT(s.started_at) + ")" : "");
   } else {
     let txt = s.stopped ? "остановлен" : "не запущен";
     if (s.error) txt += " · ошибка: " + s.error;
-    if (s.finished_at) txt += " · завершён " + new Date(s.finished_at).toLocaleTimeString("ru-RU");
+    if (s.finished_at) txt += " · завершён " + fmtDT(s.finished_at);
     el.textContent = txt;
   }
   return s;
