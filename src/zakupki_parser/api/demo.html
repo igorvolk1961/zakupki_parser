@@ -124,7 +124,7 @@
         <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
       </div>
       <div class="proc-detail" id="proc-detail">
-        <div class="empty">Выберите закупку слева</div>
+        <div class="empty">Выберите закупку слева<br><span class="muted" style="font-size:12px">Несколько — удерживайте Ctrl при клике</span></div>
       </div>
     </div>
   </div>
@@ -194,7 +194,10 @@ function selectedItems() {
 function renderDetail() {
   const items = selectedItems();
   const panel = $("#proc-detail");
-  if (!items.length) { panel.innerHTML = `<div class="empty">Выберите закупку слева</div>`; return; }
+  if (!items.length) {
+    panel.innerHTML = `<div class="empty">Выберите закупку слева<br><span class="muted" style="font-size:12px">Несколько — удерживайте Ctrl при клике</span></div>`;
+    return;
+  }
   panel.innerHTML = items.map(card).join("");
 }
 
