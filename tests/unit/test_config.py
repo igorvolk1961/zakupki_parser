@@ -54,6 +54,24 @@ def test_telegram_token_injected_from_env(monkeypatch: pytest.MonkeyPatch) -> No
     assert cfg.service.notifications.telegram.token == "123:ABC"
 
 
+def test_chat_id_injected_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """chat_id канала можно задать из env (до валидации), как токены."""
+    monkeypatch.setenv("ZAKUPKI_MAX_CHAT_ID", "111111111")
+    cfg = load_config(CONFIGS_DIR)
+    assert cfg.service.notifications.max.chat_id == "111111111"
+
+
+def test_chat_id_in_env_satisfies_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Включённый бэкенд max без chat_id в YAML валиден, если chat_id из env."""
+    monkeypatch.setenv("ZAKUPKI_MAX_CHAT_ID", "111111111")
+    cfg = load_config(CONFIGS_DIR)
+    n = cfg.service.notifications
+    # В конфиге backend=max, max.enabled=true, chat_id: null в YAML.
+    assert n.backend == "max"
+    assert n.max.enabled is True
+    assert n.max.chat_id == "111111111"
+
+
 def test_notifications_default_backend_is_webhook() -> None:
     cfg = NotificationsConfig()
     assert cfg.backend == "webhook"

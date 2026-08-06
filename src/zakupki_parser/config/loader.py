@@ -39,6 +39,27 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _inject_chat_ids(service_data: dict[str, Any]) -> None:
+    """Подставляет chat_id каналов из env, если не заданы в YAML.
+
+    Аналогично токенам: ``ZAKUPKI_MAX_CHAT_ID`` / ``ZAKUPKI_TELEGRAM_CHAT_ID``.
+    Нужно выполнять до ``ServiceConfig.model_validate``, т.к. включённый бэкенд
+    без chat_id — ошибка валидации.
+    """
+    notif = service_data.setdefault("notifications", {})
+    if not isinstance(notif, dict):
+        return
+    for key, env_var in (("max", "ZAKUPKI_MAX_CHAT_ID"), ("telegram", "ZAKUPKI_TELEGRAM_CHAT_ID")):
+        block = notif.get(key)
+        if not isinstance(block, dict):
+            continue
+        if block.get("chat_id"):
+            continue
+        env_chat = os.environ.get(env_var)
+        if env_chat:
+            block["chat_id"] = env_chat
+
+
 def load_config(configs_dir: str | Path) -> AppConfig:
     """Загружает все конфиги из ``configs_dir`` и возвращает ``AppConfig``."""
     base = Path(configs_dir).expanduser().resolve()
@@ -51,6 +72,10 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     service_data = _load_yaml(base / CONFIG_FILES["service"])
     logging_data = _load_yaml(base / CONFIG_FILES["logging"])
     score_data = _load_yaml(base / CONFIG_FILES["score"])
+
+    # chat_id каналов можно задать из env (как и токены) — подставляем ДО
+    # валидации, т.к. включённый бэкенд без chat_id — ошибка конфигурации.
+    _inject_chat_ids(service_data)
 
     service_model = ServiceConfig.model_validate(service_data)
     logging_model = LoggingConfig.model_validate(logging_data)
