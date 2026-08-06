@@ -1,0 +1,10 @@
+# Локальная конфигурация ruff для подпроекта имитатора.
+# Позволяет задать per-file-ignores для HTML-шаблонов (длинные строки разметки)
+# без правки общего pyproject.toml (его меняют другие агенты).
+extend = "../../pyproject.toml"
+
+[lint.per-file-ignores]
+"web/render_list.py" = ["E501"]
+"web/render_detail.py" = ["E501"]
+"web/render_org.py" = ["E501"]
+"tests/*" = ["ANN001"]

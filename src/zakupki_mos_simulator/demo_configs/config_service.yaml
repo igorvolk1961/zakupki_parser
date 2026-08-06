@@ -1,0 +1,115 @@
+# Сервисная конфигурация: таймер, список сайтов, пороги дат, флаги,
+# подключение к БД, уведомления и условия прекращения обработки заявки.
+
+# Период запуска парсера по таймеру (в секундах)
+timeout_seconds: 3600
+
+# Список сайтов закупок (platform_id должен присутствовать в config_dom.yaml)
+# Демо: обрабатываем только имитатор zakupki.mos.ru.
+sites:
+  - { platform_id: "zakupki_mos", enabled: true }
+  - { platform_id: "zakupki_gov", enabled: false }
+
+# Порог «дата последней обработанной записи» в днях (по умолчанию «сейчас − 7 дней»).
+# Применяется ТОЛЬКО если для площадки ещё нет ни одной записи в БД — иначе порог
+# берётся из даты последней записи площадки (MAX(update_date) из таблицы procurements).
+default_cutoff_days: 7
+
+# Бизнес-критерии поиска (тематика фильтра). Платформонезависимые понятия;
+# конкретная привязка к запросу каждой площадки — в config_dom.yaml (search.criteria_map).
+search_criteria:
+  # Коды ОКПД2 для фильтрации. Можно указывать ЛЮБОЙ известный код любой
+  # вложенности (пользователю не нужно знать состав маппинга). Резолв:
+  # 1) точный код -> его путь; 2) иначе объединение путей потомков;
+  # 3) иначе путь ближайшего предка. Маппинг — config_dom.yaml -> search.okpd_tree_file.
+  okpd_codes:
+    - "62"    # разработка ПО, ИТ-услуги и оригиналы ПО
+    - "63"    # услуги в области ИТ
+  # Диапазон НМЦК. Задайте минимальный порог, чтобы отсечь мелкие лоты,
+  # не окупающие консалтинг. Подставляется через criteria_map (nmck_min/nmck_max).
+  nmck_min: null
+  nmck_max: null
+  # Законы: включать/выключать 44-ФЗ и 223-ФЗ (применяется на ЕИС: fz44=on/fz223=on).
+  # false — параметр не передаётся, закупки по этому закону в выдачу не попадают.
+  fz44: true
+  fz223: true
+
+# Файлы: ОСНОВНОЙ режим — не скачиваются; в БД сохраняются имя и URL скачивания
+# с ЭТП (ТЗ — поля technical_spec_name/technical_spec_url, остальные — files_json).
+# download_files: true включает скачивание в хранилище (MinIO/local).
+download_files: false
+# Скачивать только файлы, в имени которых есть одно из ключевых словосочетаний
+# (например, "техническое задание"). Работает при download_files: true.
+download_technical_spec_only: true
+technical_spec_keywords:
+  - "техническое задание"
+
+documents_dir: "documents"
+data_dir: "data"
+
+# --- Хранилище скачанных файлов (ОПЦИОНАЛЬНО) ---
+# Блок можно опустить — по умолчанию используется local (каталог documents_dir,
+# в БД пишется путь). Для MinIO/совместимого хранилища переключите type: "s3"
+# и укажите параметры ниже (обязательны при type=s3).
+storage:
+  type: "local"
+  # type: "s3"
+  # endpoint: "http://localhost:9000"
+  # access_key: "minioadmin"
+  # secret_key: "minioadmin"
+  # bucket: "zakupki-documents"
+  # secure: false
+  # region: "us-east-1"
+
+# --- База данных (PostgreSQL) ---
+# Демо записывает закупки в PostgreSQL (Scheduler всегда подключается к БД).
+# Сначала поднимите БД проекта:  ./scripts/db_up.sh
+#
+# ВАЖНО: по умолчанию демо пишет в общую БД проекта «zakupki», которую используют
+# другие агенты. Для повторных демо задайте изолированную БД через env:
+#   ZAKUPKI_DB_DSN='postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki_demo'
+# (создайте БД и примените схему, см. docker/liquibase), чтобы не засорять общую.
+db:
+  enabled: true
+  dsn: "postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki"
+  connect_timeout_seconds: 5
+  pool_min: 1
+  pool_max: 5
+  # Повторы записи при транзиентной ошибке БД (недоступность), до открытия circuit breaker
+  retry_max_attempts: 3
+  retry_backoff_seconds: 1.0
+
+# --- Уведомления подписчиков (telegram | webhook) ---
+# В демо уведомления отключены.
+notifications:
+  backend: "telegram"
+  telegram:
+    enabled: false
+    chat_id: "-1004416405744"
+    timeout_seconds: 10
+  max:
+    enabled: false
+    chat_id: null
+    timeout_seconds: 10
+    insecure_tls: true
+  webhook:
+    enabled: false
+    url: null
+    token: null
+    timeout_seconds: 10
+
+# --- Набор флагов-условий прекращения обработки очередной заявки ---
+# Каждый флаг — условие, при котором заявка пропускается (не сохраняется,
+# не уведомляется). Набор расширяется добавлением новых флагов.
+stop_conditions:
+  enabled: true
+  # Не обрабатывать заявку, если срок приёма заявок (переменная 'deadline'
+  # из config_dom.yaml) истёк к текущей дате.
+  deadline_not_expired: true
+  # Не обрабатывать заявку, если до срока подачи осталось меньше N календарных
+  # дней (нужно время на подготовку заявки). null — условие отключено.
+  min_deadline_days: 3
+
+# --- Circuit Breaker (вежливая деградация) ---
+circuit_breaker_failure_threshold: 5
+circuit_breaker_reset_timeout_seconds: 60
