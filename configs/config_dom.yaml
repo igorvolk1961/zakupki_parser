@@ -47,10 +47,10 @@ platforms:
 
     # Извлечение ИНН заказчика (ADR-4). На mos.ru ИНН — на странице организации
     # (/companyProfile/customer/{id}), куда ведёт ссылка на имя заказчика.
-    # Селектор ИНН на странице организации требуется уточнить через capture-fixture.
     organization:
       customer_link_selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Заказчик')) a"
       inn_from_link_regex: null
+      inn_from_org_page: true
       inn_page_selector: null
 
     # --- Сортировка списка закупок ---
@@ -154,11 +154,12 @@ platforms:
       option_text: null
 
     # Извлечение ИНН заказчика (ADR-4). На ЕИС 223-ФЗ ИНН есть в org-ссылке
-    # (view223/info.html?inn=...); на 44-ФЗ — только organizationCode (ИНН —
-    # со страницы организации, селектор требуется уточнить через capture-fixture).
+    # (view223/info.html?inn=...); на 44-ФЗ — только organizationCode, ИНН
+    # извлекается со страницы организации (inn_from_org_page).
     organization:
       customer_link_selector: "a[href*='organization/view']"
       inn_from_link_regex: "inn=(\\d{10,12})"
+      inn_from_org_page: true
       inn_page_selector: null
 
     # URL-фильтр расширенного поиска ЕИС. Обобщённые критерии мапятся на плоские

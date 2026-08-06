@@ -63,5 +63,5 @@ def setup_logging(cfg: LoggingConfig) -> None:
     # Уменьшаем шум от сторонних библиотек
     logging.getLogger("playwright").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
-    # uvicorn.access не должен фильтроваться ниже INFO (иначе нет лога запросов).
-    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    # Access-логи запросов (INFO) не пишем — только значимые события.
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)

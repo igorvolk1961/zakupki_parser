@@ -149,8 +149,9 @@ async def _run_parser(state: AppState) -> None:
         await scheduler.start()
         await scheduler.run_once()
     except asyncio.CancelledError:
+        # Остановка по команде пользователя — это не ошибка.
         state.parser_status["stopped"] = True
-        state.parser_status["error"] = "остановлено пользователем"
+        state.parser_status["error"] = None
     except Exception as exc:  # noqa: BLE001
         state.parser_status["error"] = str(exc)
     finally:

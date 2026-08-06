@@ -213,6 +213,13 @@ class OrganizationConfig(BaseModel):
     inn_from_link_regex: str | None = Field(
         default=None, description="regex извлечения ИНН из org-ссылки (например, inn=(\\d{10,12}))"
     )
+    inn_from_org_page: bool = Field(
+        default=False,
+        description=(
+            "открывать страницу организации для извлечения ИНН, если его нет в org-ссылке "
+            "(по селектору inn_page_selector или обобщённым поиском 'ИНН <цифры>')"
+        ),
+    )
     inn_page_selector: str | None = Field(
         default=None, description="селектор ИНН на странице организации"
     )

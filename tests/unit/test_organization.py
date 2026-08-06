@@ -12,7 +12,11 @@ from zakupki_parser.config.models import (
     OrganizationConfig,
     PlatformDom,
 )
-from zakupki_parser.parser.organization import capture_customer_link, resolve_inn
+from zakupki_parser.parser.organization import (
+    capture_customer_link,
+    extract_inn_from_text,
+    resolve_inn,
+)
 
 
 def _as_page(obj: object) -> Page:
@@ -49,6 +53,9 @@ class _FakePage:
     def locator(self, selector: str) -> _FakeLocator:
         return self._locator
 
+    async def inner_text(self, selector: str) -> str:
+        return self._locator._text
+
     async def goto(self, url: str, **kwargs: object) -> None:
         self.url = url
 
@@ -76,6 +83,19 @@ def _platform(org: OrganizationConfig | None) -> PlatformDom:
         detail=DomDetailConfig(),
         organization=org,
     )
+
+
+class TestExtractInnFromText:
+    def test_inn_with_label(self) -> None:
+        assert extract_inn_from_text("ИНН 7701234567") == "7701234567"
+        assert extract_inn_from_text("ИНН: 3903007130, КПП 390601001") == "3903007130"
+
+    def test_inn_in_markup(self) -> None:
+        assert extract_inn_from_text("ИНН</dt><dd>771234567812</dd>") == "771234567812"
+
+    def test_no_inn(self) -> None:
+        assert extract_inn_from_text("Нет данных") is None
+        assert extract_inn_from_text(None) is None
 
 
 class TestCaptureCustomerLink:
@@ -113,7 +133,9 @@ class TestResolveInn:
         assert await resolve_inn(_as_page(page), _platform(org), "/some/link") is None
 
     async def test_from_org_page(self) -> None:
-        org = OrganizationConfig(customer_link_selector="a", inn_page_selector="span.inn")
+        org = OrganizationConfig(
+            customer_link_selector="a", inn_from_org_page=True, inn_page_selector="span.inn"
+        )
         org_page = _FakePage(_FakeLocator(count=1, text="ИНН 3903007130"))
         context = _FakeContext(org_page)
         page = _FakePage(_FakeLocator(), context=context)
@@ -121,11 +143,28 @@ class TestResolveInn:
         assert inn == "3903007130"
         assert org_page.closed is True
 
+    async def test_from_org_page_generic_without_selector(self) -> None:
+        org = OrganizationConfig(customer_link_selector="a", inn_from_org_page=True)
+        org_page = _FakePage(_FakeLocator(count=1, text="ИНН 3903007130"))
+        context = _FakeContext(org_page)
+        page = _FakePage(_FakeLocator(), context=context)
+        inn = await resolve_inn(_as_page(page), _platform(org), "/companyProfile/customer/1201682")
+        assert inn == "3903007130"
+
     async def test_org_page_no_inn_returns_none(self) -> None:
-        org = OrganizationConfig(customer_link_selector="a", inn_page_selector="span.inn")
+        org = OrganizationConfig(
+            customer_link_selector="a", inn_from_org_page=True, inn_page_selector="span.inn"
+        )
         org_page = _FakePage(_FakeLocator(count=0))
         context = _FakeContext(org_page)
         page = _FakePage(_FakeLocator(), context=context)
+        assert (
+            await resolve_inn(_as_page(page), _platform(org), "/companyProfile/customer/1") is None
+        )
+
+    async def test_org_page_disabled_does_not_open(self) -> None:
+        org = OrganizationConfig(customer_link_selector="a", inn_page_selector="span.inn")
+        page = _FakePage(_FakeLocator())
         assert (
             await resolve_inn(_as_page(page), _platform(org), "/companyProfile/customer/1") is None
         )

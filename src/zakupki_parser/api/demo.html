@@ -17,7 +17,7 @@
            display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;}
   header h1 { font-size:18px; margin:0; }
   header .sub { color: var(--muted); font-size:13px; }
-  main { padding: 20px 24px; max-width: 1280px; margin: 0 auto; }
+  main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
   .stats { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:20px;}
   .stat { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
   .stat .k { color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
@@ -27,15 +27,31 @@
     padding:9px 12px; border-radius:8px; font-size:14px;}
   input:focus, select:focus { outline:none; border-color: var(--accent);}
   button { cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
   button.primary { background: var(--accent); border-color: var(--accent); color:#06283a; font-weight:600;}
   button.ghost { background: transparent; }
   .tabs { display:flex; gap:6px; margin-bottom:16px;}
   .tabs button { border-radius:20px; }
   .tabs button.active { background: var(--accent); border-color: var(--accent); color:#06283a; font-weight:600;}
-  .cards { display:grid; grid-template-columns: repeat(auto-fill,minmax(340px,1fr)); gap:14px;}
-  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
-          cursor:pointer; transition: border-color .15s, transform .05s;}
-  .card:hover { border-color: var(--accent); }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px;}
+  .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
+  .empty { text-align:center; color: var(--muted); padding: 60px 0;}
+  .split { display:flex; gap:16px; align-items:flex-start; }
+  .proc-list { flex:1 1 auto; min-width:0; max-height:72vh; overflow:auto;
+               border:1px solid var(--line); border-radius:10px; background: var(--panel);}
+  .proc-list table { width:100%; border-collapse:collapse; font-size:13px; }
+  .proc-list th, .proc-list td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
+  .proc-list th { position:sticky; top:0; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
+  .proc-list tr { cursor:pointer; }
+  .proc-list tr:hover { background: var(--panel2); }
+  .proc-list tr.sel { background:#0c4a6e; }
+  .proc-list td.id { color: var(--muted); width:64px; font-family:ui-monospace,monospace; }
+  .proc-list .num { color: var(--accent); font-size:12px; font-family:ui-monospace,monospace;}
+  .proc-list .subj { margin-top:2px; }
+  .proc-detail { flex:0 0 400px; width:400px; max-height:72vh; overflow:auto;
+                 display:flex; flex-direction:column; gap:12px; }
+  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; cursor:pointer;}
+  .card:hover, .card.selcard { border-color: var(--accent); }
   .card .num { color: var(--accent); font-size:13px; font-family:ui-monospace,monospace;}
   .card .subj { font-weight:600; margin:6px 0 10px; line-height:1.35;}
   .card .row { display:flex; justify-content:space-between; font-size:13px; color: var(--muted);
@@ -43,7 +59,6 @@
   .card .row b { color: var(--text); font-weight:600;}
   .pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line);}
   .pill.score { background:#082f49; border-color:#0c4a6e; color: var(--accent); font-weight:700;}
-  .empty { text-align:center; color: var(--muted); padding: 60px 0;}
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
@@ -58,8 +73,6 @@
   table.cust { width:100%; border-collapse:collapse; font-size:13px; background: var(--panel); border-radius:12px;}
   table.cust th, table.cust td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line);}
   .muted { color: var(--muted); }
-  .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px;}
-  .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
   a { color: var(--accent); }
 </style>
 </head>
@@ -75,8 +88,6 @@
   <div class="stats">
     <div class="stat"><div class="k">Закупок всего</div><div class="v" id="st_total">–</div></div>
     <div class="stat"><div class="k">Заказчиков</div><div class="v" id="st_customers">–</div></div>
-    <div class="stat"><div class="k">Сумма НМЦК</div><div class="v" id="st_nmck">–</div></div>
-    <div class="stat"><div class="k">С источников</div><div class="v" id="st_platforms">–</div></div>
   </div>
 
   <div class="panel" id="parser-panel">
@@ -101,8 +112,18 @@
   </div>
 
   <div id="view-proc">
-    <div class="cards" id="cards"></div>
-    <div class="empty" id="proc-empty" style="display:none;">Закупок нет — запустите парсер (или имитатор ЭТП), чтобы наполнить БД.</div>
+    <div class="split">
+      <div class="proc-list">
+        <table>
+          <thead><tr><th>ID</th><th>Закупка</th></tr></thead>
+          <tbody id="proc-rows"></tbody>
+        </table>
+        <div class="empty" id="proc-empty" style="display:none;">Закупок нет — запустите парсер, чтобы наполнить БД.</div>
+      </div>
+      <div class="proc-detail" id="proc-detail">
+        <div class="empty">Выберите закупку слева</div>
+      </div>
+    </div>
   </div>
 
   <div id="view-cust" style="display:none;">
@@ -110,7 +131,7 @@
   </div>
 
   <div id="view-cfg" style="display:none;">
-    <p class="sub">Параметры <code>config_service.yaml</code> (секреты, например токены ботов, не редактируются — берутся из env). После сохранения применяются при следующем запуске парсера.</p>
+    <p class="muted">Параметры <code>config_service.yaml</code> (секреты, например токены ботов, не редактируются — берутся из env). После сохранения применяются при следующем запуске парсера.</p>
     <textarea id="cfg-editor" spellcheck="false" style="width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
     <div class="toolbar" style="margin-top:12px;">
       <button class="primary" id="cfg-save">Сохранить</button>
@@ -130,6 +151,10 @@ const $ = (s) => document.querySelector(s);
 const fmtMoney = (v) => v == null ? "–" : new Intl.NumberFormat("ru-RU").format(v) + " ₽";
 const fmtDate = (v) => v ? new Date(v).toLocaleString("ru-RU") : "–";
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
 async function api(path, params) {
   const url = "/api/" + path + (params ? "?" + new URLSearchParams(params) : "");
   const r = await fetch(url);
@@ -138,9 +163,10 @@ async function api(path, params) {
 }
 
 let allItems = [];
+let selected = new Set();
 
 function card(row) {
-  return `<div class="card" data-id="${row.id}">
+  return `<div class="card selcard" data-id="${row.id}">
     <div class="num">${row.number}</div>
     <div class="subj">${escapeHtml(row.subject || "—")}</div>
     <div class="row"><span>Заказчик</span><b>${escapeHtml(row.customer || "—")}</b></div>
@@ -151,19 +177,22 @@ function card(row) {
   </div>`;
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+function procRow(row) {
+  return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}">
+    <td class="id">${row.id}</td>
+    <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
+  </tr>`;
 }
 
-async function loadProc() {
-  const q = $("#q").value.trim();
-  const params = { limit: 100 };
-  if ($("#platform").value) params.source_platform = $("#platform").value;
-  if (q) params.customer = q; // клиентская фильтрация шире: см. ниже
-  const data = await api("procurements", params);
-  allItems = data.items;
-  renderProc(q);
-  updateStats(data.total);
+function selectedItems() {
+  return allItems.filter((r) => selected.has(r.id));
+}
+
+function renderDetail() {
+  const items = selectedItems();
+  const panel = $("#proc-detail");
+  if (!items.length) { panel.innerHTML = `<div class="empty">Выберите закупку слева</div>`; return; }
+  panel.innerHTML = items.map(card).join("");
 }
 
 function renderProc(q) {
@@ -174,10 +203,21 @@ function renderProc(q) {
       [r.number, r.subject, r.customer, r.law, r.okpd2_codes].some((v) =>
         String(v || "").toLowerCase().includes(ql)));
   }
-  const cards = $("#cards");
-  if (!items.length) { cards.innerHTML = ""; $("#proc-empty").style.display = "block"; return; }
-  $("#proc-empty").style.display = "none";
-  cards.innerHTML = items.map(card).join("");
+  const tbody = $("#proc-rows"), empty = $("#proc-empty");
+  if (!items.length) { tbody.innerHTML = ""; empty.style.display = "block"; }
+  else { empty.style.display = "none"; tbody.innerHTML = items.map(procRow).join(""); }
+  renderDetail();
+}
+
+async function loadProc() {
+  const q = $("#q").value.trim();
+  const params = { limit: 100 };
+  if ($("#platform").value) params.source_platform = $("#platform").value;
+  if (q) params.customer = q;
+  const data = await api("procurements", params);
+  allItems = data.items;
+  renderProc(q);
+  updateStats(data.total);
 }
 
 async function openDetail(id) {
@@ -225,18 +265,11 @@ async function loadCustomers() {
     </table>`;
 }
 
-async function updateStats(total) {
+function updateStats(total) {
   $("#st_total").textContent = total ?? "–";
-  const all = await api("procurements", { limit: 1 });
-  // сумма НМЦК и число площадок считаем по загруженной выборке
-  const nmck = allItems.reduce((s, r) => s + (r.nmck || 0), 0);
-  $("#st_nmck").textContent = fmtMoney(nmck);
-  const plats = new Set(allItems.map((r) => r.source_platform));
-  $("#st_platforms").textContent = plats.size ? [...plats].join(", ") : "–";
 }
 
 async function loadPlatforms() {
-  const data = await api("procurements", { limit: 1 });
   const sel = $("#platform");
   const set = new Set();
   const paged = await api("procurements", { limit: 100 });
@@ -245,28 +278,41 @@ async function loadPlatforms() {
 }
 
 function closeModal() { $("#modal-bg").classList.remove("open"); }
-$("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 
-$("#cards").addEventListener("click", (e) => {
+// --- События списка закупок -------------------------------------------
+$("#proc-rows").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-id]");
+  if (!tr) return;
+  const id = Number(tr.dataset.id);
+  if (e.ctrlKey) {
+    if (selected.has(id)) { selected.delete(id); tr.classList.remove("sel"); }
+    else { selected.add(id); tr.classList.add("sel"); }
+  } else {
+    selected = new Set([id]);
+    document.querySelectorAll("#proc-rows tr").forEach((r) => r.classList.toggle("sel", r === tr));
+  }
+  renderDetail();
+});
+$("#proc-detail").addEventListener("click", (e) => {
   const card = e.target.closest(".card");
   if (card) openDetail(card.dataset.id);
 });
+$("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 $("#search").addEventListener("click", loadProc);
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadProc(); });
 $("#refresh").addEventListener("click", () => { loadProc(); loadCustomers(); });
 $("#tab-proc").addEventListener("click", () => {
-  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active");
-  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none";
+  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
+  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";
 });
 $("#tab-cust").addEventListener("click", () => {
-  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active");
-  $("#tab-cfg").classList.remove("active");
-  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none";
-  $("#view-cfg").style.display = "none";
+  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cfg").classList.remove("active");
+  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cfg").style.display = "none";
   loadCustomers();
 });
 
+// --- Конфиг-сервис ----------------------------------------------------
 let cfgDirty = false;
 async function loadConfig() {
   const cfg = await api("config");
@@ -276,12 +322,8 @@ async function loadConfig() {
 }
 async function saveConfig() {
   let payload;
-  try {
-    payload = JSON.parse($("#cfg-editor").value);
-  } catch (err) {
-    $("#cfg-status").textContent = "Ошибка JSON: " + err.message;
-    return;
-  }
+  try { payload = JSON.parse($("#cfg-editor").value); }
+  catch (err) { $("#cfg-status").textContent = "Ошибка JSON: " + err.message; return; }
   $("#cfg-status").textContent = "Сохранение…";
   try {
     const r = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -294,23 +336,21 @@ async function saveConfig() {
     $("#cfg-editor").value = JSON.stringify(saved, null, 2);
     $("#cfg-status").textContent = "Сохранено ✓ (применится при следующем запуске парсера)";
     cfgDirty = false;
-  } catch (err) {
-    $("#cfg-status").textContent = "Ошибка: " + err.message;
-  }
+  } catch (err) { $("#cfg-status").textContent = "Ошибка: " + err.message; }
 }
 $("#cfg-editor").addEventListener("input", () => { cfgDirty = true; $("#cfg-status").textContent = "несохранённые изменения"; });
 $("#cfg-save").addEventListener("click", saveConfig);
 $("#cfg-reload").addEventListener("click", loadConfig);
 $("#tab-cfg").addEventListener("click", () => {
-  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active");
-  $("#tab-cust").classList.remove("active");
-  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none";
-  $("#view-cust").style.display = "none";
+  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active");
+  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none";
   if (!cfgDirty) loadConfig();
 });
 window.addEventListener("beforeunload", (e) => { if (cfgDirty) { e.preventDefault(); e.returnValue = ""; } });
 
+// --- Парсер ------------------------------------------------------------
 let parserTimer = null;
+let prevRunning = false;
 async function refreshParserStatus() {
   let s;
   try { s = await api("parser/status"); } catch { return; }
@@ -321,31 +361,38 @@ async function refreshParserStatus() {
     el.textContent = "работает…" + (s.started_at ? " (с " + new Date(s.started_at).toLocaleTimeString("ru-RU") + ")" : "");
   } else {
     startBtn.disabled = false; stopBtn.disabled = true;
-    let txt = "простой";
+    let txt = "не запущен";
     if (s.error) txt += " · ошибка: " + s.error;
     else if (s.stopped) txt += " · остановлен";
     if (s.finished_at) txt += " · завершён " + new Date(s.finished_at).toLocaleTimeString("ru-RU");
     el.textContent = txt;
   }
+  return s;
 }
 function pollParser() {
   if (parserTimer) clearInterval(parserTimer);
   parserTimer = setInterval(async () => {
-    await refreshParserStatus();
-    const s = await api("parser/status");
-    if (!s.running) { clearInterval(parserTimer); parserTimer = null; }
+    const s = await refreshParserStatus();
+    if (s.running) { prevRunning = true; return; }
+    if (prevRunning) {
+      // Проход завершился — обновляем список (без сброса выбора).
+      prevRunning = false; clearInterval(parserTimer); parserTimer = null;
+      await loadProc();
+    } else {
+      clearInterval(parserTimer); parserTimer = null;
+    }
   }, 3000);
 }
 $("#parser-start").addEventListener("click", async () => {
   $("#parser-status").textContent = "запуск…";
   const r = await fetch("/api/parser/start", { method: "POST" });
   if (!r.ok) { $("#parser-status").textContent = "не удалось запустить (возможно, уже работает)"; return; }
-  refreshParserStatus(); pollParser();
+  await refreshParserStatus(); pollParser();
 });
 $("#parser-stop").addEventListener("click", async () => {
   $("#parser-status").textContent = "остановка…";
   await fetch("/api/parser/stop", { method: "POST" });
-  refreshParserStatus(); pollParser();
+  await refreshParserStatus(); pollParser();
 });
 refreshParserStatus();
 
@@ -355,7 +402,7 @@ refreshParserStatus();
     await loadProc();
     await loadCustomers();
   } catch (err) {
-    $("#cards").innerHTML = `<div class="empty">Не удалось загрузить данные: ${escapeHtml(String(err))}<br>Запустите парсер и API (zp serve).</div>`;
+    $("#proc-rows").innerHTML = `<tr><td colspan="2" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
   }
 })();
 </script>
