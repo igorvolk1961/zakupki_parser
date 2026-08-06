@@ -98,6 +98,8 @@ class TelegramBackend:
             raise ValueError(
                 "telegram.enabled=true, но не задан токен бота (env ZAKUPKI_TELEGRAM_TOKEN)"
             )
+        if not self._chat_id:
+            raise ValueError("telegram.chat_id не задан — уведомление пропущено")
         payload = {
             "chat_id": self._chat_id,
             "text": render_telegram_message(record),
@@ -133,6 +135,8 @@ class MaxBackend:
         """Шлёт HTML-карточку в канал MAX."""
         if not self._token:
             raise ValueError("max.enabled=true, но не задан токен бота (env ZAKUPKI_MAX_TOKEN)")
+        if not self._chat_id:
+            raise ValueError("max.chat_id не задан — уведомление пропущено")
         payload = {
             "text": render_telegram_message(record),
             "format": "html",

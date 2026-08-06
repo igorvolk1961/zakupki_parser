@@ -86,17 +86,10 @@ class NotificationsConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check_chat_ids(self) -> NotificationsConfig:
-        """Бэкенды, требующие адрес канала: включённый без chat_id — ошибка."""
-        if self.backend == "telegram" and self.telegram.enabled and not self.telegram.chat_id:
-            raise ValueError(
-                "notifications.backend=telegram и telegram.enabled=true, но "
-                "telegram.chat_id не задан (нужен '@username' или числовой id канала)"
-            )
-        if self.backend == "max" and self.max.enabled and not self.max.chat_id:
-            raise ValueError(
-                "notifications.backend=max и max.enabled=true, но max.chat_id не задан "
-                "(нужен числовой id канала из подписки на события)"
-            )
+        """chat_id может быть не задан: он подставляется из env (ZAKUPKI_MAX_CHAT_ID /
+        ZAKUPKI_TELEGRAM_CHAT_ID) в loader. Если его нет — конфиг валиден, а бэкенд
+        при отправке пропустит уведомление с предупреждением (см. notify.py).
+        """
         return self
 
 

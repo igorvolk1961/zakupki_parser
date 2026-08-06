@@ -8,7 +8,6 @@ from typing import Any, cast
 
 import httpx
 import pytest
-from pydantic import ValidationError
 
 from zakupki_parser.config.models import (
     MaxConfig,
@@ -233,12 +232,14 @@ class TestNotifier:
 
 
 class TestNotificationsConfigValidation:
-    def test_telegram_enabled_without_chat_id_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            NotificationsConfig(
-                backend="telegram",
-                telegram=TelegramConfig(enabled=True, token="123:ABC"),
-            )
+    def test_telegram_enabled_without_chat_id_allowed(self) -> None:
+        # chat_id может быть не задан (подставляется из env); бэкенд пропустит
+        # уведомление при отправке.
+        cfg = NotificationsConfig(
+            backend="telegram",
+            telegram=TelegramConfig(enabled=True, token="123:ABC"),
+        )
+        assert cfg.telegram.chat_id is None
 
     def test_telegram_enabled_with_chat_id_ok(self) -> None:
         cfg = NotificationsConfig(
@@ -254,12 +255,12 @@ class TestNotificationsConfigValidation:
         )
         assert cfg.backend == "webhook"
 
-    def test_max_enabled_without_chat_id_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            NotificationsConfig(
-                backend="max",
-                max=MaxConfig(enabled=True, token="SECRET"),
-            )
+    def test_max_enabled_without_chat_id_allowed(self) -> None:
+        cfg = NotificationsConfig(
+            backend="max",
+            max=MaxConfig(enabled=True, token="SECRET"),
+        )
+        assert cfg.max.chat_id is None
 
     def test_max_enabled_with_chat_id_ok(self) -> None:
         cfg = NotificationsConfig(
