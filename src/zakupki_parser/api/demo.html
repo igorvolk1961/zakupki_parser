@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zakupki Parser — MVP demo</title>
+<title>Zakupki Parser</title>
 <style>
   :root {
     --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
@@ -79,8 +79,7 @@
 <body>
 <header>
   <div>
-    <h1>Zakupki Parser — MVP demo</h1>
-    <div class="sub">Данные читаются из БД, источник не важен (живой парсер, имитатор ЭТП и др.)</div>
+    <h1>Zakupki Parser</h1>
   </div>
   <button class="ghost" id="refresh">Обновить</button>
 </header>
@@ -93,7 +92,7 @@
   <div class="panel" id="parser-panel">
     <div class="panel-title">Парсер</div>
     <div class="toolbar">
-      <button class="primary" id="parser-start">▶ Запустить сбор</button>
+      <button class="primary" id="parser-start">▶ Запустить</button>
       <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
       <span id="parser-status" class="muted">проверка…</span>
     </div>
@@ -102,13 +101,11 @@
   <div class="tabs">
     <button class="primary active" id="tab-proc">Закупки</button>
     <button id="tab-cust">Заказчики</button>
-    <button id="tab-cfg">Конфиг-сервис</button>
+    <button id="tab-cfg">Параметры</button>
   </div>
 
   <div class="toolbar" id="toolbar-proc">
-    <input id="q" placeholder="Поиск: номер, предмет, заказчик…" style="flex:1;min-width:220px;">
     <select id="platform"><option value="">Все площадки</option></select>
-    <button class="primary" id="search">Найти</button>
   </div>
 
   <div id="view-proc">
@@ -195,14 +192,8 @@ function renderDetail() {
   panel.innerHTML = items.map(card).join("");
 }
 
-function renderProc(q) {
-  const ql = (q || "").toLowerCase();
-  let items = allItems;
-  if (ql) {
-    items = items.filter((r) =>
-      [r.number, r.subject, r.customer, r.law, r.okpd2_codes].some((v) =>
-        String(v || "").toLowerCase().includes(ql)));
-  }
+function renderProc() {
+  const items = allItems;
   const tbody = $("#proc-rows"), empty = $("#proc-empty");
   if (!items.length) { tbody.innerHTML = ""; empty.style.display = "block"; }
   else { empty.style.display = "none"; tbody.innerHTML = items.map(procRow).join(""); }
@@ -210,13 +201,11 @@ function renderProc(q) {
 }
 
 async function loadProc() {
-  const q = $("#q").value.trim();
   const params = { limit: 100 };
   if ($("#platform").value) params.source_platform = $("#platform").value;
-  if (q) params.customer = q;
   const data = await api("procurements", params);
   allItems = data.items;
-  renderProc(q);
+  renderProc();
   updateStats(data.total);
 }
 
@@ -299,8 +288,7 @@ $("#proc-detail").addEventListener("click", (e) => {
 });
 $("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
-$("#search").addEventListener("click", loadProc);
-$("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadProc(); });
+$("#platform").addEventListener("change", loadProc);
 $("#refresh").addEventListener("click", () => { loadProc(); loadCustomers(); });
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
@@ -312,7 +300,7 @@ $("#tab-cust").addEventListener("click", () => {
   loadCustomers();
 });
 
-// --- Конфиг-сервис ----------------------------------------------------
+// --- Параметры --------------------------------------------------------
 let cfgDirty = false;
 async function loadConfig() {
   const cfg = await api("config");
