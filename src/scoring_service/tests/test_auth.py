@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+
 from scoring_service.settings import Settings
 from scoring_service.web.app import create_app
 

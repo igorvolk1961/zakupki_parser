@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
+
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps, ScoringOutput
 
 

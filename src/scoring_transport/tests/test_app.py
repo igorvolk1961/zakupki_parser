@@ -6,9 +6,10 @@ import asyncio
 from typing import Any
 
 import fakeredis.aioredis as fakeredis_aioredis
+from fastapi.testclient import TestClient
+
 import scoring_transport.consumers.results as results_module
 import scoring_transport.web.app as app_module
-from fastapi.testclient import TestClient
 from scoring_transport.settings import Settings
 
 

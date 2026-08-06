@@ -7,6 +7,7 @@ import time
 
 import fakeredis.aioredis as fakeredis_aioredis
 import pytest
+
 from scoring_service.settings import Settings
 from scoring_service.transport.redis_queue import ScoringQueue
 
