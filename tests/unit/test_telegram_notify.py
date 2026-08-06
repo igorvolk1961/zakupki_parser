@@ -208,7 +208,9 @@ class TestNotifier:
         notifier = Notifier(
             NotificationsConfig(backend="webhook", webhook=WebhookConfig(enabled=False))
         )
-        notifier._backends = cast(list[TelegramBackend | WebhookBackend], [BoomBackend()])
+        notifier._backends = cast(
+            list[TelegramBackend | MaxBackend | WebhookBackend], [BoomBackend()]
+        )
         with caplog.at_level(logging.WARNING, logger="zakupki_parser.notify"):
             await notifier.notify(_RECORD)
         assert "Не удалось отправить" in caplog.text
@@ -223,7 +225,9 @@ class TestNotifier:
         notifier = Notifier(
             NotificationsConfig(backend="webhook", webhook=WebhookConfig(enabled=False))
         )
-        notifier._backends = cast(list[TelegramBackend | WebhookBackend], [SpyBackend()])
+        notifier._backends = cast(
+            list[TelegramBackend | MaxBackend | WebhookBackend], [SpyBackend()]
+        )
         await notifier.notify(_RECORD)
         assert calls == [_RECORD]
 

@@ -15,6 +15,7 @@ import argparse
 import os
 import warnings
 from pathlib import Path
+from typing import Any
 
 import requests
 from dotenv import load_dotenv
@@ -44,7 +45,7 @@ def send_test_message(token: str, chat_id: str, url: str, text: str, insecure: b
     if insecure:
         warnings.filterwarnings("ignore", category=InsecureRequestWarning)
 
-    payload = {"text": text, "format": "html", "disable_link_preview": True}
+    payload: dict[str, Any] = {"text": text, "format": "html", "disable_link_preview": True}
     full_url = f"{url}?chat_id={chat_id}"
     try:
         response = session.post(full_url, json=payload, verify=not insecure, timeout=30)
