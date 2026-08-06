@@ -84,12 +84,30 @@ uv run zakupki-parser --configs configs run-service
 # разовый запуск воркера внешнего скоринга (score_method=default -> external)
 uv run zakupki-parser --configs configs score-worker
 
-# FastAPI-сервис (health, списки закупок, скачивание ТЗ)
+# FastAPI-сервис (health, списки закупок, скачивание ТЗ, web-демо)
 uv run zakupki-parser --configs configs serve --host 0.0.0.0 --port 8000
 
 # пересоздать HTML-фикстуры для тестов
 uv run zakupki-parser --configs configs capture-fixture --platform zakupki_mos
 ```
+
+### Web-демо (MVP)
+
+`zakupki-parser serve` отдаёт простое web-приложение по адресу `http://localhost:8000/` —
+карточки закупок (номер, предмет, заказчик, НМЦК, срок, score), детальный просмотр и
+справочник заказчиков с ИНН/рейтингом (ADR-4). Данные читаются из БД через API.
+
+Чтобы демо было наглядным (не пустым), можно наполнить БД демо-данными:
+
+```bash
+# поднять БД (или использовать существующую из docker-compose)
+uv run zakupki-parser --configs configs serve --port 8000
+# в отдельном терминале — наполнить демо-данными (идемпотентно)
+uv run scripts/demo_seed.py --configs configs
+```
+
+После этого откройте `http://localhost:8000/` и нажмите «Обновить».
+
 
 ## Остановка
 

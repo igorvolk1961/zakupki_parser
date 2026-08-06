@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zakupki Parser — MVP demo</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --good: #4ade80;
+    --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { padding: 18px 24px; background: var(--panel); border-bottom:1px solid var(--line);
+           display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;}
+  header h1 { font-size:18px; margin:0; }
+  header .sub { color: var(--muted); font-size:13px; }
+  main { padding: 20px 24px; max-width: 1280px; margin: 0 auto; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:20px;}
+  .stat { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
+  .stat .k { color: var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em;}
+  .stat .v { font-size:26px; font-weight:700; margin-top:4px;}
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center;}
+  input, select, button { background: var(--panel2); border:1px solid var(--line); color: var(--text);
+    padding:9px 12px; border-radius:8px; font-size:14px;}
+  input:focus, select:focus { outline:none; border-color: var(--accent);}
+  button { cursor:pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color:#06283a; font-weight:600;}
+  button.ghost { background: transparent; }
+  .tabs { display:flex; gap:6px; margin-bottom:16px;}
+  .tabs button { border-radius:20px; }
+  .tabs button.active { background: var(--accent); border-color: var(--accent); color:#06283a; font-weight:600;}
+  .cards { display:grid; grid-template-columns: repeat(auto-fill,minmax(340px,1fr)); gap:14px;}
+  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px;
+          cursor:pointer; transition: border-color .15s, transform .05s;}
+  .card:hover { border-color: var(--accent); }
+  .card .num { color: var(--accent); font-size:13px; font-family:ui-monospace,monospace;}
+  .card .subj { font-weight:600; margin:6px 0 10px; line-height:1.35;}
+  .card .row { display:flex; justify-content:space-between; font-size:13px; color: var(--muted);
+               padding:3px 0; border-top:1px dashed var(--line);}
+  .card .row b { color: var(--text); font-weight:600;}
+  .pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line);}
+  .pill.score { background:#082f49; border-color:#0c4a6e; color: var(--accent); font-weight:700;}
+  .empty { text-align:center; color: var(--muted); padding: 60px 0;}
+  .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
+              justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
+  .modal-bg.open { display:flex; }
+  .modal { background: var(--panel); border:1px solid var(--line); border-radius:14px; max-width:760px; width:100%; padding:20px;}
+  .modal h2 { margin-top:0; font-size:18px;}
+  .modal table { width:100%; border-collapse:collapse; font-size:13px; }
+  .modal td, .modal th { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
+  .modal td:first-child { color: var(--muted); width: 34%; }
+  .modal code { color: var(--accent); word-break: break-word;}
+  .modal .close { float:right; cursor:pointer; color: var(--muted); font-size:22px; line-height:1;}
+  .table-wrap { overflow-x:auto; }
+  table.cust { width:100%; border-collapse:collapse; font-size:13px; background: var(--panel); border-radius:12px;}
+  table.cust th, table.cust td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line);}
+  .muted { color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Zakupki Parser — MVP demo</h1>
+    <div class="sub">Данные собраны парсером (Playwright) и хранятся в PostgreSQL</div>
+  </div>
+  <button class="ghost" id="refresh">Обновить</button>
+</header>
+<main>
+  <div class="stats">
+    <div class="stat"><div class="k">Закупок всего</div><div class="v" id="st_total">–</div></div>
+    <div class="stat"><div class="k">Заказчиков</div><div class="v" id="st_customers">–</div></div>
+    <div class="stat"><div class="k">Сумма НМЦК</div><div class="v" id="st_nmck">–</div></div>
+    <div class="stat"><div class="k">С источников</div><div class="v" id="st_platforms">–</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="primary active" id="tab-proc">Закупки</button>
+    <button id="tab-cust">Заказчики</button>
+  </div>
+
+  <div class="toolbar" id="toolbar-proc">
+    <input id="q" placeholder="Поиск: номер, предмет, заказчик…" style="flex:1;min-width:220px;">
+    <select id="platform"><option value="">Все площадки</option></select>
+    <button class="primary" id="search">Найти</button>
+  </div>
+
+  <div id="view-proc">
+    <div class="cards" id="cards"></div>
+    <div class="empty" id="proc-empty" style="display:none;">Закупок нет — запустите парсер или наполните БД демо-данными.</div>
+  </div>
+
+  <div id="view-cust" style="display:none;">
+    <div class="table-wrap" id="customers"></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="modal-bg">
+  <div class="modal" id="modal"></div>
+</div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const fmtMoney = (v) => v == null ? "–" : new Intl.NumberFormat("ru-RU").format(v) + " ₽";
+const fmtDate = (v) => v ? new Date(v).toLocaleString("ru-RU") : "–";
+
+async function api(path, params) {
+  const url = "/api/" + path + (params ? "?" + new URLSearchParams(params) : "");
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+let allItems = [];
+
+function card(row) {
+  return `<div class="card" data-id="${row.id}">
+    <div class="num">${row.number}</div>
+    <div class="subj">${escapeHtml(row.subject || "—")}</div>
+    <div class="row"><span>Заказчик</span><b>${escapeHtml(row.customer || "—")}</b></div>
+    <div class="row"><span>НМЦК</span><b>${fmtMoney(row.nmck)}</b></div>
+    <div class="row"><span>Срок подачи</span><b>${fmtDate(row.deadline)}</b></div>
+    <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.source_platform)}</span>
+      <span class="pill score">score ${row.score ?? "—"}</span></div>
+  </div>`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+async function loadProc() {
+  const q = $("#q").value.trim();
+  const params = { limit: 100 };
+  if ($("#platform").value) params.source_platform = $("#platform").value;
+  if (q) params.customer = q; // клиентская фильтрация шире: см. ниже
+  const data = await api("procurements", params);
+  allItems = data.items;
+  renderProc(q);
+  updateStats(data.total);
+}
+
+function renderProc(q) {
+  const ql = (q || "").toLowerCase();
+  let items = allItems;
+  if (ql) {
+    items = items.filter((r) =>
+      [r.number, r.subject, r.customer, r.law, r.okpd2_codes].some((v) =>
+        String(v || "").toLowerCase().includes(ql)));
+  }
+  const cards = $("#cards");
+  if (!items.length) { cards.innerHTML = ""; $("#proc-empty").style.display = "block"; return; }
+  $("#proc-empty").style.display = "none";
+  cards.innerHTML = items.map(card).join("");
+}
+
+async function openDetail(id) {
+  const row = await api("procurements/" + id);
+  const f = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
+  const files = (row.files_json || []).map((x) =>
+    `<div><a href="${escapeHtml(x.url)}" target="_blank" rel="noopener">${escapeHtml(x.name)}</a></div>`).join("") || "–";
+  const ts = row.technical_spec_url ? `<a href="${escapeHtml(row.technical_spec_url)}" target="_blank" rel="noopener">${escapeHtml(row.technical_spec_name || "ТЗ")}</a>` : "–";
+  $("#modal").innerHTML = `
+    <span class="close" onclick="closeModal()">×</span>
+    <h2>${escapeHtml(row.number)}</h2>
+    <table>
+      ${f("Предмет", escapeHtml(row.subject || "—"))}
+      ${f("Заказчик", escapeHtml(row.customer || "—") + " <span class='muted'>(id " + (row.customer_id ?? "—") + ")</span>")}
+      ${f("Закон", escapeHtml(row.law || "—"))}
+      ${f("НМЦК", fmtMoney(row.nmck))}
+      ${f("Опубликовано", fmtDate(row.publication_date))}
+      ${f("Обновлено", fmtDate(row.update_date))}
+      ${f("Срок подачи", fmtDate(row.deadline))}
+      ${f("Обеспечение", fmtMoney(row.security_amount) + (row.security_amount_unit ? " " + escapeHtml(row.security_amount_unit) : ""))}
+      ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
+      ${f("Score", (row.score ?? "—") + " (" + escapeHtml(row.score_method || "") + ")")}
+      ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
+      ${f("ТЗ", ts)}
+      ${f("Файлы", files)}
+      ${f("Ссылка", row.url ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">открыть</a>` : "—")}
+    </table>`;
+  $("#modal-bg").classList.add("open");
+}
+
+async function loadCustomers() {
+  const data = await api("customers", { limit: 100 });
+  $("#st_customers").textContent = data.total;
+  const rows = data.items.map((c) => `
+    <tr>
+      <td>#${c.id}</td>
+      <td>${escapeHtml(c.name)}</td>
+      <td><span class="muted">${escapeHtml(c.inn || "—")}</span></td>
+      <td>${c.rating == null ? "–" : c.rating}</td>
+    </tr>`).join("");
+  $("#customers").innerHTML = `
+    <table class="cust">
+      <thead><tr><th>ID</th><th>Заказчик</th><th>ИНН</th><th>Рейтинг</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="4" class="muted">Заказчиков нет</td></tr>'}</tbody>
+    </table>`;
+}
+
+async function updateStats(total) {
+  $("#st_total").textContent = total ?? "–";
+  const all = await api("procurements", { limit: 1 });
+  // сумма НМЦК и число площадок считаем по загруженной выборке
+  const nmck = allItems.reduce((s, r) => s + (r.nmck || 0), 0);
+  $("#st_nmck").textContent = fmtMoney(nmck);
+  const plats = new Set(allItems.map((r) => r.source_platform));
+  $("#st_platforms").textContent = plats.size ? [...plats].join(", ") : "–";
+}
+
+async function loadPlatforms() {
+  const data = await api("procurements", { limit: 1 });
+  const sel = $("#platform");
+  const set = new Set();
+  const paged = await api("procurements", { limit: 100 });
+  paged.items.forEach((r) => set.add(r.source_platform));
+  set.forEach((p) => { const o = document.createElement("option"); o.value = p; o.textContent = p; sel.appendChild(o); });
+}
+
+function closeModal() { $("#modal-bg").classList.remove("open"); }
+$("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+
+$("#cards").addEventListener("click", (e) => {
+  const card = e.target.closest(".card");
+  if (card) openDetail(card.dataset.id);
+});
+$("#search").addEventListener("click", loadProc);
+$("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") loadProc(); });
+$("#refresh").addEventListener("click", () => { loadProc(); loadCustomers(); });
+$("#tab-proc").addEventListener("click", () => {
+  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active");
+  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none";
+});
+$("#tab-cust").addEventListener("click", () => {
+  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active");
+  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none";
+  loadCustomers();
+});
+
+(async function init() {
+  try {
+    await loadPlatforms();
+    await loadProc();
+    await loadCustomers();
+  } catch (err) {
+    $("#cards").innerHTML = `<div class="empty">Не удалось загрузить данные: ${escapeHtml(String(err))}<br>Запустите парсер и API (zakupki-parser serve).</div>`;
+  }
+})();
+</script>
+</body>
+</html>

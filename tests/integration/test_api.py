@@ -74,6 +74,15 @@ def test_health(api_client: tuple[TestClient, Path]) -> None:
     assert body["storage"] == "local"
 
 
+def test_demo_page_served(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "Zakupki Parser" in resp.text
+    assert "procurements" in resp.text
+
+
 def test_list_and_get(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, _ = api_client
     resp = client.get("/api/procurements", params={"number": "API-1"})

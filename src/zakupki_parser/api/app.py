@@ -12,7 +12,7 @@ from typing import Any
 from urllib import parse as urlparse
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text as sql_text
 
@@ -172,6 +172,13 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
 
     app = FastAPI(title="Zakupki Parser API", version="0.1.0", lifespan=lifespan)
     app.state.parser = state
+
+    demo_html = Path(__file__).parent / "demo.html"
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def demo() -> str:
+        """Простое web-приложение для демонстрации MVP (читает данные через API)."""
+        return demo_html.read_text(encoding="utf-8")
 
     def _repo() -> ProcurementRepository:
         if state.repository is None:
