@@ -82,6 +82,11 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     if env_token:
         service_model.notifications.telegram.token = env_token
 
+    # Секрет токена MAX-бота — только из env, не хранится в YAML.
+    env_max_token = os.environ.get("ZAKUPKI_MAX_TOKEN")
+    if env_max_token:
+        service_model.notifications.max.token = env_max_token
+
     return AppConfig(
         configs_dir=base,
         parser=ParserConfig.model_validate(parser_data),

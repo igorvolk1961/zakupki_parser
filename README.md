@@ -75,6 +75,22 @@ uv run zakupki-parser --configs configs serve --host 0.0.0.0 --port 8000
 uv run zakupki-parser --configs configs capture-fixture --platform zakupki_mos
 ```
 
+## Остановка
+
+Остановить запущенные процессы парсера (`run-once`, `run-service`, `score-worker`,
+`serve`) и их браузерные процессы (Playwright/Chromium):
+
+```bash
+# мягкая остановка (SIGINT — корректное закрытие браузера)
+uv run zakupki-parser --configs configs stop
+
+# принудительная остановка (SIGKILL), если мягкая не сработала
+uv run zakupki-parser --configs configs stop --force
+```
+
+Требуется `pgrep` (пакет `procps`). Для одного процесса на переднем плане также
+работает `Ctrl+C` в терминале.
+
 ## Конфигурация
 - `config_parser.yaml` — браузер и антиблок-меры.
 - `config_dom.yaml` — URL, переменные, селекторы контейнеров и значений, а также
@@ -112,3 +128,4 @@ uv run mypy src tests
 Подробности алгоритма и конфигурации — в [specification.md](specification.md).
 Текущие незавершённые работы — в [TODO.md](TODO.md). Диаграммы — в [docs/c4](docs/c4/).
 Настройка Telegram-подписчика — в [docs/telegram-subscriber.md](docs/telegram-subscriber.md).
+Настройка MAX-подписчика — в [docs/max-subscriber.md](docs/max-subscriber.md).

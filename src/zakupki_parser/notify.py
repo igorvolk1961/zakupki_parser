@@ -1,8 +1,9 @@
 """Уведомления подписчиков о новых записях о закупке.
 
 Плагинный ``Notifier``-диспетчер выбирает активный бэкенд из конфигурации
-(``notifications.backend``): ``telegram`` (``sendMessage`` через REST API)
-или ``webhook`` (POST JSON на произвольный URL).
+(``notifications.backend``): ``telegram`` (``sendMessage`` через REST API),
+``max`` (``POST /messages`` мессенджера MAX) или ``webhook`` (POST JSON на
+произвольный URL).
 
 Ошибки отправки логируются как ``warning`` и не пробрасываются наружу, чтобы
 сбой уведомления не ломал проход парсера (вежливая деградация).
@@ -17,6 +18,7 @@ from typing import Any
 import httpx
 
 from zakupki_parser.config.models import (
+    MaxConfig,
     NotificationsConfig,
     TelegramConfig,
     WebhookConfig,
@@ -110,6 +112,40 @@ class TelegramBackend:
             raise ValueError(f"Telegram вернул ошибку: {data!r}")
 
 
+class MaxBackend:
+    """Отправляет карточку закупки в канал мессенджера MAX через Bot API.
+
+    Эндпоинт: ``POST https://platform-api2.max.ru/messages?chat_id={chat_id}``.
+    Токен передаётся в заголовке ``Authorization`` (не в query). Формат — HTML.
+    """
+
+    _BASE_URL = "https://platform-api2.max.ru"
+
+    def __init__(self, cfg: MaxConfig) -> None:
+        self._chat_id = cfg.chat_id
+        self._token = cfg.token
+        self._timeout = cfg.timeout_seconds
+
+    async def send(
+        self, record: dict[str, Any], transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
+        """Шлёт HTML-карточку в канал MAX."""
+        if not self._token:
+            raise ValueError(
+                "max.enabled=true, но не задан токен бота (env ZAKUPKI_MAX_TOKEN)"
+            )
+        payload = {
+            "text": render_telegram_message(record),
+            "format": "html",
+            "disable_link_preview": True,
+        }
+        headers = {"Authorization": self._token}
+        url = f"{self._BASE_URL}/messages?chat_id={self._chat_id}"
+        async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+
+
 class WebhookBackend:
     """POST JSON-карточки закупки на произвольный URL."""
 
@@ -140,9 +176,11 @@ class Notifier:
     """
 
     def __init__(self, cfg: NotificationsConfig) -> None:
-        self._backends: list[TelegramBackend | WebhookBackend] = []
+        self._backends: list[TelegramBackend | MaxBackend | WebhookBackend] = []
         if cfg.backend == "telegram" and cfg.telegram.enabled:
             self._backends.append(TelegramBackend(cfg.telegram))
+        if cfg.backend == "max" and cfg.max.enabled:
+            self._backends.append(MaxBackend(cfg.max))
         if cfg.backend == "webhook" and cfg.webhook.enabled:
             self._backends.append(WebhookBackend(cfg.webhook))
 

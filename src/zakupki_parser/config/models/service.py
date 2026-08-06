@@ -51,20 +51,44 @@ class TelegramConfig(BaseModel):
     )
 
 
+class MaxConfig(BaseModel):
+    """Параметры уведомлений в мессенджер MAX.
+
+    ``chat_id`` — числовой id канала (int64), получается через подписку на
+    события (``bot_added``/``bot_started``). Токен не хранится в YAML — секрет,
+    подкладывается из env ``ZAKUPKI_MAX_TOKEN`` в ``config/loader.py``.
+    """
+
+    enabled: bool = Field(default=False)
+    chat_id: str | None = Field(
+        default=None, description="числовой id канала (int64), из подписки на события"
+    )
+    timeout_seconds: float = Field(default=10.0, ge=0)
+    token: str | None = Field(
+        default=None, description="access_token бота, из env; не сериализуется в YAML"
+    )
+
+
 class NotificationsConfig(BaseModel):
     """Настройки уведомлений: выбор бэкенда и его параметры."""
 
-    backend: Literal["telegram", "webhook"] = Field(default="webhook")
+    backend: Literal["telegram", "webhook", "max"] = Field(default="webhook")
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+    max: MaxConfig = Field(default_factory=MaxConfig)
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
 
     @model_validator(mode="after")
-    def _check_telegram_chat_id(self) -> NotificationsConfig:
-        """Telegram требует адрес канала: включённый бэкенд без chat_id — ошибка."""
+    def _check_chat_ids(self) -> NotificationsConfig:
+        """Бэкенды, требующие адрес канала: включённый без chat_id — ошибка."""
         if self.backend == "telegram" and self.telegram.enabled and not self.telegram.chat_id:
             raise ValueError(
                 "notifications.backend=telegram и telegram.enabled=true, но "
                 "telegram.chat_id не задан (нужен '@username' или числовой id канала)"
+            )
+        if self.backend == "max" and self.max.enabled and not self.max.chat_id:
+            raise ValueError(
+                "notifications.backend=max и max.enabled=true, но max.chat_id не задан "
+                "(нужен числовой id канала из подписки на события)"
             )
         return self
 

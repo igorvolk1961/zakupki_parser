@@ -10,8 +10,14 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from zakupki_parser.config.models import NotificationsConfig, TelegramConfig, WebhookConfig
+from zakupki_parser.config.models import (
+    MaxConfig,
+    NotificationsConfig,
+    TelegramConfig,
+    WebhookConfig,
+)
 from zakupki_parser.notify import (
+    MaxBackend,
     Notifier,
     TelegramBackend,
     WebhookBackend,
@@ -108,6 +114,43 @@ class TestTelegramBackend:
             await backend.send(_RECORD)
 
 
+class TestMaxBackend:
+    async def test_send_posts_correct_payload(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["url"] = str(request.url)
+            captured["headers"] = request.headers
+            captured["json"] = request.content
+            return httpx.Response(200, json={"message": {"id": 1}})
+
+        cfg = MaxConfig(enabled=True, chat_id="123456789012345678", token="SECRET")
+        backend = MaxBackend(cfg)
+        await backend.send(_RECORD, transport=httpx.MockTransport(handler))
+
+        assert captured["url"] == (
+            "https://platform-api2.max.ru/messages?chat_id=123456789012345678"
+        )
+        assert captured["headers"]["Authorization"] == "SECRET"
+        payload = json.loads(captured["json"])
+        assert payload["format"] == "html"
+        assert payload["disable_link_preview"] is True
+        assert "12345" in payload["text"]
+
+    async def test_send_raises_on_http_error(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401)
+
+        backend = MaxBackend(MaxConfig(enabled=True, chat_id="1", token="SECRET"))
+        with pytest.raises(httpx.HTTPStatusError):
+            await backend.send(_RECORD, transport=httpx.MockTransport(handler))
+
+    async def test_send_raises_without_token(self) -> None:
+        backend = MaxBackend(MaxConfig(enabled=True, chat_id="1", token=None))
+        with pytest.raises(ValueError):
+            await backend.send(_RECORD)
+
+
 class TestWebhookBackend:
     async def test_send_posts_json_with_auth(self) -> None:
         captured: dict[str, Any] = {}
@@ -144,6 +187,15 @@ class TestNotifier:
         notifier = Notifier(cfg)
         assert len(notifier._backends) == 1
         assert isinstance(notifier._backends[0], TelegramBackend)
+
+    def test_max_backend_selected(self) -> None:
+        cfg = NotificationsConfig(
+            backend="max",
+            max=MaxConfig(enabled=True, chat_id="123", token="SECRET"),
+        )
+        notifier = Notifier(cfg)
+        assert len(notifier._backends) == 1
+        assert isinstance(notifier._backends[0], MaxBackend)
 
     async def test_backend_error_logged_not_raised(self, caplog: Any) -> None:
         class BoomBackend:
@@ -194,3 +246,17 @@ class TestNotificationsConfigValidation:
             telegram=TelegramConfig(enabled=True),
         )
         assert cfg.backend == "webhook"
+
+    def test_max_enabled_without_chat_id_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            NotificationsConfig(
+                backend="max",
+                max=MaxConfig(enabled=True, token="SECRET"),
+            )
+
+    def test_max_enabled_with_chat_id_ok(self) -> None:
+        cfg = NotificationsConfig(
+            backend="max",
+            max=MaxConfig(enabled=True, chat_id="123", token="SECRET"),
+        )
+        assert cfg.max.chat_id == "123"

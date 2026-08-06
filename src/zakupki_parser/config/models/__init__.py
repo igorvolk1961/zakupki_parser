@@ -42,6 +42,7 @@ from zakupki_parser.config.models.score import (
 )
 from zakupki_parser.config.models.service import (
     DbConfig,
+    MaxConfig,
     NotificationsConfig,
     SearchCriteria,
     ServiceConfig,
@@ -64,6 +65,7 @@ __all__ = [
     "FileSpec",
     "FilterStep",
     "LoggingConfig",
+    "MaxConfig",
     "NotificationsConfig",
     "ParserConfig",
     "PlatformDom",

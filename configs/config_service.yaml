@@ -74,13 +74,19 @@ db:
 # --- Уведомления подписчиков (telegram | webhook) ---
 # Токен Telegram-бота НЕ хранится в конфиге — задаётся env ZAKUPKI_TELEGRAM_TOKEN.
 notifications:
-  backend: "telegram"        # telegram | webhook
+  backend: "telegram"        # telegram | max | webhook
   telegram:
     enabled: true
     chat_id: "-1004416405744"           # '@my_zakupki_channel' или числовой id (для приватного)
     timeout_seconds: 10
+  # Мессенджер MAX: chat_id — числовой id канала из подписки на события.
+  # Токен — env ZAKUPKI_MAX_TOKEN.
+  max:
+    enabled: false
+    chat_id: null
+    timeout_seconds: 10
   webhook:
-    enabled: true
+    enabled: false
     url: null
     token: null
     timeout_seconds: 10
