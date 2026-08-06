@@ -85,6 +85,15 @@ def test_parser_stop_when_idle(api_client: tuple[TestClient, Path]) -> None:
     assert resp.json()["status"] == "idle"
 
 
+def test_db_clear_when_idle(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.post("/api/db/clear")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "cleared"
+    assert client.get("/api/procurements").json()["total"] == 0
+
+
 def test_demo_page_served(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     resp = client.get("/")

@@ -165,6 +165,26 @@ async def test_rating_set_and_read(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_clear_all(db: Database) -> None:
+    repo = ProcurementRepository(db)
+    await repo.upsert(
+        {"number": "CL-1", "source_platform": "zakupki_mos", "customer": "ООО Ромашка"}
+    )
+    await repo.upsert(
+        {"number": "CL-2", "source_platform": "zakupki_mos", "customer": "АО ТехноЛогика"}
+    )
+    deleted = await repo.clear_all()
+    assert deleted["procurements"] == 2
+    assert deleted["customers"] == 2
+    assert await _customer_count(db) == 0
+    async with db.session() as session:
+        result = await session.execute(
+            text("SELECT count(*) FROM procurements WHERE number IN ('CL-1','CL-2')")
+        )
+        assert result.scalar_one() == 0
+
+
+@pytest.mark.asyncio
 async def test_backfill_from_legacy_customer_column(db: Database) -> None:
     """Валидирует SQL-логику backfill из миграции 1.13 на «легаси»-данных."""
     engine = create_async_engine(TEST_DSN)

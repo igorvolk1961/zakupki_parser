@@ -94,6 +94,8 @@
     <div class="toolbar">
       <button class="primary" id="parser-start">▶ Запустить</button>
       <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
+      <button class="ghost" id="db-clear" disabled>Очистить БД</button>
+      <select id="platform"><option value="">Все площадки</option></select>
       <span id="parser-status" class="muted">проверка…</span>
     </div>
   </div>
@@ -102,10 +104,6 @@
     <button class="primary active" id="tab-proc">Закупки</button>
     <button id="tab-cust">Заказчики</button>
     <button id="tab-cfg">Параметры</button>
-  </div>
-
-  <div class="toolbar" id="toolbar-proc">
-    <select id="platform"><option value="">Все площадки</option></select>
   </div>
 
   <div id="view-proc">
@@ -343,12 +341,12 @@ async function refreshParserStatus() {
   let s;
   try { s = await api("parser/status"); } catch { return; }
   const el = $("#parser-status");
-  const startBtn = $("#parser-start"), stopBtn = $("#parser-stop");
+  const startBtn = $("#parser-start"), stopBtn = $("#parser-stop"), clearBtn = $("#db-clear");
   if (s.running) {
-    startBtn.disabled = true; stopBtn.disabled = false;
+    startBtn.disabled = true; stopBtn.disabled = false; clearBtn.disabled = true;
     el.textContent = "работает…" + (s.started_at ? " (с " + new Date(s.started_at).toLocaleTimeString("ru-RU") + ")" : "");
   } else {
-    startBtn.disabled = false; stopBtn.disabled = true;
+    startBtn.disabled = false; stopBtn.disabled = true; clearBtn.disabled = false;
     let txt = "не запущен";
     if (s.error) txt += " · ошибка: " + s.error;
     else if (s.stopped) txt += " · остановлен";
@@ -381,6 +379,13 @@ $("#parser-stop").addEventListener("click", async () => {
   $("#parser-status").textContent = "остановка…";
   await fetch("/api/parser/stop", { method: "POST" });
   await refreshParserStatus(); pollParser();
+});
+$("#db-clear").addEventListener("click", async () => {
+  if (!confirm("Очистить базу данных (закупки и заказчики)?")) return;
+  const r = await fetch("/api/db/clear", { method: "POST" });
+  if (!r.ok) { $("#parser-status").textContent = "не удалось очистить БД (возможно, идёт сбор)"; return; }
+  await loadProc(); await loadCustomers();
+  $("#parser-status").textContent = "БД очищена";
 });
 refreshParserStatus();
 

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -295,3 +295,14 @@ class ProcurementRepository:
             await session.commit()
             logger.info("Обновлён рейтинг заказчика %s: %s", customer_id, rating)
             return True
+
+    async def clear_all(self) -> dict[str, int]:
+        """Полностью очищает БД (закупки и заказчики). Возвращает число удалённых."""
+        async with self._db.session() as session:
+            procs = (await session.execute(select(func.count(Procurement.id)))).scalar_one()
+            await session.execute(delete(Procurement))
+            cust = (await session.execute(select(func.count(Customer.id)))).scalar_one()
+            await session.execute(delete(Customer))
+            await session.commit()
+        logger.info("БД очищена: %s закупок, %s заказчиков", procs, cust)
+        return {"procurements": int(procs), "customers": int(cust)}

@@ -377,6 +377,15 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         logger.info("Запрошена остановка парсера из web-демо")
         return {"status": "stopping"}
 
+    @app.post("/api/db/clear", include_in_schema=False)
+    async def clear_db() -> dict[str, Any]:
+        """Очищает БД (закупки и заказчики). Доступно только при остановленном парсере."""
+        if state.parser_task is not None and not state.parser_task.done():
+            raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
+        deleted = await _repo().clear_all()
+        logger.info("БД очищена из web-демо: %s", deleted)
+        return {"status": "cleared", "deleted": deleted}
+
     # ------------------------------------------------------------------ #
     # Конфигурация сервиса (config_service.yaml) — просмотр/редактирование
     # ------------------------------------------------------------------ #
