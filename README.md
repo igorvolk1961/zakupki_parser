@@ -54,7 +54,23 @@ uv sync
 uv run playwright install chromium --with-deps
 ```
 
+## База данных (PostgreSQL)
+
+Поднять БД одной командой:
+
+```bash
+./scripts/db_up.sh          # поднять БД (существующую или создать новую с миграциями)
+./scripts/db_up.sh --status # статус контейнера и таблиц
+```
+
+Скрипт использует контейнер `zakupki_db` (данные хранятся в volume и сохраняются
+между сессиями). Если контейнера ещё нет — создаёт его и автоматически применяет
+миграции Liquibase.
+
 ## Запуск
+
+Сначала поднимите БД (см. выше): `./scripts/db_up.sh`. Затем:
+
 ```bash
 # проверить конфигурацию
 uv run zakupki-parser --configs configs check-config
@@ -90,6 +106,18 @@ uv run zakupki-parser --configs configs stop --force
 
 Требуется `pgrep` (пакет `procps`). Для одного процесса на переднем плане также
 работает `Ctrl+C` в терминале.
+
+## Уведомления
+
+Доставка новых закупок подписчикам настраивается в `config_service.yaml ->
+notifications` (см. [docs/max-subscriber.md](docs/max-subscriber.md) и
+[docs/telegram-subscriber.md](docs/telegram-subscriber.md)).
+
+- **MAX** — работает из РФ без прокси: рекомендован как основной способ.
+- **Telegram** — требует доступа к `api.telegram.org` (VPN/прокси). Важно:
+  при включённом VPN ЕИС (`zakupki.gov.ru`) может быть недоступен, поэтому для
+  одновременной работы Telegram + парсинга ЕИС нужна более сложная конфигурация
+  с проксированием обращений к ЕИС.
 
 ## Конфигурация
 - `config_parser.yaml` — браузер и антиблок-меры.
