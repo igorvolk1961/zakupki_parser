@@ -11,9 +11,7 @@ from zakupki_parser.retry import run_with_retry
 
 def _cfg(max_attempts: int = 3) -> RetryConfig:
     # min_backoff=0 и jitter=0 — чтобы тесты не спали
-    return RetryConfig(
-        max_attempts=max_attempts, min_backoff_seconds=0, jitter_seconds=0
-    )
+    return RetryConfig(max_attempts=max_attempts, min_backoff_seconds=0, jitter_seconds=0)
 
 
 @pytest.mark.asyncio

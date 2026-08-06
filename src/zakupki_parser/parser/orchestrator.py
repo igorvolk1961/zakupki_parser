@@ -210,9 +210,7 @@ class Orchestrator:
                     )
 
                     async def _open_additional(_url: str = page_url) -> None:
-                        await detail_page.goto(
-                            _url, wait_until="domcontentloaded", timeout=45000
-                        )
+                        await detail_page.goto(_url, wait_until="domcontentloaded", timeout=45000)
                         await detail_page.wait_for_timeout(3000)
 
                     await run_with_retry(
@@ -233,6 +231,7 @@ class Orchestrator:
             files_page = self._platform.detail.files_page
             if files_page:
                 try:
+
                     async def _open_files() -> None:
                         await detail_page.goto(
                             files_page_url(detail_url, files_page),
@@ -338,9 +337,7 @@ class Orchestrator:
 
         retry_cfg = self._cfg.parser.retry
         await run_with_retry(
-            lambda: open_list_page(
-                page, self._platform, cutoff, self._cfg.service.search_criteria
-            ),
+            lambda: open_list_page(page, self._platform, cutoff, self._cfg.service.search_criteria),
             retry=retry_cfg,
             circuit=self._site_cb,
             label="Открытие списка",

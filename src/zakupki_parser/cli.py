@@ -110,8 +110,7 @@ def main() -> None:
             sys.exit(1)
         if remaining:
             print(
-                "Не удалось остановить процессы: "
-                + ", ".join(str(pid) for pid in remaining),
+                "Не удалось остановить процессы: " + ", ".join(str(pid) for pid in remaining),
                 file=sys.stderr,
             )
             sys.exit(1)

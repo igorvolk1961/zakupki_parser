@@ -98,16 +98,12 @@ def test_law_toggles_query_params() -> None:
     assert both["fz44"] == "on"
     assert both["fz223"] == "on"
 
-    only_223 = dict(
-        urllib.parse.parse_qsl(build_query(eis, None, SearchCriteria(fz44=False)))
-    )
+    only_223 = dict(urllib.parse.parse_qsl(build_query(eis, None, SearchCriteria(fz44=False))))
     assert "fz44" not in only_223
     assert only_223["fz223"] == "on"
 
     none = dict(
-        urllib.parse.parse_qsl(
-            build_query(eis, None, SearchCriteria(fz44=False, fz223=False))
-        )
+        urllib.parse.parse_qsl(build_query(eis, None, SearchCriteria(fz44=False, fz223=False)))
     )
     assert "fz44" not in none
     assert "fz223" not in none
