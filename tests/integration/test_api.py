@@ -94,12 +94,21 @@ def test_db_clear_when_idle(api_client: tuple[TestClient, Path]) -> None:
     assert client.get("/api/procurements").json()["total"] == 0
 
 
+def test_websocket_receives_broadcast(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    with client.websocket_connect("/ws") as ws:
+        # Запрос, меняющий БД, шлёт клиенту "data-changed".
+        r = client.post("/api/db/clear")
+        assert r.status_code == 200
+        assert ws.receive_text() == "data-changed"
+
+
 def test_demo_page_served(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     resp = client.get("/")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
-    assert "Zakupki Parser" in resp.text
+    assert "Парсер закупок" in resp.text
     assert "procurements" in resp.text
 
 

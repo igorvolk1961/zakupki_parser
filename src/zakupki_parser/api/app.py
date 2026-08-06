@@ -13,7 +13,7 @@ from typing import Any
 from urllib import parse as urlparse
 
 import yaml
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import text as sql_text
@@ -138,13 +138,24 @@ class AppState:
             "started_at": None,
             "finished_at": None,
         }
+        # WebSocket-клиенты web-демо (живые обновления при изменении БД).
+        self.ws_clients: set[WebSocket] = set()
+
+
+async def _broadcast(state: AppState, message: str = "data-changed") -> None:
+    """Оповещает подключённых клиентов web-демо об изменении данных."""
+    for ws in list(state.ws_clients):
+        try:
+            await ws.send_text(message)
+        except Exception:  # noqa: BLE001
+            state.ws_clients.discard(ws)
 
 
 async def _run_parser(state: AppState) -> None:
     """Запускает один проход парсера (run-once) в фоне."""
     from zakupki_parser.scheduler import Scheduler
 
-    scheduler = Scheduler(state.cfg)
+    scheduler = Scheduler(state.cfg, on_update=lambda: _broadcast(state))
     try:
         await scheduler.start()
         await scheduler.run_once()
@@ -157,6 +168,7 @@ async def _run_parser(state: AppState) -> None:
     finally:
         with suppress(Exception):
             await scheduler.stop()
+        await _broadcast(state)
         state.parser_status["running"] = False
         state.parser_status["finished_at"] = datetime.now(UTC).isoformat()
         state.parser_task = None
@@ -262,6 +274,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         if await _repo().get_by_id(procurement_id) is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _repo().update_score(procurement_id, body.score, body.score_method)
+        await _broadcast(state)
         row = await _repo().get_by_id(procurement_id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
@@ -282,6 +295,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         if await _repo().get_by_id(procurement_id) is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _repo().update_technical_spec(procurement_id, name=body.name, url=body.url)
+        await _broadcast(state)
         row = await _repo().get_by_id(procurement_id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
@@ -342,6 +356,19 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         row = await _repo().get_customer(customer_id)
         return CustomerOut.model_validate(row)
 
+    @app.websocket("/ws")
+    async def ws_updates(websocket: WebSocket) -> None:
+        """Канал живых обновлений: шлёт 'data-changed' при изменении БД."""
+        await websocket.accept()
+        state.ws_clients.add(websocket)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        finally:
+            state.ws_clients.discard(websocket)
+
     @app.get("/api/parser/status", include_in_schema=False)
     async def parser_status() -> dict[str, Any]:
         """Текущее состояние парсера (запущен/остановлен, ошибка, время)."""
@@ -384,6 +411,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         deleted = await _repo().clear_all()
         logger.info("БД очищена из web-демо: %s", deleted)
+        await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 
     # ------------------------------------------------------------------ #

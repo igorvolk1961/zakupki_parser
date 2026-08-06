@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from zakupki_parser.browser.delayer import Delayer
@@ -60,9 +61,15 @@ def _row_payload(row: Any) -> dict[str, Any]:
 class Scheduler:
     """Периодически запускает парсинг каждой площадки из списка сайтов."""
 
-    def __init__(self, cfg: AppConfig) -> None:
+    def __init__(
+        self,
+        cfg: AppConfig,
+        on_update: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
         self._cfg = cfg
         self._stop = asyncio.Event()
+        # Колбэк уведомления об изменении данных (например, WebSocket-широковещание).
+        self._on_update = on_update
 
         self._db = Database(cfg.service.db)
         self._repository = ProcurementRepository(self._db)
@@ -103,6 +110,8 @@ class Scheduler:
                 await self._parse_platform(entry.platform_id, platform)
             except Exception as exc:  # noqa: BLE001
                 logger.error("Ошибка обработки площадки %s: %s", entry.platform_id, exc)
+            if self._on_update is not None:
+                await self._on_update()
 
     async def run_service(self) -> None:
         """Бесконечный цикл: проход -> воркер скоринга -> ожидание таймера."""

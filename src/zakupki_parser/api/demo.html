@@ -88,7 +88,6 @@
     <label class="admin-toggle" title="Доступ к «Очистить БД» и «Параметры»">
       <input type="checkbox" id="admin"> Режим администратора
     </label>
-    <button class="ghost" id="refresh">Обновить</button>
   </div>
 </header>
 <main>
@@ -217,13 +216,35 @@ function renderProc() {
   renderDetail();
 }
 
+let lastProcSig = "";
+function sigOfProc(data) {
+  return data.total + ":" + data.items.map((r) => r.id + "@" + (r.update_date || "")).join(",");
+}
+
 async function loadProc() {
   const params = { limit: 100 };
   if ($("#platform").value) params.source_platform = $("#platform").value;
   const data = await api("procurements", params);
   allItems = data.items;
+  lastProcSig = sigOfProc(data);
   renderProc();
   updateStats(data.total);
+}
+
+// Авто-обновление: перерисовываем список только если данные в БД изменились.
+async function pollProc() {
+  try {
+    const params = { limit: 100 };
+    if ($("#platform").value) params.source_platform = $("#platform").value;
+    const data = await api("procurements", params);
+    const sig = sigOfProc(data);
+    if (sig !== lastProcSig) {
+      lastProcSig = sig;
+      allItems = data.items;
+      renderProc();
+      updateStats(data.total);
+    }
+  } catch (err) { /* временные сбои игнорируем — попробуем на следующем тике */ }
 }
 
 async function openDetail(id) {
@@ -254,8 +275,7 @@ async function openDetail(id) {
   $("#modal-bg").classList.add("open");
 }
 
-async function loadCustomers() {
-  const data = await api("customers", { limit: 100 });
+function renderCustomers(data) {
   $("#st_customers").textContent = data.total;
   const rows = data.items.map((c) => `
     <tr>
@@ -269,6 +289,26 @@ async function loadCustomers() {
       <thead><tr><th>ID</th><th>Заказчик</th><th>ИНН</th><th>Рейтинг</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="4" class="muted">Заказчиков нет</td></tr>'}</tbody>
     </table>`;
+}
+
+let lastCustSig = "";
+function sigOfCust(data) {
+  return data.total + ":" + data.items.map((c) => c.id + "|" + (c.inn || "") + "|" + (c.rating ?? "")).join(",");
+}
+
+async function loadCustomers() {
+  const data = await api("customers", { limit: 100 });
+  lastCustSig = sigOfCust(data);
+  renderCustomers(data);
+}
+
+// Обновляем заказчиков, только если они изменились.
+async function pollCustomers() {
+  try {
+    const data = await api("customers", { limit: 100 });
+    const sig = sigOfCust(data);
+    if (sig !== lastCustSig) { lastCustSig = sig; renderCustomers(data); }
+  } catch (err) { /* временные сбои игнорируем */ }
 }
 
 function updateStats(total) {
@@ -306,7 +346,6 @@ $("#proc-detail").addEventListener("click", (e) => {
 $("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 $("#platform").addEventListener("change", loadProc);
-$("#refresh").addEventListener("click", () => { loadProc(); loadCustomers(); });
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
   $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";
@@ -425,6 +464,16 @@ $("#db-clear").addEventListener("click", async () => {
   $("#parser-status").textContent = "БД очищена";
 });
 refreshParserStatus();
+
+// Живые обновления через WebSocket (вместо кнопки «Обновить» и опроса).
+function connectWS() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onmessage = () => { pollProc(); pollCustomers(); };
+  ws.onclose = () => setTimeout(connectWS, 3000); // авто-переподключение
+  ws.onerror = () => { try { ws.close(); } catch (err) {} };
+}
+connectWS();
 
 (async function init() {
   // Режим администратора всегда выключен при старте страницы (браузер может
