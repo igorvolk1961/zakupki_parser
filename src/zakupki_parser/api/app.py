@@ -157,13 +157,12 @@ async def _broadcast(state: AppState, message: str = "data-changed") -> None:
 
 
 async def _run_parser(state: AppState) -> None:
-    """Запускает один проход парсера (run-once) в фоне."""
+    """Запускает постоянный мониторинг парсера (периодические проходы) в фоне."""
     from zakupki_parser.scheduler import Scheduler
 
     scheduler = Scheduler(state.cfg, on_update=lambda: _broadcast(state))
     try:
-        await scheduler.start()
-        await scheduler.run_once()
+        await scheduler.run_service()
     except asyncio.CancelledError:
         # Остановка по команде пользователя — это не ошибка.
         state.parser_status["stopped"] = True
@@ -416,7 +415,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
 
     @app.post("/api/parser/start", include_in_schema=False)
     async def start_parser() -> dict[str, Any]:
-        """Запускает один проход парсера (run-once) в фоне."""
+        """Запускает постоянный мониторинг парсера (периодические проходы) в фоне."""
         async with state.parser_lock:
             if state.parser_task is not None and not state.parser_task.done():
                 raise HTTPException(status_code=409, detail="Парсер уже запущен")
@@ -428,7 +427,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 "finished_at": None,
             }
             state.parser_task = asyncio.create_task(_run_parser(state))
-        logger.info("Запущен парсер (run-once) по команде из web-демо")
+        logger.info("Запущен парсер (постоянный мониторинг) по команде из web-демо")
         return {"status": "started"}
 
     @app.post("/api/parser/stop", include_in_schema=False)
