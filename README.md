@@ -210,8 +210,8 @@ docker compose -f docker/docker-compose.yml up --build
 scripts/compose.sh                     # up (собрать + поднять в фоне, --build)
 scripts/compose.sh up                  # то же
 scripts/compose.sh down                # остановить и удалить контейнеры (том БД сохраняется)
-scripts/compose.sh stop                # остановить контейнеры, не удаляя
-scripts/compose.sh start               # запустить остановленные контейнеры
+scripts/compose.sh stop                # то же, что down: останавливает и освобождает порты (том БД сохраняется)
+scripts/compose.sh start               # запустить остановленные контейнеры (если не удалялись)
 scripts/compose.sh restart             # перезапустить
 scripts/compose.sh ps                  # статус контейнеров
 scripts/compose.sh logs [svc]          # логи (-f), например: logs parser

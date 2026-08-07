@@ -8,8 +8,8 @@
 #   scripts/compose.sh                   # то же, что: up
 #   scripts/compose.sh up                # собрать и поднять стек в фоне (up -d --build)
 #   scripts/compose.sh down              # остановить и удалить контейнеры (тома БД сохраняются)
-#   scripts/compose.sh stop              # остановить контейнеры (не удаляя)
-#   scripts/compose.sh start             # запустить остановленные контейнеры
+#   scripts/compose.sh stop              # остановить и удалить контейнеры (освобождает порты; том БД сохраняется)
+#   scripts/compose.sh start             # запустить остановленные контейнеры (если не удалялись)
 #   scripts/compose.sh restart           # перезапустить
 #   scripts/compose.sh ps                # статус контейнеров
 #   scripts/compose.sh logs [svc]        # логи (можно по сервису, например: logs parser)
@@ -105,9 +105,13 @@ case "$CMD" in
         echo "Стек остановлен и удалён (том БД pgdata сохранён)."
         ;;
     stop)
+        # Полная остановка: down удаляет контейнеры и тем самым снимает маппинг
+        # портов. `docker compose stop` контейнеры сохраняет, и их порт остаётся
+        # закреплённым — следующий up с пересборкой упирается в
+        # 'port is already allocated'. Том БД pgdata сохраняется.
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" stop
-        echo "Контейнеры остановлены."
+        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" down
+        echo "Стек остановлен, контейнеры удалены (том БД pgdata сохранён)."
         ;;
     start)
         cd "$ROOT_DIR"
