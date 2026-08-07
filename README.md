@@ -65,41 +65,46 @@ uv sync
 uv run playwright install chromium --with-deps
 ```
 
-## База данных (PostgreSQL)
+## Инфраструктура (PostgreSQL + Redis)
 
-Поднять БД одной командой:
+Все контейнеры инфраструктуры (PostgreSQL + Redis) поднимаются одной командой:
+
+```bash
+./scripts/services_up.sh          # поднять PostgreSQL + Redis
+./scripts/services_up.sh --status # статус всех контейнеров
+./scripts/services_up.sh --redis  # только Redis
+./scripts/services_up.sh --db     # только PostgreSQL
+```
+
+- `zakupki_db` — PostgreSQL: данные и миграции (Liquibase) применяются автоматически.
+- `zakupki_redis` — Redis: нужен конвейеру внешнего скоринга (`scoring_transport` +
+  `scoring_service`, очередь `scoring:jobs`/`scoring:results`).
+
+Для только БД можно использовать `./scripts/db_up.sh`:
 
 ```bash
 ./scripts/db_up.sh          # поднять БД (существующую или создать новую с миграциями)
 ./scripts/db_up.sh --status # статус контейнера и таблиц
 ```
 
-Скрипт использует контейнер `zakupki_db` (данные хранятся в volume и сохраняются
-между сессиями). Если контейнера ещё нет — создаёт его и автоматически применяет
-миграции Liquibase.
+Скрипты используют контейнеры `zakupki_db` и `zakupki_redis` (данные хранятся в
+volume и сохраняются между сессиями). Если контейнера нет — создают его и ждут
+готовности; если есть — просто запускают (идемпотентно).
 
 ## Запуск
 
 Команда CLI — `zp` (сокращение от `zakupki-parser`; длинное имя доступно как алиас).
-
-Сначала поднимите БД (см. выше): `./scripts/db_up.sh`. Затем:
+Поднимите инфраструктуру и запустите сервис:
 
 ```bash
-# проверить конфигурацию
-uv run zp --configs configs check-config
-
-# один проход по всем площадкам
-uv run zp --configs configs run-once
-
-# периодический запуск по таймеру (timeout_seconds из config_service.yaml)
-uv run zp --configs configs run-service
-
-# FastAPI-сервис (health, списки закупок, скачивание ТЗ, web-демо)
+./scripts/services_up.sh
 uv run zp --configs configs serve --host 0.0.0.0 --port 8000
-
-# пересоздать HTML-фикстуры для тестов
-uv run zp --configs configs capture-fixture --platform zakupki_mos
+# открыть http://localhost:8000/
 ```
+
+Парсер запускается из web-демо кнопкой «▶ Запустить» (это один проход `run-once`
+в фоне; эндпоинт `POST /api/parser/start`). Отдельные CLI-команды `run-once` /
+`run-service` нужны только для запуска без API — см. раздел «Утилиты».
 
 ### Web-демо (MVP)
 
@@ -108,15 +113,10 @@ uv run zp --configs configs capture-fixture --platform zakupki_mos
 - **Закупки / Заказчики** — просмотр данных из БД (карточки, детали, справочник
   заказчиков с ИНН/рейтингом). Приложение **не зависит от источника данных** — ему
   безразлично, откуда приходят закупки: живой парсер, имитатор ЭТП или иное наполнение.
-- **Конфиг-сервис** — удобный просмотр и редактирование параметров
+- **Параметры** — удобный просмотр и редактирование параметров
   `config_service.yaml` (JSON-редактор + сохранение). Секреты (токены ботов) через
   API не редактируются — они берутся из env. Изменения применяются при следующем
   запуске парсера.
-
-```bash
-uv run zp --configs configs serve --host 0.0.0.0 --port 8000
-# открыть http://localhost:8000/
-```
 
 ## Остановка
 
@@ -133,6 +133,31 @@ uv run zp --configs configs stop --force
 
 Требуется `pgrep` (пакет `procps`). Для одного процесса на переднем плане также
 работает `Ctrl+C` в терминале.
+
+## Утилиты (разработка и тесты)
+
+Запуск парсера без API — альтернативы:
+
+```bash
+# проверить конфигурацию
+uv run zp --configs configs check-config
+
+# запуск парсера (headless, достаточно одной):
+uv run zp --configs configs run-once        # один проход по всем площадкам
+uv run zp --configs configs run-service     # периодически по таймеру (timeout_seconds)
+```
+
+Пересоздать HTML-фикстуры для тестов:
+
+```bash
+uv run zp --configs configs capture-fixture --platform zakupki_mos
+```
+
+Дополнительные скрипты:
+- `scripts/services_up.sh` — поднять инфраструктуру (PostgreSQL + Redis) и их статус;
+- `scripts/db_up.sh` — только PostgreSQL (данные и миграции);
+- `scripts/get_max_chat_id.py` / `scripts/test_max_chat.py` — вспомогательные
+  утилиты для настройки MAX-уведомлений.
 
 ## Уведомления
 
