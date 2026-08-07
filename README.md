@@ -191,14 +191,17 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 - `config_log.yaml` — логирование.
 
 Переменные окружения (для Docker/CI):
-- `ZAKUPKI_CONFIGS` — каталог конфигов;
-- `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_service.yaml -> db.dsn`).
+- `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_service.yaml -> db.dsn`);
+- секреты уведомлений — берутся из файла `.env` в корне проекта (см. `env_file: ../.env` в `docker/docker-compose.yml`):
+  `ZAKUPKI_TELEGRAM_TOKEN`, `ZAKUPKI_MAX_TOKEN`, `ZAKUPKI_MAX_CHAT_ID`.
 
 ## Docker
 ```bash
 docker compose -f docker/docker-compose.yml up --build
 ```
-Запустит PostgreSQL, применит Liquibase-миграции и поднимет сервис парсера.
+Запустит PostgreSQL, применит Liquibase-миграции и поднимет сервисы `parser` (периодический обход)
+и `api` (FastAPI на `http://localhost:8000/`). Команду запускать из корня репозитория —
+контекст сборки и файл `.env` резолвятся относительно `docker/docker-compose.yml`.
 
 ## Тесты
 ```bash

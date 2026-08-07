@@ -36,8 +36,6 @@ search_criteria:
 # Файлы: парсер НЕ скачивает файлы — в БД сохраняются имя и URL скачивания с ЭТП
 # (ТЗ — поля technical_spec_name/technical_spec_url, остальные — files_json).
 
-data_dir: "data"
-
 # --- База данных (PostgreSQL) ---
 db:
   enabled: true

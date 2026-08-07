@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+
+# Playwright
+test-results/
+playwright-report/
+.ms-playwright/
+
+# Data produced by the parser
+data/
+documents/
+
+# Env / secrets
+.env
+*.local
+
+# IDE
+.idea/
+.vscode/
+
+# Kilo workspace state
+.kilo/
+
+# VCS
+.git/
+.gitignore
+
+# OS
+.DS_Store

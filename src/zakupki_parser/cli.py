@@ -142,7 +142,6 @@ def _print_summary(cfg: AppConfig) -> None:
         f"44-ФЗ={_yn(sc.fz44)}; 223-ФЗ={_yn(sc.fz223)}"
     )
     print(f"  Порог дат (дней): {cfg.service.default_cutoff_days}")
-    print(f"  Директория данных: '{cfg.service.data_dir}'")
     sc_cond = cfg.service.stop_conditions
     min_days = sc_cond.min_deadline_days if sc_cond.min_deadline_days is not None else "–"
     print(

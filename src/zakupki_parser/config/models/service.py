@@ -186,7 +186,6 @@ class ServiceConfig(_BaseConfig):
     search_criteria: SearchCriteria = Field(
         default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
     )
-    data_dir: str = Field(default="data")
     db: DbConfig = Field(default_factory=DbConfig)
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     stop_conditions: StopConditions = Field(default_factory=StopConditions)
