@@ -8,6 +8,7 @@
 sequenceDiagram
     autonumber
     participant S as Scheduler
+    participant A as Parser API (FastAPI)
     participant B as BrowserManager<br/>(Chromium)
     participant L as Lister
     participant F as FiltersEngine
@@ -45,25 +46,26 @@ sequenceDiagram
             end
             S->>S: score (default / deadline_expired)
             S->>R: upsert(record) (контроль дубликатов)
-            alt новая запись
+            alt новая запись (score_method=default)
                 S->>TR: POST /api/scoring/jobs {id, default_score}
                 TR->>RS: ZADD scoring:jobs (по приоритету)
-                Note over SG: (асинхронно)
-                SG->>RS: ZPOPMAX scoring:jobs
-                SG->>S: GET /api/procurements/{id}
-                S-->>SG: карточка (вкл. detail_json)
-                SG->>SG: LLM-пайплайн (Fit → Judge → P(win)×Margin)
-                SG->>RS: LPUSH scoring:results {id, score}
-                TR->>RS: BRPOP scoring:results
-                TR->>S: POST /api/procurements/{id}/score
-                S->>R: update_score (score_method=external)
-                S->>S: score ≥ notify_min_score?
-                alt score ≥ notify_min_score
-                    S->>N: notify(record) (после score)
-                end
             end
         end
         S->>L: goto_next_page()
+    end
+
+    Note over TR,SG: (асинхронный конвейер скоринга, вне цикла парсинга)
+    SG->>RS: ZPOPMAX scoring:jobs
+    SG->>A: GET /api/procurements/{id}
+    A-->>SG: карточка (вкл. detail_json)
+    SG->>SG: score (заглушка возвращает score из карточки)
+    SG->>RS: LPUSH scoring:results {id, score}
+    TR->>RS: BRPOP scoring:results
+    TR->>A: POST /api/procurements/{id}/score
+    A->>R: update_score (score_method=external)
+    A->>A: score ≥ notify_min_score?
+    alt score ≥ notify_min_score
+        A->>N: notify(record)
     end
 
     S->>B: save_session() / close()
@@ -82,10 +84,13 @@ sequenceDiagram
   выполняет **внешний сервис** (ADR-5).
 - **Скоринг (ADR-7)**: при сохранении ставится `default` (или `deadline_expired` для
   просроченных). Для новой записи парсер **автоматически** отправляет задание в транспорт
-  (`POST /api/scoring/jobs` с приоритетом = дефолтным score); транспорт ставит его в
-  Redis-очередь по приоритету, **Scoring Service** обрабатывает его и публикует результат,
-  а транспорт возвращает его в парсер (`POST /score`). **Уведомление подписчиков
-  выполняется вне цикла парсинга** — в обработчике `POST /score`, после обновления
-  финального score и только если `score ≥ notify_min_score` (порог из конфига).
+  (`POST /api/scoring/jobs` с приоритетом = дефолтным score). Дальше конвейер работает
+  **асинхронно**: `scoring_service` берёт задание из Redis (`ZPOPMAX`), получает карточку
+  через API парсера (`GET /api/procurements/{id}`), считает score и публикует результат;
+  транспорт возвращает его в API парсера (`POST /score`). Пока `score_use_stub` включён,
+  `scoring_service` возвращает score из карточки без LLM-пайплайна.
+- **Уведомление подписчиков** выполняется **в FastAPI-слое** — в обработчике
+  `POST /api/procurements/{id}/score` после обновления финального score, только если
+  `score ≥ notify_min_score` (порог из конфига). В цикле парсинга уведомлений нет.
 - **upsert** гарантирует отсутствие повторной записи заявки с тем же номером
   (unique-констрейнт + проверка перед вставкой).
