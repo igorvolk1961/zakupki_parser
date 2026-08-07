@@ -45,7 +45,7 @@ services:
       ZAKUPKI_CONFIGS: /app/configs
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki
     volumes:
-      - ./configs:/app/configs
+      - ../configs:/app/configs
     restart: unless-stopped
 
   api:
@@ -65,7 +65,7 @@ services:
     command: >
       uv run zp --configs /app/configs serve --host 0.0.0.0 --port 8000
     volumes:
-      - ./configs:/app/configs
+      - ../configs:/app/configs
     restart: unless-stopped
 
 volumes:

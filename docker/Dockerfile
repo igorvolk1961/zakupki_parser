@@ -36,6 +36,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Устанавливаем зависимости и браузер
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
+# Деревья ОКПД2 (docs/codes/*.json), на которые ссылается config_dom.yaml
+COPY docs/codes ./docs/codes
 RUN uv sync --frozen --no-dev && \
     uv run playwright install --with-deps chromium
 

@@ -102,6 +102,11 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     if env_dsn:
         service_model.db.dsn = env_dsn
 
+    # Путь к исполняемому файлу Chromium — из env (имеет приоритет над YAML).
+    env_chromium = os.environ.get("ZAKUPKI_CHROMIUM_EXECUTABLE")
+    if env_chromium:
+        parser_data.setdefault("browser", {})["chromium_executable_path"] = env_chromium
+
     # Секрет токена Telegram-бота — только из env, не хранится в YAML.
     env_token = os.environ.get("ZAKUPKI_TELEGRAM_TOKEN")
     if env_token:

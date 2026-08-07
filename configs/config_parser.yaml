@@ -5,8 +5,9 @@ browser:
   headless: true
   # Путь к ПОЛНОЙ версии Chromium (не headless-shell). Полная версия лучше
   # обходит антибот zakupki.mos.ru, который блокирует headless-shell.
-  # Задаётся под конкретную машину/контейнер; пусто — используется headless-shell.
-  chromium_executable_path: "/home/igorvolk/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
+  # Пусто — Playwright сам находит установленный браузер (локально — в
+  # ~/.cache/ms-playwright, в Docker — в $PLAYWRIGHT_BROWSERS_PATH=/ms-playwright).
+  # При необходимости путь можно задать через env ZAKUPKI_CHROMIUM_EXECUTABLE.
   # user_agent:            # если пусто — браузер подставит реальный UA
   viewport_width: 1366
   viewport_height: 768
