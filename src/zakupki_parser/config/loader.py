@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -116,6 +116,13 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     env_max_token = os.environ.get("ZAKUPKI_MAX_TOKEN")
     if env_max_token:
         service_model.notifications.max.token = env_max_token
+
+    # Бэкенд уведомлений — из env (имеет приоритет над YAML). 'none' — выключить.
+    env_backend = os.environ.get("ZAKUPKI_NOTIFY_BACKEND")
+    if env_backend in ("telegram", "webhook", "max", "none"):
+        service_model.notifications.backend = cast(
+            Literal["telegram", "webhook", "max", "none"], env_backend
+        )
 
     return AppConfig(
         configs_dir=base,

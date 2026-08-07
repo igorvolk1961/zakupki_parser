@@ -85,7 +85,13 @@ class MaxConfig(_BaseConfig):
 class NotificationsConfig(_BaseConfig):
     """Настройки уведомлений: выбор бэкенда и его параметры."""
 
-    backend: Literal["telegram", "webhook", "max"] = Field(default="webhook")
+    backend: Literal["telegram", "webhook", "max", "none"] = Field(
+        default="webhook",
+        description=(
+            "бэкенд уведомлений; 'none' — отключить оповещения полностью "
+            "(Notifier не будет создавать ни один бэкенд)"
+        ),
+    )
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     max: MaxConfig = Field(default_factory=MaxConfig)
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)

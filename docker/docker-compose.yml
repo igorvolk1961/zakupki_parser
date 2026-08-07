@@ -44,6 +44,7 @@ services:
     environment:
       ZAKUPKI_CONFIGS: /app/configs
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki
+      ZAKUPKI_NOTIFY_BACKEND: none
     volumes:
       - ../configs:/app/configs
     restart: unless-stopped
@@ -60,6 +61,7 @@ services:
     environment:
       ZAKUPKI_CONFIGS: /app/configs
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki
+      ZAKUPKI_NOTIFY_BACKEND: none
     ports:
       - "8000:8000"
     command: >

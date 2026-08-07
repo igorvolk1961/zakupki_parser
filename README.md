@@ -192,6 +192,8 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 
 Переменные окружения (для Docker/CI):
 - `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_service.yaml -> db.dsn`);
+- `ZAKUPKI_NOTIFY_BACKEND` — бэкенд уведомлений; `none` полностью отключает
+  оповещения (в `docker/docker-compose.yml` задано `none`);
 - секреты уведомлений — берутся из файла `.env` в корне проекта (см. `env_file: ../.env` в `docker/docker-compose.yml`):
   `ZAKUPKI_TELEGRAM_TOKEN`, `ZAKUPKI_MAX_TOKEN`, `ZAKUPKI_MAX_CHAT_ID`.
 
