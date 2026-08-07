@@ -7,6 +7,7 @@ import os
 import shutil
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -155,6 +156,38 @@ def test_set_score_by_external_service(
 
     detail = client.get(f"/api/procurements/{inserted_id}").json()
     assert detail["score"] == 123.5
+
+
+def test_set_score_notifies_above_threshold(
+    api_client: tuple[TestClient, Path], inserted_id: int
+) -> None:
+    client, _ = api_client
+    calls: list[dict[str, object]] = []
+
+    class _FakeNotifier:
+        async def notify(self, record: dict[str, object]) -> None:
+            calls.append(record)
+
+    state = cast(Any, client.app).state.parser
+    state.notifier = _FakeNotifier()
+    state.notify_min_score = 100.0
+
+    # Ниже порога — score обновляется, уведомления нет.
+    resp = client.post(
+        f"/api/procurements/{inserted_id}/score",
+        json={"score": 50.0, "score_method": "external"},
+    )
+    assert resp.status_code == 200
+    assert calls == []
+
+    # Выше порога — уведомление с обновлённой карточкой.
+    resp = client.post(
+        f"/api/procurements/{inserted_id}/score",
+        json={"score": 150.0, "score_method": "external"},
+    )
+    assert resp.status_code == 200
+    assert len(calls) == 1
+    assert calls[0]["score"] == 150.0
 
 
 def test_set_score_404(api_client: tuple[TestClient, Path]) -> None:

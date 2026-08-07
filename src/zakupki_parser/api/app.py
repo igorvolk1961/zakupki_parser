@@ -20,6 +20,7 @@ from sqlalchemy import text as sql_text
 
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig, ServiceConfig
+from zakupki_parser.notify import Notifier
 from zakupki_parser.storage.db import Database, Procurement
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -140,6 +141,10 @@ class AppState:
         }
         # WebSocket-клиенты web-демо (живые обновления при изменении БД).
         self.ws_clients: set[WebSocket] = set()
+        # Отложенное пороговое уведомление (ADR-7): Notifier + порог score,
+        # используется в POST /score.
+        self.notifier: Notifier | None = None
+        self.notify_min_score: float = 0.0
 
 
 async def _broadcast(state: AppState, message: str = "data-changed") -> None:
@@ -194,6 +199,23 @@ def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
     return out
 
 
+def _row_to_record(row: Procurement) -> dict[str, Any]:
+    """Карточка закупки как dict для уведомлений (поля, понятные Notifier)."""
+    return {
+        "number": row.number,
+        "source_platform": row.source_platform,
+        "url": row.url,
+        "customer": row.customer_rel.name if row.customer_rel is not None else None,
+        "law": row.law,
+        "subject": row.subject,
+        "nmck": row.nmck,
+        "publication_date": row.publication_date,
+        "deadline": row.deadline,
+        "score": row.score,
+        "score_method": row.score_method,
+    }
+
+
 def create_app(configs_dir: str = "configs") -> FastAPI:
     state = _create_state(configs_dir)
 
@@ -226,6 +248,11 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         if state.repository is None:
             raise HTTPException(status_code=503, detail="БД недоступна")
         return state.repository
+
+    # Уведомления подписчиков — отправляются в POST /score после прихода внешнего
+    # скора и прохождения порога notify_min_score (ADR-7).
+    state.notifier = Notifier(state.cfg.service.notifications)
+    state.notify_min_score = state.cfg.service.notifications.notify_min_score
 
     @app.get("/health", response_model=HealthOut)
     async def health() -> HealthOut:
@@ -270,7 +297,11 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         response_model=ProcurementDetailOut,
     )
     async def set_score(procurement_id: int, body: ScoreUpdate) -> ProcurementDetailOut:
-        """Обновление score внешним сервисом по его инициативе."""
+        """Обновление score внешним сервисом по его инициативе.
+
+        После обновления score уведомляет подписчиков, если
+        score >= notify_min_score (отложенное пороговое уведомление, ADR-7).
+        """
         if await _repo().get_by_id(procurement_id) is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _repo().update_score(procurement_id, body.score, body.score_method)
@@ -278,6 +309,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         row = await _repo().get_by_id(procurement_id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
+        if (
+            state.notifier is not None
+            and row.score is not None
+            and row.score >= state.notify_min_score
+        ):
+            await state.notifier.notify(_row_to_record(row))
         return _procurement_detail_out(row)
 
     @app.post(

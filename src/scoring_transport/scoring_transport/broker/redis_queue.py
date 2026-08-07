@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 import redis.asyncio as aioredis
+import redis.exceptions as redis_exceptions
 
 from scoring_transport.settings import Settings
 
@@ -34,10 +35,18 @@ class TransportQueue:
         await self._client.zadd(self._settings.jobs_key, {f"proc:{procurement_id}": priority})
 
     async def pop_result(self, timeout: float | None = None) -> dict[str, Any] | None:
-        """Взять результат (BRPOP), вернуть payload или None."""
+        """Взять результат (BRPOP), вернуть payload или None.
+
+        Блокирующий ``BRPOP`` может превысить таймаут сокета Redis-клиента
+        (``TimeoutError``) — это не ошибка доставки, а «результата ещё нет»:
+        возвращаем None, чтобы консьюмер продолжал цикл.
+        """
         assert self._client is not None
         t = self._settings.result_timeout_seconds if timeout is None else timeout
-        result = await self._client.brpop([self._settings.results_key], timeout=t)
+        try:
+            result = await self._client.brpop([self._settings.results_key], timeout=t)
+        except redis_exceptions.TimeoutError:
+            return None
         if result is None:
             return None
         _, payload = result

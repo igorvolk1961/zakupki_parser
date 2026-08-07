@@ -3,13 +3,14 @@
 Список незавершённых работ и направлений развития.
 
 ## Ближайшие задачи
-- [ ] **Авто-пуш задания на скоринг в транспорт (ADR-7, шаг 1)** — после успешного
+- [x] **Авто-пуш задания на скоринг в транспорт (ADR-7, шаг 1)** — после успешного
       сохранения новой закупки парсер отправляет `POST /api/scoring/jobs
-      {procurement_id, priority=default_score}` в `scoring_transport`.
-- [ ] **Порог `notify_min_score` + отложенное уведомление (ADR-7, шаг 6)** — в обработчике
-      `POST /api/procurements/{id}/score` после обновления score сравнивать
-      `score ≥ notify_min_score` и уведомлять подписчиков только при прохождении порога;
-      убрать безусловное уведомление из цикла парсинга (`orchestrator.py`).
+      {procurement_id, priority=default_score}` в `scoring_transport`
+      (`ScoringTransportClient` в `scoring.py`, `orchestrator.py`).
+- [x] **Порог `notify_min_score` + отложенное уведомление (ADR-7, шаг 6)** — в обработчике
+      `POST /api/procurements/{id}/score` после обновления score сравнивается
+      `score ≥ notify_min_score` и подписчики уведомляются только при прохождении порога;
+      безусловное уведомление из цикла парсинга (`orchestrator.py`) убрано.
 - [x] **Выпил deprecated-путей скоринга (ADR-7)** — удалены `ExternalScoreClient`
       (`before_save`/`worker`), `Scheduler.run_scoring_worker`, `zp score-worker`,
       `list_for_scoring`/`set_score_method` и дублирующая fit-таблица `scoring_transport`

@@ -53,6 +53,9 @@ db:
 # Токен Telegram-бота НЕ хранится в конфиге — задаётся env ZAKUPKI_TELEGRAM_TOKEN.
 notifications:
   backend: "max"        # telegram | max | webhook
+  # Порог уведомления: шлём только если финальный score >= notify_min_score
+  # (проверяется в POST /score после прихода внешнего скора, ADR-7).
+  notify_min_score: 0
   telegram:
     enabled: false
     chat_id: "-1004416405744"           # '@my_zakupki_channel' или числовой id (для приватного)

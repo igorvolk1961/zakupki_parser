@@ -13,6 +13,8 @@ import re
 from datetime import datetime
 from typing import Any
 
+import httpx
+
 from zakupki_parser.config.models import (
     SCORE_METHOD_DEADLINE_EXPIRED,
     SCORE_METHOD_DEFAULT,
@@ -70,3 +72,28 @@ async def score_for_record(
     if isinstance(deadline, datetime) and now is not None and deadline < now:
         return 0.0, SCORE_METHOD_DEADLINE_EXPIRED
     return compute_default_score(record, cfg), SCORE_METHOD_DEFAULT
+
+
+class ScoringTransportClient:
+    """Клиент transport-конвейера скоринга (авто-пуш задания после сохранения, ADR-7).
+
+    Вызов best-effort: при недоступности транспорта задание не ставится, но «сырая»
+    закупка уже сохранена в БД с дефолтным скором (вежливая деградация).
+    """
+
+    def __init__(self, url: str, timeout: float = 5.0) -> None:
+        self._base = url.rstrip("/")
+        self._timeout = timeout
+
+    async def enqueue(
+        self,
+        procurement_id: int,
+        priority: float,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        """Поставить задание на скоринг: POST /api/scoring/jobs."""
+        url = f"{self._base}/api/scoring/jobs"
+        payload = {"procurement_id": procurement_id, "priority": priority}
+        async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()

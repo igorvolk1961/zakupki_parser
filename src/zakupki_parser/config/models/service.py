@@ -83,6 +83,14 @@ class NotificationsConfig(BaseModel):
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     max: MaxConfig = Field(default_factory=MaxConfig)
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
+    notify_min_score: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "порог: уведомлять только если финальный score >= notify_min_score "
+            "(проверяется в POST /score после прихода внешнего скора, ADR-7)"
+        ),
+    )
 
     @model_validator(mode="after")
     def _check_chat_ids(self) -> NotificationsConfig:

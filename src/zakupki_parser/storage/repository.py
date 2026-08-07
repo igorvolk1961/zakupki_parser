@@ -152,6 +152,9 @@ class ProcurementRepository:
             )
             session.add(record)
             await session.commit()
+        # Отдаём id записи в исходный dict — нужен для постановки задания на внешний
+        # скоринг (POST /api/scoring/jobs, ADR-7).
+        data["id"] = record.id
         logger.info("Сохранена заявка %s (%s)", number, source_platform)
         return True
 

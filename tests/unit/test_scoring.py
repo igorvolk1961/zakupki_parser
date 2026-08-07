@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 
 from zakupki_parser.config.models import ScoreConfig
-from zakupki_parser.scoring import compute_default_score, score_for_record
+from zakupki_parser.scoring import ScoringTransportClient, compute_default_score, score_for_record
 
 
 def test_default_score_formula() -> None:
@@ -73,3 +74,21 @@ async def test_deadline_future_uses_normal_score() -> None:
     score, method = await score_for_record(record, cfg, now)
     assert score == pytest.approx(900.0)
     assert method == "default"
+
+
+@pytest.mark.asyncio
+async def test_transport_client_posts_job() -> None:
+    captured: dict[str, bytes] = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url).encode()
+        captured["json"] = request.content
+        return httpx.Response(202, json={"status": "enqueued"})
+
+    transport = httpx.MockTransport(_handler)
+    client = ScoringTransportClient("http://localhost:8200")
+    await client.enqueue(42, 900.0, transport=transport)
+
+    assert captured["url"] == b"http://localhost:8200/api/scoring/jobs"
+    assert b'"procurement_id":42' in captured["json"]
+    assert b'"priority":900.0' in captured["json"]

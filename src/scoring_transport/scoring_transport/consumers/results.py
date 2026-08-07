@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from scoring_transport.broker.redis_queue import TransportQueue
@@ -27,7 +28,13 @@ class ResultsConsumer:
         logger.info("Results consumer started")
         try:
             while True:
-                await self._process_once()
+                try:
+                    await self._process_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Ошибка в цикле консьюмера результатов: %s", exc)
+                    await asyncio.sleep(1.0)
         finally:
             await self._queue.close()
 

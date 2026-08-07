@@ -69,7 +69,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await queue.connect()
+
+        def _on_consumer_done(task: asyncio.Task[None]) -> None:
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Consumer task завершился ошибкой: %s", exc)
+
         task = asyncio.create_task(consumer.run_forever())
+        task.add_done_callback(_on_consumer_done)
         yield
         task.cancel()
         await queue.close()

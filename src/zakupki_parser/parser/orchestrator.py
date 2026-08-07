@@ -37,7 +37,7 @@ from zakupki_parser.parser.lister import (
 )
 from zakupki_parser.parser.organization import capture_customer_link, resolve_inn
 from zakupki_parser.retry import run_with_retry
-from zakupki_parser.scoring import score_for_record
+from zakupki_parser.scoring import ScoringTransportClient, score_for_record
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -73,6 +73,13 @@ class Orchestrator:
         self._now = now or datetime.now(UTC)
         # Колбэк при сохранении закупки (живые обновления в web-демо).
         self._on_record_saved = on_record_saved
+        # Авто-пуш задания на внешний скоринг в транспорт (ADR-7). Если адрес не задан —
+        # внешний скоринг не запускается, закупка остаётся с дефолтным score.
+        self._transport = (
+            ScoringTransportClient(cfg.score.scoring_transport_url)
+            if cfg.score.scoring_transport_url
+            else None
+        )
         # Кеш ИНН по ссылке на организацию: страницу организации грузим не чаще раза за проход.
         self._inn_cache: dict[str, str | None] = {}
 
@@ -305,9 +312,23 @@ class Orchestrator:
         # 9) запись в БД + защита от дубликатов
         saved = await self._persist(record)
 
-        # 10) webhook только для новых записей
-        if saved:
-            await self._notifier.notify(record)
+        # 10) авто-пуш задания на внешний скоринг (ADR-7): закупка сохранена с дефолтным
+        #     скором; transport ставит её в приоритетную очередь. Уведомление подписчиков
+        #     отправляется позже — в POST /score, после прихода внешнего скора и проверки
+        #     порога notify_min_score (см. api/app.py). deadline_expired не скорим (скор=0).
+        if saved and self._transport is not None and record.get("score_method") == "default":
+            procurement_id = record.get("id")
+            if procurement_id is not None:
+                try:
+                    await self._transport.enqueue(
+                        int(procurement_id), float(record.get("score") or 0.0)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Не удалось поставить задание на скоринг закупки %s: %s",
+                        procurement_id,
+                        exc,
+                    )
 
     # -- основной цикл ------------------------------------------------------
     async def run(self, page: Page) -> None:
