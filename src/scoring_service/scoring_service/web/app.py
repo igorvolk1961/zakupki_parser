@@ -13,11 +13,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
-from scoring_service.pipeline.fit_chain import FitChain
-from scoring_service.pipeline.judge_chain import JudgeChain
 from scoring_service.schemas import ScoringOutput
-from scoring_service.scoring import Scorer
+from scoring_service.scoring import Scorer, build_scorer
 from scoring_service.settings import Settings, get_settings
 
 
@@ -59,14 +56,7 @@ class HealthOut(BaseModel):
 
 
 def _build_scorer(settings: Settings) -> Scorer:
-    llm = build_llm(settings)
-    handler = langfuse_handler(settings)
-    callbacks = callbacks_for(handler)
-    return Scorer(
-        FitChain(llm, callbacks),
-        JudgeChain(llm, callbacks),
-        settings,
-    )
+    return build_scorer(settings)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

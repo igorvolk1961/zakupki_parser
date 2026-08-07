@@ -34,20 +34,11 @@ async def _cmd_worker(settings: Settings) -> int:
 
 
 def _cmd_score(settings: Settings, card: Path, competencies: Path | None) -> int:
-    from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
-    from scoring_service.pipeline.fit_chain import FitChain
-    from scoring_service.pipeline.judge_chain import JudgeChain
-    from scoring_service.scoring import Scorer
+    from scoring_service.scoring import build_scorer
 
     record = json.loads(card.read_text(encoding="utf-8"))
     comp = competencies.read_text(encoding="utf-8") if competencies else settings.competencies()
-    llm = build_llm(settings)
-    callbacks = callbacks_for(langfuse_handler(settings))
-    scorer = Scorer(
-        FitChain(llm, callbacks),
-        JudgeChain(llm, callbacks),
-        settings,
-    )
+    scorer = build_scorer(settings)
     result = scorer.score(record, comp, record.get("id"))
     print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
     return 0

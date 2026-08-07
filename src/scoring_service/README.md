@@ -52,6 +52,12 @@ uv run python -m scoring_service serve --port 8100
 ```
 
 ## Переменные окружения (`SCORE_*`, `LANGFUSE_*`)
+
+Сервис читает конфигурацию из **YAML-файла `config.yaml`** (в корне подпроекта), значения
+которого можно переопределить переменными окружения. Приоритет (от высшего к низшему):
+`SCORE_*` env → `.env` → `config.yaml` → значения по умолчанию. Путь к файлу задаётся
+env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
+
 | Переменная | Назначение |
 |---|---|
 | `SCORE_LLM_BASE_URL` / `SCORE_LLM_API_KEY` / `SCORE_LLM_MODEL` | OpenAI-совместимая LLM |
@@ -60,6 +66,7 @@ uv run python -m scoring_service serve --port 8100
 | `SCORE_P_WIN` / `SCORE_MARGIN_RATE` | стубы P(win)/Margin (дефолтный подход парсера) |
 | `SCORE_COMPETENCIES_FILE` | файл с компетенциями поставщика |
 | `SCORE_NUM_REFINE_ROUNDS` | число итераций refine при `verdict=reject` |
+| `SCORE_USE_STUB` | заглушка: возвращать score, уже присутствующий в данных закупки, без LLM-пайплайна (по умолчанию `false`) |
 | `SCORE_NORMALIZE_FIT_FOR_SCORE` | приводить Fit (0–10) к шкале 0–1 при расчёте Score (по умолчанию `true`) |
 | `SCORE_AUTH_TOKEN` | опциональный Bearer-токен для `POST /score` (пусто = открыто) |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | LangFuse |

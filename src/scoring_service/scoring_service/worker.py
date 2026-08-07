@@ -9,10 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
-from scoring_service.pipeline.fit_chain import FitChain
-from scoring_service.pipeline.judge_chain import JudgeChain
-from scoring_service.scoring import Scorer
+from scoring_service.scoring import build_scorer
 from scoring_service.settings import Settings
 from scoring_service.transport.parser_api import ParserApiClient
 from scoring_service.transport.redis_queue import ScoringQueue
@@ -25,14 +22,7 @@ class ScoringWorker:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        llm = build_llm(settings)
-        handler = langfuse_handler(settings)
-        callbacks = callbacks_for(handler)
-        self._scorer = Scorer(
-            FitChain(llm, callbacks),
-            JudgeChain(llm, callbacks),
-            settings,
-        )
+        self._scorer = build_scorer(settings)
         self._queue = ScoringQueue(settings)
         self._parser = ParserApiClient(settings.parser_api_url)
 

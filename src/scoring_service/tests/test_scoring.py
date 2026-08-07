@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps
-from scoring_service.scoring import Scorer
+from scoring_service.scoring import Scorer, build_scorer
 from scoring_service.settings import Settings
 
 
@@ -62,7 +62,7 @@ class _FakeJudge:
 
 
 def _scorer(fit: _FakeFit, judge: _FakeJudge) -> Scorer:
-    return Scorer(fit, judge, Settings(p_win=1.0, margin_rate=1.0))  # type: ignore[arg-type]
+    return Scorer(fit, judge, Settings(p_win=1.0, margin_rate=1.0, score_use_stub=False))  # type: ignore[arg-type]
 
 
 def test_score_accept_path() -> None:
@@ -97,7 +97,11 @@ def test_score_zero_nmck() -> None:
 def test_score_no_normalization_uses_raw_fit() -> None:
     fit = _FakeFit([8.0])
     judge = _FakeJudge([_judge("accept", 8.0)])
-    scorer = Scorer(fit, judge, Settings(p_win=1.0, margin_rate=1.0, normalize_fit_for_score=False))
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(p_win=1.0, margin_rate=1.0, normalize_fit_for_score=False, score_use_stub=False),
+    )
     out = scorer.score({"subject": "x", "nmck": 100.0}, "comp")
     assert out.score == 800.0
 
@@ -109,3 +113,23 @@ def test_score_keeps_judge_final_over_fit() -> None:
     assert out.final_fit_score == 9.0
     assert out.score == 9.0
     assert fit.calls == 2
+
+
+def test_stub_returns_existing_score_without_chains() -> None:
+    scorer = Scorer(None, None, Settings(score_use_stub=True, p_win=1.0, margin_rate=1.0))
+    out = scorer.score({"subject": "x", "nmck": 5000.0, "score": 123.45}, "comp")
+    assert out.score == 123.45
+    assert out.judge.verdict == "accept"
+    assert out.margin == 5000.0
+
+
+def test_stub_defaults_zero_score_when_missing() -> None:
+    scorer = Scorer(None, None, Settings(score_use_stub=True))
+    out = scorer.score({"subject": "x"}, "comp")
+    assert out.score == 0.0
+
+
+def test_build_scorer_stub_does_not_build_llm() -> None:
+    scorer = build_scorer(Settings(score_use_stub=True))
+    assert scorer._fit is None  # noqa: SLF001
+    assert scorer._judge is None  # noqa: SLF001

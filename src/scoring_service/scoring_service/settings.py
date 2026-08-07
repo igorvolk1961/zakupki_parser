@@ -1,14 +1,50 @@
 """Настройки сервиса скоринга.
 
-Всё через env-переменные с префиксом ``SCORE_`` (pydantic-settings).
+Порядок приоритета (от высшего к низшему):
+1. аргументы конструктора;
+2. переменные окружения ``SCORE_*``;
+3. файл ``.env``;
+4. YAML-конфиг (по умолчанию ``config.yaml``, путь можно переопределить env
+   ``SCORE_CONFIG_FILE``);
+5. значения по умолчанию в модели.
+
 LangFuse — стандартные переменные ``LANGFUSE_*``.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from typing import Any
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import yaml
+from pydantic.fields import FieldInfo
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+
+class YamlConfigSource(PydanticBaseSettingsSource):
+    """Источник настроек из YAML-файла (ниже по приоритету, чем env/.env)."""
+
+    def __init__(self, settings_cls: type[BaseSettings], path: Path) -> None:
+        super().__init__(settings_cls)
+        self._path = path
+
+    def _load(self) -> dict[str, Any]:
+        if not self._path.is_file():
+            return {}
+        raw = yaml.safe_load(self._path.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        data = self._load()
+        return data.get(field_name), field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return self._load()
 
 
 class Settings(BaseSettings):
@@ -49,6 +85,10 @@ class Settings(BaseSettings):
     score_round_digits: int = 2
     normalize_fit_for_score: bool = True
 
+    # Заглушка: возвращать score, уже присутствующий в данных закупки (без LLM-пайплайна).
+    # Включать, пока LLM-пайплайн не отлажен.
+    score_use_stub: bool = False
+
     # LangFuse (None = выключен)
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
@@ -56,6 +96,25 @@ class Settings(BaseSettings):
 
     # Опциональная авторизация HTTP-эндпоинтов (None = выключено, dev)
     auth_token: str | None = None
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Источники в порядке приоритета (первый — самый высокий).
+        yaml_path = Path(os.getenv("SCORE_CONFIG_FILE", "config.yaml"))
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            YamlConfigSource(settings_cls, yaml_path),
+            file_secret_settings,
+        )
 
     def competencies(self) -> str:
         """Текст компетенций поставщика из файла."""
