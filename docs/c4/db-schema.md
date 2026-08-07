@@ -5,45 +5,64 @@ ORM-модель — `../../src/zakupki_parser/storage/db.py`.
 
 ```mermaid
 erDiagram
-    PROCUREMENTS {
-        BIGSERIAL id PK "автоинкремент"
-        VARCHAR(64) number "реестровый номер заявки"
-        VARCHAR(128) source_platform "ключ площадки"
-        VARCHAR(1024) url "ссылка на закупку"
-        TEXT customer "заказчик"
-        VARCHAR(16) law "закон: 44-ФЗ / 223-ФЗ"
-        TEXT subject "предмет закупки"
-        FLOAT nmck "начальная макс. цена контракта"
-        TIMESTAMPTZ publication_date "дата публикации (из «с …»)"
-        TIMESTAMPTZ update_date "дата обновления закупки («Обновлено» на ЕИС)"
-        TIMESTAMPTZ deadline "срок приёма заявок"
-        TEXT execution_term "срок исполнения"
-        FLOAT security_amount "обеспечение заявки/контракта"
-        VARCHAR(16) security_amount_unit "единица измерения обеспечения"
-        FLOAT advance "аванс"
-        TEXT okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
-        TEXT technical_spec_url "URL файла ТЗ (адрес скачивания с ЭТП)"
-        TEXT technical_spec_name "имя файла технического задания"
-        JSONB files_json "остальные файлы: [{name, url скачивания с ЭТП}]"
-        FLOAT score "скоринг Fit × P(win) × Margin"
-        VARCHAR(64) score_method "default | external | calculating | deadline_expired"
-        TEXT kpgz_codes "коды КПГЗ (один или несколько, через запятую)"
-        JSONB detail_json "полный набор переменных карточки"
-        TIMESTAMPTZ created_at "server_default now()"
-        TIMESTAMPTZ updated_at "server_default now(), onupdate"
+    CUSTOMERS {
+        bigint id PK "автоинкремент"
+        text name "наименование заказчика"
+        text normalized_name "нормализованное имя (дедупликация), UNIQUE"
+        varchar(12) inn "ИНН (заполняется универсальным механизмом)"
+        double rating "рейтинг заказчика (заполняется через API внешним сервисом)"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
     }
+
+    PROCUREMENTS {
+        bigint id PK "автоинкремент"
+        varchar(64) number "реестровый номер заявки"
+        varchar(128) source_platform "ключ площадки"
+        varchar(1024) url "ссылка на закупку"
+        bigint customer_id FK "ссылка на заказчика (customers.id, SET NULL)"
+        varchar(16) law "закон: 44-ФЗ / 223-ФЗ"
+        text subject "предмет закупки"
+        double nmck "начальная макс. цена контракта"
+        timestamptz publication_date "дата публикации (из «с …»)"
+        timestamptz update_date "дата обновления закупки («Обновлено» на ЕИС)"
+        timestamptz deadline "срок приёма заявок"
+        text execution_term "срок исполнения"
+        double security_amount "обеспечение заявки/контракта"
+        varchar(16) security_amount_unit "единица измерения обеспечения"
+        double advance "аванс"
+        text okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
+        text kpgz_codes "коды КПГЗ (один или несколько, через запятую)"
+        text technical_spec_url "URL файла ТЗ (адрес скачивания с ЭТП)"
+        text technical_spec_name "имя файла технического задания"
+        jsonb files_json "остальные файлы: [{name, url скачивания с ЭТП}]"
+        double score "скоринг Fit × P(win) × Margin"
+        varchar(64) score_method "default | external | deadline_expired"
+        jsonb detail_json "полный набор переменных карточки"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    PROCUREMENTS }o--|| CUSTOMERS : "customer_id (FK, SET NULL)"
 ```
 
 ## Замечания
-- **Таблица одна** — `procurements`. Дата последней обработанной записи **не хранится**
-  в state-файле: порог берётся из БД (`MAX(update_date)` по площадке), а при отсутствии
-  записей — из `default_cutoff_days` в `config_service.yaml`.
+- **Две таблицы**: `procurements` и справочник `customers` (ADR-4). Заказчик
+  нормализован: вместо денормализованной колонки `customer` — FK `customer_id`
+  (при удалении заказчика — `SET NULL`).
+- **Справочник заказчиков** `customers`: `name`, `normalized_name` (ключ дедупликации,
+  UNIQUE `uq_customers_normalized_name`), `inn`, `rating` (заполняется через API
+  внешним сервисом).
+- Дата последней обработанной записи **не хранится** в state-файле: порог берётся
+  из БД (`MAX(update_date)` по площадке), а при отсутствии записей — из
+  `default_cutoff_days` в `config_service.yaml`.
 - **Защита от дубликатов**: уникальный констрейнт `uq_procurement_number_platform`
   на `(number, source_platform)`.
-- **Индекс** `ix_procurements_created_at` по `created_at`.
+- **Индексы**: `ix_procurements_created_at` по `created_at`,
+  `ix_procurements_customer_id` по `customer_id`.
+- `score_method`: `default | external | deadline_expired` (значение `calculating`
+  удалено вместе с воркером внешнего скоринга, ADR-7).
 - `detail_json` хранит весь набор извлечённых переменных карточки для аналитики.
-- Справочник заказчиков (`customers`, рейтинг) — **будущая работа** по ADR-4
-  (нормализация при разработке скорингового сервиса), ещё не реализована.
 
 ## Ключевые SQL-запросы
 - Проверка дубликата перед вставкой:
