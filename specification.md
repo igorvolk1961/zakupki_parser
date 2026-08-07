@@ -69,7 +69,7 @@
    считались «старее» дневного порога). Побочный эффект — повторная обработка записей
    дня порога; она безопасна (дубликаты исключаются unique-констрейнтом, webhook
    срабатывает только на новые вставки). Логика реализована в
-   `is_older_than_cutoff` (`src/zakupki_parser/parser/orchestrator.py`).
+   `is_older_than_cutoff` (`src/zakupki_parser/parser/cutoff.py`).
 5. **На каждой странице**: цикл по всем контейнерам записей; затем переход на
    следующую страницу, если она есть.
 6. **Для каждой записи**:
@@ -122,17 +122,21 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - Доступ к БД — SQLAlchemy 2.x (async, asyncpg).
-- Миграции — **Liquibase** (чанги в YAML, до версии 1.11), таблица `procurements`.
+- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.13`),
+  таблицы `procurements` и `customers`.
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
-- Колонки: `number`, `customer`, `law`, `subject`, `nmck`, `publication_date`,
-  `update_date` (дата обновления закупки), `deadline`, `execution_term`,
-  `security_amount`+`security_amount_unit`, `advance`, `okpd2_codes`, `kpgz_codes`,
-  `technical_spec_name/url`, `files_json`, `score`/`score_method`, `detail_json`.
+- `procurements` (колонки): `id`, `number`, `source_platform`, `url`, `customer_id`
+  (FK → `customers.id`), `law`, `subject`, `nmck`, `publication_date`, `update_date`,
+  `deadline`, `execution_term`, `security_amount`+`security_amount_unit`, `advance`,
+  `okpd2_codes`, `kpgz_codes`, `technical_spec_name/url`, `files_json`,
+  `score`/`score_method`, `detail_json`, `created_at`, `updated_at`.
+- **Справочник заказчиков** `customers` (ADR-4, реализован): `name`, `normalized_name`
+  (ключ дедупликации, UNIQUE), `inn`, `rating`; связь `procurements.customer_id → customers.id`
+  (ON DELETE SET NULL). Денормализованная колонка `customer` удалена.
 - Дата последней обработанной записи **берётся из БД** — `MAX(update_date)` по площадке;
   если записей ещё нет — порог по умолчанию `default_cutoff_days` из конфига.
   Отдельного state-файла нет.
-- Справочник заказчиков (`customers`, рейтинг) — будущая нормализация по ADR-4.
 
 ## 7. Circuit Breaker и graceful degradation
 - `src/zakupki_parser/circuit.py` — состояния CLOSED / OPEN / HALF_OPEN.
@@ -159,7 +163,7 @@
 ## 8а. Скоринг закупок (`config_score.yaml`)
 Формула: **Score = Fit(ОКПД2) × P(win) × Margin** (простейшая эвристика:
 Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml -> fit_table`).
-- `method: default` — внутренний расчёт в парсере (`score_method=default`);
+- **Дефолтный score** вычисляется в парсере (`score_method=default`);
 - **Просроченный срок подачи заявок** (`deadline < now`) → `score = 0`,
   `score_method = deadline_expired`;
 - `fit_table` — коэффициент соответствия по ОКПД2 (подбор по ближайшему предку,
@@ -178,6 +182,8 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
    закупка), получает карточку через REST парсера (`GET /api/procurements/{id}`), прогоняет
    LLM-пайплайн и публикует результат в `scoring:results` (`LPUSH`). Надёжность — TTL-аренда
    `scoring:processing` + `recover_stale`; идемпотентность — перезапись через `POST /score`.
+   Пока LLM-пайплайн не отлажен, включён флаг `score_use_stub` — сервис возвращает score
+   из карточки без вызова LLM.
 4. Транспорт (`BRPOP`) получает результат и возвращает его в парсер:
    `POST /api/procurements/{id}/score {score, score_method:"external"}` (с ретраями/backoff).
    Транспорт — единственная граница между конвейером и парсером.
@@ -191,7 +197,8 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 
 В дефолтной формуле компонента `P(win)` в будущем будет браться из рейтинга заказчика
 в таблице `customers` (ADR-4/ADR-6, заполняется через `POST /api/customers/{id}/rating`).
-Нормализация заказчиков ещё не реализована — пока `P(win)` берётся из конфига.
+Нормализация заказчиков реализована (ADR-4, таблица `customers`); в формулу рейтинг
+пока не подставляется — `P(win)` берётся из конфига.
 
 ## 9. Таймерный запуск (scheduler)
 `src/zakupki_parser/scheduler.py` циклически проходит по списку сайтов из
@@ -207,8 +214,8 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 
 ## 11. API-сервис (FastAPI)
 Поднимается командой `serve` (или сервисом `api` в docker-compose). Читает
-конфиг (БД и хранилище) и отдаёт:
-- `GET /health` — статус: ok, доступность БД, тип хранилища;
+конфиг (БД) и отдаёт:
+- `GET /health` — статус: ok, доступность БД;
 - `GET /api/procurements` — список с фильтрами (`number`, `source_platform`,
   `okpd2`, `customer`) и пагинацией (`limit`, `offset`);
 - `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
@@ -216,9 +223,11 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
   парсер обновляет `score` закупки и, если `score ≥ notify_min_score`, отправляет
   уведомление подписчикам (ADR-7);
 - `POST /api/procurements/{id}/technical-spec` — внешний сервис возвращает найденное
-  ТЗ (ADR-5), парсер записывает его в `technical_spec_name/url`;
-- `GET /api/procurements/{id}/technical-spec` — скачивание файла ТЗ из хранилища
-  (по `technical_spec_key`).
+  ТЗ, парсер записывает его в `technical_spec_name/url`;
+- `GET /api/procurements/{id}/technical-spec` — редирект на URL скачивания ТЗ с ЭТП
+  (в старых данных возможен локальный путь);
+- `GET /api/customers`, `GET /api/customers/{id}` — справочник заказчиков;
+- `POST /api/customers/{id}/rating` — установка рейтинга заказчика (ADR-6).
 
 **Конвейер скоринга (ADR-7)** дополнительно использует API транспорта:
 - `POST /api/scoring/jobs {procurement_id, priority?}` — приём задания на скоринг
@@ -226,8 +235,7 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
   Redis-очередь по приоритету (если `priority` не задан — берётся дефолтный score карточки).
 
 TODO: эндпоинт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту
-записи) с удалением связанных файлов из хранилища (ссылки в `technical_spec_url`
-и `files_json`).
+записи).
 
 ## 11а. Уведомления подписчиков
 Доставка новых закупок настраивается в `config_service.yaml -> notifications`:
@@ -247,12 +255,12 @@ TODO: эндпоинт чистки БД (например, `DELETE /api/procure
 
 ## 12. Тестирование
 - Unit: обработчики значений, конфиг, circuit breaker, дата последней обработки, stop-условия,
-  резолв ОКПД2, хранилище файлов.
+  резолв ОКПД2, нормализация заказчиков.
 - Integration: извлечение из HTML-фикстур (реальные страницы площадки), репозиторий БД
   и API-роуты (PostgreSQL, DSN через `ZAKUPKI_TEST_DSN`).
 - Фикстуры — в `tests/fixtures/` (урезанные реальные HTML списка и деталей).
 
 ## 13. Docker
 `docker/docker-compose.yml`: сервисы `db` (PostgreSQL), `liquibase` (миграции),
-`minio` (объектное хранилище), `parser` (приложение + Chromium), `api` (FastAPI,
-порт 8000). DSN задаётся через `ZAKUPKI_DB_DSN`.
+`parser` (приложение + Chromium), `api` (FastAPI, порт 8000). DSN задаётся
+через `ZAKUPKI_DB_DSN`.

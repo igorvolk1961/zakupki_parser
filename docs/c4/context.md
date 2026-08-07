@@ -23,7 +23,7 @@ flowchart LR
     WH["Webhook"]
 
     U -->|"YAML-конфигурация"| P
-    W -->|"HTTP / WebSocket"| P
+    W <-->|"HTTP / WebSocket"| P
     Z -->|"HTML-страницы закупок"| P
     P -->|"POST /api/scoring/jobs<br/>{id, default_score}"| TR
     TR -->|"ZADD jobs / BRPOP results"| RS

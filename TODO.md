@@ -27,8 +27,7 @@
 - [ ] **`kpgz_codes`/`advance` на детальных страницах ЕИС** — дополнительные поля карточки
       закупки (обеспечение/аванс уже сделаны на ЕИС, КПГЗ и аванс — осталось).
 - [ ] **Эндпоинт чистки БД** (например, `DELETE /api/procurements` по фильтрам/возрасту
-      записи) — при удалении записей удалять и связанные файлы из хранилища
-      (S3/local), ссылки на которые хранятся в `technical_spec_url` и `files_json`.
+      записи).
 - [ ] **Верифицировать DOM-шаги фильтров** (`config_dom.yaml -> filters`) для площадок
       с панелью фильтров (для zakupki.mos.ru реализован и проверен URL-фильтр
       `search`, DOM-шаги не нужны).
@@ -47,7 +46,6 @@
   - **Оркестратор против локального HTTP-сервера** (см. ниже) — главный разрыв:
     `parser/orchestrator.py` сейчас 28% (основной цикл, `_persist`/ретраи/CB, скоринг);
   - unit-тесты `parser/filters.py` (26%) — движок DOM-шагов фильтров;
-  - unit-тесты `downloader.py` (44%) — скачивание файлов;
   - smoke-тесты entry-points с 0%: `cli.py` (`check-config`/`stop`),
     `scheduler.py`, `browser/manager.py`, `browser/stealth.py`.
   Для замера: `ZAKUPKI_TEST_DSN=… python -m coverage run --source=zakupki_parser -m pytest`.
