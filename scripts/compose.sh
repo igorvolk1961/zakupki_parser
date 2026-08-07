@@ -83,11 +83,17 @@ case "$CMD" in
         ;;
     up)
         # Порт 5432 нужен сервису db; если его занимает локальный контейнер
-        # (например zakupki_db из db_up.sh) — честно предупредить.
+        # (например zakupki_db из db_up.sh) — спросить и освободить.
         if docker ps --filter "publish=5432" --format '{{.Names}}' | grep -q .; then
-            echo "Внимание: порт 5432 занят — стек не сможет его пробросить."
-            echo "Освободите порт:  scripts/compose.sh free-port 5432"
-            echo "Продолжить (соберёт образы, но контейнер db не стартует)?"
+            echo "Внимание: порт 5432 занят Docker-контейнером(ами):"
+            docker ps --filter "publish=5432" --format '  - {{.Names}}'
+            read -r -p "Освободить порт (остановить их, данные сохранятся)? [y/N] " ans
+            if [[ "$ans" =~ ^[yYдД] ]]; then
+                free_port 5432 1
+            else
+                echo "Отменено: стек не поднят, пока порт 5432 занят." >&2
+                exit 1
+            fi
         fi
         cd "$ROOT_DIR"
         docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d --build
