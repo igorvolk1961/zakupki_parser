@@ -4,6 +4,8 @@
 
 ```mermaid
 flowchart LR
+    classDef actor fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+
     U["Оператор<br/>команды / конфиг"]
     P["Парсер закупок<br/>Python, asyncio, Playwright (Chromium)<br/>CLI/Scheduler + FastAPI + SQLAlchemy async"]
 
@@ -22,9 +24,14 @@ flowchart LR
     RS <-->|"jobs (ZPOPMAX) / results (LPUSH)"| SG
     TR -->|"POST /score (возврат результата)"| P
     P -->|"уведомления (score ≥ notify_min_score)"| SUB
+
+    class U,SUB actor
 ```
 
 ## Замечания
+- **Акторы** (оператор, подписчики) выделены цветом заливки/рамки. Mermaid
+  `flowchart` не рисует «человечков», поэтому люди отличаются **стилем**, а не фигурой
+  (в строгом C4 акторы — стикмены; здесь — голубая заливка).
 - **Парсер закупок** — единый контейнер (CLI/Scheduler, FastAPI, парсер-движок
   Playwright, слой хранения SQLAlchemy async, Notifier). Пишет в PostgreSQL с контролем
   дубликатов по `number + source_platform`. Парсер не скачивает файлы — в БД хранятся
