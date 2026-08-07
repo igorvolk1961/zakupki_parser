@@ -30,9 +30,7 @@ class Settings(BaseModel):
     # Генерация.
     default_competencies_path: Path = _PKG_ROOT / "data" / "competencies.md"
     default_dataset_path: Path = _PKG_ROOT / "data" / "dataset.json"
-    default_okpd2_tree: Path = Path(
-        "/home/igorvolk/PycharmProjects/zakupki_parser/docs/codes/okpd2_tree.json"
-    )
+    default_okpd2_tree: Path = _PKG_ROOT.parents[2] / "configs" / "codes" / "mos_okpd2_tree.json"
     default_okpd2_sections: list[str] = ["62", "63"]
     per_category: int = Field(default=8, description="закупок на категорию")
     temperature: float = 0.8

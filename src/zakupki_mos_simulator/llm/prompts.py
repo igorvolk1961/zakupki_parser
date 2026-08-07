@@ -14,7 +14,7 @@ SYSTEM_PROMPT = (
 
 
 def okpd2_sections_text(okpd2_sections: list[str]) -> str:
-    """Читает названия разделов ОКПД2 из docs/codes/okpd2_tree.json (path_to_name)."""
+    """Читает названия разделов ОКПД2 из configs/codes/mos_okpd2_tree.json (path_to_name)."""
     import json
     from pathlib import Path
 

@@ -97,7 +97,7 @@ platforms:
       # Маппинг «код ОКПД2 -> путь» (дерево площадки). Путь относителен
       # подпроекта имитатора (src/zakupki_mos_simulator) и указывает на дерево
       # репозитория парсера.
-      okpd_tree_file: "../../docs/codes/okpd2_tree.json"
+      okpd_tree_file: "../../configs/codes/mos_okpd2_tree.json"
 
   # ------------------------------------------------------------------------- #
   # ЕИС (zakupki.gov.ru) — 44-ФЗ/223-ФЗ
@@ -166,7 +166,7 @@ platforms:
 
     # URL-фильтр расширенного поиска ЕИС. Обобщённые критерии мапятся на плоские
     # query-параметры. ОКПД2: сервер игнорирует корневой id — нужен полный список
-    # id/кодов поддерева (okpd2Ids + okpd2IdsCodes), см. docs/codes/gov_okpd2_tree.json.
+    # id/кодов поддерева (okpd2Ids + okpd2IdsCodes), см. configs/codes/gov_okpd2_tree.json.
     search:
       enabled: true
       query_params:
@@ -204,4 +204,4 @@ platforms:
         nmck_max:      { query_param: "priceToGeneral" }
       date_great_equal_format: "%d.%m.%Y"
       # Маппинг «код ОКПД2 -> id ЕИС» (полное поддерево 62/63, см. gov.html)
-      okpd_tree_file: "docs/codes/gov_okpd2_tree.json"
+      okpd_tree_file: "configs/codes/gov_okpd2_tree.json"
