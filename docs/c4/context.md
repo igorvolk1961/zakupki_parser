@@ -4,21 +4,21 @@
 
 ```mermaid
 flowchart LR
-    U[Оператор / аналитик<br/>настраивает парсер]
-    S[Подписчик<br/>получает оповещения]
+    U["Оператор / аналитик<br/>настраивает парсер"]
+    S["Подписчик<br/>получает оповещения"]
 
     subgraph System["zakupki-parser — Парсер закупок"]
         P["Собирает закупки через Playwright,<br/>сохраняет в БД, оповещает"]
     end
 
-    Z[Платформы закупок<br/>zakupki.mos.ru, ЕИС, ЭТП]
-    FS[Внешний сервис<br/>обработки файлов<br/>(ADR-5)]
-    TR[Scoring Transport<br/>gateway скоринга]
-    RS[(Redis<br/>очередь заданий и результатов)]
-    SG[Scoring Service<br/>LLM-скоринг закупок]
-    TG[Telegram]
-    MX[MAX]
-    WH[Webhook]
+    Z["Платформы закупок<br/>zakupki.mos.ru, ЕИС, ЭТП"]
+    FS["Внешний сервис<br/>обработки файлов<br/>(ADR-5)"]
+    TR["Scoring Transport<br/>gateway скоринга"]
+    RS[("Redis<br/>очередь заданий и результатов")]
+    SG["Scoring Service<br/>LLM-скоринг закупок"]
+    TG["Telegram"]
+    MX["MAX"]
+    WH["Webhook"]
 
     U -->|"YAML-конфигурация"| P
     Z -->|"HTML-страницы закупок"| P
