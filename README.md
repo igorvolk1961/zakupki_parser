@@ -22,8 +22,13 @@
 - Файлы закупки (в т.ч. техническое задание) — в БД сохраняются только метаданные
   (имя и URL скачивания с ЭТП); парсер не скачивает файлы.
 - **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры),
-  `GET /api/procurements/{id}` (карточка), `POST /{id}/score` (внешний скоринг),
-  `POST /{id}/technical-spec` и `GET /{id}/technical-spec` (ТЗ).
+  `GET /api/procurements/{id}` (карточка), `POST /{id}/score` (возврат результата скоринга
+  из транспорта + пороговое уведомление), `POST /{id}/technical-spec` и
+  `GET /{id}/technical-spec` (ТЗ).
+- **Асинхронный внешний скоринг** (ADR-7): после сохранения закупки парсер автоматически
+  передаёт задание в `scoring_transport`, тот ставит его в Redis-очередь по дефолтному
+  скору, `scoring_service` (LLM) обрабатывает и возвращает результат через транспорт;
+  уведомление подписчиков — только при `score ≥ notify_min_score`.
 - Защита от повторной записи заявки с тем же номером.
 - Circuit Breaker и вежливая деградация при отказе БД/сайта.
 - Таймерный запуск по списку сайтов, уведомления подписчиков
@@ -42,6 +47,8 @@ src/zakupki_parser/
   storage/                     # SQLAlchemy (БД), customers
   circuit.py                   # circuit breaker
   notify.py                    # уведомления (telegram / max / webhook)
+src/scoring_service/           # LLM-сервис скоринга (Fit → Judge → Score), Redis-воркер
+src/scoring_transport/         # gateway скоринга: ingest, Redis-очередь, возврат результата
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
 docs/c4/                       # C4-диаграммы (Mermaid)
@@ -87,9 +94,6 @@ uv run zp --configs configs run-once
 # периодический запуск по таймеру (timeout_seconds из config_service.yaml)
 uv run zp --configs configs run-service
 
-# разовый запуск воркера внешнего скоринга (score_method=default -> external)
-uv run zp --configs configs score-worker
-
 # FastAPI-сервис (health, списки закупок, скачивание ТЗ, web-демо)
 uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 
@@ -116,7 +120,7 @@ uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 
 ## Остановка
 
-Остановить запущенные процессы парсера (`run-once`, `run-service`, `score-worker`,
+Остановить запущенные процессы парсера (`run-once`, `run-service`,
 `serve`) и их браузерные процессы (Playwright/Chromium):
 
 ```bash
@@ -154,9 +158,10 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
   селекторы сортировки и фильтров (блоки `sort`/`filters`) и URL-фильтр `search`
   (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
 - `config_service.yaml` — таймер, список сайтов, пороги дат, флаги, БД,
-  уведомления (telegram/max/webhook), stop-условия, circuit breaker.
-- `config_score.yaml` — скоринг: метод (default/external), fit-таблица ОКПД2,
-  адрес внешнего сервиса и способ его вызова (before_save/worker).
+  уведомления (telegram/max/webhook, порог `notify_min_score`), stop-условия, circuit breaker.
+- `config_score.yaml` — скоринг: метод (default/external), fit-таблица ОКПД2, параметры
+  конвейера внешнего скоринга (`scoring_transport` + `scoring_service` + Redis, ADR-7);
+  приоритет очереди = дефолтный score парсера.
 - `config_log.yaml` — логирование.
 
 Переменные окружения (для Docker/CI):

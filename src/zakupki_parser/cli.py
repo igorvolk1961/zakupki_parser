@@ -33,7 +33,6 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("check-config", help="Проверить конфигурацию")
     sub.add_parser("run-once", help="Один проход по всем площадкам")
     sub.add_parser("run-service", help="Периодический запуск по таймеру")
-    sub.add_parser("score-worker", help="Разовый запуск воркера внешнего скоринга")
 
     stop = sub.add_parser("stop", help="Остановить запущенные процессы парсера")
     stop.add_argument(
@@ -65,7 +64,7 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
         return 0
 
     # Авто-миграции БД (Liquibase через CLI/подпроцесс) перед работой с БД.
-    if cmd in ("run-once", "run-service", "score-worker"):
+    if cmd in ("run-once", "run-service"):
         from zakupki_parser.migrations import run_migrations
 
         run_migrations(cfg_dir, cfg.service.db)
@@ -82,13 +81,6 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
         return 0
     if cmd == "run-service":
         await scheduler.run_service()
-        return 0
-    if cmd == "score-worker":
-        await scheduler.start()
-        try:
-            await scheduler.run_scoring_worker()
-        finally:
-            await scheduler.stop()
         return 0
     return 1
 
@@ -166,10 +158,6 @@ def _print_summary(cfg: AppConfig) -> None:
     # --- Скоринг ---------------------------------------------------------
     score = cfg.score
     print("Скоринг (config_score.yaml):")
-    print(f"  Метод: {score.method}")
-    if score.method == "external":
-        print(f"  Внешний сервис: {score.external_service_url or '–'}")
-        print(f"  Режим вызова: {score.external_call_mode}")
     print(f"  P(win): {score.p_win}; default_fit: {score.default_fit}")
     n_fit = len(score.fit_table)
     print(

@@ -52,14 +52,14 @@ def _make_app() -> tuple[TestClient, _FakeQueue]:
     return TestClient(app), fake_queue
 
 
-def test_ingest_enqueues_with_stored_score() -> None:
+def test_ingest_without_priority_uses_priority_default() -> None:
     client, queue = _make_app()
     resp = client.post("/api/scoring/jobs", json={"procurement_id": 42})
     assert resp.status_code == 202
     body = resp.json()
     assert body["status"] == "enqueued"
-    assert body["priority"] == 250.0
-    assert queue.enqueued == [(42, 250.0)]
+    assert body["priority"] == 0.0
+    assert queue.enqueued == [(42, 0.0)]
 
 
 def test_ingest_explicit_priority_wins() -> None:

@@ -11,7 +11,7 @@ flowchart TB
         DET["Detail<br/>детальная страница, файлы"]
         FLT["Filters engine<br/>шаги фильтров"]
         HND["Handlers<br/>постобработка значений"]
-        SCD["Scoring<br/>default / deadline_expired / external"]
+        SCD["Scoring<br/>default / deadline_expired + push в транспорт"]
     end
 
     subgraph Store["Слой хранения"]
@@ -21,8 +21,8 @@ flowchart TB
 
     subgraph Infra["Инфраструктура"]
         CB["CircuitBreaker<br/>CLOSED / OPEN / HALF_OPEN"]
-        NOT["Notifier<br/>telegram / max / webhook бэкенды"]
-        ESC["ExternalScorer<br/>вызов микросервиса скоринга (async)"]
+        NOT["Notifier<br/>telegram / max / webhook<br/>(только при score ≥ notify_min_score)"]
+        TRC["Transport client<br/>POST /api/scoring/jobs {id, default_score}"]
     end
 
     ORC --> LST
@@ -34,7 +34,7 @@ flowchart TB
     ORC --> SCD
     ORC --> REPO
     REPO --> DB
-    ORC --> ESC
+    ORC --> TRC
     ORC --> CB
     ORC --> NOT
 ```
@@ -46,5 +46,8 @@ flowchart TB
 - **stop_conditions** обрабатываются в **Orchestrator** перед сохранением/уведомлением.
 - **Обработка файлов** (PDF/DOCX/ZIP, поиск ТЗ) вынесена во **внешний сервис** (ADR-5):
   парсер хранит метаданные, результат внешний сервис возвращает через API.
-- **ExternalScorer** вызывает микросервис скоринга после сохранения «сырой» записи;
-  подписчики уведомляются только после обновления score (ADR-3/ADR-6).
+- **Scoring**: при сохранении проставляется дефолтный score (`default`) или
+  `deadline_expired` для просроченных; затем **Transport client** автоматически отправляет
+  задание в транспорт скоринга (`POST /api/scoring/jobs` с приоритетом = дефолтным score).
+  Финальный внешний score возвращается в парсер через `POST /score` (ADR-7); подписчики
+  уведомляются только после обновления score, если он прошёл порог `notify_min_score`.

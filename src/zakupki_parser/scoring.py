@@ -1,7 +1,9 @@
-"""Скоринг закупок: внутренняя эвристика и клиент внешнего сервиса.
+"""Скоринг закупок: внутренняя эвристика (дефолтный score).
 
 Формула: Score = Fit(ОКПД2) × P(win) × Margin.
 Простейшая эвристика: Margin = НМЦК, P(win) = 1, Fit — таблица из config_score.yaml.
+Финальный внешний score приходит асинхронно через POST /api/procurements/{id}/score
+(конвейер transport + scoring_service + Redis, ADR-7).
 """
 
 from __future__ import annotations
@@ -11,15 +13,11 @@ import re
 from datetime import datetime
 from typing import Any
 
-import httpx
-
 from zakupki_parser.config.models import (
     SCORE_METHOD_DEADLINE_EXPIRED,
     SCORE_METHOD_DEFAULT,
-    SCORE_METHOD_EXTERNAL,
     ScoreConfig,
 )
-from zakupki_parser.parser.json_utils import json_safe
 
 logger = logging.getLogger(__name__)
 
@@ -56,55 +54,19 @@ def compute_default_score(record: dict[str, Any], cfg: ScoreConfig) -> float:
     return round(fit * cfg.p_win * margin, 2)
 
 
-class ExternalScoreClient:
-    """Вызывает внешний сервис скоринга (POST всех характеристик закупки)."""
-
-    def __init__(self, cfg: ScoreConfig) -> None:
-        self._url = cfg.external_service_url
-        self._timeout = cfg.external_timeout_seconds
-
-    async def score(self, record: dict[str, Any]) -> float:
-        if not self._url:
-            raise ValueError("external_service_url не задан в config_score.yaml")
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(self._url, json=json_safe(record))
-            resp.raise_for_status()
-            data = resp.json()
-        if isinstance(data, dict):
-            if "score" not in data:
-                raise ValueError(f"Внешний сервис вернул данные без 'score': {data!r}")
-            return float(data["score"])
-        return float(data)
-
-
 async def score_for_record(
     record: dict[str, Any],
     cfg: ScoreConfig,
-    external: ExternalScoreClient | None,
     now: datetime | None = None,
 ) -> tuple[float, str]:
     """Возвращает (score, score_method) для записи перед сохранением.
 
     - просроченный срок подачи заявок (deadline < now) → score=0,
       score_method=deadline_expired;
-    - method=default → внутренняя эвристика (score_method=default);
-    - method=external + before_save → вызов внешнего сервиса (external),
-      при ошибке — fallback на внутреннюю эвристику (default);
-    - method=external + worker → внутренняя эвристика как начальное значение
-      (default), финальный внешний score проставит воркер.
+    - иначе — внутренняя эвристика (score_method=default). Финальный внешний score
+      проставит конвейер скоринга через POST /score (ADR-7).
     """
     deadline = record.get("deadline")
     if isinstance(deadline, datetime) and now is not None and deadline < now:
         return 0.0, SCORE_METHOD_DEADLINE_EXPIRED
-
-    if cfg.method == SCORE_METHOD_EXTERNAL and cfg.external_call_mode == "before_save":
-        if external is None:
-            external = ExternalScoreClient(cfg)
-        try:
-            value = await external.score(record)
-            return round(value, 2), SCORE_METHOD_EXTERNAL
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Ошибка внешнего скоринга, fallback на default: %s", exc)
-            return compute_default_score(record, cfg), SCORE_METHOD_DEFAULT
-    # default, либо external+worker (начальное значение default)
     return compute_default_score(record, cfg), SCORE_METHOD_DEFAULT

@@ -3,6 +3,20 @@
 Список незавершённых работ и направлений развития.
 
 ## Ближайшие задачи
+- [ ] **Авто-пуш задания на скоринг в транспорт (ADR-7, шаг 1)** — после успешного
+      сохранения новой закупки парсер отправляет `POST /api/scoring/jobs
+      {procurement_id, priority=default_score}` в `scoring_transport`.
+- [ ] **Порог `notify_min_score` + отложенное уведомление (ADR-7, шаг 6)** — в обработчике
+      `POST /api/procurements/{id}/score` после обновления score сравнивать
+      `score ≥ notify_min_score` и уведомлять подписчиков только при прохождении порога;
+      убрать безусловное уведомление из цикла парсинга (`orchestrator.py`).
+- [x] **Выпил deprecated-путей скоринга (ADR-7)** — удалены `ExternalScoreClient`
+      (`before_save`/`worker`), `Scheduler.run_scoring_worker`, `zp score-worker`,
+      `list_for_scoring`/`set_score_method` и дублирующая fit-таблица `scoring_transport`
+      (приоритет передаётся из парсера).
+- [x] **Синхронизация документации с ADR-7** — обновлены `docs/c4/*.md`, `specification.md`,
+      `plans/plan.md`, `README.md` под канонический конвейер скоринга (транспорт + Redis +
+      сервис скоринга, авто-пуш, пороговое уведомление).
 - [ ] **`kpgz_codes`/`advance` на детальных страницах ЕИС** — дополнительные поля карточки
       закупки (обеспечение/аванс уже сделаны на ЕИС, КПГЗ и аванс — осталось).
 - [ ] **Эндпоинт чистки БД** (например, `DELETE /api/procurements` по фильтрам/возрасту
@@ -27,7 +41,7 @@
     `parser/orchestrator.py` сейчас 28% (основной цикл, `_persist`/ретраи/CB, скоринг);
   - unit-тесты `parser/filters.py` (26%) — движок DOM-шагов фильтров;
   - unit-тесты `downloader.py` (44%) — скачивание файлов;
-  - smoke-тесты entry-points с 0%: `cli.py` (`check-config`/`score-worker`/`stop`),
+  - smoke-тесты entry-points с 0%: `cli.py` (`check-config`/`stop`),
     `scheduler.py`, `browser/manager.py`, `browser/stealth.py`.
   Для замера: `ZAKUPKI_TEST_DSN=… python -m coverage run --source=zakupki_parser -m pytest`.
 - [ ] Пересоздание `uv.lock`.
@@ -38,11 +52,9 @@
   - детальные поля `common-info.html` по типам извещений (ezt20/ea20/zk20/ok504…);
   - `kpgz_codes`/`advance` на детальных страницах;
   - устойчивость: таймаут детальной страницы не должен прерывать всю площадку.
-- [ ] **Имитатор микросервиса скоринга** (mock-сервис: по записи закупки возвращает
-      score/score_method) и асинхронная доставка задач на скоринг через очередь-«outbox»
-      на базе PostgreSQL (таблица `scoring_jobs`, потребление воркером `score-worker`).
-      Этап 2 — брокер сообщений (RabbitMQ / Kafka / NATS) при появлении нескольких
-      потребителей. Сейчас внешний скоринг — прямой HTTP POST (`before_save`/`worker`).
+- [ ] **Блокирующее потребление задач** — заменить поллинг `ZPOPMAX` в `scoring_service`
+      на `BZPOPMAX` (Redis 6.2+) для мгновенного «пробуждения» при появлении задания
+      (ADR-7). Подробности выбранного решения — в `docs/adr.md` (ADR-7).
 - [ ] Добавить коммерческие ЭТП (Роселторг, B2B-Center и др.) — записи в `config_dom.yaml`
       + список сайтов в `config_service.yaml`.
 - [ ] Ротация прокси и пул IP в `config_parser.yaml` (при появлении инфраструктуры).

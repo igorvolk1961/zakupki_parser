@@ -1,6 +1,6 @@
 """Остановка запущенных процессов парсера.
 
-Ищет процессы команд ``run-once`` / ``run-service`` / ``score-worker`` / ``serve``
+Ищет процессы команд ``run-once`` / ``run-service`` / ``serve``
 по командной строке, останавливает их мягко (SIGINT — корректное закрытие браузера),
 при необходимости доводя SIGTERM/SIGKILL. Также добивает осиротевшие
 Playwright-драйвер и headless-Chromium, запущенные парсером.
@@ -17,10 +17,10 @@ import time
 # Раздельные паттерны (pgrep не поддерживает (?:...); подкоманда идёт ПОСЛЕ
 # возможных опций, напр. "bin/zp --configs configs serve").
 _RUN_PATTERNS = [
-    r"cli\.py (run-once|run-service|score-worker|serve)",
-    r"zakupki_parser\.cli (run-once|run-service|score-worker|serve)",
-    r"bin/zp .*(run-once|run-service|score-worker|serve)",
-    r"bin/zakupki-parser .*(run-once|run-service|score-worker|serve)",
+    r"cli\.py (run-once|run-service|serve)",
+    r"zakupki_parser\.cli (run-once|run-service|serve)",
+    r"bin/zp .*(run-once|run-service|serve)",
+    r"bin/zakupki-parser .*(run-once|run-service|serve)",
 ]
 
 # Осиротевшие браузерные дочерние процессы (если основной процесс уже умер).

@@ -14,7 +14,7 @@
 - [x] `config_parser.yaml` — браузер и антиблок (UA, viewport, задержки, stealth, `ignore_https_errors`)
 - [x] `config_dom.yaml` — селекторы, переменные, сортировка, фильтры (ADR-1)
 - [x] `config_service.yaml` — таймер, сайты, пороги, флаги, БД, webhook, stop-условия
-- [x] `config_score.yaml` — скоринг (method, fit_table, external_service_url, external_call_mode)
+- [x] `config_score.yaml` — скоринг (fit_table, default_fit, p_win; дефолтный score в парсере)
 - [x] `config_log.yaml` — логирование (файл, `truncate_on_start`)
 
 ## 3. Браузер и антиблок
@@ -33,13 +33,13 @@
 - [x] Детальные страницы в отдельной вкладке (список не теряется)
 - [x] Стоп-порог по календарному дню (`is_older_than_cutoff`), порог из БД (`MAX(update_date)`)
 - [x] Метаданный режим файлов: имена+URL с ЭТП (ТЗ — 2 поля, остальные — `files_json`)
-- [x] Скоринг: default/external/worker/calculating/deadline_expired
-- [ ] ⬜ Имитатор микросервиса скоринга (mock: возвращает score по записи) и асинхронная
-      доставка задач на скоринг. Этап 1 — очередь-«outbox» на базе PostgreSQL
-      (таблица `scoring_jobs`, потребление воркером `score-worker`); этап 2 — при
-      необходимости брокер сообщений (RabbitMQ / Kafka / NATS). Сейчас внешний скоринг —
-      прямой HTTP POST (`before_save`/`worker`, `ExternalScoreClient`); способ доставки
-      (синхронный вызов или очередь) — открыт по ADR-3.
+- [x] Скоринг: default/deadline_expired (внешний — через конвейер, ADR-7)
+- [x] Конвейер внешнего скоринга (ADR-7): `scoring_transport` + `scoring_service` + Redis
+      (очередь по дефолтному score, возврат результата через `POST /score`)
+- [x] Выпил deprecated-путей (`ExternalScoreClient` `before_save`/`worker`,
+      `run_scoring_worker`) и дублирующей fit-таблицы транспорта (ADR-7)
+- [ ] ⬜ Авто-пуш задания в транспорт после сохранения закупки (шаг 1 ADR-7)
+- [ ] ⬜ Пороговое уведомление `notify_min_score` + отложенная отправка в `POST /score` (шаг 6 ADR-7)
 
 ## 5. Файлы (метаданные, без скачивания)
 - [x] Парсер НЕ скачивает файлы: в БД сохраняются имя и URL скачивания с ЭТП
@@ -86,7 +86,8 @@
 - [x] `GET /health`
 - [x] `GET /api/procurements` (фильтры + пагинация), `GET /api/procurements/{id}`
 - [x] `GET /api/procurements/{id}/technical-spec` (скачивание ТЗ)
-- [x] `POST /api/procurements/{id}/score` (внешний сервис обновляет score)
+- [x] `POST /api/procurements/{id}/score` (возврат результата из транспорта; обновляет score
+      и при `score ≥ notify_min_score` отправляет уведомление — ADR-7)
 - [ ] ⬜ TODO: эндпойнт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту записи) —
       при удалении записей удалять и связанные файлы из хранилища (S3/local), ссылки на которые
       хранятся в `technical_spec_url` и `files_json`
@@ -94,6 +95,7 @@
 ## 11. Уведомления
 - [x] Бэкенды Telegram / MAX / webhook (реальный HTTP POST, `notify.py`)
 - [x] `insecure_tls` для MAX-уведомлений, токены из env (`ZAKUPKI_TELEGRAM_TOKEN`, `ZAKUPKI_MAX_TOKEN`)
+- [ ] 🟡 Порог `notify_min_score` (уведомление только при `score ≥ notify_min_score`, отложено до `POST /score`)
 
 ## 12. Тесты и CI
 - [x] Unit: обработчики, конфиг, circuit breaker, дата последней обработки, stop-условия, ОКПД2, скоринг, retry
@@ -113,7 +115,7 @@
 - [x] `specification.md`
 - [x] `TODO.md`
 - [x] C4-диаграммы (context/container/component, db-schema, sequence) — Mermaid flowchart
-- [x] `docs/adr.md` (ADR-1…4)
+- [x] `docs/adr.md` (ADR-1…7, включая ADR-7 — конвейер скоринга через транспорт)
 - [x] `docs/codes/okpd2_tree.json` (маппинг ОКПД2 mos.ru)
 
 ## 15. Code Review и оптимизация кода
@@ -126,7 +128,8 @@
 - [ ] ⬜ Устранение дублирования кода между площадками (общие хелперы селекторов/дат).
 
 ## Текущий фокус
+- Доработка конвейера скоринга по ADR-7: авто-пуш задания в транспорт после сохранения,
+  порог `notify_min_score` + отложенное уведомление в `POST /score`.
 - ЕИС: `kpgz_codes`/`advance` на детальных страницах, детальные поля по типам извещений
   (ezt20/zk20/ok504).
-- Имитатор микросервиса скоринга (mock) и очередь-«outbox» на PostgreSQL (ADR-3).
 - Эндпоинт чистки БД (`DELETE /api/procurements`) с удалением файлов из хранилища.

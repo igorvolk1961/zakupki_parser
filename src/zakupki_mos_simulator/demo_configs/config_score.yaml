@@ -1,24 +1,9 @@
 # Конфигурация скоринга закупок.
 # Скоринг карточки: Fit × P(win) × Margin.
-
-# Режим расчёта score:
-#   default  — внутренняя эвристика в парсере (Fit из таблицы ниже, P(win), Margin=НМЦК);
-#   external — расчёт внешним сервисом (на вход передаются все характеристики закупки).
-# Демо: external + before_save, внешний сервис — стаб-эндпоинт имитатора /mock/score.
-method: "external"
-
-# Адрес внешнего сервиса скоринга (для method: external)
-external_service_url: "http://localhost:8010/mock/score"
-external_timeout_seconds: 30
-
-# Способ вызова внешнего сервиса (для method: external):
-#   before_save — перед записью закупки в БД;
-#   worker — отдельным воркером: пробегает по записям со score_method=default,
-#            ставит score_method=calculating (чтобы не вызывать повторно),
-#            вызывает внешний сервис и обновляет score.
-# Демо: before_save — чтобы одиночная команда run-once уже применила внешний
-# скоринг (воркер запускается только отдельной командой score-worker).
-external_call_mode: "before_save"
+#
+# Дефолтный score вычисляется в парсере (fit-таблица ниже, P(win), Margin=НМЦК).
+# Финальный внешний score приходит асинхронно через конвейер
+# transport + scoring_service + Redis (ADR-7) и записывается через POST /score.
 
 # Таблица fit(ОКПД2) — коэффициент соответствия закупки тематике (0..1).
 # Ключ — код ОКПД2 (любой вложенности); при отсутствии кода — default_fit.

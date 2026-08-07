@@ -37,7 +37,7 @@ from zakupki_parser.parser.lister import (
 )
 from zakupki_parser.parser.organization import capture_customer_link, resolve_inn
 from zakupki_parser.retry import run_with_retry
-from zakupki_parser.scoring import ExternalScoreClient, score_for_record
+from zakupki_parser.scoring import score_for_record
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -73,11 +73,6 @@ class Orchestrator:
         self._now = now or datetime.now(UTC)
         # Колбэк при сохранении закупки (живые обновления в web-демо).
         self._on_record_saved = on_record_saved
-        self._external_scorer: ExternalScoreClient | None = (
-            ExternalScoreClient(cfg.score)
-            if cfg.score.method == "external" and cfg.score.external_call_mode == "before_save"
-            else None
-        )
         # Кеш ИНН по ссылке на организацию: страницу организации грузим не чаще раза за проход.
         self._inn_cache: dict[str, str | None] = {}
 
@@ -297,10 +292,9 @@ class Orchestrator:
 
         # 6) скоринг закупки (Score = Fit × P(win) × Margin).
         #    Просроченный срок подачи заявок -> score=0, score_method=deadline_expired.
+        #    Финальный внешний score проставит конвейер скоринга через POST /score (ADR-7).
         if "score" not in record:
-            score, method = await score_for_record(
-                record, self._cfg.score, self._external_scorer, self._now
-            )
+            score, method = await score_for_record(record, self._cfg.score, self._now)
             record["score"] = score
             record["score_method"] = method
 

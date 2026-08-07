@@ -1,15 +1,12 @@
 """FastAPI-приложение имитатора zakupki.mos.ru.
 
 Обрабатывает страницы, которые посещает «Парсер закупок» (Playwright), и отдаёт
-HTML в DOM-структуре, заданной в demo-конфиге. Также содержит стаб ``/mock/score``
-для сквозной демонстрации внешнего скоринга.
+HTML в DOM-структуре, заданной в demo-конфиге.
 """
 
 from __future__ import annotations
 
 import logging
-import random
-from typing import Any
 
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, PlainTextResponse, Response
@@ -80,15 +77,6 @@ class SimulatorApp:
                 media_type="application/octet-stream",
                 headers={"Content-Disposition": f'attachment; filename="file_{id}.bin"'},
             )
-
-        @app.post("/mock/score")
-        async def mock_score(payload: dict[str, Any]) -> dict[str, Any]:
-            # Простая эвристика для сквозной демо: масштабируем НМЦК (0..1).
-            nmck = float(payload.get("nmck") or 0)
-            score = max(0.0, min(1.0, nmck / 5_000_000.0))
-            # Небольшой детерминированный «шум», чтобы скор отличался от эталона.
-            noise = random.uniform(-0.05, 0.05)
-            return {"score": round(score + noise, 4), "score_method": "external"}
 
         @app.get("/health", response_class=HTMLResponse)
         async def health() -> str:

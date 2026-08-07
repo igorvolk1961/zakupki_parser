@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field
 from scoring_transport.broker.redis_queue import TransportQueue
 from scoring_transport.consumers.results import ResultsConsumer
 from scoring_transport.parser_api import ParserApiClient
-from scoring_transport.scorer import priority_for
 from scoring_transport.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -90,14 +89,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     async def create_job(body: ScoringJobRequest) -> ScoringJobOut:
         try:
-            card = await parser.get_procurement(body.procurement_id)
+            # Проверяем, что закупка существует в парсере (приоритет передаётся
+            # из парсера в авто-пуше, ADR-7; здесь — fallback на priority_default).
+            await parser.get_procurement(body.procurement_id)
         except Exception as exc:  # noqa: BLE001
             logger.error("Не удалось получить карточку %s: %s", body.procurement_id, exc)
             raise HTTPException(
                 status_code=502, detail="Парсер недоступен или закупка не найдена"
             ) from exc
 
-        priority = body.priority if body.priority is not None else priority_for(card, settings)
+        priority = body.priority if body.priority is not None else settings.priority_default
         await queue.enqueue(body.procurement_id, priority)
         logger.info(
             "Задача на скоринг закупки %s поставлена (priority=%.2f)",

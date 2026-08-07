@@ -80,10 +80,8 @@ PYTHONPATH=src uv run python -m zakupki_mos_simulator serve --port 8010
 uv run zakupki-parser --configs src/zakupki_mos_simulator/demo_configs run-once
 ```
 
-Демо-конфиг `config_score.yaml` настроен на внешний скоринг (`method: external`,
-`external_call_mode: before_save`, `external_service_url: http://localhost:8010/mock/score`),
-поэтому одиночная команда `run-once` уже присваивает каждой закупке внешний скор
-(стаб возвращает значение в диапазоне 0..1). `config_dom.yaml` — на
+Демо-конфиг `config_score.yaml` вычисляет дефолтный score в парсере (ADR-7: внешний
+скоринг идёт через конвейер transport + scoring_service). `config_dom.yaml` — на
 `http://localhost:8010`; обрабатывается только площадка-имитатор `zakupki_mos`,
 уведомления отключены.
 
@@ -114,6 +112,7 @@ PYTHONPATH=src uv run pytest src/zakupki_mos_simulator/tests
 ## Замечания
 
 - Имитатор слушает `127.0.0.1:8010` (не пересекается с API парсера на `:8000`).
-- `POST /mock/score` — стаб для сквозной демонстрации; реальный сервис скоринга —
-  отдельный проект, имитатор поставляет только тестовую выборку с метками.
+- Имитатор **только** выдаёт HTML, понятный парсеру, и поставляет тестовую выборку
+  с метками категорий. Скоринг — отдельный проект; никаких эндпоинтов скоринга
+  в имитаторе нет.
 - Все файлы — строго в этой папке; общие конфиги и код других агентов не меняются.

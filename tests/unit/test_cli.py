@@ -34,7 +34,8 @@ def test_check_config_summary(app_config: AppConfig) -> None:
     assert f"Порог дат (дней): {app_config.service.default_cutoff_days}" in out
 
     # Скоринг.
-    assert f"Метод: {app_config.score.method}" in out
+    assert "P(win):" in out
+    assert "fit-таблица" in out
 
     # Парсер.
     assert "Задержки между действиями" in out

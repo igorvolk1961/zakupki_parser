@@ -1,7 +1,8 @@
-# Диаграмма последовательности — алгоритм парсинга
+# Диаграмма последовательности — алгоритм парсинга и скоринга
 
 Последовательность действий парсера для одной площадки (Mermaid sequenceDiagram).
-Соответствует `../../src/zakupki_parser/parser/orchestrator.py`.
+Соответствует `../../src/zakupki_parser/parser/orchestrator.py` и конвейеру скоринга
+(ADR-7: `scoring_transport` + `scoring_service` + Redis).
 
 ```mermaid
 sequenceDiagram
@@ -13,7 +14,9 @@ sequenceDiagram
     participant E as Extractor
     participant D as Detail
     participant R as ProcurementRepository
-    participant SC as ExternalScorer
+    participant TR as Scoring Transport
+    participant RS as Redis
+    participant SG as Scoring Service
     participant N as Notifier
 
     S->>B: start() (stealth, задержки)
@@ -43,10 +46,21 @@ sequenceDiagram
             S->>S: score (default / deadline_expired)
             S->>R: upsert(record) (контроль дубликатов)
             alt новая запись
-                S->>SC: score(record) (асинхронно)
-                SC-->>S: score
-                S->>R: update score
-                S->>N: notify(record) (после score)
+                S->>TR: POST /api/scoring/jobs {id, default_score}
+                TR->>RS: ZADD scoring:jobs (по приоритету)
+                Note over SG: (асинхронно)
+                SG->>RS: ZPOPMAX scoring:jobs
+                SG->>S: GET /api/procurements/{id}
+                S-->>SG: карточка (вкл. detail_json)
+                SG->>SG: LLM-пайплайн (Fit → Judge → P(win)×Margin)
+                SG->>RS: LPUSH scoring:results {id, score}
+                TR->>RS: BRPOP scoring:results
+                TR->>S: POST /api/procurements/{id}/score
+                S->>R: update_score (score_method=external)
+                S->>S: score ≥ notify_min_score?
+                alt score ≥ notify_min_score
+                    S->>N: notify(record) (после score)
+                end
             end
         end
         S->>L: goto_next_page()
@@ -66,8 +80,12 @@ sequenceDiagram
 - **Файлы**: в основном режиме не скачиваются — сохраняются только метаданные
   (`files_json`, `technical_spec_name/url`). Глубокую обработку (PDF/DOCX/ZIP, поиск ТЗ)
   выполняет **внешний сервис** (ADR-5).
-- **Скоринг**: перед записью ставится `default` (или `deadline_expired` для просроченных);
-  микросервис скоринга вызывается асинхронно после сохранения, уведомление подписчиков
-  происходит только после обновления score (ADR-3/ADR-6).
+- **Скоринг (ADR-7)**: при сохранении ставится `default` (или `deadline_expired` для
+  просроченных). Для новой записи парсер **автоматически** отправляет задание в транспорт
+  (`POST /api/scoring/jobs` с приоритетом = дефолтным score); транспорт ставит его в
+  Redis-очередь по приоритету, **Scoring Service** обрабатывает его и публикует результат,
+  а транспорт возвращает его в парсер (`POST /score`). **Уведомление подписчиков
+  выполняется вне цикла парсинга** — в обработчике `POST /score`, после обновления
+  финального score и только если `score ≥ notify_min_score` (порог из конфига).
 - **upsert** гарантирует отсутствие повторной записи заявки с тем же номером
   (unique-констрейнт + проверка перед вставкой).

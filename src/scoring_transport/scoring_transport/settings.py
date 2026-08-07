@@ -22,18 +22,8 @@ class Settings(BaseSettings):
     # Парсер закупок (REST)
     parser_api_url: str = "http://localhost:8000"
 
-    # Приоритет по умолчанию, если score карточки не определён
+    # Приоритет по умолчанию, если в задаче не передан (обычно приходит из парсера)
     priority_default: float = 0.0
-
-    # Fit-таблица (зеркало config_score.yaml) для пересчёта приоритета
-    fit_table: dict[str, float] = {
-        "62.01": 0.9,
-        "62.02": 0.8,
-        "62.09": 0.7,
-        "63.11": 0.6,
-    }
-    default_fit: float = 0.5
-    p_win: float = 1.0
 
     # Ретраи возврата результата в парсер
     retry_max: int = 5

@@ -74,14 +74,21 @@ Content-Type: application/json
 
 ## 4. Скоринг (внешний сервис)
 
-### 4.1 Вызов внешнего сервиса парсером
-- `method: external` + `external_call_mode: before_save` — парсер передаёт
-  все характеристики закупки (`POST external_service_url`) перед записью в БД;
-- `external_call_mode: worker` — парсер запускает воркер по записям со
-  `score_method=default`, ставит `calculating`, вызывает внешний сервис и обновляет score.
-- Ожидаемый ответ: `{"score": <float>}` или число.
+### 4.1 Постановка задачи на скоринг (конвейер, ADR-7)
+Внешний скоринг выполняется асинхронным конвейером `scoring_transport` + `scoring_service`
++ Redis:
+1. Парсер после сохранения новой закупки передаёт задание в **транспорт**:
+   `POST /api/scoring/jobs {procurement_id, priority=default_score}`.
+2. Транспорт ставит задание в Redis-очередь по приоритету; `scoring_service` обрабатывает
+   его и публикует результат; транспорт возвращает его в парсер через `POST /score`
+   (см. п. 4.2).
 
-### 4.2 Возврат score по инициативе внешнего сервиса
+> Прежние способы прямого вызова внешнего сервиса парсером (`external_call_mode:
+> before_save` — `POST external_service_url` перед записью; `external_call_mode: worker` —
+> воркер по записям со `score_method=default` с пометкой `calculating`) удалены (ADR-7) —
+> внешний скоринг идёт только через конвейер транспорт + сервис скоринга.
+
+### 4.2 Возврат score (через транспорт)
 ```
 POST /api/procurements/{id}/score
 Content-Type: application/json

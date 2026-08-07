@@ -19,7 +19,7 @@ def test_matches_zp_with_options() -> None:
 def test_matches_zp_no_options() -> None:
     assert _any_match(".venv/bin/zp run-once")
     assert _any_match(".venv/bin/zp run-service")
-    assert _any_match(".venv/bin/zp score-worker")
+    assert not _any_match(".venv/bin/zp score-worker")
 
 
 def test_matches_alias_zakupki_parser() -> None:

@@ -95,11 +95,3 @@ def test_detail_page_structure(client: TestClient) -> None:
 def test_org_page_inn(client: TestClient) -> None:
     html = client.get("/companyProfile/customer/900001").text
     assert _class_exists(html, "inn-value")
-
-
-def test_mock_score_endpoint(client: TestClient) -> None:
-    resp = client.post("/mock/score", json={"nmck": 1_000_000})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert "score" in body
-    assert body["score_method"] == "external"

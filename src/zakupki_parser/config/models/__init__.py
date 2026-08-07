@@ -35,7 +35,6 @@ from zakupki_parser.config.models.parser import (
     RetryConfig,
 )
 from zakupki_parser.config.models.score import (
-    SCORE_METHOD_CALCULATING,
     SCORE_METHOD_DEADLINE_EXPIRED,
     SCORE_METHOD_DEFAULT,
     SCORE_METHOD_EXTERNAL,
@@ -73,7 +72,6 @@ __all__ = [
     "PurchaseFilter",
     "RequestLimits",
     "RetryConfig",
-    "SCORE_METHOD_CALCULATING",
     "SCORE_METHOD_DEADLINE_EXPIRED",
     "SCORE_METHOD_DEFAULT",
     "SCORE_METHOD_EXTERNAL",

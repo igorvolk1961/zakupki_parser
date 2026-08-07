@@ -23,9 +23,6 @@ def _logging_setup() -> None:
     )
 
 
-logger = logging.getLogger(__name__)
-
-
 def _cmd_serve(settings: Settings, host: str, port: int) -> int:
     import uvicorn
 
@@ -44,21 +41,11 @@ async def _cmd_consumer(settings: Settings) -> int:
 
 async def _cmd_enqueue(settings: Settings, procurement_id: int, priority: float | None) -> int:
     from scoring_transport.broker.redis_queue import TransportQueue
-    from scoring_transport.parser_api import ParserApiClient
-    from scoring_transport.scorer import priority_for
 
+    # Приоритет передаётся явно (из парсера, авто-пуш, ADR-7);
+    # если не задан — берём priority_default из настроек.
     if priority is None:
-        # Приоритет по умолчанию — дефолтный score карточки (как в REST-ingest).
-        try:
-            card = await ParserApiClient(settings.parser_api_url).get_procurement(procurement_id)
-            priority = priority_for(card, settings)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Не удалось получить карточку %s, использую priority_default: %s",
-                procurement_id,
-                exc,
-            )
-            priority = settings.priority_default
+        priority = settings.priority_default
 
     queue = TransportQueue(settings)
     await queue.connect()

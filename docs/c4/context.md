@@ -13,7 +13,9 @@ flowchart LR
 
     Z[Платформы закупок<br/>zakupki.mos.ru, ЕИС, ЭТП]
     FS[Внешний сервис<br/>обработки файлов<br/>(ADR-5)]
-    SS[Микросервис скоринга<br/>(ADR-3 / ADR-6)]
+    TR[Scoring Transport<br/>gateway скоринга]
+    RS[(Redis<br/>очередь заданий и результатов)]
+    SG[Scoring Service<br/>LLM-скоринг закупок]
     TG[Telegram]
     MX[MAX]
     WH[Webhook]
@@ -21,10 +23,13 @@ flowchart LR
     U -->|"YAML-конфигурация"| P
     Z -->|"HTML-страницы закупок"| P
     P -->|"метаданные файлов / ТЗ"| FS
-    P -->|"асинхронный скоринг"| SS
-    P -->|"POST JSON-уведомления"| TG
-    P -->|"POST JSON-уведомления"| MX
-    P -->|"POST JSON-уведомления"| WH
+    P -->|"POST /api/scoring/jobs<br/>{id, default_score}"| TR
+    TR -->|"ZADD jobs / BRPOP results"| RS
+    RS -->|"ZPOPMAX jobs / LPUSH results"| SG
+    TR -->|"POST /score (возврат результата)"| P
+    P -->|"POST JSON-уведомления (score ≥ notify_min_score)"| TG
+    P -->|"POST JSON-уведомления (score ≥ notify_min_score)"| MX
+    P -->|"POST JSON-уведомления (score ≥ notify_min_score)"| WH
     TG --> S
     MX --> S
     WH --> S
@@ -32,7 +37,11 @@ flowchart LR
 
 ## Легенда
 - **Оператор/аналитик** и **подписчик** — внешние роли.
-- **Платформы закупок**, **внешний сервис обработки файлов**, **микросервис скоринга**
-  и каналы **Telegram / MAX / Webhook** — внешние системы.
+- **Платформы закупок**, **внешний сервис обработки файлов**, **Scoring Transport**,
+  **Redis**, **Scoring Service** и каналы **Telegram / MAX / Webhook** — внешние системы.
 - **zakupki-parser** — внутренняя система. Парсер не скачивает файлы: только метаданные
   (имя/URL) в БД; глубокая обработка файлов — внешним сервисом (ADR-5).
+- **Скоринг** выполняется конвейером `Scoring Transport` → `Redis` → `Scoring Service`
+  (ADR-7): парсер после сохранения автоматически передаёт задание в транспорт, а
+  уведомление подписчиков отправляется только после возврата финального скора, если
+  `score ≥ notify_min_score`.

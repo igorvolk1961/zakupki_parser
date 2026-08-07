@@ -199,29 +199,6 @@ class ProcurementRepository:
         ).scalar_one()
         return cust.id
 
-    async def list_for_scoring(
-        self, method: str, *, limit: int = 50, offset: int = 0
-    ) -> list[Procurement]:
-        """Записи, ожидающие внешнего скоринга (score_method == method)."""
-        stmt = (
-            select(Procurement)
-            .where(Procurement.score_method == method)
-            .options(selectinload(Procurement.customer_rel))
-            .order_by(Procurement.id.asc())
-            .limit(limit)
-            .offset(offset)
-        )
-        async with self._db.session() as session:
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
-
-    async def set_score_method(self, procurement_id: int, method: str) -> None:
-        async with self._db.session() as session:
-            obj = await session.get(Procurement, procurement_id)
-            if obj is not None:
-                obj.score_method = method
-                await session.commit()
-
     async def update_score(self, procurement_id: int, score: float, method: str) -> None:
         async with self._db.session() as session:
             obj = await session.get(Procurement, procurement_id)

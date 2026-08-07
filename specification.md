@@ -14,8 +14,8 @@
 |----------------------|---------------------------------------------------------------------|
 | `config_parser.yaml` | Параметры браузера и антиблок-мер (задержки, UA, stealth, лимиты).   |
 | `config_dom.yaml`    | URL площадки, имена переменных, селекторы контейнеров и значений, а также селекторы сортировки и фильтров (блоки `sort`/`filters`). |
-| `config_service.yaml`| Таймер, список сайтов, пороги дат, флаги, БД, уведомления (telegram/max/webhook), stop-условия. |
-| `config_score.yaml`  | Скоринг: метод (default/external), fit-таблица ОКПД2, адрес внешнего сервиса и способ вызова (before_save/worker). |
+| `config_service.yaml`| Таймер, список сайтов, пороги дат, флаги, БД, уведомления (telegram/max/webhook, порог `notify_min_score`), stop-условия. |
+| `config_score.yaml`  | Скоринг: fit-таблица ОКПД2, `default_fit`, `p_win` (дефолтный score вычисляется в парсере; внешний score приходит через конвейер transport + scoring_service, ADR-7). |
 | `config_log.yaml`    | Конфигурация логирования.                                           |
 
 Все параметры загружаются и валидируются через pydantic-модели
@@ -89,9 +89,15 @@
       `docs/external-service-contract.md`); найденное ТЗ внешний сервис возвращает
       через `POST /api/procurements/{id}/technical-spec`;
    8. запись в БД (если доступна) с контролем дубликатов;
-   9. уведомление подписчиков (Telegram / MAX / webhook) для новых записей;
+   9. для новой записи — **автоматическая отправка задания на скоринг в транспорт**
+      (`POST /api/scoring/jobs {procurement_id, priority=default_score}`), задание
+      ставится в Redis-очередь по приоритету (ADR-7);
    10. обновление даты последней обработки;
    11. возврат к списку записей.
+
+   > **Уведомление подписчиков** при внешнем скоринге выполняется **не в цикле парсинга**,
+   > а в обработчике `POST /api/procurements/{id}/score` после возврата финального внешнего
+   > скора, и только если `score ≥ notify_min_score` (см. §8а и §11а).
 
 ## 4. Условия прекращения обработки заявки (`stop_conditions`)
 Набор флагов-условий в `config_service.yaml`. Каждый флаг — условие, при котором
@@ -156,16 +162,32 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `method: default` — внутренний расчёт в парсере (`score_method=default`);
 - **Просроченный срок подачи заявок** (`deadline < now`) → `score = 0`,
   `score_method = deadline_expired`;
-- `method: external` — расчёт внешним сервисом (на вход — все характеристики
-  закупки, `external_service_url`); способ вызова `external_call_mode`:
-  - `before_save` — вызов перед записью закупки в БД (при ошибке — fallback на default);
-  - `worker` — отдельный воркер (`score-worker`/шаг цикла): пробегает по записям
-    со `score_method=default`, ставит `score_method=calculating` (чтобы не вызывать
-    внешний сервис повторно), вызывает сервис и обновляет `score`;
-  - также внешний сервис может сам обновить `score` через
-    `POST /api/procurements/{id}/score`.
 - `fit_table` — коэффициент соответствия по ОКПД2 (подбор по ближайшему предку,
   если точного кода нет); `default_fit` — для неизвестных кодов.
+
+### 8а.1 Канонический конвейер внешнего скоринга (ADR-7)
+Внешний скоринг выполняется асинхронным конвейером **`scoring_transport` (gateway) +
+`scoring_service` (LLM-скоринг) + Redis**:
+1. Парсер сохраняет «сырую» запись с дефолтным скором (`score_method=default`), затем
+   **автоматически** передаёт задание в транспорт: `POST /api/scoring/jobs
+   {procurement_id, priority=default_score}`.
+2. Транспорт ставит задание в Redis ZSET `scoring:jobs` (`member = proc:{id}`, `score =
+   priority`). **Приоритет приходит из парсера** (дефолтный score) — транспорт не
+   пересчитывает эвристику по собственной fit-таблице (единственный источник — `config_score.yaml`).
+3. `scoring_service` берёт задание **напрямую из Redis** (`ZPOPMAX`, сначала самая «ценная»
+   закупка), получает карточку через REST парсера (`GET /api/procurements/{id}`), прогоняет
+   LLM-пайплайн и публикует результат в `scoring:results` (`LPUSH`). Надёжность — TTL-аренда
+   `scoring:processing` + `recover_stale`; идемпотентность — перезапись через `POST /score`.
+4. Транспорт (`BRPOP`) получает результат и возвращает его в парсер:
+   `POST /api/procurements/{id}/score {score, score_method:"external"}` (с ретраями/backoff).
+   Транспорт — единственная граница между конвейером и парсером.
+5. Парсер обновляет `score` в БД, затем в обработчике `POST /score` сравнивает
+   `score ≥ notify_min_score` и **уведомляет подписчиков только при прохождении порога**.
+
+> Прежние «прямые» пути внешнего скоринга (`external_call_mode: before_save|worker`,
+> `ExternalScoreClient`, `Scheduler.run_scoring_worker`) удалены (ADR-7). Приоритет в
+> очереди передаётся из парсера (дефолтный score) — транспорт не пересчитывает эвристику
+> по собственной fit-таблице (единственный источник — `config_score.yaml`).
 
 В дефолтной формуле компонента `P(win)` в будущем будет браться из рейтинга заказчика
 в таблице `customers` (ADR-4/ADR-6, заполняется через `POST /api/customers/{id}/rating`).
@@ -179,8 +201,6 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `zp check-config` — проверка конфигов;
 - `zp run-once` — один проход;
 - `zp run-service` — периодический запуск;
-- `zp score-worker` — разовый запуск воркера внешнего скоринга
-  (перебирает записи со `score_method=default`);
 - `zp stop [--force]` — остановка запущенных процессов парсера;
 - `zp capture-fixture` — сохранение HTML-фикстур для тестов;
 - `zp serve [--host H] [--port P]` — запуск FastAPI-сервиса.
@@ -192,11 +212,18 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `GET /api/procurements` — список с фильтрами (`number`, `source_platform`,
   `okpd2`, `customer`) и пагинацией (`limit`, `offset`);
 - `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
-- `POST /api/procurements/{id}/score` — внешний сервис обновляет `score` закупки;
+- `POST /api/procurements/{id}/score` — возврат результата скоринга от транспорта:
+  парсер обновляет `score` закупки и, если `score ≥ notify_min_score`, отправляет
+  уведомление подписчикам (ADR-7);
 - `POST /api/procurements/{id}/technical-spec` — внешний сервис возвращает найденное
   ТЗ (ADR-5), парсер записывает его в `technical_spec_name/url`;
 - `GET /api/procurements/{id}/technical-spec` — скачивание файла ТЗ из хранилища
   (по `technical_spec_key`).
+
+**Конвейер скоринга (ADR-7)** дополнительно использует API транспорта:
+- `POST /api/scoring/jobs {procurement_id, priority?}` — приём задания на скоринг
+  (вызывается парсером после сохранения новой закупки); транспорт ставит его в
+  Redis-очередь по приоритету (если `priority` не задан — берётся дефолтный score карточки).
 
 TODO: эндпоинт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту
 записи) с удалением связанных файлов из хранилища (ссылки в `technical_spec_url`
@@ -214,7 +241,9 @@ TODO: эндпоинт чистки БД (например, `DELETE /api/procure
   Bearer-заголовок).
 
 Уведомление отправляется только для новых записей и только после обновления
-`score` в БД (ADR-3). Ошибки отправки логируются и не прерывают проход парсера.
+`score` в БД (ADR-3/ADR-7), если `score ≥ notify_min_score` (порог из
+`config_service.yaml -> notifications`). Ошибки отправки логируются и не прерывают
+проход парсера.
 
 ## 12. Тестирование
 - Unit: обработчики значений, конфиг, circuit breaker, дата последней обработки, stop-условия,
