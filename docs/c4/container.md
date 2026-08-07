@@ -6,7 +6,7 @@
 flowchart LR
     classDef actor fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
 
-    U["Оператор<br/>команды / конфиг"]
+    U["👤 Оператор<br/>команды / конфиг"]
     P["Парсер закупок<br/>Python, asyncio, Playwright (Chromium)<br/>CLI/Scheduler + FastAPI + SQLAlchemy async"]
 
     Z["Платформы закупок<br/>HTML через браузер"]
@@ -14,7 +14,7 @@ flowchart LR
     TR["Scoring Transport<br/>gateway скоринга (ingest + возврат)"]
     RS[("Redis<br/>scoring:jobs / scoring:results")]
     SG["Scoring Service<br/>LLM-скоринг закупок"]
-    SUB["Подписчики<br/>Telegram / MAX / Webhook"]
+    SUB["👤 Подписчики<br/>Telegram / MAX / Webhook"]
 
     U --> P
     P -->|"HTML-страницы"| Z
@@ -29,9 +29,9 @@ flowchart LR
 ```
 
 ## Замечания
-- **Акторы** (оператор, подписчики) выделены цветом заливки/рамки. Mermaid
-  `flowchart` не рисует «человечков», поэтому люди отличаются **стилем**, а не фигурой
-  (в строгом C4 акторы — стикмены; здесь — голубая заливка).
+- **Акторы** (оператор, подписчики) помечены символом «человечка» 👤 и выделены
+  голубой заливкой. Mermaid `flowchart` не рисует стикменов, поэтому люди обозначены
+  значком 👤 (в строгом C4 акторы — стикмены).
 - **Парсер закупок** — единый контейнер (CLI/Scheduler, FastAPI, парсер-движок
   Playwright, слой хранения SQLAlchemy async, Notifier). Пишет в PostgreSQL с контролем
   дубликатов по `number + source_platform`. Парсер не скачивает файлы — в БД хранятся
