@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from zakupki_parser.config.loader import load_config
-from zakupki_parser.config.models import AppConfig, NotificationsConfig, SortConfig
+from zakupki_parser.config.models import AppConfig, NotificationsConfig, ServiceConfig, SortConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_DIR = REPO_ROOT / "configs"
@@ -77,3 +77,16 @@ def test_notifications_default_backend_is_webhook() -> None:
     assert cfg.backend == "webhook"
     assert cfg.telegram.enabled is False
     assert cfg.webhook.enabled is False
+
+
+def test_service_config_rejects_unknown_keys() -> None:
+    """Опечатки в ключах конфига не должны молча игнорироваться (extra='forbid')."""
+    with pytest.raises(ValidationError):
+        ServiceConfig.model_validate({"timeout_second": 100})
+
+
+def test_service_config_rejects_unknown_nested_keys() -> None:
+    with pytest.raises(ValidationError):
+        ServiceConfig.model_validate(
+            {"notifications": {"backend": "webhook", "telegram": {"chatd": "x"}}}
+        )

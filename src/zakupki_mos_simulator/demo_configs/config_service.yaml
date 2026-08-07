@@ -34,32 +34,9 @@ search_criteria:
   fz44: true
   fz223: true
 
-# Файлы: ОСНОВНОЙ режим — не скачиваются; в БД сохраняются имя и URL скачивания
-# с ЭТП (ТЗ — поля technical_spec_name/technical_spec_url, остальные — files_json).
-# download_files: true включает скачивание в хранилище (MinIO/local).
-download_files: false
-# Скачивать только файлы, в имени которых есть одно из ключевых словосочетаний
-# (например, "техническое задание"). Работает при download_files: true.
-download_technical_spec_only: true
-technical_spec_keywords:
-  - "техническое задание"
-
-documents_dir: "documents"
+# Файлы не скачиваются: в БД сохраняются имя и URL скачивания с ЭТП
+# (ТЗ — technical_spec_name/technical_spec_url, остальные — files_json).
 data_dir: "data"
-
-# --- Хранилище скачанных файлов (ОПЦИОНАЛЬНО) ---
-# Блок можно опустить — по умолчанию используется local (каталог documents_dir,
-# в БД пишется путь). Для MinIO/совместимого хранилища переключите type: "s3"
-# и укажите параметры ниже (обязательны при type=s3).
-storage:
-  type: "local"
-  # type: "s3"
-  # endpoint: "http://localhost:9000"
-  # access_key: "minioadmin"
-  # secret_key: "minioadmin"
-  # bucket: "zakupki-documents"
-  # secure: false
-  # region: "us-east-1"
 
 # --- База данных (PostgreSQL) ---
 # Демо записывает закупки в PostgreSQL (Scheduler всегда подключается к БД).

@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class DbConfig(BaseModel):
+class _BaseConfig(BaseModel):
+    """Базовый класс конфигурации: неизвестные ключи — ошибка (reject опечаток)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DbConfig(_BaseConfig):
     """Параметры подключения к базе данных."""
 
     dsn: str = Field(default="postgresql://postgres:postgres@localhost:5432/zakupki")
@@ -23,7 +29,7 @@ class DbConfig(BaseModel):
     )
 
 
-class WebhookConfig(BaseModel):
+class WebhookConfig(_BaseConfig):
     """Параметры webhook-уведомлений."""
 
     enabled: bool = Field(default=False)
@@ -32,7 +38,7 @@ class WebhookConfig(BaseModel):
     timeout_seconds: float = Field(default=10.0, ge=0)
 
 
-class TelegramConfig(BaseModel):
+class TelegramConfig(_BaseConfig):
     """Параметры Telegram-уведомлений.
 
     ``chat_id`` — адрес канала: ``@username`` для публичного или числовой id
@@ -51,7 +57,7 @@ class TelegramConfig(BaseModel):
     )
 
 
-class MaxConfig(BaseModel):
+class MaxConfig(_BaseConfig):
     """Параметры уведомлений в мессенджер MAX.
 
     ``chat_id`` — числовой id канала (int64), получается через подписку на
@@ -76,7 +82,7 @@ class MaxConfig(BaseModel):
     )
 
 
-class NotificationsConfig(BaseModel):
+class NotificationsConfig(_BaseConfig):
     """Настройки уведомлений: выбор бэкенда и его параметры."""
 
     backend: Literal["telegram", "webhook", "max"] = Field(default="webhook")
@@ -101,14 +107,14 @@ class NotificationsConfig(BaseModel):
         return self
 
 
-class SiteServiceEntry(BaseModel):
+class SiteServiceEntry(_BaseConfig):
     """Одна запись в списке сайтов для периодического обхода."""
 
     platform_id: str = Field(description="ключ площадки в config_dom.yaml")
     enabled: bool = Field(default=True)
 
 
-class StopConditions(BaseModel):
+class StopConditions(_BaseConfig):
     """Набор флагов-условий прекращения обработки очередной заявки.
 
     Каждый флаг — это условие, при котором заявка пропускается (не сохраняется
@@ -133,7 +139,7 @@ class StopConditions(BaseModel):
     )
 
 
-class SearchCriteria(BaseModel):
+class SearchCriteria(_BaseConfig):
     """Бизнес-критерии поиска — задаются в config_service.yaml в ОБОБЩЁННЫХ терминах.
 
     Эти поля платформонезависимы (ОКПД2, НМЦК, ключевые слова, регионы — это
@@ -169,7 +175,7 @@ class SearchCriteria(BaseModel):
     )
 
 
-class ServiceConfig(BaseModel):
+class ServiceConfig(_BaseConfig):
     """Сервисная конфигурация: таймер, список сайтов, пороги, флаги."""
 
     timeout_seconds: int = Field(default=3600, ge=1)
