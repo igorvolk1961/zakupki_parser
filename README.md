@@ -203,6 +203,24 @@ docker compose -f docker/docker-compose.yml up --build
 и `api` (FastAPI на `http://localhost:8000/`). Команду запускать из корня репозитория —
 контекст сборки и файл `.env` резолвятся относительно `docker/docker-compose.yml`.
 
+Для удобства есть скрипт-обёртка над compose-стеком — `scripts/compose.sh`:
+```bash
+scripts/compose.sh                     # up (собрать + поднять в фоне, --build)
+scripts/compose.sh up                  # то же
+scripts/compose.sh down                # остановить и удалить контейнеры (том БД сохраняется)
+scripts/compose.sh stop                # остановить контейнеры, не удаляя
+scripts/compose.sh start               # запустить остановленные контейнеры
+scripts/compose.sh restart             # перезапустить
+scripts/compose.sh ps                  # статус контейнеров
+scripts/compose.sh logs [svc]          # логи (-f), например: logs parser
+scripts/compose.sh build               # пересобрать образы
+scripts/compose.sh free-port [порт]    # освободить порт (по умолчанию 5432), занятый контейнером
+scripts/compose.sh free-port --force   # то же без запроса подтверждения
+```
+`free-port` пригодится, если порт 5432 занят локальным контейнером БД из `scripts/db_up.sh`
+(ошибка `Bind for 0.0.0.0:5432 failed: port is already allocated`) — он остановит контейнер,
+данные в volume сохранятся. Перед `up` скрипт сам предупредит, если порт занят.
+
 ## Тесты
 ```bash
 uv run pytest                          # все тесты (БД-тесты пропустятся без DSN)
