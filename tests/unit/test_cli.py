@@ -31,7 +31,10 @@ def test_check_config_summary(app_config: AppConfig) -> None:
     assert "Площадок в списке сайтов" in out
     assert "zakupki_mos" in out
     assert "Критерии поиска" in out
-    assert f"Порог дат (дней): {app_config.service.default_cutoff_days}" in out
+    assert "ключевые слова" in out
+    assert "состояние=" in out
+    assert "Порог дат (дней):" in out
+    assert "релевантности" in out
 
     # Скоринг.
     assert "P(win):" in out

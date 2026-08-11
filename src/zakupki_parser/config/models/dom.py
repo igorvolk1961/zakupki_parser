@@ -109,14 +109,24 @@ class PurchaseFilter(BaseModel):
 class SortConfig(BaseModel):
     """Сортировка списка закупок.
 
-    Порядок сортировки **фиксирован** — по дате публикации по убыванию
+    Обычный порядок **фиксирован** — по дате публикации по убыванию
     (``publication_date_desc``): на нём основана стоп-логика по дате последней
     записи площадки (MAX(update_date) из БД).
     Другой порядок исключён (единственное допустимое значение в перечислении).
-    Настраиваются только DOM-детали: где дропдаун и как называется нужный пункт.
+
+    Если площадка поддерживает сортировку по релевантности (``by_relevance=true``),
+    сортируем по релевантности и НЕ отсекаем по дате (стоп-логика не применяется):
+    обход идёт до конца пагинации.
     """
 
     order: Literal["publication_date_desc"] = "publication_date_desc"
+    by_relevance: bool = Field(
+        default=False,
+        description=(
+            "сортировать по релевантности вместо даты публикации; при true "
+            "стоп-логика по дате не применяется (обходим все страницы)"
+        ),
+    )
     dropdown: str | None = Field(default=None, description="селектор выпадающего списка сортировки")
     option_text: str | None = Field(
         default=None, description="текст пункта «по дате публикации» (для клика в меню)"
@@ -134,7 +144,8 @@ class CriteriaMapping(BaseModel):
         ``priceFrom``, ``publishDateFrom``).
     Можно указать оба сразу (например, критерий попадает и в JSON, и в параметр).
     Ключ словаря criteria_map — один из известных критериев: ``publish_date``,
-    ``okpd2``, ``nmck_min``, ``nmck_max``.
+    ``update_date``, ``deadline_from``, ``okpd2``, ``fz44``, ``fz223``,
+    ``nmck_min``, ``nmck_max``, ``keywords``.
     """
 
     json_path: str | None = Field(
@@ -189,8 +200,17 @@ class SearchFilterConfig(BaseModel):
     criteria_map: dict[str, CriteriaMapping] = Field(
         default_factory=dict,
         description=(
-            "обобщённый критерий (publish_date|okpd2|nmck_min|nmck_max) "
-            "-> привязка к запросу площадки (JSON-путь и/или query-параметр)"
+            "обобщённый критерий (publish_date|update_date|deadline_from|okpd2|"
+            "fz44|fz223|nmck_min|nmck_max|keywords|active_only) -> привязка к "
+            "запросу площадки (JSON-путь и/или query-параметр)"
+        ),
+    )
+    state_ids: dict[str, list[int]] | None = Field(
+        default=None,
+        description=(
+            "внутренние ID состояний закупок площадки для фильтра active_only "
+            "(например {'active': [19000002, 19000008]}). Путь, куда подставить, "
+            "задаётся в criteria_map для ключа active_only"
         ),
     )
 

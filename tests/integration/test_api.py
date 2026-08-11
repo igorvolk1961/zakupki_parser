@@ -263,7 +263,8 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
     from zakupki_parser.api.app import create_app
 
     cfgdir = tmp_path / "configs"
-    shutil.copytree(Path(__file__).resolve().parents[2] / "configs", cfgdir)
+    # Копируем ТЕСТОВЫЙ набор конфигов (tests/configs), а не рабочие configs/*.
+    shutil.copytree(Path(__file__).resolve().parents[2] / "tests" / "configs", cfgdir)
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
     app = create_app(str(cfgdir))
     with TestClient(app) as client:

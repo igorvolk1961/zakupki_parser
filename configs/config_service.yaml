@@ -1,90 +1,52 @@
-# Сервисная конфигурация: таймер, список сайтов, пороги дат, флаги,
-# подключение к БД, уведомления и условия прекращения обработки заявки.
-
-# Период запуска парсера по таймеру (в секундах)
 timeout_seconds: 3600
-
-# Список сайтов закупок (platform_id должен присутствовать в config_dom.yaml)
 sites:
-  - { platform_id: "zakupki_mos", enabled: true }
-  - { platform_id: "zakupki_gov", enabled: true }
-
-# Порог «дата последней обработанной записи» в днях (по умолчанию «сейчас − 1 день»).
-# Применяется ТОЛЬКО если для площадки ещё нет ни одной записи в БД — иначе порог
-# берётся из даты последней записи площадки (MAX(update_date) из таблицы procurements).
+- platform_id: zakupki_mos
+  enabled: true
+# ЕИС временно отключена — разбираемся с фильтрами на zakupki_mos
+# (на ЕИС серверная фильтрация по ОКПД2/словам не подтверждена).
+- platform_id: zakupki_gov
+  enabled: false
 default_cutoff_days: 1
-
-# Бизнес-критерии поиска (тематика фильтра). Платформонезависимые понятия;
-# конкретная привязка к запросу каждой площадки — в config_dom.yaml (search.criteria_map).
 search_criteria:
-  # Коды ОКПД2 для фильтрации. Можно указывать ЛЮБОЙ известный код любой
-  # вложенности (пользователю не нужно знать состав маппинга). Резолв:
-  # 1) точный код -> его путь; 2) иначе объединение путей потомков;
-  # 3) иначе путь ближайшего предка. Маппинг — config_dom.yaml -> search.okpd_tree_file.
   okpd_codes:
-    - "62"    # разработка ПО, ИТ-услуги и оригиналы ПО
-    - "63"    # услуги в области ИТ
-  # Диапазон НМЦК. Задайте минимальный порог, чтобы отсечь мелкие лоты,
-  # не окупающие консалтинг. Подставляется через criteria_map (nmck_min/nmck_max).
-  nmck_min: null
-  nmck_max: null
-  # Законы: включать/выключать 44-ФЗ и 223-ФЗ (применяется на ЕИС: fz44=on/fz223=on).
-  # false — параметр не передаётся, закупки по этому закону в выдачу не попадают.
+  - '62.02'
+  keywords:
+  - ии
+  - интеллект
+  - автоматизация
+  # Выбор закупок по состоянию: false — все, true — только активные
+  # (применяется на площадках, где поддерживается, через stateIdIn).
+  active_only: false
   fz44: true
   fz223: true
-
-# Файлы: парсер НЕ скачивает файлы — в БД сохраняются имя и URL скачивания с ЭТП
-# (ТЗ — поля technical_spec_name/technical_spec_url, остальные — files_json).
-
-# --- База данных (PostgreSQL) ---
 db:
+  dsn: postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki
   enabled: true
-  dsn: "postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki"
-  connect_timeout_seconds: 5
+  connect_timeout_seconds: 5.0
   pool_min: 1
   pool_max: 5
-  # Повторы записи при транзиентной ошибке БД (недоступность), до открытия circuit breaker
   retry_max_attempts: 3
   retry_backoff_seconds: 1.0
-
-# --- Уведомления подписчиков (telegram | webhook) ---
-# Токен Telegram-бота НЕ хранится в конфиге — задаётся env ZAKUPKI_TELEGRAM_TOKEN.
 notifications:
-  backend: "max"        # telegram | max | webhook
-  # Порог уведомления: шлём только если финальный score >= notify_min_score
-  # (проверяется в POST /score после прихода внешнего скора, ADR-7).
-  notify_min_score: 0
+  backend: max
   telegram:
     enabled: false
-    chat_id: "-1004416405744"           # '@my_zakupki_channel' или числовой id (для приватного)
-    timeout_seconds: 10
-  # Мессенджер MAX: chat_id — числовой id канала из подписки на события.
-  # Токен — env ZAKUPKI_MAX_TOKEN.
+    chat_id: '-1004416405744'
+    timeout_seconds: 10.0
   max:
     enabled: true
-    chat_id: null
-    timeout_seconds: 10
-    # Не проверять TLS-сертификат MAX (сертификат Минцифры может отсутствовать
-    # в доверенных). По умолчанию true — Не проверять.
+    chat_id: '-77593707840894'
+    timeout_seconds: 10.0
     insecure_tls: true
   webhook:
     enabled: false
-    url: null
-    token: null
-    timeout_seconds: 10
-
-# --- Набор флагов-условий прекращения обработки очередной заявки ---
-# Каждый флаг — условие, при котором заявка пропускается (не сохраняется,
-# не уведомляется). Набор расширяется добавлением новых флагов.
+    timeout_seconds: 10.0
+  notify_min_score: 0.0
 stop_conditions:
   enabled: true
-  # Не обрабатывать заявку, если срок приёма заявок (переменная 'deadline'
-  # из config_dom.yaml) истёк к текущей дате.
-  deadline_not_expired: true
-  # Не обрабатывать заявку, если до срока подачи осталось меньше N календарных
-  # дней (нужно время на подготовку заявки). null — условие отключено.
+  # false — отключает ВСЕ отсечки по дедлайну (в т.ч. min_deadline_days ниже).
+  deadline_not_expired: false
+  # Применяется ТОЛЬКО если deadline_not_expired=true; null — условие отключено.
   min_deadline_days: 3
-
-# --- Circuit Breaker (вежливая деградация) ---
 circuit_breaker_failure_threshold: 5
-circuit_breaker_reset_timeout_seconds: 60
+circuit_breaker_reset_timeout_seconds: 60.0

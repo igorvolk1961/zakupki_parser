@@ -3,23 +3,26 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.parser.lister import _resolve_okpd2_eis, build_list_url
 
+CONFIGS_DIR = Path(__file__).resolve().parents[2] / "tests" / "configs"
+
 
 def _tree_file() -> str:
-    cfg = load_config("configs")
+    cfg = load_config(CONFIGS_DIR)
     search = cfg.dom.platforms["zakupki_gov"].search
     assert search is not None and search.okpd_tree_file is not None
     return search.okpd_tree_file
 
 
 def test_resolve_okpd2_eis() -> None:
-    result = _resolve_okpd2_eis(["62", "63"], _tree_file())
+    result = _resolve_okpd2_eis(["62.02"], _tree_file())
     assert result is not None
     ids = result["okpd2Ids"].split(",")
-    assert ids == ["8873937", "8873938"], "Собственные id выбранных кодов (62, 63)"
+    assert ids == ["8874707"], "Собственный id выбранного кода (62.02)"
     assert "okpd2IdsCodes" not in result
 
 
@@ -54,10 +57,10 @@ def test_files_page_url() -> None:
 
 
 def test_build_list_url_includes_okpd_lists() -> None:
-    cfg = load_config("configs")
+    cfg = load_config(CONFIGS_DIR)
     platform = cfg.dom.platforms["zakupki_gov"]
     url = build_list_url(
         platform, datetime.now() - timedelta(days=7), criteria=cfg.service.search_criteria
     )
-    assert "okpd2Ids=8873937%2C8873938" in url
+    assert "okpd2Ids=8874707" in url
     assert "okpd2IdsWithNested=on" in url

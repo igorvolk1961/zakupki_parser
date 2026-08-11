@@ -136,12 +136,17 @@ def _print_summary(cfg: AppConfig) -> None:
         print(f"    - {site.platform_id:<14} [{mark}]  {name} ({url})")
     sc = cfg.service.search_criteria
     okpd = ", ".join(sc.okpd_codes) if sc.okpd_codes else "–"
+    kw = ", ".join(sc.keywords) if sc.keywords else "–"
     print(
         f"  Критерии поиска: ОКПД2={okpd}; "
         f"НМЦК {sc.nmck_min or '–'}…{sc.nmck_max or '–'}; "
-        f"44-ФЗ={_yn(sc.fz44)}; 223-ФЗ={_yn(sc.fz223)}"
+        f"44-ФЗ={_yn(sc.fz44)}; 223-ФЗ={_yn(sc.fz223)}; ключевые слова={kw}; "
+        f"состояние={'только активные' if sc.active_only else 'все'}"
     )
-    print(f"  Порог дат (дней): {cfg.service.default_cutoff_days}")
+    print(
+        f"  Порог дат (дней): {cfg.service.default_cutoff_days}"
+        f" (применяется только если площадка НЕ сортирует по релевантности)"
+    )
     sc_cond = cfg.service.stop_conditions
     min_days = sc_cond.min_deadline_days if sc_cond.min_deadline_days is not None else "–"
     print(

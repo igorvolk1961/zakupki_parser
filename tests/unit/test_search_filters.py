@@ -70,6 +70,47 @@ def test_publish_date_omitted_without_cutoff() -> None:
     assert "publishDateGreatEqual" not in filt
 
 
+def test_keywords_into_query_param() -> None:
+    search = _mos({"keywords": CriteriaMapping(query_param="searchString")})
+    q = build_query(search, None, SearchCriteria(keywords=["ИТ", "нейросеть"]))
+    assert "searchString=%D0%98%D0%A2%20%D0%BD%D0%B5%D0%B9%D1%80%D0%BE%D1%81%D0%B5%D1%82%D1%8C" in q
+
+
+def test_empty_keywords_omitted() -> None:
+    search = _mos({"keywords": CriteriaMapping(query_param="searchString")})
+    q = build_query(search, None, SearchCriteria(keywords=[]))
+    assert "searchString=" not in q
+
+
+def test_keywords_into_name_like_json_path() -> None:
+    search = _mos({"keywords": CriteriaMapping(json_path="nameLike")})
+    filt = _decode_filter(build_query(search, None, SearchCriteria(keywords=["ии", "интеллект"])))
+    assert filt["nameLike"] == {"value": "ии интеллект", "contains": True}
+
+
+def test_deadline_from_included_by_default() -> None:
+    search = SearchFilterConfig(
+        query_params={},
+        criteria_map={"deadline_from": CriteriaMapping(query_param="applSubmissionCloseDateFrom")},
+    )
+    q = build_query(search, None, SearchCriteria())
+    assert "applSubmissionCloseDateFrom" in q
+
+
+def test_active_only_sets_state_id_in() -> None:
+    search = SearchFilterConfig(
+        query_params={"filter": "{filter_json}"},
+        criteria_map={"active_only": CriteriaMapping(json_path="auctionSpecificFilter.stateIdIn")},
+        state_ids={"active": [19000002, 19000008]},
+    )
+    # все (active_only=False) — stateIdIn не ставим
+    filt = _decode_filter(build_query(search, None, SearchCriteria()))
+    assert "auctionSpecificFilter" not in filt
+    # только активные — stateIdIn подставлен
+    filt = _decode_filter(build_query(search, None, SearchCriteria(active_only=True)))
+    assert filt["auctionSpecificFilter"]["stateIdIn"] == [19000002, 19000008]
+
+
 def test_query_param_criteria_flat_params() -> None:
     # ЕИС-стиль: критерий -> плоский query-параметр. Не заданный — пропускается.
     eis = SearchFilterConfig(

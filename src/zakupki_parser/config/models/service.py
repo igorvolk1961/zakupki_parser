@@ -140,7 +140,8 @@ class StopConditions(_BaseConfig):
         ge=0,
         description=(
             "если задано — не обрабатывать заявку, до срока подачи которой осталось "
-            "меньше указанного числа календарных дней (нужно время на подготовку заявки)"
+            "меньше указанного числа календарных дней (нужно время на подготовку заявки); "
+            "применяется ТОЛЬКО если deadline_not_expired=true"
         ),
     )
 
@@ -171,6 +172,14 @@ class SearchCriteria(_BaseConfig):
         ge=0,
         description="максимальная НМЦК",
     )
+    keywords: list[str] = Field(
+        default_factory=list,
+        description=(
+            "ключевые слова для фильтрации по наименованию/описанию закупки; "
+            "закупка проходит, если любое из слов встречается (регистронезависимо); "
+            "пустой список — фильтр не применяется"
+        ),
+    )
     fz44: bool = Field(
         default=True,
         description="включать закупки по 44-ФЗ (применяется на ЕИС: fz44=on)",
@@ -178,6 +187,13 @@ class SearchCriteria(_BaseConfig):
     fz223: bool = Field(
         default=True,
         description="включать закупки по 223-ФЗ (применяется на ЕИС: fz223=on)",
+    )
+    active_only: bool = Field(
+        default=False,
+        description=(
+            "выбор закупок по состоянию: false — все, true — только активные "
+            "(применяется на площадках, где это поддерживается, через stateIdIn)"
+        ),
     )
 
 

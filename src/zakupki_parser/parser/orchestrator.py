@@ -107,16 +107,16 @@ class Orchestrator:
             return False
         if sc.deadline_not_expired:
             deadline = record.get("deadline")
-            if isinstance(deadline, datetime) and deadline < self._now:
+            if not isinstance(deadline, datetime):
+                return False
+            if deadline < self._now:
                 logger.info(
                     "Заявка %s пропущена: срок приёма истёк (%s)",
                     record.get("number"),
                     deadline,
                 )
                 return True
-        if sc.min_deadline_days is not None:
-            deadline = record.get("deadline")
-            if isinstance(deadline, datetime):
+            if sc.min_deadline_days is not None:
                 days_left = (deadline - self._now).total_seconds() / 86400
                 if days_left < sc.min_deadline_days:
                     logger.info(
@@ -336,9 +336,20 @@ class Orchestrator:
         if not self._site_cb.allow_request():
             raise CircuitOpenError("Сайт недоступен (circuit open)")
 
-        if self._repository is None:
+        by_relevance = bool(self._platform.sort and self._platform.sort.by_relevance)
+        if by_relevance:
+            # Сортировка по релевантности: по дате НЕ отсекаем, обходим до конца пагинации.
+            cutoff = None
+            logger.info(
+                "Площадка %s: сортировка по релевантности — фильтрация по дате отключена",
+                self._platform_id,
+            )
+        elif self._repository is None:
+            # БД недоступна (repository=None) — порог взять неоткуда, кроме default_cutoff_days.
             cutoff = self._now - timedelta(days=self._cfg.service.default_cutoff_days)
         else:
+            # По умолчанию порог берётся из даты последней обработанной записи БД;
+            # default_cutoff_days применяется только когда в БД ещё нет записей.
             cutoff = await self._repository.last_processed_date(
                 self._platform_id, self._now, self._cfg.service.default_cutoff_days
             )
@@ -357,8 +368,9 @@ class Orchestrator:
         while True:
             reached_cutoff = False
             async for container in iter_container_records(page, self._platform, self._delayer):
-                # Выход по порогу даты публикации. Обрабатываем записи с датой >=
-                # дня порога и останавливаемся при записи со строго более ранним днём.
+                # Выход по порогу даты публикации (только если порог задан). Обрабатываем
+                # записи с датой >= дня порога и останавливаемся при записи со строго
+                # более ранним днём.
                 pub_var = next(
                     (
                         v
@@ -367,7 +379,7 @@ class Orchestrator:
                     ),
                     None,
                 )
-                if pub_var is not None:
+                if pub_var is not None and cutoff is not None:
                     pub = await extract_from_scope(container, [pub_var])
                     pub_val = pub.get(self._platform.list_config.publication_date)
                     older = is_older_than_cutoff(pub_val, cutoff)

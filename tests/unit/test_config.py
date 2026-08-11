@@ -11,7 +11,7 @@ from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig, NotificationsConfig, ServiceConfig, SortConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIGS_DIR = REPO_ROOT / "configs"
+CONFIGS_DIR = REPO_ROOT / "tests" / "configs"
 
 
 def test_load_config_ok(app_config: AppConfig) -> None:

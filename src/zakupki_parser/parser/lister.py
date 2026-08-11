@@ -174,6 +174,30 @@ def build_query(
                 for param, value in values.items():
                     extra_params[param] = value
             continue
+        if key == "keywords":
+            kws = criteria.keywords
+            if not kws:
+                continue
+            # Слова склеиваются пробелом (одно значение поиска).
+            joined = " ".join(kws)
+            if mapping.json_path:
+                # mos.ru: nameLike = {"value": "<слова>", "contains": true}.
+                _set_json_path(filter_json, mapping.json_path, {"value": joined, "contains": True})
+            if mapping.query_param:
+                extra_params[mapping.query_param] = joined
+            continue
+        if key == "active_only":
+            # Выбор «все/только активные»: только активные подставляет stateIdIn.
+            if not criteria.active_only:
+                continue
+            ids = (search.state_ids or {}).get("active")
+            if not ids:
+                continue
+            if mapping.json_path:
+                _set_json_path(filter_json, mapping.json_path, ids)
+            if mapping.query_param:
+                extra_params[mapping.query_param] = _value_to_str(ids)
+            continue
         value = _criteria_value(key, criteria, cutoff, search)
         if value is None or (isinstance(value, list) and not value):
             continue
@@ -237,11 +261,13 @@ async def setup_sort_and_filters(
     Селекторы сортировки и шаги фильтров заданы в ``config_dom.yaml``
     (блоки ``platform.sort`` и ``platform.filters``).
 
-    Порядок сортировки фиксирован (``publication_date_desc``) — на нём основана
-    стоп-логика по дате последней записи площадки; конфиг-схема исключает другие значения.
+    Обычный порядок сортировки фиксирован (``publication_date_desc``) — на нём
+    основана стоп-логика по дате последней записи площадки. Если площадка
+    сортирует по релевантности (``sort.by_relevance=true``), клик по дропдауну
+    даты не выполняется — сортировку задаёт URL (sortField=relevance).
     """
     sort = platform.sort
-    if sort and sort.dropdown and sort.option_text:
+    if sort and not sort.by_relevance and sort.dropdown and sort.option_text:
         logger.info("Сортировка: %s (порядок фиксирован %s)", sort.option_text, sort.order)
         dropdown = page.locator(sort.dropdown)
         # SPA рендерит панель сортировки с задержкой — ждём появления.
@@ -260,6 +286,8 @@ async def setup_sort_and_filters(
         else:
             await page.keyboard.press("Escape")
             logger.warning("Пункт сортировки '%s' не найден", sort.option_text)
+    elif sort and sort.by_relevance:
+        logger.info("Сортировка по релевантности (задаётся URL sortField=relevance)")
 
     if platform.filters:
         await apply_filters(page, platform.filters)

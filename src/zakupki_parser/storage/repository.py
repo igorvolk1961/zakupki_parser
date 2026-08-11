@@ -81,7 +81,7 @@ class ProcurementRepository:
         stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
         if customer:
             stmt = stmt.join(Customer, Procurement.customer_id == Customer.id)
-        stmt = stmt.where(*conditions).order_by(Procurement.id.desc())
+        stmt = stmt.where(*conditions).order_by(Procurement.id.asc())
         count_stmt = select(func.count(Procurement.id)).where(*conditions)
         if customer:
             count_stmt = count_stmt.select_from(Procurement).join(

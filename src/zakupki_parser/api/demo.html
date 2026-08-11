@@ -49,6 +49,8 @@
   .proc-list { flex:1 1 auto; min-width:0; max-height:72vh; overflow:auto;
                border:1px solid var(--line); border-radius:10px; background: var(--panel);}
   .proc-list table { width:100%; border-collapse:collapse; font-size:13px; }
+  .sort-toggle { display:block; margin-bottom:8px; font-size:13px; color: var(--muted, #888); }
+  .sort-toggle select { margin-left:6px; }
   .proc-list th, .proc-list td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
   .proc-list th { position:sticky; top:0; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
   .proc-list tr { cursor:pointer; }
@@ -122,8 +124,14 @@
   <div id="view-proc">
     <div class="split">
       <div class="proc-list">
+        <label class="sort-toggle">Сортировка:
+          <select id="proc-sort">
+            <option value="">Как в БД</option>
+            <option value="publication_date">По дате публикации</option>
+          </select>
+        </label>
         <table>
-          <thead><tr><th>ID</th><th>Закупка</th></tr></thead>
+          <thead><tr><th>ID</th><th>Закупка</th><th>Дата публикации</th></tr></thead>
           <tbody id="proc-rows"></tbody>
         </table>
         <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
@@ -191,7 +199,19 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}">
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
+    <td>${fmtDT(row.publication_date)}</td>
   </tr>`;
+}
+
+// Сортировка таблицы — ТОЛЬКО для отображения (копия массива). Порядок записей
+// в БД (allItems) при этом НЕ меняется. Переключатель: "как в БД" или
+// "по дате публикации".
+function displayItems() {
+  const items = allItems.slice();
+  if ($("#proc-sort").value === "publication_date") {
+    items.sort((x, y) => new Date(y.publication_date || 0) - new Date(x.publication_date || 0));
+  }
+  return items;
 }
 
 function selectedItems() {
@@ -209,7 +229,7 @@ function renderDetail() {
 }
 
 function renderProc() {
-  const items = allItems;
+  const items = displayItems();
   const tbody = $("#proc-rows"), empty = $("#proc-empty");
   if (!items.length) {
     tbody.innerHTML = "";
@@ -349,6 +369,7 @@ $("#proc-detail").addEventListener("click", (e) => {
 });
 $("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+$("#proc-sort").addEventListener("change", renderProc);
 $("#platform").addEventListener("change", loadProc);
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");

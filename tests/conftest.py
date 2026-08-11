@@ -14,7 +14,9 @@ from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONFIGS_DIR = REPO_ROOT / "configs"
+# Тесты грузят ВЫДЕЛЕННЫЙ тестовый набор конфигов (tests/configs), а не рабочие
+# configs/* — чтобы результат не зависел от пользовательских настроек.
+CONFIGS_DIR = REPO_ROOT / "tests" / "configs"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 
 _SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script>", re.DOTALL | re.IGNORECASE)
