@@ -343,7 +343,10 @@ class Orchestrator:
             if close_detail:
                 await detail_page.close()
 
-        record: dict[str, Any] = {**list_vars, **detail_vars}
+        record: dict[str, Any] = {**list_vars}
+        # Не затираем значения из списка значением None с детальной страницы (например,
+        # НМЦК, если детальная SPA не успела отрисовать поле). Аналогично доп. страницам.
+        record.update({k: v for k, v in detail_vars.items() if v is not None})
         record["url"] = (
             detail_url
             if detail_url.startswith("http")

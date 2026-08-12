@@ -55,6 +55,10 @@ list_config:
 
 detail:
   variables:
+    # status на детальной странице — ПОЛНЫЙ текст (без CSS-многоточия EllipsedSpan,
+    # которым обрезается статус на карточке списка), например «Прием предложений завершен».
+    # Перекрывает обрезанный список->статус, чтобы is_active считался корректно.
+    - { name: "status",        selector: "#state-indicator", handler: "strip", default: "" }
     - { name: "customer",    selector: "div:has(> label:text-is('Заказчик')) > div", handler: "strip", default: "" }
     - { name: "nmck",        selector: "div:has(> label:text-is('Начальная цена')) > div", handler: "money", default: null }
     - { name: "okpd2_name",  selector: "div:has(> label:text-is('Наименование ОКПД2')) > div", handler: "strip", default: "" }
