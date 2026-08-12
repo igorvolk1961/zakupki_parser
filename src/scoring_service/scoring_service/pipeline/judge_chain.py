@@ -40,26 +40,33 @@ class JudgeChain:
         self._fixing = OutputFixingParser.from_llm(parser=self._parser, llm=llm)
         self._callbacks = callbacks
 
-    def _config(self, procurement_id: str | None = None) -> RunnableConfig:
-        config: RunnableConfig = {
+    def _config(
+        self,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> RunnableConfig:
+        config: dict[str, Any] = {
             "callbacks": self._callbacks or None,
             "run_name": "judge_scoring",
         }
-        if procurement_id is not None:
-            config["metadata"] = {"procurement_id": procurement_id}
-        return config
+        if session_id is not None:
+            config["session_id"] = session_id
+        if metadata:
+            config["metadata"] = metadata
+        return cast(RunnableConfig, config)
 
     def invoke(
         self,
         competencies: str,
         description: str,
         fit_result: FitResult,
-        procurement_id: str | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> JudgeResult:
         """Оценить адекватность fit-оценки."""
         fit_json = json.dumps(fit_result.model_dump(), ensure_ascii=False)
         messages: list[BaseMessage] = build_judge_messages(competencies, description, fit_json)
-        config = self._config(procurement_id)
+        config = self._config(session_id, metadata)
         try:
             result = self._structured.invoke(messages, config=config)
         except OutputParserException:

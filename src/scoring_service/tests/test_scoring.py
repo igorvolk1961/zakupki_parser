@@ -38,7 +38,8 @@ class _FakeFit:
         self,
         competencies: str,
         description: str,
-        procurement_id: str | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> FitResult:
         self.calls += 1
         value = self._scores.pop(0) if self._scores else 5.0
@@ -55,7 +56,8 @@ class _FakeJudge:
         competencies: str,
         description: str,
         fit_result: FitResult,
-        procurement_id: str | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> JudgeResult:
         self.calls += 1
         return self._verdicts.pop(0)
@@ -151,3 +153,59 @@ def test_build_scorer_stub_does_not_build_llm() -> None:
     scorer = build_scorer(Settings(score_use_stub=True))
     assert scorer._fit is None  # noqa: SLF001
     assert scorer._judge is None  # noqa: SLF001
+
+
+def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
+    class _RecordingFit:
+        def __init__(self, score: float) -> None:
+            self._score = score
+            self.calls: list[tuple[str | None, dict[str, object] | None]] = []
+
+        def invoke(
+            self,
+            competencies: str,
+            description: str,
+            session_id: str | None = None,
+            metadata: dict[str, object] | None = None,
+        ) -> FitResult:
+            self.calls.append((session_id, metadata))
+            return _fit(self._score)
+
+    fit = _RecordingFit(8.0)
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = Scorer(
+        fit, judge, Settings(p_win=0.5, margin_rate=0.2, llm_model="gpt-test", score_use_stub=False)
+    )  # type: ignore[arg-type]
+    scorer.score({"subject": "x", "nmck": 10.0}, "comp", procurement_id=42, run_id="run-1")
+
+    assert fit.calls
+    session_id, metadata = fit.calls[0]
+    assert session_id == "run-1"
+    assert metadata is not None
+    assert metadata["procurement_id"] == 42
+    assert metadata["run_id"] == "run-1"
+    assert metadata["llm_model"] == "gpt-test"
+    assert metadata["p_win"] == 0.5
+
+
+def test_score_falls_back_to_procurement_session_without_run_id() -> None:
+    class _RecordingFit:
+        def __init__(self) -> None:
+            self.session_ids: list[str | None] = []
+
+        def invoke(
+            self,
+            competencies: str,
+            description: str,
+            session_id: str | None = None,
+            metadata: dict[str, object] | None = None,
+        ) -> FitResult:
+            self.session_ids.append(session_id)
+            return _fit(5.0)
+
+    fit = _RecordingFit()
+    judge = _FakeJudge([_judge("accept", 5.0)])
+    scorer = Scorer(fit, judge, Settings(score_use_stub=False))  # type: ignore[arg-type]
+    scorer.score({"subject": "x", "nmck": 10.0}, "comp", procurement_id=7)
+
+    assert fit.session_ids == ["7"]

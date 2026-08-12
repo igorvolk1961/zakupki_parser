@@ -31,8 +31,15 @@ card + competencies
 
 ## LangFuse
 `llm_factory.langfuse_handler` строит `langfuse.CallbackHandler` из env. Каждый вызов
-имеет `run_name` (`fit_scoring`/`judge_scoring`) и `metadata.procurement_id`. Если
-LangFuse не настроен — вызовы идут без трассировки (dev-режим).
+имеет `run_name` (`fit_scoring`/`judge_scoring`) и `metadata` с гиперпараметрами
+(`llm_model`, `llm_temperature`, `llm_structured_method`, `num_refine_rounds`,
+`normalize_fit_for_score`, `p_win`, `margin_rate`) и идентификаторами
+(`procurement_id`, `run_id`). Все задания одного запуска объединяются в **одну
+LangFuse-сессию** (`session_id = run_id`): воркер создаёт один `run_id` на время
+жизни процесса, `score-csv`/`evaluate` — один на весь прогон, CLI `score` и HTTP
+`POST /score` — один на вызов (либо из запроса). Если `run_id` не задан, сессией
+служит `procurement_id`. Если LangFuse не настроен — вызовы идут без трассировки
+(dev-режим).
 
 ### Self-hosted в Docker (dev)
 В `docker/docker-compose.yml` стек LangFuse v3 (+ ClickHouse) за compose-профилем `langfuse`:

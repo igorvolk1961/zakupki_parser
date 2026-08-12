@@ -38,13 +38,41 @@ class Scorer:
         self._fit = fit_chain
         self._judge = judge_chain
         self._settings = settings
+        # Метаданные гиперпараметров/промптов, общие для всех вызовов скоринга.
+        # Пишутся в каждый трейс, чтобы группировать/сравнивать запуски по конфигурации.
+        self._base_metadata: dict[str, Any] = {
+            "llm_model": settings.llm_model,
+            "llm_temperature": settings.llm_temperature,
+            "llm_structured_method": settings.llm_structured_method,
+            "num_refine_rounds": settings.num_refine_rounds,
+            "normalize_fit_for_score": settings.normalize_fit_for_score,
+            "p_win": settings.p_win,
+            "margin_rate": settings.margin_rate,
+        }
+
+    def _trace_metadata(
+        self,
+        procurement_id: int | None,
+        run_id: str | None,
+        extra: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Метаданные трассы: гиперпараметры + идентификаторы задания/запуска."""
+        meta = dict(self._base_metadata)
+        if procurement_id is not None:
+            meta["procurement_id"] = procurement_id
+        if run_id is not None:
+            meta["run_id"] = run_id
+        if extra:
+            meta.update(extra)
+        return meta
 
     def _refine_fit(
         self,
         competencies: str,
         description: str,
         critics: str,
-        procurement_id: str | None,
+        session_id: str | None,
+        metadata: dict[str, Any],
     ) -> FitResult:
         """Повторный fit с учётом критики судьи (best-effort: без гарантии JSON)."""
         messages_hint = (
@@ -53,7 +81,8 @@ class Scorer:
         return self._fit.invoke(  # type: ignore[union-attr]
             f"{competencies}\n\nДополнительно: {messages_hint}",
             description,
-            procurement_id,
+            session_id,
+            metadata,
         )
 
     def _stub_score(self, record: dict[str, Any], procurement_id: int | None) -> ScoringOutput:
@@ -96,25 +125,35 @@ class Scorer:
         record: dict[str, Any],
         competencies: str,
         procurement_id: int | None = None,
+        run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ScoringOutput:
-        """Полный скоринг закупки по карточке и компетенциям."""
+        """Полный скоринг закупки по карточке и компетенциям.
+
+        ``run_id`` — идентификатор запуска (батча): все задания одного запуска
+        объединяются в одну LangFuse-сессию (``session_id``). Если ``run_id`` не задан,
+        сессией служит ``procurement_id`` (для разовых/синхронных вызовов).
+        """
         if self._settings.score_use_stub:
             return self._stub_score(record, procurement_id)
 
         description = extract_description(record)
-        session_id = str(procurement_id) if procurement_id is not None else None
+        session_id = run_id or (str(procurement_id) if procurement_id is not None else None)
+        trace_meta = self._trace_metadata(procurement_id, run_id, metadata)
 
-        fit = self._fit.invoke(competencies, description, session_id)  # type: ignore[union-attr]
+        fit = self._fit.invoke(  # type: ignore[union-attr]
+            competencies, description, session_id, trace_meta
+        )
         judge = self._judge.invoke(  # type: ignore[union-attr]
-            competencies, description, fit, session_id
+            competencies, description, fit, session_id, trace_meta
         )
 
         for _ in range(self._settings.num_refine_rounds):
             if judge.verdict != "reject":
                 break
-            fit = self._refine_fit(competencies, description, judge.critics, session_id)
+            fit = self._refine_fit(competencies, description, judge.critics, session_id, trace_meta)
             judge = self._judge.invoke(  # type: ignore[union-attr]
-                competencies, description, fit, session_id
+                competencies, description, fit, session_id, trace_meta
             )
 
         final_fit = judge.final_fit_score

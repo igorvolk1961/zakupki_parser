@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -35,9 +36,11 @@ def run_evaluation(
     expected: list[float] = []
     predicted: list[float] = []
     details: list[dict[str, Any]] = []
+    # Один run_id на весь датасет: все примеры — в одной LangFuse-сессии.
+    run_id = uuid.uuid4().hex
     for item in dataset:
         record = {"subject": item.description}
-        result = scorer.score(record, comp)
+        result = scorer.score(record, comp, run_id=run_id)
         expected.append(item.expected_fit)
         predicted.append(result.final_fit_score)
         details.append(

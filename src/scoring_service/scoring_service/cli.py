@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import sys
+import uuid
 from pathlib import Path
 
 from scoring_service.settings import Settings, get_settings
@@ -40,7 +41,7 @@ def _cmd_score(settings: Settings, card: Path, competencies: Path | None) -> int
     record = json.loads(card.read_text(encoding="utf-8"))
     comp = competencies.read_text(encoding="utf-8") if competencies else settings.competencies()
     scorer = build_scorer(settings)
-    result = scorer.score(record, comp, record.get("id"))
+    result = scorer.score(record, comp, record.get("id"), run_id=uuid.uuid4().hex)
     print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
     return 0
 

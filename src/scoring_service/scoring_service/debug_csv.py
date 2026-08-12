@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -76,9 +77,11 @@ def run_debug(
     records = load_records(csv_path)
     if limit > 0:
         records = records[:limit]
+    # Один run_id на весь прогон CSV: все закупки — в одной LangFuse-сессии.
+    run_id = uuid.uuid4().hex
     results: list[tuple[int | None, ScoringOutput]] = []
     for procurement_id, record in records:
-        result = scorer.score(record, competencies, procurement_id)
+        result = scorer.score(record, competencies, procurement_id, run_id=run_id)
         results.append((procurement_id, result))
     return results
 

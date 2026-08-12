@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 
 from scoring_service.scoring import build_scorer
 from scoring_service.settings import Settings
@@ -22,6 +23,9 @@ class ScoringWorker:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        # Один run_id на всё время жизни воркера: все обработанные им задания
+        # объединяются в одну LangFuse-сессию (одни гиперпараметры/промпты).
+        self._run_id = uuid.uuid4().hex
         self._scorer = build_scorer(settings)
         self._queue = ScoringQueue(settings)
         self._parser = ParserApiClient(settings.parser_api_url)
@@ -47,7 +51,7 @@ class ScoringWorker:
             await self._queue.claim_processing(procurement_id, priority)
             record = await self._parser.get_procurement(procurement_id)
             competencies = self._settings.competencies()
-            result = self._scorer.score(record, competencies, procurement_id)
+            result = self._scorer.score(record, competencies, procurement_id, run_id=self._run_id)
             await self._queue.publish_result(
                 {
                     "procurement_id": procurement_id,

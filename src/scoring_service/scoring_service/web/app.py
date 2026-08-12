@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -45,6 +46,9 @@ class ScoreRequest(BaseModel):
     record: dict[str, Any]
     competencies: str | None = None
     procurement_id: int | None = None
+    # Идентификатор запуска: если не задан — генерируется на каждый запрос
+    # (сессия LangFuse = один запуск).
+    run_id: str | None = None
 
 
 class ScoreResponse(BaseModel):
@@ -73,8 +77,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/score", response_model=ScoreResponse, dependencies=[Depends(auth)])
     async def score(body: ScoreRequest) -> ScoreResponse:
         competencies = body.competencies or settings.competencies()
+        run_id = body.run_id or uuid.uuid4().hex
         try:
-            result = scorer.score(body.record, competencies, body.procurement_id)
+            result = scorer.score(body.record, competencies, body.procurement_id, run_id=run_id)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return ScoreResponse(result=result)
