@@ -34,6 +34,13 @@ def test_default_score_no_nmck_zero() -> None:
     assert compute_default_score({"okpd2_codes": "62.01"}, cfg) == 0.0
 
 
+def test_default_score_margin_rate_applied() -> None:
+    # Margin = НМЦК × margin_rate (норма прибыли)
+    cfg = ScoreConfig(fit_table={"62.01": 0.9}, p_win=1.0, margin_rate=1.2)
+    record = {"okpd2_codes": "62.01", "nmck": 1000.0}
+    assert compute_default_score(record, cfg) == pytest.approx(1080.0)
+
+
 def test_default_score_rounded_to_cents() -> None:
     # Точность score в БД — не более 0.01 ₽
     cfg = ScoreConfig(fit_table={"62.01": 0.1}, p_win=1.0)

@@ -1,7 +1,7 @@
 """Скоринг закупок: внутренняя эвристика (дефолтный score).
 
 Формула: Score = Fit(ОКПД2) × P(win) × Margin.
-Простейшая эвристика: Margin = НМЦК, P(win) = 1, Fit — таблица из config_score.yaml.
+Простейшая эвристика: Margin = НМЦК × margin_rate, P(win) = 1, Fit — таблица из config_score.yaml.
 Финальный внешний score приходит асинхронно через POST /api/procurements/{id}/score
 (конвейер transport + scoring_service + Redis, ADR-7).
 """
@@ -50,9 +50,9 @@ def _fit_for_code(code: str, fit_table: dict[str, float], default_fit: float) ->
 
 
 def compute_default_score(record: dict[str, Any], cfg: ScoreConfig) -> float:
-    """Внутренняя эвристика: Fit × P(win) × Margin (Margin = НМЦК)."""
+    """Внутренняя эвристика: Fit × P(win) × Margin (Margin = НМЦК × margin_rate)."""
     fit = _fit_for_code(_okpd2_code(record), cfg.fit_table, cfg.default_fit)
-    margin = float(record.get("nmck") or 0.0)
+    margin = float(record.get("nmck") or 0.0) * cfg.margin_rate
     return round(fit * cfg.p_win * margin, 2)
 
 

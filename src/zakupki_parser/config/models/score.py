@@ -24,6 +24,11 @@ class ScoreConfig(BaseModel):
         default=0.5, ge=0, le=1, description="fit для кода, отсутствующего в fit_table"
     )
     p_win: float = Field(default=1.0, ge=0, le=1, description="вероятность победы P(win)")
+    margin_rate: float = Field(
+        default=1.0,
+        ge=0,
+        description="норма прибыли: Margin = НМЦК × margin_rate",
+    )
     scoring_transport_url: str | None = Field(
         default=None,
         description="адрес scoring_transport для автопуша задания на внешний скоринг (ADR-7)",
