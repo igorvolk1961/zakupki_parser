@@ -41,6 +41,7 @@ search_criteria:
   active_only: false
   fz44: true
   fz223: true
+export_dir: data/export
 db:
   dsn: postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki
   enabled: true

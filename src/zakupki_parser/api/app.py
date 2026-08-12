@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import logging
 import mimetypes
 from collections.abc import AsyncIterator
@@ -287,6 +289,63 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             offset=offset,
         )
         return ProcurementListOut(total=total, items=[_procurement_out(r) for r in rows])
+
+    # Плоские колонки для CSV-выгрузки (без detail_json/files_json).
+    CSV_COLUMNS = [
+        "id",
+        "number",
+        "source_platform",
+        "url",
+        "customer",
+        "law",
+        "subject",
+        "nmck",
+        "publication_date",
+        "update_date",
+        "deadline",
+        "execution_term",
+        "okpd2_codes",
+        "kpgz_codes",
+        "security_amount",
+        "security_amount_unit",
+        "advance",
+        "technical_spec_url",
+        "technical_spec_name",
+        "score",
+        "score_method",
+        "is_active",
+    ]
+
+    @app.post("/api/procurements/export", include_in_schema=False)
+    async def export_procurements() -> dict[str, Any]:
+        """Выгружает закупки из БД в CSV на сервере (каталог export_dir).
+
+        Файл пишется в ``config_service.yaml -> export_dir`` (создаётся при
+        необходимости). Операция read-only — безопасна при работающем парсере.
+        """
+        rows, _ = await _repo().list_procurements(limit=10**9)
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            out = _procurement_out(row).model_dump()
+            for col in ("publication_date", "update_date", "deadline"):
+                if isinstance(out.get(col), datetime):
+                    out[col] = out[col].isoformat()
+            writer.writerow(out)
+
+        export_dir = Path(state.cfg.service.export_dir)
+        try:
+            export_dir.mkdir(parents=True, exist_ok=True)
+            target = export_dir / "procurements.csv"
+            target.write_bytes(buf.getvalue().encode("utf-8-sig"))
+        except OSError as exc:
+            logger.error("Не удалось записать CSV %s: %s", export_dir, exc)
+            raise HTTPException(status_code=500, detail=f"Не удалось выгрузить CSV: {exc}") from exc
+
+        logger.info("Выгружено закупок в CSV: %s -> %s", len(rows), target)
+        return {"status": "exported", "count": len(rows), "path": str(target)}
 
     @app.get("/api/procurements/{procurement_id}", response_model=ProcurementDetailOut)
     async def get_procurement(procurement_id: int) -> ProcurementDetailOut:

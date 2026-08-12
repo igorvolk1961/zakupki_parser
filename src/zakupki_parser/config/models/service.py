@@ -209,6 +209,13 @@ class ServiceConfig(_BaseConfig):
         default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
     )
     db: DbConfig = Field(default_factory=DbConfig)
+    export_dir: str = Field(
+        default="data/export",
+        description=(
+            "каталог на сервере для выгрузки БД в CSV (кнопка «Выгрузить CSV»); "
+            "создаётся автоматически при выгрузке"
+        ),
+    )
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     stop_conditions: StopConditions = Field(default_factory=StopConditions)
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)

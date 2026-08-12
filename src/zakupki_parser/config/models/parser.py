@@ -60,3 +60,12 @@ class ParserConfig(BaseModel):
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
     request_limits: RequestLimits = Field(default_factory=RequestLimits)
+    max_list_pages: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "максимальное число страниц списка за один проход площадки — защита от вечного "
+            "цикла пагинации (например, когда селектор next_page присутствует и на последней "
+            "странице). null/0 — без ограничения"
+        ),
+    )

@@ -102,7 +102,7 @@
       <option value="light">Светлая</option>
       <option value="dark">Тёмная</option>
     </select>
-    <label class="admin-toggle" title="Доступ к «Очистить БД» и «Параметры»">
+    <label class="admin-toggle" title="Доступ к «Очистить БД», «Выгрузить CSV» и «Параметры»">
       <input type="checkbox" id="admin"> Режим администратора
     </label>
   </div>
@@ -114,6 +114,7 @@
       <button id="parser-start">▶ Запустить</button>
       <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
       <button class="ghost" id="db-clear" disabled>Очистить БД</button>
+      <button class="ghost" id="db-export">Выгрузить CSV на сервер</button>
       <select id="platform"><option value="">Все площадки</option></select>
       <span id="parser-status" class="muted">проверка…</span>
     </div>
@@ -436,6 +437,7 @@ function updateControls() {
   const adminOn = adminMode;
   $("#db-clear").style.display = adminOn ? "" : "none";
   $("#db-clear").disabled = parserRunning;
+  $("#db-export").style.display = adminOn ? "" : "none";
   $("#tab-cfg").style.display = adminOn ? "" : "none";
 }
 
@@ -504,6 +506,13 @@ $("#db-clear").addEventListener("click", async () => {
   if (!r.ok) { $("#parser-status").textContent = "не удалось очистить БД (возможно, идёт сбор)"; return; }
   await loadProc(); await loadCustomers();
   $("#parser-status").textContent = "БД очищена";
+});
+$("#db-export").addEventListener("click", async () => {
+  $("#parser-status").textContent = "выгрузка CSV…";
+  const r = await fetch("/api/procurements/export", { method: "POST" });
+  if (!r.ok) { $("#parser-status").textContent = "не удалось выгрузить CSV"; return; }
+  const body = await r.json();
+  $("#parser-status").textContent = `CSV выгружен на сервер: ${body.path} (закупок: ${body.count})`;
 });
 refreshParserStatus();
 

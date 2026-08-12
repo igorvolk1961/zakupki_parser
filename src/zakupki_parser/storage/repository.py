@@ -107,6 +107,29 @@ class ProcurementRepository:
             result = await session.execute(stmt)
             return result.scalar_one_or_none() is not None
 
+    async def known_numbers(self, platform_id: str) -> set[str]:
+        """Все номера закупок площадки — для пропуска повторной обработки.
+
+        Используется оркестратором, чтобы не открывать детальные страницы уже
+        сохранённых закупок при повторных проходах (relevance-режим).
+        """
+        stmt = select(Procurement.number).where(Procurement.source_platform == platform_id)
+        async with self._db.session() as session:
+            result = await session.execute(stmt)
+            return {row[0] for row in result.all()}
+
+    async def count(self, platform_id: str | None = None) -> int:
+        """Число закупок (всей площадки или указанной platform_id).
+
+        Используется для раннего сравнения с числом результатов поиска: если в БД
+        записей не меньше, чем нашёл поиск, новые закупки, скорее всего, отсутствуют.
+        """
+        stmt = select(func.count(Procurement.id))
+        if platform_id is not None:
+            stmt = stmt.where(Procurement.source_platform == platform_id)
+        async with self._db.session() as session:
+            return int((await session.execute(stmt)).scalar_one())
+
     async def upsert(self, data: dict[str, Any]) -> bool:
         """Записывает заявку.
 

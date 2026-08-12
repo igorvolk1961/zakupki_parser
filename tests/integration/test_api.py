@@ -297,3 +297,26 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
         bad = client.put("/api/config", json={"timeout_seconds": "not-a-number"})
         assert bad.status_code == 422
     os.environ.pop("ZAKUPKI_DB_DSN", None)
+
+
+def test_export_csv_writes_to_export_dir(
+    api_client: tuple[TestClient, Path], inserted_id: int, tmp_path: Path
+) -> None:
+    client, _ = api_client
+    export_dir = tmp_path / "export"
+    state = cast(Any, client.app).state.parser
+    state.cfg.service.export_dir = str(export_dir)
+
+    resp = client.post("/api/procurements/export")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "exported"
+    assert body["count"] >= 1
+
+    target = export_dir / "procurements.csv"
+    assert target.exists()
+    content = target.read_text(encoding="utf-8-sig")
+    # Заголовок + запись из inserted_id.
+    assert "number,source_platform" in content
+    assert "API-1" in content
+    assert "Заказчик ООО" in content

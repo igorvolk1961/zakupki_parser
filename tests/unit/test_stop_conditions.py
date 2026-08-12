@@ -88,3 +88,14 @@ async def test_min_deadline_days_ignored_when_deadline_check_off(
     )
     record = {"number": "6", "deadline": datetime(2026, 8, 1, 12, 0, tzinfo=UTC)}
     assert orch._check_stop_conditions(record) is False  # noqa: SLF001
+
+
+def test_is_known_skips_existing(app_config: AppConfig) -> None:
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None)
+    # Без загруженного набора (репозиторий None) — ничего не пропускаем.
+    assert orch._is_known("1") is False  # noqa: SLF001
+    orch._known_numbers = {"1", "2"}
+    assert orch._is_known("1") is True  # noqa: SLF001
+    assert orch._is_known("3") is False  # noqa: SLF001
+    assert orch._is_known(None) is False  # noqa: SLF001

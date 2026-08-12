@@ -30,6 +30,7 @@ from zakupki_parser.parser.files import split_technical_spec
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.keywords import matches_any_keyword
 from zakupki_parser.parser.lister import (
+    extract_total_results,
     goto_next_page,
     iter_container_records,
     next_page_exists,
@@ -85,6 +86,9 @@ class Orchestrator:
         self._inn_cache: dict[str, str | None] = {}
         # Одноразовое предупреждение о пост-фильтре без переменной subject.
         self._post_filter_warned = False
+        # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
+        # (relevance-режим): детальные страницы известных закупок не открываем.
+        self._known_numbers: set[str] | None = None
 
     async def _resolve_customer_inn(self, page: Page, customer_link: str | None) -> str | None:
         """ИНН заказчика с кешированием по ссылке на организацию.
@@ -112,6 +116,14 @@ class Orchestrator:
             return True
         status = (record.get("status") or "").strip()
         return status in statuses
+
+    def _is_known(self, number: Any) -> bool:
+        """True, если закупка с номером уже сохранена в БД (повторный проход)."""
+        return (
+            self._known_numbers is not None
+            and number is not None
+            and str(number) in self._known_numbers
+        )
 
     def _check_stop_conditions(self, record: dict[str, Any]) -> bool:
         """Проверяет набор флагов прекращения обработки заявки.
@@ -198,6 +210,12 @@ class Orchestrator:
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
         number = list_vars.get("number")
+
+        # Оптимизация повторного прохода: закупка уже в БД — детальную страницу
+        # не открываем (upsert не обновляет известные записи, поведение не меняется).
+        if self._is_known(number):
+            logger.info("Закупка %s уже в БД, детали не обрабатываем", number)
+            return
 
         # 1а) клиентский пост-фильтр по ключевым словам (для SPA без серверного текстового
         #     поиска). Отсекаем записи, в предмете/номере которых нет ни одного слова.
@@ -361,6 +379,8 @@ class Orchestrator:
 
         # 9) запись в БД + защита от дубликатов
         saved = await self._persist(record)
+        if saved and self._known_numbers is not None:
+            self._known_numbers.add(str(number))
 
         # 10) авто-пуш задания на внешний скоринг (ADR-7): закупка сохранена с дефолтным
         #     скором; transport ставит её в приоритетную очередь. Уведомление подписчиков
@@ -405,6 +425,16 @@ class Orchestrator:
             )
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
+        # Оптимизация повторного прохода: грузим номера сохранённых закупок, чтобы
+        # не открывать детальные страницы известных записей (upsert их не обновляет).
+        if self._repository is not None:
+            self._known_numbers = await self._repository.known_numbers(self._platform_id)
+            logger.info(
+                "Площадка %s: известно закупок в БД: %d",
+                self._platform_id,
+                len(self._known_numbers),
+            )
+
         retry_cfg = self._cfg.parser.retry
         await run_with_retry(
             lambda: open_list_page(page, self._platform, cutoff, self._cfg.service.search_criteria),
@@ -415,7 +445,47 @@ class Orchestrator:
         await setup_sort_and_filters(page, self._platform)
         await self._delayer.sleep()
 
+        # Ранний пропуск прохода (relevance-режим, без клиентского пост-фильтра):
+        # если все результаты поиска уже сохранены в БД (в БД записей не меньше,
+        # чем нашёл поиск) — открывать детальные страницы незачем.
+        if (
+            by_relevance
+            and not self._platform.list_config.post_filter_keywords
+            and self._platform.list_config.total_results_selector
+        ):
+            try:
+                search_total = await extract_total_results(page, self._platform)
+            except Exception:  # noqa: BLE001
+                search_total = None
+            if search_total is not None and self._repository is not None:
+                db_total = await self._repository.count(self._platform_id)
+                if db_total >= search_total:
+                    logger.info(
+                        "Площадка %s: в БД %d >= результатов поиска %d — новых закупок "
+                        "не ожидается, проход пропущен",
+                        self._platform_id,
+                        db_total,
+                        search_total,
+                    )
+                    self._site_cb.record_success()
+                    return
+
+        # Защита от вечного цикла пагинации (например, когда селектор next_page
+        # присутствует и на последней странице): жёсткий потолок числа страниц.
+        # 0/None — ограничение отключено.
+        max_pages = self._cfg.parser.max_list_pages or 0
+        pages_done = 0
+
         while True:
+            pages_done += 1
+            if max_pages and pages_done > max_pages:
+                logger.warning(
+                    "Площадка %s: превышен лимит страниц %d, обход прерван",
+                    self._platform_id,
+                    max_pages,
+                )
+                break
+
             reached_cutoff = False
             async for container in iter_container_records(page, self._platform, self._delayer):
                 # Выход по порогу даты публикации (только если порог задан). Обрабатываем

@@ -28,6 +28,12 @@
       закупки (обеспечение/аванс уже сделаны на ЕИС, КПГЗ и аванс — осталось).
 - [ ] **Эндпоинт чистки БД** (например, `DELETE /api/procurements` по фильтрам/возрасту
       записи).
+- [ ] **Ранний пропуск прохода по числу результатов поиска** — реализован движок
+      (`list_config.total_results_selector` + `total_results_regex`,
+      `parser/lister.py:extract_total_results`, `repository.count`, ранний `return` в
+      `run()` для relevance-режима без `post_filter_keywords`). Осталось: верифицировать
+      селектор счётчика для каждой площадки (`zp capture-fixture`) и включить в
+      `configs/dom/<platform_id>.yaml` (у zakupki.mos.ru — закомментирован).
 - [ ] **Верифицировать DOM-шаги фильтров** (`config_dom.yaml -> filters`) для площадок
       с панелью фильтров (для zakupki.mos.ru реализован и проверен URL-фильтр
       `search`, DOM-шаги не нужны).

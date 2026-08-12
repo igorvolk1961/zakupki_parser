@@ -28,6 +28,11 @@
 ## 4. Движок парсинга
 - [x] Оркестратор основного алгоритма (`parser/orchestrator.py`)
 - [x] Lister: вход, сортировка (по дате публикации), фильтры, пагинация
+- [x] URL-пагинация `page_param`/`page_size` (b2b_center, etpgpb, lot_online, zakupki_mos)
+- [x] Потолок страниц за проход `parser.max_list_pages` (защита от вечного цикла)
+- [x] Ранний пропуск прохода по числу результатов (`total_results_selector`/`total_results_regex`,
+      `lister.extract_total_results`, `repository.count`) — relevance-режим без пост-фильтра
+- [x] Пропуск уже сохранённых закупок (`repository.known_numbers`) — детали не открываем
 - [x] Extractor: извлечение по конфигу (selector/index/regex/обработчики)
 - [x] Обработчики значений: strip/money/float/int/date/datetime/law/regex/pub_date/deadline
 - [x] Детальные страницы в отдельной вкладке (список не теряется)
@@ -89,6 +94,7 @@
 - [x] `GET /api/procurements/{id}/technical-spec` (скачивание ТЗ)
 - [x] `POST /api/procurements/{id}/score` (возврат результата из транспорта; обновляет score
       и при `score ≥ notify_min_score` отправляет уведомление — ADR-7)
+- [x] `POST /api/procurements/export` (выгрузка БД в CSV, каталог `export_dir`; кнопка «Выгрузить CSV»)
 - [ ] ⬜ TODO: эндпойнт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту записи) —
       при удалении записей удалять и связанные файлы из хранилища (S3/local), ссылки на которые
       хранятся в `technical_spec_url` и `files_json`
@@ -100,6 +106,7 @@
 
 ## 12. Тесты и CI
 - [x] Unit: обработчики, конфиг, circuit breaker, дата последней обработки, stop-условия, ОКПД2, скоринг, retry
+- [x] Unit: извлечение общего числа результатов (`tests/unit/test_total_results.py`)
 - [x] Integration: фикстуры (mos.ru, ЕИС 44-ФЗ/223-ФЗ, documents.html), репозиторий, API (PostgreSQL)
 - [x] GitHub Actions CI: ruff, mypy, pytest (сервисный postgres), docker build
 - [x] Фикстуры реальных страниц (list/detail mos.ru и ЕИС)

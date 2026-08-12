@@ -78,6 +78,25 @@ async def test_exists_false_for_unknown(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_known_numbers(db: Database) -> None:
+    repo = ProcurementRepository(db)
+    await repo.upsert({"number": "KN-1", "source_platform": "zakupki_mos", "subject": "x"})
+    await repo.upsert({"number": "KN-2", "source_platform": "zakupki_mos", "subject": "y"})
+    await repo.upsert({"number": "OTHER-1", "source_platform": "fabrikant", "subject": "z"})
+    assert await repo.known_numbers("zakupki_mos") == {"KN-1", "KN-2"}
+
+
+@pytest.mark.asyncio
+async def test_count(db: Database) -> None:
+    repo = ProcurementRepository(db)
+    await repo.upsert({"number": "C-1", "source_platform": "zakupki_mos", "subject": "x"})
+    await repo.upsert({"number": "C-2", "source_platform": "zakupki_mos", "subject": "y"})
+    await repo.upsert({"number": "C-3", "source_platform": "fabrikant", "subject": "z"})
+    assert await repo.count("zakupki_mos") == 2
+    assert await repo.count() == 3
+
+
+@pytest.mark.asyncio
 async def test_count_one(db: Database) -> None:
     repo = ProcurementRepository(db)
     await repo.upsert({"number": "ABC-3", "source_platform": "zakupki_mos", "subject": "x"})

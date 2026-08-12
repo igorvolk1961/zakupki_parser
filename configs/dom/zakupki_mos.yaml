@@ -11,8 +11,18 @@ list_config:
   container: "div.PublicListStyles__PublicListContentContainer-sc-1epmhkd-1 > div:has(div.CardStyles__MainInfoContainer-sc-1rn3iq8-1)"
   # Ссылка на детальную страницу закупки
   detail_link: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6"
-  # Селектор перехода на следующую страницу (Semantic UI пагинация)
+  # Пагинация — по query-параметру page (perPage=10 задан в search.query_params).
+  # Semantic UI на этой SPA рендерит стрелку "следующая" даже на последней странице,
+  # поэтому end-of-pagination определяем по page_size (полная страница = 10 записей),
+  # а не по наличию селектора next_page (иначе — вечный цикл по последней странице).
+  page_param: "page"
+  page_size: 10
   next_page: "div.ui.pagination.menu a[type='nextItem']"
+  # Ранний пропуск прохода (relevance-режим): если в БД закупок не меньше, чем нашёл
+  # поиск, новые закупки, скорее всего, отсутствуют — проход не выполняется.
+  # ВАЖНО: селектор счётчика ещё не верифицирован (нужна фикстура capture-fixture).
+  # total_results_selector: null
+  # total_results_regex: null
   # Имя переменной с датой публикации (используется для стоп-порога)
   publication_date: "publication_date"
   # Статусы, считающиеся активными (is_active). Неактивны — завершённые, отменённые и т.п.
