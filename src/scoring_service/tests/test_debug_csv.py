@@ -73,6 +73,7 @@ def test_render_table_and_report(tmp_path: Path) -> None:
         fit=fit,
         judge=judge,
         final_fit_score=8.0,
+        fit_multiplier=0.8,
         p_win=1.0,
         margin=150.0,
         score=120.0,

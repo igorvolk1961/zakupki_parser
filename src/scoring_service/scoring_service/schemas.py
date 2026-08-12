@@ -60,6 +60,11 @@ class ScoringOutput(BaseModel):
     fit: FitResult
     judge: JudgeResult
     final_fit_score: float = Field(description="Финальная оценка Fit 0..10")
+    fit_multiplier: float = Field(
+        description=(
+            "Множитель Fit 0..1 (final_fit_score / max_fit_score при normalize_fit_for_score)"
+        )
+    )
     p_win: float
     margin: float
     score: float

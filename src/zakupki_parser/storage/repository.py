@@ -169,6 +169,7 @@ class ProcurementRepository:
             technical_spec_name=data.get("technical_spec_name"),
             files_json=data.get("files_json"),
             score=_round_score(data.get("score")),
+            fit_score=_round_score(data.get("fit_score")),
             score_method=data.get("score_method"),
             is_active=bool(data.get("is_active", True)),
             detail_json=data.get("detail_json"),
@@ -229,18 +230,26 @@ class ProcurementRepository:
         ).scalar_one()
         return cust.id
 
-    async def update_score(self, procurement_id: int, score: float, method: str) -> None:
+    async def update_score(
+        self,
+        procurement_id: int,
+        score: float,
+        fit_score: float | None = None,
+        method: str = "external",
+    ) -> None:
         async with self._db.session() as session:
             obj = await session.get(Procurement, procurement_id)
             if obj is not None:
                 rounded = _round_score(score)
                 obj.score = rounded
+                obj.fit_score = _round_score(fit_score) if fit_score is not None else None
                 obj.score_method = method
                 await session.commit()
                 logger.info(
-                    "Обновлён score заявки %s: %s (метод %s)",
+                    "Обновлён score заявки %s: %s (fit %s, метод %s)",
                     procurement_id,
                     rounded,
+                    obj.fit_score,
                     method,
                 )
 

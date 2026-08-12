@@ -8,18 +8,25 @@ import httpx
 import pytest
 
 from zakupki_parser.config.models import ScoreConfig
-from zakupki_parser.scoring import ScoringTransportClient, compute_default_score, score_for_record
+from zakupki_parser.scoring import (
+    ScoringTransportClient,
+    compute_default_fit,
+    compute_default_score,
+    score_for_record,
+)
 
 
 def test_default_score_formula() -> None:
     cfg = ScoreConfig(fit_table={"62.01": 0.9}, p_win=1.0)
     record = {"okpd2_codes": "62.01", "nmck": 1000.0}
     assert compute_default_score(record, cfg) == pytest.approx(900.0)
+    assert compute_default_fit(record, cfg) == pytest.approx(0.9)
 
 
 def test_default_score_unknown_code_uses_default_fit() -> None:
     cfg = ScoreConfig(default_fit=0.5)
     assert compute_default_score({"okpd2_codes": "99.99", "nmck": 200.0}, cfg) == 100.0
+    assert compute_default_fit({"okpd2_codes": "99.99"}, cfg) == 0.5
 
 
 def test_default_score_fit_by_ancestor_prefix() -> None:
@@ -27,6 +34,7 @@ def test_default_score_fit_by_ancestor_prefix() -> None:
     cfg = ScoreConfig(fit_table={"62.01": 0.9}, default_fit=0.5)
     record = {"okpd2_codes": "62.01.29.000", "nmck": 1000.0}
     assert compute_default_score(record, cfg) == pytest.approx(900.0)
+    assert compute_default_fit(record, cfg) == pytest.approx(0.9)
 
 
 def test_default_score_no_nmck_zero() -> None:
@@ -50,8 +58,9 @@ def test_default_score_rounded_to_cents() -> None:
 @pytest.mark.asyncio
 async def test_score_for_record_default_method() -> None:
     cfg = ScoreConfig(fit_table={"62.01": 0.9})
-    score, method = await score_for_record({"okpd2_codes": "62.01", "nmck": 100.0}, cfg)
+    score, fit, method = await score_for_record({"okpd2_codes": "62.01", "nmck": 100.0}, cfg)
     assert score == pytest.approx(90.0)
+    assert fit == pytest.approx(0.9)
     assert method == "default"
 
 
@@ -64,8 +73,9 @@ async def test_deadline_expired_score_zero() -> None:
         "nmck": 1000.0,
         "deadline": datetime(2026, 8, 1, tzinfo=UTC),  # уже прошёл
     }
-    score, method = await score_for_record(record, cfg, now)
+    score, fit, method = await score_for_record(record, cfg, now)
     assert score == 0.0
+    assert fit == pytest.approx(0.9)
     assert method == "deadline_expired"
 
 
@@ -80,8 +90,9 @@ async def test_deadline_expired_ignored_when_active_only_false() -> None:
         "nmck": 1000.0,
         "deadline": datetime(2026, 8, 1, tzinfo=UTC),  # уже прошёл
     }
-    score, method = await score_for_record(record, cfg, now, active_only=False)
+    score, fit, method = await score_for_record(record, cfg, now, active_only=False)
     assert score == pytest.approx(900.0)
+    assert fit == pytest.approx(0.9)
     assert method == "default"
 
 
@@ -94,8 +105,9 @@ async def test_deadline_expired_kept_when_active_only_true() -> None:
         "nmck": 1000.0,
         "deadline": datetime(2026, 8, 1, tzinfo=UTC),  # уже прошёл
     }
-    score, method = await score_for_record(record, cfg, now, active_only=True)
+    score, fit, method = await score_for_record(record, cfg, now, active_only=True)
     assert score == 0.0
+    assert fit == pytest.approx(0.9)
     assert method == "deadline_expired"
 
 
@@ -108,8 +120,9 @@ async def test_deadline_future_uses_normal_score() -> None:
         "nmck": 1000.0,
         "deadline": datetime(2026, 8, 10, tzinfo=UTC),
     }
-    score, method = await score_for_record(record, cfg, now)
+    score, fit, method = await score_for_record(record, cfg, now)
     assert score == pytest.approx(900.0)
+    assert fit == pytest.approx(0.9)
     assert method == "default"
 
 

@@ -32,12 +32,15 @@ class ParserApiClient:
         procurement_id: int,
         score: float,
         score_method: str = "external",
+        fit_score: float | None = None,
         retry_max: int = 3,
         retry_backoff: float = 2.0,
     ) -> dict[str, Any]:
         """Вернуть результат скоринга в парсер (с ретраями/backoff)."""
         url = f"{self._base}/api/procurements/{procurement_id}/score"
         payload = {"score": score, "score_method": score_method}
+        if fit_score is not None:
+            payload["fit_score"] = fit_score
         last_exc: Exception | None = None
         for attempt in range(retry_max):
             try:

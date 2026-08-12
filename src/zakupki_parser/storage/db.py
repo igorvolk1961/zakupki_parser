@@ -83,6 +83,7 @@ class Procurement(Base):
     technical_spec_name: Mapped[str | None] = mapped_column(Text)
     files_json: Mapped[list[Any] | None] = mapped_column(JSONB)
     score: Mapped[float | None] = mapped_column(Float)
+    fit_score: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str | None] = mapped_column(String(64))
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True

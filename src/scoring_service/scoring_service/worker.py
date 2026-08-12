@@ -52,7 +52,7 @@ class ScoringWorker:
                 {
                     "procurement_id": procurement_id,
                     "score": result.score,
-                    "fit_score": result.final_fit_score,
+                    "fit_score": result.fit_multiplier,
                     "p_win": result.p_win,
                     "margin": result.margin,
                     "score_method": "external",

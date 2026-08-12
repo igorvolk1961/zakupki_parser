@@ -364,13 +364,14 @@ class Orchestrator:
         #    Просроченный срок подачи заявок -> score=0, score_method=deadline_expired.
         #    Финальный внешний score проставит конвейер скоринга через POST /score (ADR-7).
         if "score" not in record:
-            score, method = await score_for_record(
+            score, fit_score, method = await score_for_record(
                 record,
                 self._cfg.score,
                 self._now,
                 active_only=self._cfg.service.search_criteria.active_only,
             )
             record["score"] = score
+            record["fit_score"] = fit_score
             record["score_method"] = method
 
         # 8) JSONB-карточка формируется из ФИНАЛЬНОЙ записи (включая файлы, score,

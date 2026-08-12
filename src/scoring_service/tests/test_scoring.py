@@ -89,6 +89,7 @@ def test_score_normalizes_fit_by_10() -> None:
     out = scorer.score({"subject": "x", "nmck": 400.0}, "comp")
     # fit_norm = 6/10 = 0.6; score = 0.6 × 0.5 × 400 = 120.0
     assert out.final_fit_score == 6.0
+    assert out.fit_multiplier == 0.6
     assert out.p_win == 0.5
     assert out.margin == 400.0
     assert out.score == 120.0

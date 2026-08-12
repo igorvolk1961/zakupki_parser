@@ -49,9 +49,14 @@ def _fit_for_code(code: str, fit_table: dict[str, float], default_fit: float) ->
     return best_fit if best_fit is not None else default_fit
 
 
+def compute_default_fit(record: dict[str, Any], cfg: ScoreConfig) -> float:
+    """Множитель Fit (0..1) по ОКПД2 из config_score.yaml."""
+    return _fit_for_code(_okpd2_code(record), cfg.fit_table, cfg.default_fit)
+
+
 def compute_default_score(record: dict[str, Any], cfg: ScoreConfig) -> float:
     """Внутренняя эвристика: Fit × P(win) × Margin (Margin = НМЦК × margin_rate)."""
-    fit = _fit_for_code(_okpd2_code(record), cfg.fit_table, cfg.default_fit)
+    fit = compute_default_fit(record, cfg)
     margin = float(record.get("nmck") or 0.0) * cfg.margin_rate
     return round(fit * cfg.p_win * margin, 2)
 
@@ -62,8 +67,8 @@ async def score_for_record(
     now: datetime | None = None,
     *,
     active_only: bool = True,
-) -> tuple[float, str]:
-    """Возвращает (score, score_method) для записи перед сохранением.
+) -> tuple[float, float, str]:
+    """Возвращает (score, fit_score, score_method) для записи перед сохранением.
 
     - при поиске по ВСЕМ закупкам (``active_only=False``) просроченные не метим
       ``deadline_expired``: метод всегда ``default``, чтобы они доезжали до внешнего
@@ -76,8 +81,9 @@ async def score_for_record(
     if active_only:
         deadline = record.get("deadline")
         if isinstance(deadline, datetime) and now is not None and deadline < now:
-            return 0.0, SCORE_METHOD_DEADLINE_EXPIRED
-    return compute_default_score(record, cfg), SCORE_METHOD_DEFAULT
+            return 0.0, compute_default_fit(record, cfg), SCORE_METHOD_DEADLINE_EXPIRED
+    fit = compute_default_fit(record, cfg)
+    return compute_default_score(record, cfg), fit, SCORE_METHOD_DEFAULT
 
 
 class ScoringTransportClient:

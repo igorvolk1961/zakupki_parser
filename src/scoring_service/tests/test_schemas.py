@@ -47,6 +47,7 @@ def test_scoring_output() -> None:
         fit=FitResult(reasoning=_reasoning(), fit_score=8.0),
         judge=JudgeResult(critics="ok", verdict="accept", final_fit_score=8.0),
         final_fit_score=8.0,
+        fit_multiplier=0.8,
         p_win=1.0,
         margin=100.0,
         score=800.0,

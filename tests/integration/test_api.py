@@ -157,15 +157,17 @@ def test_set_score_by_external_service(
     client, _ = api_client
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 123.5, "score_method": "external"},
+        json={"score": 123.5, "fit_score": 0.85, "score_method": "external"},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["score"] == 123.5
+    assert body["fit_score"] == 0.85
     assert body["score_method"] == "external"
 
     detail = client.get(f"/api/procurements/{inserted_id}").json()
     assert detail["score"] == 123.5
+    assert detail["fit_score"] == 0.85
 
 
 def test_set_score_notifies_above_threshold(
@@ -193,11 +195,12 @@ def test_set_score_notifies_above_threshold(
     # Выше порога — уведомление с обновлённой карточкой.
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 150.0, "score_method": "external"},
+        json={"score": 150.0, "fit_score": 0.9, "score_method": "external"},
     )
     assert resp.status_code == 200
     assert len(calls) == 1
     assert calls[0]["score"] == 150.0
+    assert calls[0]["fit_score"] == 0.9
 
 
 def test_set_score_404(api_client: tuple[TestClient, Path]) -> None:
