@@ -27,6 +27,9 @@ documents/
 .env
 *.local
 
+# Runtime state (PID-файл фонового стека run_all.sh)
+.run_all.pids
+
 # IDE
 .idea/
 .vscode/
