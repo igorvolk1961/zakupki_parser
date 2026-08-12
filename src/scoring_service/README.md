@@ -38,8 +38,10 @@ card + competencies
 LangFuse-сессию** (`session_id = run_id`): воркер создаёт один `run_id` на время
 жизни процесса, `score-csv`/`evaluate` — один на весь прогон, CLI `score` и HTTP
 `POST /score` — один на вызов (либо из запроса). Если `run_id` не задан, сессией
-служит `procurement_id`. Если LangFuse не настроен — вызовы идут без трассировки
-(dev-режим).
+служит `procurement_id`. Из-за особенностей langfuse 4.x LangChain-callback
+`session_id` передаётся через зарезервированный ключ `metadata["langfuse_session_id"]`
+(`config["session_id"]` игнорируется). Если LangFuse не настроен — вызовы идут
+без трассировки (dev-режим).
 
 ### Self-hosted в Docker (dev)
 В `docker/docker-compose.yml` стек LangFuse v3 (+ ClickHouse) за compose-профилем `langfuse`:

@@ -4,9 +4,35 @@ from __future__ import annotations
 
 from typing import Literal
 
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import RunnableLambda
+
+from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps
 from scoring_service.scoring import Scorer, build_scorer
 from scoring_service.settings import Settings
+
+
+class _FakeStructuredLLM(BaseChatModel):
+    """Минимальный LLM: только для сборки FitChain (без сети)."""
+
+    def with_structured_output(self, schema: object, **kwargs: object) -> RunnableLambda:
+        return RunnableLambda(lambda messages, **kw: _fit(8.0))  # type: ignore[arg-type]
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: object | None = None,
+        **kwargs: object,
+    ) -> ChatResult:
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="{}"))])
+
+    @property
+    def _llm_type(self) -> str:
+        return "fake"
 
 
 def _reasoning() -> ReasoningSteps:
@@ -209,3 +235,18 @@ def test_score_falls_back_to_procurement_session_without_run_id() -> None:
     scorer.score({"subject": "x", "nmck": 10.0}, "comp", procurement_id=7)
 
     assert fit.session_ids == ["7"]
+
+
+def test_fit_chain_config_sets_session_via_langfuse_session_id() -> None:
+    """langfuse 4.x читает session_id из metadata['langfuse_session_id']."""
+    chain = FitChain(_FakeStructuredLLM(), callbacks=None)
+    cfg = chain._config(  # noqa: SLF001
+        session_id="run-1", metadata={"procurement_id": 42, "llm_model": "gpt-test"}
+    )
+    meta = cfg.get("metadata", {})
+    assert meta["langfuse_session_id"] == "run-1"
+    assert meta["procurement_id"] == 42
+    assert meta["llm_model"] == "gpt-test"
+
+    cfg_no_session = chain._config(metadata={"procurement_id": 7})  # noqa: SLF001
+    assert "langfuse_session_id" not in cfg_no_session.get("metadata", {})

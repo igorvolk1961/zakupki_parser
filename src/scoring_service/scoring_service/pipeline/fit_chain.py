@@ -50,10 +50,13 @@ class FitChain:
             "callbacks": self._callbacks or None,
             "run_name": "fit_scoring",
         }
+        trace_meta = dict(metadata or {})
         if session_id is not None:
-            config["session_id"] = session_id
-        if metadata:
-            config["metadata"] = metadata
+            # langfuse 4.x LangChain-callback читает session_id именно из этого
+            # зарезервированного ключа metadata (config["session_id"] игнорируется).
+            trace_meta["langfuse_session_id"] = session_id
+        if trace_meta:
+            config["metadata"] = trace_meta
         return cast(RunnableConfig, config)
 
     def invoke(
