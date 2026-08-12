@@ -43,6 +43,7 @@ def _reasoning() -> ReasoningSteps:
         term_overlap_mismatch_check="s",
         synonym_semantic_bridge="s",
         uncovered_scope="s",
+        tz_review_necessity="s",
         fit_score_rationale="s",
     )
 

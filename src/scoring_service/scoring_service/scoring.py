@@ -100,6 +100,7 @@ class Scorer:
             term_overlap_mismatch_check="",
             synonym_semantic_bridge="",
             uncovered_scope="",
+            tz_review_necessity="",
             fit_score_rationale="stub",
         )
         fit = FitResult(reasoning=reasoning, fit_score=score, requires_tz_review=False)

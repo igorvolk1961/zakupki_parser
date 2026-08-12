@@ -63,7 +63,8 @@ def test_render_table_and_report(tmp_path: Path) -> None:
         term_overlap_mismatch_check="d",
         synonym_semantic_bridge="e",
         uncovered_scope="f",
-        fit_score_rationale="g",
+        tz_review_necessity="g",
+        fit_score_rationale="h",
     )
     fit = FitResult(reasoning=reasoning, fit_score=8.0, requires_tz_review=False)
     judge = JudgeResult(critics="ok", verdict="accept", final_fit_score=8.0)

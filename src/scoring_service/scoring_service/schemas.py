@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ReasoningSteps(BaseModel):
@@ -24,6 +24,14 @@ class ReasoningSteps(BaseModel):
         description="Релевантность через синонимичные термины при другой лексике"
     )
     uncovered_scope: str = Field(description="Что из закупки НЕ покрывается компетенциями")
+    tz_review_necessity: str = Field(
+        description=(
+            "Нужно ли уточнять скор по полному тексту ТЗ (requires_tz_review) и почему: "
+            "обоснуй, есть ли реальная неоднозначность (например, не названо ПО), и почему "
+            "уточнение оправдано (закупка иначе потенциально релевантна). Уточнение дорогое — "
+            "не запускай его, если закупка уже однозначно вне/внутри компетенций."
+        )
+    )
     fit_score_rationale: str = Field(description="Обоснование числовой оценки fit_score")
 
 
@@ -45,6 +53,18 @@ class FitResult(BaseModel):
     @classmethod
     def _clamp(cls, value: float) -> float:
         return max(0.0, min(10.0, round(value, 2)))
+
+    @model_validator(mode="after")
+    def _guard_tz_review_band(self) -> FitResult:
+        """Не запускать дорогое уточнение по ТЗ вне плаузибельной зоны скор 4..7.
+
+        requires_tz_review=true оправдан только при скор в среднем диапазоне:
+        иначе (явно вне компетенций либо уже ясная автоматизация) уточнение
+        по полному тексту ТЗ не изменит итог. Флаг безопасно сбрасывается.
+        """
+        if self.requires_tz_review and not 4.0 <= self.fit_score <= 7.0:
+            self.requires_tz_review = False
+        return self
 
 
 class JudgeResult(BaseModel):
