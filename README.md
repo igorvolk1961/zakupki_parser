@@ -69,42 +69,22 @@ uv sync
 uv run playwright install chromium --with-deps
 ```
 
-## Инфраструктура (PostgreSQL + Redis)
-
-Все контейнеры инфраструктуры (PostgreSQL + Redis) поднимаются одной командой:
-
-```bash
-./scripts/services_up.sh          # поднять PostgreSQL + Redis
-./scripts/services_up.sh --status # статус всех контейнеров
-./scripts/services_up.sh --redis  # только Redis
-./scripts/services_up.sh --db     # только PostgreSQL
-```
-
-- `zakupki_db` — PostgreSQL: данные и миграции (Liquibase) применяются автоматически.
-- `zakupki_redis` — Redis: нужен конвейеру внешнего скоринга (`scoring_transport` +
-  `scoring_service`, очередь `scoring:jobs`/`scoring:results`).
-
-Для только БД можно использовать `./scripts/db_up.sh`:
-
-```bash
-./scripts/db_up.sh          # поднять БД (существующую или создать новую с миграциями)
-./scripts/db_up.sh --status # статус контейнера и таблиц
-```
-
-Скрипты используют контейнеры `zakupki_db` и `zakupki_redis` (данные хранятся в
-volume и сохраняются между сессиями). Если контейнера нет — создают его и ждут
-готовности; если есть — просто запускают (идемпотентно).
-
 ## Запуск
 
 Команда CLI — `zp` (сокращение от `zakupki-parser`; длинное имя доступно как алиас).
-Поднимите инфраструктуру и запустите сервис:
+Сначала поднимите фоновый стек (БД + Redis + `scoring_service`-воркер +
+`scoring_transport`), затем запустите парсер:
 
 ```bash
-./scripts/services_up.sh
+./scripts/run_all.sh                     # фоновый стек (работает в этом терминале)
+# в другом терминале:
 uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 # открыть http://localhost:8000/
 ```
+
+`run_all.sh` держит фоновые сервисы живыми (Ctrl+C — останавливает). Транспорт
+скоринга поднимается и ожидает готовности до того, как вы запустите парсер, — так
+авто-пуш заданий на внешний скоринг не теряется и уведомления доходят до подписчиков.
 
 Парсер запускается из web-демо кнопкой «▶ Запустить» — это **постоянный мониторинг**
 (периодические проходы по площадкам, эндпоинт `POST /api/parser/start`); остановка —
@@ -139,6 +119,24 @@ uv run zp --configs configs stop --force
 Требуется `pgrep` (пакет `procps`). Для одного процесса на переднем плане также
 работает `Ctrl+C` в терминале.
 
+## Инфраструктура (PostgreSQL + Redis)
+
+В локальном запуске (вне контейнера) контейнерами Docker являются только БД и Redis;
+`scoring_service` и `scoring_transport` поднимаются как локальные `uv`-процессы
+(`scripts/run_all.sh`, см. «Запуск»). Контейнеры:
+
+- `zakupki_db` — PostgreSQL: данные и миграции (Liquibase) применяются автоматически
+  (через `scripts/db_up.sh`).
+- `zakupki_redis` — Redis: нужен конвейеру внешнего скоринга (`scoring_transport` +
+  `scoring_service`, очередь `scoring:jobs`/`scoring:results`).
+
+Данные контейнеров хранятся в volume и сохраняются между сессиями. Если контейнера
+нет — он создаётся и ждёт готовности; если есть — просто запускается (идемпотентно).
+
+В Docker-варианте всё, включая парсер, `scoring_transport` и `scoring_service`, —
+также контейнеры; весь стек описан одним манифестом `docker/docker-compose.yml`
+(см. раздел «Docker»).
+
 ## Утилиты (разработка и тесты)
 
 Запуск парсера без API — альтернативы:
@@ -159,8 +157,13 @@ uv run zp --configs configs capture-fixture --platform zakupki_mos
 ```
 
 Дополнительные скрипты:
-- `scripts/services_up.sh` — поднять инфраструктуру (PostgreSQL + Redis) и их статус;
-- `scripts/db_up.sh` — только PostgreSQL (данные и миграции);
+- `scripts/run_all.sh` — фоновый стек (БД + Redis + `scoring_service` + `scoring_transport`);
+- `scripts/db_up.sh` — только PostgreSQL (данные и миграции), если нужно поднять
+  БД без остального стека:
+  ```bash
+  ./scripts/db_up.sh          # поднять БД (существующую или создать новую с миграциями)
+  ./scripts/db_up.sh --status # статус контейнера и таблиц
+  ```
 - `scripts/get_max_chat_id.py` / `scripts/test_max_chat.py` — вспомогательные
   утилиты для настройки MAX-уведомлений.
 
@@ -197,6 +200,8 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 
 Переменные окружения (для Docker/CI):
 - `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_service.yaml -> db.dsn`);
+- `ZAKUPKI_SCORING_TRANSPORT_URL` — адрес `scoring_transport` (в Docker — имя сервиса
+  `http://scoring-transport:8200`, в локальном запуске — `http://localhost:8200`);
 - `ZAKUPKI_NOTIFY_BACKEND` — бэкенд уведомлений; `none` полностью отключает
   оповещения (в `docker/docker-compose.yml` задано `none`);
 - секреты уведомлений — берутся из файла `.env` в корне проекта (см. `env_file: ../.env` в `docker/docker-compose.yml`):
@@ -206,8 +211,11 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 ```bash
 docker compose -f docker/docker-compose.yml up --build
 ```
-Запустит PostgreSQL, применит Liquibase-миграции и поднимет сервисы `parser` (периодический обход)
-и `api` (FastAPI на `http://localhost:8000/`). Команду запускать из корня репозитория —
+Запустит единый стек одной командой: PostgreSQL + Liquibase-миграции + Redis +
+`scoring_service` (воркер) + `scoring_transport` + `parser` (периодический обход) +
+`api` (FastAPI на `http://localhost:8000/`). Сервисы связаны по имени (api ↔
+`scoring-transport` ↔ redis), поэтому конвейер внешнего скоринга и возврат результата
+в `POST /score` работают из коробки. Команду запускать из корня репозитория —
 контекст сборки и файл `.env` резолвятся относительно `docker/docker-compose.yml`.
 
 Для удобства есть скрипт-обёртка над compose-стеком — `scripts/compose.sh`:

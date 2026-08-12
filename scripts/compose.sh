@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Управляет Docker-compose стеком проекта (docker/docker-compose.yml).
 #
-# Стек: db (PostgreSQL) + liquibase (миграции) + parser + api (FastAPI :8000).
+# Стек: db (PostgreSQL) + liquibase (миграции) + redis + scoring_service +
+# scoring_transport + parser + api (FastAPI :8000). Единый стек одной командой.
 # Простая альтернатива длинным командам `docker compose -f docker/docker-compose.yml ...`.
 #
 # Использование:

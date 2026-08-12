@@ -63,6 +63,36 @@ async def test_deadline_expired_score_zero() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deadline_expired_ignored_when_active_only_false() -> None:
+    # Поиск по ВСЕМ закупкам: просроченные не помечаются deadline_expired,
+    # метод всегда default — чтобы закупка доехала до скоринга и уведомления.
+    cfg = ScoreConfig(fit_table={"62.01": 0.9})
+    now = datetime(2026, 8, 5, tzinfo=UTC)
+    record = {
+        "okpd2_codes": "62.01",
+        "nmck": 1000.0,
+        "deadline": datetime(2026, 8, 1, tzinfo=UTC),  # уже прошёл
+    }
+    score, method = await score_for_record(record, cfg, now, active_only=False)
+    assert score == pytest.approx(900.0)
+    assert method == "default"
+
+
+@pytest.mark.asyncio
+async def test_deadline_expired_kept_when_active_only_true() -> None:
+    cfg = ScoreConfig(fit_table={"62.01": 0.9})
+    now = datetime(2026, 8, 5, tzinfo=UTC)
+    record = {
+        "okpd2_codes": "62.01",
+        "nmck": 1000.0,
+        "deadline": datetime(2026, 8, 1, tzinfo=UTC),  # уже прошёл
+    }
+    score, method = await score_for_record(record, cfg, now, active_only=True)
+    assert score == 0.0
+    assert method == "deadline_expired"
+
+
+@pytest.mark.asyncio
 async def test_deadline_future_uses_normal_score() -> None:
     cfg = ScoreConfig(fit_table={"62.01": 0.9})
     now = datetime(2026, 8, 5, tzinfo=UTC)

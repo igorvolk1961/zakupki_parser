@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Запускает всё приложение одной командой (для работы вне контейнера):
+# Запускает фоновый стек приложения одной командой (для работы вне контейнера):
 #
-#   1. инфраструктура — PostgreSQL + Redis (scripts/services_up.sh);
+#   1. инфраструктура — PostgreSQL (scripts/db_up.sh) + Redis;
 #   2. scoring_service — фоновый воркер Redis-очереди (в режиме заглушки,
 #      пока LLM-пайплайн не отлажен: SCORE_USE_STUB/score_use_stub);
 #   3. scoring_transport — gateway скоринга (ingest + возврат результата);
-#   4. парсер — FastAPI (serve) на переднем плане.
 #
-# После запуска открыть http://localhost:8000/ и нажать «▶ Запустить».
-# Остановка: Ctrl+C — завершает все фоновые сервисы.
+# Парсер запускается отдельной командой (не внутри этого скрипта):
+#   uv run zp --configs configs serve --host 0.0.0.0 --port <PORT_PARSER>
 #
+# Фоновые сервисы остаются жить, пока работает скрипт; Ctrl+C — останавливает их.
 # Порты можно переопределить: PORT_PARSER, PORT_TRANSPORT.
 
 set -uo pipefail
@@ -25,8 +25,37 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-# --- Инфраструктура (PostgreSQL + Redis) ---------------------------------
-"$SCRIPT_DIR/services_up.sh"
+# --- Инфраструктура ---------------------------------------------------------
+# PostgreSQL — через db_up.sh (создаёт контейнер + применяет миграции Liquibase).
+"$SCRIPT_DIR/db_up.sh"
+
+# Redis — отдельный контейнер (идемпотентно: создаёт или запускает существующий).
+REDIS_CONTAINER="zakupki_redis"
+REDIS_IMAGE="redis:7-alpine"
+REDIS_PORT="6379"
+REDIS_VOLUME="zakupki_redis_data"
+
+if docker ps -a --format '{{.Names}}' | grep -qx -- "$REDIS_CONTAINER"; then
+    echo "Контейнер $REDIS_CONTAINER уже существует."
+    if ! docker ps --format '{{.Names}}' | grep -qx -- "$REDIS_CONTAINER"; then
+        echo "Запуск $REDIS_CONTAINER..."
+        docker start "$REDIS_CONTAINER"
+    fi
+else
+    echo "Создаю контейнер $REDIS_CONTAINER..."
+    docker run -d --name "$REDIS_CONTAINER" \
+        -p "$REDIS_PORT:6379" \
+        -v "$REDIS_VOLUME:/data" \
+        "$REDIS_IMAGE"
+fi
+echo "Ожидание готовности Redis..."
+for i in $(seq 1 30); do
+    if docker exec "$REDIS_CONTAINER" redis-cli ping 2>/dev/null | grep -q PONG; then
+        echo "Redis готов ($REDIS_CONTAINER)."
+        break
+    fi
+    sleep 2
+done
 
 BGPIDS=()
 
@@ -55,9 +84,11 @@ BGPIDS+=($!)
 
 # Ждём готовности транспорта, чтобы парсер при авто-пуше не терял задания.
 echo "Ожидание готовности scoring_transport..."
+ready=0
 for i in $(seq 1 30); do
     if curl -sf -m 1 "http://127.0.0.1:$PORT_TRANSPORT/health" >/dev/null 2>&1; then
         echo "scoring_transport готов."
+        ready=1
         break
     fi
     if ! kill -0 "${BGPIDS[1]}" 2>/dev/null; then
@@ -66,17 +97,11 @@ for i in $(seq 1 30); do
     fi
     sleep 1
 done
-
-# --- парсер (serve) на переднем плане --------------------------------------
-parser_running() {
-    curl -sf -m 1 "http://127.0.0.1:$PORT_PARSER/health" >/dev/null 2>&1
-}
-
-if parser_running; then
-    echo "Парсер уже запущен на :$PORT_PARSER — конвейер скоринга будет работать с ним."
-    wait
-else
-    echo "Запуск парсера (serve) на :$PORT_PARSER — откройте http://localhost:$PORT_PARSER/"
-    cd "$ROOT_DIR"
-    uv run zp --configs configs serve --host 0.0.0.0 --port "$PORT_PARSER"
+if [[ "$ready" != 1 ]]; then
+    echo "Внимание: scoring_transport не ответил на /health за 30 с — проверьте его лог." >&2
 fi
+
+echo "Фоновый стек поднят. Запустите парсер отдельно:"
+echo "  uv run zp --configs configs serve --host 0.0.0.0 --port $PORT_PARSER"
+echo "Ctrl+C останавливает фоновые сервисы."
+wait

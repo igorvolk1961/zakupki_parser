@@ -60,17 +60,23 @@ async def score_for_record(
     record: dict[str, Any],
     cfg: ScoreConfig,
     now: datetime | None = None,
+    *,
+    active_only: bool = True,
 ) -> tuple[float, str]:
     """Возвращает (score, score_method) для записи перед сохранением.
 
-    - просроченный срок подачи заявок (deadline < now) → score=0,
+    - при поиске по ВСЕМ закупкам (``active_only=False``) просроченные не метим
+      ``deadline_expired``: метод всегда ``default``, чтобы они доезжали до внешнего
+      скоринга и уведомления;
+    - иначе — просроченный срок подачи заявок (deadline < now) → score=0,
       score_method=deadline_expired;
-    - иначе — внутренняя эвристика (score_method=default). Финальный внешний score
-      проставит конвейер скоринга через POST /score (ADR-7).
+    - в остальных случаях — внутренняя эвристика (score_method=default). Финальный
+      внешний score проставит конвейер скоринга через POST /score (ADR-7).
     """
-    deadline = record.get("deadline")
-    if isinstance(deadline, datetime) and now is not None and deadline < now:
-        return 0.0, SCORE_METHOD_DEADLINE_EXPIRED
+    if active_only:
+        deadline = record.get("deadline")
+        if isinstance(deadline, datetime) and now is not None and deadline < now:
+            return 0.0, SCORE_METHOD_DEADLINE_EXPIRED
     return compute_default_score(record, cfg), SCORE_METHOD_DEFAULT
 
 

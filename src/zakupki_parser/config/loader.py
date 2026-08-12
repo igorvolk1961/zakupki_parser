@@ -156,6 +156,12 @@ def load_config(configs_dir: str | Path) -> AppConfig:
             Literal["telegram", "webhook", "max", "none"], env_backend
         )
 
+    # Адрес scoring_transport — из env (имеет приоритет над YAML). В Docker это
+    # имя сервиса (http://scoring-transport:8200), а не localhost.
+    env_transport_url = os.environ.get("ZAKUPKI_SCORING_TRANSPORT_URL")
+    if env_transport_url:
+        score_model.scoring_transport_url = env_transport_url
+
     return AppConfig(
         configs_dir=base,
         parser=ParserConfig.model_validate(parser_data),
