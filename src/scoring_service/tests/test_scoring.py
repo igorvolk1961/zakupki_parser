@@ -77,6 +77,23 @@ def test_score_accept_path() -> None:
     assert judge.calls == 1
 
 
+def test_score_normalizes_fit_by_10() -> None:
+    """Fit из модели (0–10) делится на 10 перед умножением на p_win и margin."""
+    fit = _FakeFit([6.0])
+    judge = _FakeJudge([_judge("accept", 6.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(p_win=0.5, margin_rate=1.0, score_use_stub=False),
+    )  # type: ignore[arg-type]
+    out = scorer.score({"subject": "x", "nmck": 400.0}, "comp")
+    # fit_norm = 6/10 = 0.6; score = 0.6 × 0.5 × 400 = 120.0
+    assert out.final_fit_score == 6.0
+    assert out.p_win == 0.5
+    assert out.margin == 400.0
+    assert out.score == 120.0
+
+
 def test_score_reject_refines_once() -> None:
     fit = _FakeFit([6.0, 7.0])
     judge = _FakeJudge([_judge("reject", 6.0, critics="завышено"), _judge("accept", 7.0)])
