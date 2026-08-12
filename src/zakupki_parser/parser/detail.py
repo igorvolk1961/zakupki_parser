@@ -61,7 +61,7 @@ async def detail_files(page: Page, platform: PlatformDom) -> list[dict[str, str]
         for i in range(count):
             element = locators.nth(i)
             name = (
-                await element.inner_text()
+                await element.text_content()
                 if not spec.name_attribute
                 else await element.get_attribute(spec.name_attribute)
             )

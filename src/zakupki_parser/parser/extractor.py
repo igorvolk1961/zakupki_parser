@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 async def _element_value(locator: Locator, var: DomVariable) -> Any:
     if var.attribute:
         return await locator.get_attribute(var.attribute)
-    return await locator.inner_text()
+    return await locator.text_content()
 
 
 async def extract_from_scope(scope: Page | Locator, variables: list[DomVariable]) -> dict[str, Any]:

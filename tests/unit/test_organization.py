@@ -42,6 +42,9 @@ class _FakeLocator:
     async def inner_text(self) -> str:
         return self._text
 
+    async def text_content(self) -> str | None:
+        return self._text
+
 
 class _FakePage:
     def __init__(self, locator: _FakeLocator, context: _FakeContext | None = None) -> None:
@@ -54,6 +57,9 @@ class _FakePage:
         return self._locator
 
     async def inner_text(self, selector: str) -> str:
+        return self._locator._text
+
+    async def text_content(self, selector: str) -> str | None:
         return self._locator._text
 
     async def goto(self, url: str, **kwargs: object) -> None:

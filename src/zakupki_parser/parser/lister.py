@@ -310,7 +310,7 @@ async def extract_total_results(page: Page, platform: PlatformDom) -> int | None
     if await locator.count() == 0:
         logger.warning("Селектор общего числа результатов не найден: %s", lc.total_results_selector)
         return None
-    text = (await locator.first.inner_text() or "").strip()
+    text = (await locator.first.text_content() or "").strip()
     if not text:
         return None
 

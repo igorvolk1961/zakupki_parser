@@ -88,9 +88,9 @@ async def _inn_from_org_page(
             if await locator.count() == 0:
                 logger.debug("ИНН не найден по селектору %s", customer_link)
                 return None
-            text = await locator.inner_text()
+            text = await locator.text_content()
         else:
-            text = await new_page.inner_text("body")
+            text = await new_page.text_content("body")
         inn = extract_inn_from_text(text)
         if inn is None:
             logger.debug("ИНН не найден на странице организации %s", customer_link)
