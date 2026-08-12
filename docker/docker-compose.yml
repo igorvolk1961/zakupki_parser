@@ -44,9 +44,10 @@ services:
   # UI: http://localhost:3000 (логин/пароль админа — из LANG_ADMIN_PASSWORD в docker/.env)
   langfuse-db:
     image: postgres:16-alpine
+    profiles: ["langfuse"]
     environment:
-      POSTGRES_USER: ${LANG_PG_USER:?set in docker/.env}
-      POSTGRES_PASSWORD: ${LANG_PG_PASSWORD:?set in docker/.env}
+      POSTGRES_USER: ${LANG_PG_USER:-}
+      POSTGRES_PASSWORD: ${LANG_PG_PASSWORD:-}
       POSTGRES_DB: ${LANG_PG_DB:-langfuse}
     ports:
       - "5433:5432"
@@ -58,12 +59,31 @@ services:
       timeout: 5s
       retries: 10
 
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:25.12
+    profiles: ["langfuse"]
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: ${LANG_CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${LANG_CLICKHOUSE_PASSWORD:-clickhouse}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
   minio:
     image: minio/minio:latest
+    profiles: ["langfuse"]
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set in docker/.env}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set in docker/.env}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -73,70 +93,128 @@ services:
 
   minio-init:
     image: minio/mc:latest
+    profiles: ["langfuse"]
     depends_on:
       minio:
         condition: service_started
     entrypoint: /bin/sh
     command: >
       -c "
-      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:?set in docker/.env} ${MINIO_ROOT_PASSWORD:?set in docker/.env}; do sleep 2; done;
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-} ${MINIO_ROOT_PASSWORD:-}; do sleep 2; done;
       mc mb --ignore-existing local/${LANG_S3_BUCKET:-langfuse};
       "
 
   langfuse-web:
     image: langfuse/langfuse:3
+    profiles: ["langfuse"]
     depends_on:
       langfuse-db:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${LANG_DB_URL:?set in docker/.env}
-      SALT: ${LANG_SALT:?set in docker/.env}
-      ENCRYPTION_KEY: ${LANG_ENCRYPTION_KEY:?set in docker/.env}
+      DATABASE_URL: ${LANG_DB_URL:-}
+      SALT: ${LANG_SALT:-}
+      ENCRYPTION_KEY: ${LANG_ENCRYPTION_KEY:-}
       NEXTAUTH_URL: ${LANG_NEXTAUTH_URL:-http://localhost:3000}
-      NEXTAUTH_SECRET: ${LANG_NEXTAUTH_SECRET:?set in docker/.env}
+      NEXTAUTH_SECRET: ${LANG_NEXTAUTH_SECRET:-}
+      CLICKHOUSE_MIGRATION_URL: clickhouse://${LANG_CLICKHOUSE_USER:-clickhouse}:${LANG_CLICKHOUSE_PASSWORD:-clickhouse}@clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${LANG_CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${LANG_CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       S3_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
       S3_BUCKET_NAME: ${LANG_S3_BUCKET:-langfuse}
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set in docker/.env}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set in docker/.env}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
       S3_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANG_S3_BUCKET:-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANG_S3_BUCKET:-langfuse}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${LANG_S3_BUCKET:-langfuse}
+      LANGFUSE_S3_BATCH_EXPORT_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+      LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
       REDIS_HOST: ${LANG_REDIS_HOST:-redis}
       REDIS_PORT: ${LANG_REDIS_PORT:-6379}
       LANGFUSE_INIT_ORG_NAME: ${LANG_INIT_ORG:-zakupki}
       LANGFUSE_INIT_PROJECT_NAME: ${LANG_INIT_PROJECT:-zakupki}
-      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:?set in docker/.env}
-      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANG_INIT_SECRET_KEY:?set in docker/.env}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANG_INIT_SECRET_KEY:-}
       LANGFUSE_INIT_USER_EMAIL: ${LANG_INIT_USER_EMAIL:-admin@example.com}
       LANGFUSE_INIT_USER_NAME: ${LANG_INIT_USER_NAME:-admin}
-      LANGFUSE_INIT_USER_PASSWORD: ${LANG_ADMIN_PASSWORD:?set in docker/.env}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANG_ADMIN_PASSWORD:-}
     ports:
       - "3000:3000"
     restart: unless-stopped
 
   langfuse-worker:
-    image: langfuse/langfuse:3
-    command: ["node", "worker_server.js"]
+    image: langfuse/langfuse-worker:3
+    profiles: ["langfuse"]
     depends_on:
       langfuse-db:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: ${LANG_DB_URL:?set in docker/.env}
-      SALT: ${LANG_SALT:?set in docker/.env}
-      ENCRYPTION_KEY: ${LANG_ENCRYPTION_KEY:?set in docker/.env}
+      DATABASE_URL: ${LANG_DB_URL:-}
+      SALT: ${LANG_SALT:-}
+      ENCRYPTION_KEY: ${LANG_ENCRYPTION_KEY:-}
       NEXTAUTH_URL: ${LANG_NEXTAUTH_URL:-http://localhost:3000}
-      NEXTAUTH_SECRET: ${LANG_NEXTAUTH_SECRET:?set in docker/.env}
+      NEXTAUTH_SECRET: ${LANG_NEXTAUTH_SECRET:-}
+      CLICKHOUSE_MIGRATION_URL: clickhouse://${LANG_CLICKHOUSE_USER:-clickhouse}:${LANG_CLICKHOUSE_PASSWORD:-clickhouse}@clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${LANG_CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${LANG_CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       S3_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
       S3_BUCKET_NAME: ${LANG_S3_BUCKET:-langfuse}
-      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set in docker/.env}
-      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set in docker/.env}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
       S3_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANG_S3_BUCKET:-langfuse}
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANG_S3_BUCKET:-langfuse}
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${LANG_S3_BUCKET:-langfuse}
+      LANGFUSE_S3_BATCH_EXPORT_REGION: ${LANG_S3_REGION:-us-east-1}
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
+      LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-}
+      LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-}
       REDIS_HOST: ${LANG_REDIS_HOST:-redis}
       REDIS_PORT: ${LANG_REDIS_PORT:-6379}
     restart: unless-stopped
@@ -153,13 +231,13 @@ services:
       SCORE_PARSER_API_URL: http://api:8000
       SCORE_USE_STUB: "false"
       # LLM (OpenAI-совместимый) — см. SCORE_LLM_* в docker/.env
-      SCORE_LLM_BASE_URL: ${SCORE_LLM_BASE_URL:?set in docker/.env}
-      SCORE_LLM_API_KEY: ${SCORE_LLM_API_KEY:?set in docker/.env}
-      SCORE_LLM_MODEL: ${SCORE_LLM_MODEL:?set in docker/.env}
+      SCORE_LLM_BASE_URL: ${SCORE_LLM_BASE_URL:-}
+      SCORE_LLM_API_KEY: ${SCORE_LLM_API_KEY:-}
+      SCORE_LLM_MODEL: ${SCORE_LLM_MODEL:-}
       # LangFuse-трассировка (self-hosted в этом compose). Ключи совпадают с
       # LANG_INIT_PUBLIC_KEY/SECRET_KEY из docker/.env (см. сервис langfuse-web).
-      LANGFUSE_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:?set in docker/.env}
-      LANGFUSE_SECRET_KEY: ${LANG_INIT_SECRET_KEY:?set in docker/.env}
+      LANGFUSE_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANG_INIT_SECRET_KEY:-}
       LANGFUSE_HOST: ${LANG_HOST:-http://langfuse-web:3000}
     restart: unless-stopped
 
@@ -220,4 +298,6 @@ services:
 volumes:
   pgdata:
   langfuse_pgdata:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
   minio_data:

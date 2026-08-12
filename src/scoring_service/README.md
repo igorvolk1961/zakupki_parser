@@ -35,12 +35,18 @@ card + competencies
 LangFuse не настроен — вызовы идут без трассировки (dev-режим).
 
 ### Self-hosted в Docker (dev)
-В `docker/docker-compose.yml` добавлен стек LangFuse v3 (postgres + MinIO + web + worker;
-Redis — общий). Поднять: `docker compose -f docker/docker-compose.yml up -d langfuse-web`.
-UI: http://localhost:3000 (admin@example.com / changeme123). Проект `zakupki` создаётся
-автоматически при первом старте с публичным/секретным ключами из `LANGFUSE_INIT_*`;
-`scoring-service` уже получает `LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST`. Чтобы трассировка
-шла, заглушку нужно выключить (`SCORE_USE_STUB=false`).
+В `docker/docker-compose.yml` стек LangFuse v3 (+ ClickHouse) за compose-профилем `langfuse`:
+postgres, clickhouse, MinIO, web, worker. Профиль **включён по умолчанию** для локального
+`docker compose up` (переменная `COMPOSE_PROFILES=langfuse` в `docker/.env`), поэтому при
+разработке LangFuse поднимается автоматически; отключить — `COMPOSE_PROFILES= docker compose up ...`.
+Боевой `scripts/compose.sh up` профиль отключает (LangFuse не поднимается); включить —
+`scripts/compose.sh up --langfuse`.
+
+Dev-стек `scripts/run_all.sh` поднимает LangFuse по умолчанию (`SKIP_LANGFUSE=1` — пропустить).
+UI: http://localhost:3000 (логин/пароль из `LANG_ADMIN_PASSWORD` в `docker/.env`). Проект `zakupki`
+создаётся при первом старте с ключами из `LANGFUSE_INIT_*`. Для локальной трассировки в
+`src/scoring_service/.env` заданы `LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST=http://localhost:3000`;
+чтобы шли реальные вызовы, заглушка должна быть выключена (`SCORE_USE_STUB=false`).
 
 ## Запуск (из каталога подпроекта)
 ```bash

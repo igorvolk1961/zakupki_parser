@@ -8,6 +8,7 @@
 # Использование:
 #   scripts/compose.sh                   # то же, что: up
 #   scripts/compose.sh up                # собрать и поднять стек в фоне (up -d --build)
+#   scripts/compose.sh up --langfuse     # то же + поднять LangFuse (профиль langfuse)
 #   scripts/compose.sh down              # остановить и удалить контейнеры (тома БД сохраняются)
 #   scripts/compose.sh stop              # остановить и удалить контейнеры (освобождает порты; том БД сохраняется)
 #   scripts/compose.sh start             # запустить остановленные контейнеры (если не удалялись)
@@ -18,6 +19,9 @@
 #   scripts/compose.sh status            # алиас для ps
 #   scripts/compose.sh free-port [порт]  # освободить порт (по умолчанию 5432), занятый контейнером
 #   scripts/compose.sh free-port --force # без запроса подтверждения
+#
+# По умолчанию (боевой) LangFuse НЕ поднимается (профиль отключён), даже если
+# COMPOSE_PROFILES=langfuse в docker/.env. Для LangFuse — `up --langfuse`.
 
 set -euo pipefail
 
@@ -25,6 +29,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker/docker-compose.yml"
 PROJECT="zakupki"
+
+# Профили docker compose. По умолчанию пусто — боевой стек поднимается БЕЗ LangFuse
+# (даже если в docker/.env задан COMPOSE_PROFILES=langfuse, shell-переменная перекрывает).
+# `up --langfuse` явно включает профиль langfuse.
+PROFILE=""
 
 CMD="${1:-up}"
 shift || true
@@ -83,6 +92,13 @@ case "$CMD" in
         exit 0
         ;;
     up)
+        # Опционально: up --langfuse — поднять и LangFuse (профиль).
+        for a in "$@"; do
+            case "$a" in
+                --langfuse) PROFILE="langfuse" ;;
+                *) ;;
+            esac
+        done
         # Порт 5432 нужен сервису db; если его занимает локальный контейнер
         # (например zakupki_db из db_up.sh) — спросить и освободить.
         if docker ps --filter "publish=5432" --format '{{.Names}}' | grep -q .; then
@@ -97,44 +113,39 @@ case "$CMD" in
             fi
         fi
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d --build
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d --build
         echo "Стек поднят. API: http://localhost:8000/  (лог: scripts/compose.sh logs)"
         ;;
     down)
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" down
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" down
         echo "Стек остановлен и удалён (том БД pgdata сохранён)."
         ;;
     stop)
-        # Полная остановка: down удаляет контейнеры и тем самым снимает маппинг
-        # портов. `docker compose stop` контейнеры сохраняет, и их порт остаётся
-        # закреплённым — следующий up с пересборкой упирается в
-        # 'port is already allocated'. Том БД pgdata сохраняется.
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" down
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" down
         echo "Стек остановлен, контейнеры удалены (том БД pgdata сохранён)."
         ;;
     start)
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" start
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" start
         echo "Контейнеры запущены."
         ;;
     restart)
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" restart
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" restart
         ;;
     build)
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" build
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" build
         ;;
     ps|status)
         cd "$ROOT_DIR"
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" ps
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" ps
         ;;
     logs)
         cd "$ROOT_DIR"
-        # $@ — это опциональное имя сервиса; флаг -f следит за логом.
-        docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" logs -f "$@"
+        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" logs -f "$@"
         ;;
     free-port)
         free_port "$FP_PORT" "$FP_FORCE"

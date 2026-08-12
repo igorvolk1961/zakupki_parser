@@ -2,9 +2,11 @@
 # Запускает фоновый стек приложения одной командой (для работы вне контейнера):
 #
 #   1. инфраструктура — PostgreSQL (scripts/db_up.sh) + Redis;
-#   2. scoring_service — фоновый воркер Redis-очереди (в режиме заглушки,
+#   2. LangFuse (docker, профиль langfuse) — трассировка LLM скоринга. По умолчанию
+#      поднимается; отключить: SKIP_LANGFUSE=1 scripts/run_all.sh;
+#   3. scoring_service — фоновый воркер Redis-очереди (в режиме заглушки,
 #      пока LLM-пайплайн не отлажен: SCORE_USE_STUB/score_use_stub);
-#   3. scoring_transport — gateway скоринга (ingest + возврат результата);
+#   4. scoring_transport — gateway скоринга (ingest + возврат результата);
 #
 # Парсер запускается отдельной командой (не внутри этого скрипта):
 #   uv run zp --configs configs serve --host 0.0.0.0 --port <PORT_PARSER>
@@ -68,6 +70,18 @@ cleanup() {
     wait "${BGPIDS[@]}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+# --- LangFuse (docker, трассировка LLM скоринга) ------------------------------
+# По умолчанию поднимается; отключить: SKIP_LANGFUSE=1 scripts/run_all.sh
+if [[ "${SKIP_LANGFUSE:-0}" != "1" ]]; then
+    echo "Запуск LangFuse (docker, профиль langfuse)..."
+    ( cd "$ROOT_DIR" && COMPOSE_PROFILES=langfuse \
+        docker compose -f docker/docker-compose.yml up -d langfuse-web ) || \
+        echo "Внимание: LangFuse не поднялся — проверьте docker/.env." >&2
+    echo "LangFuse UI: http://localhost:3000"
+else
+    echo "LangFuse пропущен (SKIP_LANGFUSE=1)."
+fi
 
 # --- scoring_service (воркер, заглушка) ------------------------------------
 echo "Запуск scoring_service (воркер, заглушка)..."
