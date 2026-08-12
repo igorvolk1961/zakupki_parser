@@ -23,5 +23,16 @@ def test_extract_uses_detail_json() -> None:
     assert "law: 44-ФЗ" in desc
 
 
+def test_extract_includes_okpd2_codes() -> None:
+    record = {
+        "subject": "Сопровождение системы автоматизации",
+        "okpd2_codes": "62.02.30.000",
+        "kpgz_codes": "62.20",
+    }
+    desc = extract_description(record)
+    assert "okpd2_codes: 62.02.30.000" in desc
+    assert "kpgz_codes: 62.20" in desc
+
+
 def test_extract_empty() -> None:
     assert "(описание отсутствует)" in extract_description({})

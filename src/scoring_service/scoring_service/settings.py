@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import AliasChoices, Field
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
@@ -87,7 +88,11 @@ class Settings(BaseSettings):
 
     # Заглушка: возвращать score, уже присутствующий в данных закупки (без LLM-пайплайна).
     # Включать, пока LLM-пайплайн не отлажен.
-    score_use_stub: bool = False
+    # AliasChoices: имя поля уже содержит префикс "score_", поэтому без явного
+    # env-алиаса pydantic ждёт переменную SCORE_score_use_stub вместо SCORE_USE_STUB.
+    score_use_stub: bool = Field(
+        default=False, validation_alias=AliasChoices("score_use_stub", "SCORE_USE_STUB")
+    )
 
     # LangFuse (None = выключен)
     langfuse_public_key: str | None = None

@@ -11,11 +11,15 @@ from typing import Any
 _DETAIL_FIELDS = (
     "subject",
     "customer",
+    "okpd2_codes",
     "okpd2_code",
     "okpd2_name",
+    "kpgz_codes",
     "nmck",
     "law",
     "region",
+    "deadline",
+    "execution_term",
 )
 
 

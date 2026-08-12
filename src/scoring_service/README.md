@@ -44,6 +44,10 @@ uv run python -m scoring_service worker
 # разовый скоринг карточки (JSON) + компетенции
 uv run python -m scoring_service score card.json --competencies data/competencies.md
 
+# отладка пайплайна на выгрузке БД (CSV): таблица + JSON-отчёт; LLM по умолчанию
+uv run python -m scoring_service score-csv --csv ../../data/export/procurements.csv --limit 5
+uv run python -m scoring_service score-csv --stub          # заглушка для сверки
+
 # оценка точности на тестовом наборе (пары: описание — скор)
 uv run python -m scoring_service evaluate --dataset data/dataset.example.json
 

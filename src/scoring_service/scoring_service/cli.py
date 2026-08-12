@@ -3,6 +3,7 @@
 Subcommands:
   worker    — фоновый воркер: consume Redis-очереди, скорит, публикует результаты;
   score     — разовый скоринг по файлу карточки (JSON) + компетенциям;
+  score-csv — отладка пайплайна на выгрузке БД (CSV): прогон по всем закупкам;
   evaluate  — прогон fit-пайплайна по тестовому набору, расчёт метрик;
   serve     — запуск FastAPI (uvicorn) с /health и /score.
 """
@@ -59,6 +60,24 @@ def _cmd_evaluate(
     return 0
 
 
+def _cmd_score_csv(
+    settings: Settings,
+    csv_path: Path,
+    competencies: Path | None,
+    limit: int,
+    stub: bool,
+    out: Path | None,
+) -> int:
+    from scoring_service.debug_csv import render_table, run_debug, write_report
+
+    comp = competencies.read_text(encoding="utf-8") if competencies else settings.competencies()
+    results = run_debug(settings, csv_path, comp, limit=limit, stub=stub)
+    if out is not None:
+        write_report(out, results)
+    print(render_table(results))
+    return 0
+
+
 def _cmd_serve(settings: Settings, host: str, port: int) -> int:
     import uvicorn
 
@@ -85,6 +104,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--competencies", type=Path, default=None)
     p_eval.add_argument("--tolerance", type=float, default=1.0)
 
+    p_csv = sub.add_parser("score-csv", help="отладка пайплайна на выгрузке БД (CSV)")
+    p_csv.add_argument(
+        "--csv",
+        type=Path,
+        default=Path("../../data/export/procurements.csv"),
+        help="CSV-выгрузка закупок (по умолчанию — корень репозитория)",
+    )
+    p_csv.add_argument("--competencies", type=Path, default=None)
+    p_csv.add_argument("--limit", type=int, default=0, help="0 = все записи")
+    p_csv.add_argument("--stub", action="store_true", help="использовать заглушку")
+    p_csv.add_argument("--out", type=Path, default=None, help="JSON-отчёт")
+
     p_serve = sub.add_parser("serve", help="запустить FastAPI")
     p_serve.add_argument("--host", default="0.0.0.0")
     p_serve.add_argument("--port", type=int, default=8100)
@@ -103,6 +134,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_score(settings, args.card, args.competencies)
     if args.command == "evaluate":
         return _cmd_evaluate(settings, args.dataset, args.out, args.competencies, args.tolerance)
+    if args.command == "score-csv":
+        return _cmd_score_csv(
+            settings, args.csv, args.competencies, args.limit, args.stub, args.out
+        )
     if args.command == "serve":
         return _cmd_serve(settings, args.host, args.port)
     parser = build_parser()

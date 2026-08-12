@@ -25,6 +25,7 @@ def test_yaml_config_loaded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
         encoding="utf-8",
     )
     monkeypatch.setenv("SCORE_CONFIG_FILE", str(cfg))
+    monkeypatch.chdir(tmp_path)  # изолируем от локального .env в каталоге подпроекта
     s = Settings()
     assert s.llm_model == "my-model"
     assert s.score_use_stub is True
@@ -38,6 +39,30 @@ def test_env_overrides_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     cfg.write_text("llm_model: yaml-model\np_win: 0.7\n", encoding="utf-8")
     monkeypatch.setenv("SCORE_CONFIG_FILE", str(cfg))
     monkeypatch.setenv("SCORE_LLM_MODEL", "env-model")
+    monkeypatch.chdir(tmp_path)  # изолируем от локального .env в каталоге подпроекта
     s = Settings()
     assert s.llm_model == "env-model"
     assert s.p_win == 0.7
+
+
+def test_env_overrides_yaml_bool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SCORE_USE_STUB из env должен переопределять bool из yaml (регрессия AliasChoices)."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("score_use_stub: true\n", encoding="utf-8")
+    monkeypatch.setenv("SCORE_CONFIG_FILE", str(cfg))
+    monkeypatch.setenv("SCORE_USE_STUB", "false")
+    monkeypatch.chdir(tmp_path)
+    s = Settings()
+    assert s.score_use_stub is False
+
+
+def test_dotenv_overrides_yaml_bool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SCORE_USE_STUB=false из .env должен переопределять bool из yaml."""
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("score_use_stub: true\n", encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text('SCORE_USE_STUB="false"\n', encoding="utf-8")
+    monkeypatch.setenv("SCORE_CONFIG_FILE", str(cfg))
+    monkeypatch.chdir(tmp_path)
+    s = Settings()
+    assert s.score_use_stub is False
