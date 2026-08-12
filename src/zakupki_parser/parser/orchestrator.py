@@ -100,6 +100,19 @@ class Orchestrator:
         return inn
 
     # -- приватные помощники -------------------------------------------------
+    def _is_active(self, record: dict[str, Any]) -> bool:
+        """Определяет активность закупки по её текстовому статусу.
+
+        Если в конфиге площадки задан ``list_config.active_statuses`` — закупка
+        активна, только если её status входит в список. В противном случае
+        (список не задан или статус пуст) — считаем активной.
+        """
+        statuses = self._platform.list_config.active_statuses
+        if not statuses:
+            return True
+        status = (record.get("status") or "").strip()
+        return status in statuses
+
     def _check_stop_conditions(self, record: dict[str, Any]) -> bool:
         """Проверяет набор флагов прекращения обработки заявки.
 
@@ -311,6 +324,10 @@ class Orchestrator:
 
         # ИНН заказчика (универсальный механизм, ADR-4). При сбое — None (nullable).
         record["inn"] = await self._resolve_customer_inn(page, customer_link)
+
+        # Активна ли закупка (is_active): по текстовому статусу с площадки из списка
+        # активных статусов конфига. Не задан список или статус пуст — считаем активной.
+        record["is_active"] = self._is_active(record)
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record):

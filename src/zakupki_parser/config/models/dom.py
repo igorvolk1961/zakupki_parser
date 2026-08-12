@@ -66,6 +66,14 @@ class DomListConfig(BaseModel):
             "текстового поиска (напр. Фабрикант, lot-online 223-ФЗ)"
         ),
     )
+    active_statuses: list[str] | None = Field(
+        default=None,
+        description=(
+            "статусы закупки, считающиеся активными. Закупка не активна (is_active=false), "
+            "если её переменная status не входит в список (завершённые, отменённые и т.п.). "
+            "None — активность не определяется, is_active=true."
+        ),
+    )
 
 
 class FileSpec(BaseModel):

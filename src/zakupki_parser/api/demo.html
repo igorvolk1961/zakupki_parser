@@ -70,6 +70,10 @@
   .card .row b { color: var(--text); font-weight:600;}
   .pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line);}
   .pill.score { background: var(--pill-score-bg); border-color: var(--pill-score-border); color: var(--pill-score-text); font-weight:700;}
+  .pill.active { background: #dcfce7; border-color: #bbf7d0; color: #166534; font-weight:600;}
+  .pill.inactive { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
+  html[data-theme="dark"] .pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
+  html[data-theme="dark"] .pill.inactive { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
@@ -190,6 +194,7 @@ function card(row) {
     <div class="row"><span>Заказчик</span><b>${escapeHtml(row.customer || "—")}</b></div>
     <div class="row"><span>НМЦК</span><b>${fmtMoney(row.nmck)}</b></div>
     <div class="row"><span>Срок подачи</span><b>${fmtDate(row.deadline)}</b></div>
+    <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
     <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.source_platform)}</span>
       <span class="pill score">score ${row.score ?? "—"}</span></div>
   </div>`;
@@ -292,6 +297,7 @@ async function openDetail(id) {
       ${f("Опубликовано", fmtDate(row.publication_date))}
       ${f("Обновлено", fmtDate(row.update_date))}
       ${f("Срок подачи", fmtDate(row.deadline))}
+      ${f("Активна", row.is_active ? "да" : "нет")}
       ${f("Обеспечение", fmtMoney(row.security_amount) + (row.security_amount_unit ? " " + escapeHtml(row.security_amount_unit) : ""))}
       ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
       ${f("Score", (row.score ?? "—") + " (" + escapeHtml(row.score_method || "") + ")")}

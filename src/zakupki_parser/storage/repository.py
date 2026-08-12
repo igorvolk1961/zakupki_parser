@@ -64,6 +64,7 @@ class ProcurementRepository:
         source_platform: str | None = None,
         okpd2: str | None = None,
         customer: str | None = None,
+        active: bool | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[Procurement], int]:
@@ -77,6 +78,8 @@ class ProcurementRepository:
             conditions.append(Procurement.okpd2_codes.ilike(f"%{okpd2}%"))
         if customer:
             conditions.append(Customer.name.ilike(f"%{customer}%"))
+        if active is not None:
+            conditions.append(Procurement.is_active == active)
 
         stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
         if customer:
@@ -144,6 +147,7 @@ class ProcurementRepository:
             files_json=data.get("files_json"),
             score=_round_score(data.get("score")),
             score_method=data.get("score_method"),
+            is_active=bool(data.get("is_active", True)),
             detail_json=data.get("detail_json"),
         )
         async with self._db.session() as session:

@@ -124,6 +124,16 @@ def test_list_and_get(api_client: tuple[TestClient, Path], inserted_id: int) -> 
     detail = client.get(f"/api/procurements/{inserted_id}")
     assert detail.status_code == 200
     assert detail.json()["number"] == "API-1"
+    assert detail.json()["is_active"] is True
+
+
+def test_list_filter_active(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
+    client, _ = api_client
+    active = client.get("/api/procurements", params={"active": True}).json()
+    inactive = client.get("/api/procurements", params={"active": False}).json()
+    assert any(item["id"] == inserted_id for item in active["items"])
+    assert all(item["is_active"] is True for item in active["items"])
+    assert all(item["is_active"] is False for item in inactive["items"])
 
 
 def test_missing_procurement_404(api_client: tuple[TestClient, Path]) -> None:

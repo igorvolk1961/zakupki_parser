@@ -104,3 +104,25 @@ async def test_last_processed_date(db: Database) -> None:
 
     unknown = await repo.last_processed_date("nope", now, default_cutoff_days=7)
     assert unknown == now - timedelta(days=7)
+
+
+@pytest.mark.asyncio
+async def test_is_active_default_and_upsert(db: Database) -> None:
+    repo = ProcurementRepository(db)
+    # Без явного is_active — по умолчанию активна.
+    await repo.upsert({"number": "ABC-5", "source_platform": "zakupki_mos", "subject": "x"})
+    # Явная неактивная закупка.
+    await repo.upsert(
+        {
+            "number": "ABC-6",
+            "source_platform": "zakupki_mos",
+            "subject": "y",
+            "is_active": False,
+        }
+    )
+    active, _ = await repo.list_procurements(active=True)
+    inactive, _ = await repo.list_procurements(active=False)
+    assert any(p.number == "ABC-5" for p in active)
+    assert all(p.number != "ABC-5" for p in inactive)
+    assert any(p.number == "ABC-6" for p in inactive)
+    assert all(p.number != "ABC-6" for p in active)

@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 16
+      author: zakupki-parser
+      comment: "Колонка procurements.is_active (boolean): активна ли закупка. Текстовый status остаётся в detail_json."
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE procurements ADD COLUMN is_active boolean NOT NULL DEFAULT true;
+
+              -- Best-effort backfill: известные терминальные статусы -> не активна.
+              -- Парсер в дальнейшем проставляет is_active по настраиваемому списку
+              -- активных статусов площадки (list_config.active_statuses).
+              UPDATE procurements
+              SET is_active = false
+              WHERE detail_json ->> 'status' IS NOT NULL
+                AND lower(trim(detail_json ->> 'status')) ~ 'завершен|отменен|отменён|исполнен|заключен';
+
+              COMMENT ON COLUMN procurements.is_active IS
+                'Активна ли закупка (true) или нет (false: завершённая, отменённая и т.п.). Вычисляется парсером по текстовому status из detail_json.';

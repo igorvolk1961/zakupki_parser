@@ -57,6 +57,7 @@ class ProcurementOut(BaseModel):
     files_json: list[dict[str, Any]] | None = None
     score: float | None = None
     score_method: str | None = None
+    is_active: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -212,6 +213,7 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
         "deadline": row.deadline,
         "score": row.score,
         "score_method": row.score_method,
+        "is_active": row.is_active,
     }
 
 
@@ -271,6 +273,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         source_platform: str | None = None,
         okpd2: str | None = None,
         customer: str | None = None,
+        active: bool | None = None,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> ProcurementListOut:
@@ -279,6 +282,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             source_platform=source_platform,
             okpd2=okpd2,
             customer=customer,
+            active=active,
             limit=limit,
             offset=offset,
         )

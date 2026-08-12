@@ -15,6 +15,8 @@ list_config:
   next_page: "div.ui.pagination.menu a[type='nextItem']"
   # Имя переменной с датой публикации (используется для стоп-порога)
   publication_date: "publication_date"
+  # Статусы, считающиеся активными (is_active). Неактивны — завершённые, отменённые и т.п.
+  active_statuses: ["Прием предложений", "Работа с заявками", "Определение поставщика"]
   variables:
     - { name: "number",          selector: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6", handler: "strip" }
     - { name: "purchase_type",   selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3 span", handler: "strip", default: "" }
