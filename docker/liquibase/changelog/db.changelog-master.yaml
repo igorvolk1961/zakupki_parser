@@ -27,3 +27,5 @@ databaseChangeLog:
       file: db.changelog-1.13.yaml
   - include:
       file: db.changelog-1.14.yaml
+  - include:
+      file: db.changelog-1.15.yaml

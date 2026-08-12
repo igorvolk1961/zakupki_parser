@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 17
+      author: zakupki-parser
+      comment: "Колонка procurements.fit_score (double precision): множитель Fit. Default: 0..1 из fit_table; external: 0..1 (нормализованный)."
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE procurements ADD COLUMN fit_score double precision;
+
+              COMMENT ON COLUMN procurements.fit_score IS
+                'Множитель Fit (default: 0..1 из fit_table по ОКПД2; external: 0..1 нормализованный).';
