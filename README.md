@@ -243,6 +243,8 @@ uv run mypy src tests
 ```
 
 Подробности алгоритма и конфигурации — в [specification.md](specification.md).
+Сводка по торговым площадкам (статус верификации, фильтрация/сортировка) — в
+[docs/platforms.md](docs/platforms.md).
 Текущие незавершённые работы — в [TODO.md](TODO.md). Диаграммы — в [docs/c4](docs/c4/).
 Настройка Telegram-подписчика — в [docs/telegram-subscriber.md](docs/telegram-subscriber.md).
 Настройка MAX-подписчика — в [docs/max-subscriber.md](docs/max-subscriber.md).

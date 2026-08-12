@@ -17,6 +17,9 @@
   `enabled: false` до верификации): `roseltorg_44fz`, `roseltorg_com`, `fabrikant`,
   `b2b_center`, `etpgpb_223`, `etpgpb_44`, `lot_online_44`, `lot_online_223`.
 
+Статус верификации селекторов, механика фильтрации/сортировки по каждой площадке —
+в [docs/platforms.md](docs/platforms.md).
+
 Сравнительный анализ формирования URL-запросов, фильтрации по ОКПД2/словам и
 сортировки по релевантности на всех площадках — в плане
 `.kilo/plans/1786484077646-commercial-etps-addition-plan.md` (§2).
