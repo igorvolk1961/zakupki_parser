@@ -13,6 +13,11 @@
 #
 # Фоновые сервисы остаются жить, пока работает скрипт; Ctrl+C — останавливает их.
 # Порты можно переопределить: PORT_PARSER, PORT_TRANSPORT.
+#
+# Команды:
+#   scripts/run_all.sh            # то же, что up (старт; предварительно чистит зависшие)
+#   scripts/run_all.sh stop       # аккуратно остановить: скор.-сервисы + LangFuse + Redis + PostgreSQL
+#   scripts/run_all.sh start      # то же, что up
 
 set -uo pipefail
 
@@ -22,17 +27,91 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PORT_PARSER="${PORT_PARSER:-8000}"
 PORT_TRANSPORT="${PORT_TRANSPORT:-8200}"
 
+CMD="${1:-up}"
+PID_FILE="$ROOT_DIR/.run_all.pids"
+REDIS_CONTAINER="zakupki_redis"
+DB_CONTAINER="zakupki_db"
+COMPOSE_FILE="$ROOT_DIR/docker/docker-compose.yml"
+
+# --- Остановка фоновых сервисов скоринга (transport + worker) ------------------
+# Ловим живые процессы по командам и PID-файлу — это закрывает и осиротевшие
+# процессы от ранее убитого/закрытого терминала (иначе порт 8200 остаётся занят).
+scoring_process_pids() {
+    pgrep -f "scoring_transport serve" 2>/dev/null
+    pgrep -f "scoring_service worker" 2>/dev/null
+}
+
+stop_services() {
+    local pids=""
+    if [[ -f "$PID_FILE" ]]; then
+        pids="$(cat "$PID_FILE")"
+        rm -f "$PID_FILE"
+    fi
+    pids="$( { printf '%s\n' "$pids"; scoring_process_pids; } | tr ' ' '\n' | sort -u | grep -v '^$' )"
+    if [[ -z "$pids" ]]; then
+        echo "Фоновых сервисов скоринга не найдено."
+        return 0
+    fi
+    echo "Останавливаю фоновые сервисы скоринга..."
+    for pid in $pids; do
+        kill "$pid" 2>/dev/null && echo "  остановлен PID $pid" || true
+    done
+    # Ждём освобождения портов.
+    for port in "$PORT_PARSER" "$PORT_TRANSPORT"; do
+        for _ in $(seq 1 40); do
+            if ! (ss -ltn 2>/dev/null | grep -qE ":$port\b"); then
+                break
+            fi
+            sleep 0.5
+        done
+    done
+    echo "Готово."
+}
+
+stop_all() {
+    stop_services
+    if [[ "${SKIP_LANGFUSE:-0}" != "1" ]]; then
+        echo "Останавливаю LangFuse (docker)..."
+        ( cd "$ROOT_DIR" && COMPOSE_PROFILES=langfuse docker compose -f "$COMPOSE_FILE" down ) || true
+    fi
+    echo "Останавливаю Redis ($REDIS_CONTAINER)..."
+    docker stop "$REDIS_CONTAINER" 2>/dev/null || true
+    echo "Останавливаю PostgreSQL ($DB_CONTAINER)..."
+    docker stop "$DB_CONTAINER" 2>/dev/null || true
+    echo "Стек dev остановлен."
+}
+
+case "$CMD" in
+    stop)
+        stop_all
+        exit 0
+        ;;
+    up|start)
+        : # продолжаем ниже (перед стартом чистим зависшие сервисы)
+        ;;
+    -h|--help|help)
+        sed -n '2,20p' "$0"
+        exit 0
+        ;;
+    *)
+        echo "Неизвестная команда: $CMD (используйте: up | start | stop)" >&2
+        exit 2
+        ;;
+esac
+
 if ! command -v docker >/dev/null 2>&1; then
     echo "Ошибка: docker не установлен." >&2
     exit 1
 fi
+
+# Перед стартом закрываем зависшие сервисы от прошлого запуска (иначе порты заняты).
+stop_services
 
 # --- Инфраструктура ---------------------------------------------------------
 # PostgreSQL — через db_up.sh (создаёт контейнер + применяет миграции Liquibase).
 "$SCRIPT_DIR/db_up.sh"
 
 # Redis — отдельный контейнер (идемпотентно: создаёт или запускает существующий).
-REDIS_CONTAINER="zakupki_redis"
 REDIS_IMAGE="redis:7-alpine"
 REDIS_PORT="6379"
 REDIS_VOLUME="zakupki_redis_data"
@@ -67,6 +146,7 @@ cleanup() {
     for pid in "${BGPIDS[@]}"; do
         kill "$pid" 2>/dev/null || true
     done
+    rm -f "$PID_FILE"
     wait "${BGPIDS[@]}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
@@ -111,6 +191,8 @@ for i in $(seq 1 30); do
     fi
     sleep 1
 done
+# Сохраняем PID-файл, чтобы `run_all.sh stop` мог остановить сервисы отдельно.
+printf '%s\n' "${BGPIDS[@]}" > "$PID_FILE"
 if [[ "$ready" != 1 ]]; then
     echo "Внимание: scoring_transport не ответил на /health за 30 с — проверьте его лог." >&2
 fi
