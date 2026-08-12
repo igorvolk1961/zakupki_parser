@@ -105,7 +105,7 @@ services:
       "
 
   langfuse-web:
-    image: langfuse/langfuse:3
+    image: langfuse/langfuse:4
     profiles: ["langfuse"]
     depends_on:
       langfuse-db:
@@ -169,7 +169,7 @@ services:
     restart: unless-stopped
 
   langfuse-worker:
-    image: langfuse/langfuse-worker:3
+    image: langfuse/langfuse-worker:4
     profiles: ["langfuse"]
     depends_on:
       langfuse-db:
