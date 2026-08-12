@@ -14,7 +14,10 @@ from zakupki_parser.browser.manager import BrowserManager
 from zakupki_parser.config.loader import load_config
 
 _LIST_MARKER = "PublicListStyles__PublicListContainer"
-_DETAIL_MARKER = "О портале"
+# Начало детальной карточки — стабильный id контейнера (после шапки/баннеров).
+_DETAIL_MARKER = 'id="procedure-page-layout__main-info"'
+# Конец детального региона — футер (страница mos.ru содержит огромный хвост данных).
+_DETAIL_END_MARKER = "О портале"
 
 
 async def capture_fixtures(cfg_dir: str, platform_id: str, out: str) -> None:
@@ -41,7 +44,9 @@ async def capture_fixtures(cfg_dir: str, platform_id: str, out: str) -> None:
         if link:
             await page.goto(platform.url.rstrip("/") + link, wait_until="domcontentloaded")
             await page.wait_for_timeout(4000)
-            await _trim_save(page, out_dir / "detail_content.html", _DETAIL_MARKER)
+            await _trim_save(
+                page, out_dir / "detail_content.html", _DETAIL_MARKER, _DETAIL_END_MARKER
+            )
             print("Сохранена деталь:", out_dir / "detail_content.html")
         else:
             print("Предупреждение: ссылка на детальную страницу не найдена")
@@ -49,10 +54,10 @@ async def capture_fixtures(cfg_dir: str, platform_id: str, out: str) -> None:
         await browser.close()
 
 
-async def _trim_save(page: Page, path: Path, marker: str) -> None:
+async def _trim_save(page: Page, path: Path, marker: str, end_marker: str | None = None) -> None:
     html = await page.content()
     i = html.find(marker)
-    end = html.find("auth/realms")
+    end = html.find(end_marker, i) if end_marker else html.find("auth/realms")
     if end < 0:
         end = len(html)
     region = html[i:end] if i >= 0 else html[:end]

@@ -13,9 +13,9 @@ platforms:
     list_config:
       # Контейнер карточки закупки: прямой ребёнок списка, содержащий MainInfoContainer
       # (внутри него и MainInfo, и AdditionalInfo — регион/закон/даты).
-      container: "div.PublicListStyles__PublicListContentContainer-sc-1epmhkd-1 > div:has(div.CardStyles__MainInfoContainer-sc-1rn3iq8-1)"
+      container: "div:has(> div.CardStyles__MainInfoContainer-sc-1rn3iq8-1)"
       # Ссылка на детальную страницу закупки
-      detail_link: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6"
+      detail_link: "a[href*='/need/']"
       # Селектор перехода на следующую страницу (Semantic UI пагинация)
       next_page: "div.ui.pagination.menu a[type='nextItem']"
       # Имя переменной с датой публикации (используется для стоп-порога)
@@ -23,26 +23,26 @@ platforms:
       # Статусы, считающиеся активными (is_active). Неактивны — завершённые, отменённые и т.п.
       active_statuses: ["Прием предложений", "Работа с заявками", "Определение поставщика"]
       variables:
-        - { name: "number",          selector: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6", handler: "strip" }
-        - { name: "purchase_type",   selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3 span", handler: "strip", default: "" }
-        - { name: "status",          selector: "span.EllipsedSpan__WordBreakSpan-sc-5i2ox1-0", index: 1, handler: "strip", default: "" }
-        - { name: "subject",         selector: "span.EllipsedSpan__WordBreakSpan-sc-5i2ox1-0", index: 2, handler: "strip", default: "" }
-        - { name: "customer",        selector: ".PurchaseCardStyles__MainInfoCustomerHeader-sc-xhk4mt-0", handler: "strip", default: "" }
-        - { name: "nmck",            selector: "div.CardStyles__PriceInfoNumber-sc-1rn3iq8-11", handler: "money", default: null }
-        - { name: "region",          selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 0, handler: "strip", default: "" }
+        - { name: "number",          selector: "a[href*='/need/']", handler: "strip", default: "" }
+        - { name: "purchase_type",   selector: "div:has(> a[href*='/need/']) > div > span", handler: "strip", default: "" }
+        - { name: "status",          selector: "#state-indicator", handler: "strip", default: "" }
+        - { name: "subject",         selector: "a[href*='/need/']", index: 1, handler: "strip", default: "" }
+        - { name: "customer",        selector: "a[href*='/companyProfile/']", handler: "strip", default: "" }
+        - { name: "nmck",            selector: "div:has(> label:text-is('Начальная цена')) > div", handler: "money", default: null }
+        - { name: "region",          selector: "xpath=//span[contains(., 'МСК')]/ancestor::div[2]/div[1]/span", handler: "strip", default: "" }
         # Закон, строка дат и производные извлекаются regex-обработчиками из всего
         # нижнего блока карточки — это не зависит от расклада полей внутри блока
         # (у карточек «B2B-закупка» позиции отличаются).
-        - { name: "law",             selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "law", default: null }
-        - { name: "publication_date", selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "pub_date", default: null }
-        - { name: "deadline",        selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "deadline", default: null }
+        - { name: "law",             selector: "xpath=//span[contains(., 'МСК')]/ancestor::div[2]", handler: "law", default: null }
+        - { name: "publication_date", selector: "xpath=//span[contains(., 'МСК')]/ancestor::div[2]", handler: "pub_date", default: null }
+        - { name: "deadline",        selector: "xpath=//span[contains(., 'МСК')]/ancestor::div[2]", handler: "deadline", default: null }
 
     detail:
       variables:
-        - { name: "customer",    selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Заказчик')) > div", handler: "strip", default: "" }
-        - { name: "nmck",        selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Начальная цена')) > div", handler: "money", default: null }
-        - { name: "okpd2_name",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Наименование ОКПД2')) > div", handler: "strip", default: "" }
-        - { name: "okpd2_code",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Код ОКПД2')) > div", handler: "strip", default: "" }
+        - { name: "customer",    selector: "div:has(> label:text-is('Заказчик')) > div", handler: "strip", default: "" }
+        - { name: "nmck",        selector: "div:has(> label:text-is('Начальная цена')) > div", handler: "money", default: null }
+        - { name: "okpd2_name",  selector: "div:has(> label:text-is('Наименование ОКПД2')) > div", handler: "strip", default: "" }
+        - { name: "okpd2_code",  selector: "div:has(> label:text-is('Код ОКПД2')) > div", handler: "strip", default: "" }
       files:
         # Ссылки на скачиваемые файлы: имя — текст ссылки, url скачивания с ЭТП — href
         - { selector: "a[href*='FileStorage/Download']", name_attribute: null, url_attribute: "href" }
@@ -50,7 +50,7 @@ platforms:
     # Извлечение ИНН заказчика (ADR-4). На mos.ru ИНН — на странице организации
     # (/companyProfile/customer/{id}), куда ведёт ссылка на имя заказчика.
     organization:
-      customer_link_selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Заказчик')) a"
+      customer_link_selector: "div:has(> label:text-is('Заказчик')) a"
       inn_from_link_regex: null
       inn_from_org_page: true
       inn_page_selector: null

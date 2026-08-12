@@ -99,3 +99,33 @@ def test_is_known_skips_existing(app_config: AppConfig) -> None:
     assert orch._is_known("1") is True  # noqa: SLF001
     assert orch._is_known("3") is False  # noqa: SLF001
     assert orch._is_known(None) is False  # noqa: SLF001
+
+
+def test_is_active_matches_active_status(app_config: AppConfig) -> None:
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None)
+    assert orch._is_active({"status": "Прием предложений"}) is True  # noqa: SLF001
+
+
+def test_is_active_normalizes_case_and_ellipsis(app_config: AppConfig) -> None:
+    """Верхний регистр и хвостовое CSS-обрезание '...' не ломают сопоставление."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None)
+    assert orch._is_active({"status": "ПРИЕМ ПРЕДЛОЖЕНИЙ ..."}) is True  # noqa: SLF001
+    assert orch._is_active({"status": "Прием предложений ..."}) is True  # noqa: SLF001
+
+
+def test_is_active_inactive_status(app_config: AppConfig) -> None:
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None)
+    assert orch._is_active({"status": "Прием предложений завершен"}) is False  # noqa: SLF001
+    assert orch._is_active({"status": ""}) is False  # noqa: SLF001
+    assert orch._is_active({}) is False  # noqa: SLF001
+
+
+def test_is_active_default_true_when_no_statuses(app_config: AppConfig) -> None:
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None)
+    orch._platform.list_config.active_statuses = None
+    assert orch._is_active({"status": "anything"}) is True  # noqa: SLF001
+    assert orch._is_active({}) is True  # noqa: SLF001

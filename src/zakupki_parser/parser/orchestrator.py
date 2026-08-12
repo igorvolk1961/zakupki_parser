@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -110,12 +111,22 @@ class Orchestrator:
         Если в конфиге площадки задан ``list_config.active_statuses`` — закупка
         активна, только если её status входит в список. В противном случае
         (список не задан или статус пуст) — считаем активной.
+
+        Сравнение нормализованное: регистронезависимое, без хвостового
+        ``...``/``…`` (CSS-обрезание) и лишних пробелов, чтобы статусы площадок
+        («ПРИЕМ ПРЕДЛОЖЕНИЙ ...», «Прием предложений») корректно сопоставлялись
+        с активными статусами конфига.
         """
         statuses = self._platform.list_config.active_statuses
         if not statuses:
             return True
         status = (record.get("status") or "").strip()
-        return status in statuses
+        return self._normalize_status(status) in {self._normalize_status(s) for s in statuses}
+
+    @staticmethod
+    def _normalize_status(status: str) -> str:
+        """Нормализует статус для сопоставления: нижний регистр, без ``...``/``…``."""
+        return re.sub(r"[.…\s]+$", "", status.strip().lower())
 
     def _is_known(self, number: Any) -> bool:
         """True, если закупка с номером уже сохранена в БД (повторный проход)."""

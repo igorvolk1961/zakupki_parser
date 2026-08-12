@@ -37,6 +37,8 @@ async def test_extract_list_variables(app_config: AppConfig, page: Page) -> None
     assert data.get("customer"), "Заказчик должен извлекаться из карточки"
     assert data.get("subject"), "Предмет должен извлекаться из карточки"
     assert data.get("status"), "Статус должен извлекаться из карточки"
+    # Регресс: статус не должен быть обрезан CSS-усечением до '...' (text_content).
+    assert "..." not in data.get("status", ""), "Статус не должен содержать CSS-обрезание '...'"
     assert data.get("nmck") is not None, "НМЦК должна извлекаться из карточки"
     assert data.get("law"), "Закон должен извлекаться из карточки"
     assert data.get("region"), "Регион должен извлекаться из карточки"
