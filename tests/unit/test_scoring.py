@@ -29,6 +29,24 @@ def test_default_score_unknown_code_uses_default_fit() -> None:
     assert compute_default_fit({"okpd2_codes": "99.99"}, cfg) == 0.5
 
 
+def test_default_score_empty_code_uses_empty_code_fit() -> None:
+    # Пустой код ОКПД2 -> fit = empty_code_fit (1.0), а не default_fit (0.5).
+    cfg = ScoreConfig(default_fit=0.5, empty_code_fit=1.0)
+    assert compute_default_fit({"okpd2_codes": ""}, cfg) == 1.0
+    assert compute_default_fit({"okpd2_codes": "  "}, cfg) == 1.0
+    assert compute_default_fit({}, cfg) == 1.0
+    assert compute_default_score({"okpd2_codes": "", "nmck": 200.0}, cfg) == 200.0
+
+
+def test_default_score_empty_code_overrides_config_fit() -> None:
+    # Пустой код — не unknown-код: применяется empty_code_fit, даже если код
+    # не в fit_table. По умолчанию empty_code_fit = 1.0.
+    cfg = ScoreConfig()
+    assert cfg.default_fit == 0.5
+    assert cfg.empty_code_fit == 1.0
+    assert compute_default_fit({"okpd2_codes": ""}, cfg) == 1.0
+
+
 def test_default_score_fit_by_ancestor_prefix() -> None:
     # точного кода "62.01.29.000" нет, но есть предок "62.01" -> fit=0.9
     cfg = ScoreConfig(fit_table={"62.01": 0.9}, default_fit=0.5)

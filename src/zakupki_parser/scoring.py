@@ -34,11 +34,17 @@ def _okpd2_code(record: dict[str, Any]) -> str:
     return str(value).split(",")[0].strip()
 
 
-def _fit_for_code(code: str, fit_table: dict[str, float], default_fit: float) -> float:
-    """Fit по ОКПД2: точный код, иначе ближайший предок (префикс) из таблицы."""
+def _fit_for_code(
+    code: str,
+    fit_table: dict[str, float],
+    default_fit: float,
+    empty_code_fit: float,
+) -> float:
+    """Fit по ОКПД2: пустой код — ``empty_code_fit``; иначе точный код или
+    ближайший предок (префикс) из таблицы; при отсутствии — ``default_fit``."""
     digits = _digits(code)
     if not digits:
-        return default_fit
+        return empty_code_fit
     best_len = 0
     best_fit: float | None = None
     for key, value in fit_table.items():
@@ -51,7 +57,7 @@ def _fit_for_code(code: str, fit_table: dict[str, float], default_fit: float) ->
 
 def compute_default_fit(record: dict[str, Any], cfg: ScoreConfig) -> float:
     """Множитель Fit (0..1) по ОКПД2 из config_score.yaml."""
-    return _fit_for_code(_okpd2_code(record), cfg.fit_table, cfg.default_fit)
+    return _fit_for_code(_okpd2_code(record), cfg.fit_table, cfg.default_fit, cfg.empty_code_fit)
 
 
 def compute_default_score(record: dict[str, Any], cfg: ScoreConfig) -> float:

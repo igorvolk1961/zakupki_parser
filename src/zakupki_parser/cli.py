@@ -168,7 +168,10 @@ def _print_summary(cfg: AppConfig) -> None:
     # --- Скоринг ---------------------------------------------------------
     score = cfg.score
     print("Скоринг (config_score.yaml):")
-    print(f"  P(win): {score.p_win}; default_fit: {score.default_fit}")
+    print(
+        f"  P(win): {score.p_win}; default_fit: {score.default_fit}; "
+        f"empty_code_fit: {score.empty_code_fit}"
+    )
     n_fit = len(score.fit_table)
     print(
         f"  fit-таблица (ОКПД2 → коэффициент): {n_fit} "

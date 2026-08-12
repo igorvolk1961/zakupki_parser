@@ -23,6 +23,12 @@ class ScoreConfig(BaseModel):
     default_fit: float = Field(
         default=0.5, ge=0, le=1, description="fit для кода, отсутствующего в fit_table"
     )
+    empty_code_fit: float = Field(
+        default=1.0,
+        ge=0,
+        le=1,
+        description="fit для закупки без кода ОКПД2 (пустой код)",
+    )
     p_win: float = Field(default=1.0, ge=0, le=1, description="вероятность победы P(win)")
     margin_rate: float = Field(
         default=1.0,
