@@ -14,7 +14,9 @@ score, уже присутствующий в данных закупки (см.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
+
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
 from scoring_service.modules import margin as margin_module
@@ -34,10 +36,14 @@ class Scorer:
         fit_chain: FitChain | None,
         judge_chain: JudgeChain | None,
         settings: Settings,
+        callbacks: list[Any] | None = None,
     ) -> None:
         self._fit = fit_chain
         self._judge = judge_chain
         self._settings = settings
+        # Callbacks для корневого run скоринга: один трейс на задание, в который
+        # вложены fit/judge/refine как дочерние спаны (вместо отдельных трейсов).
+        self._callbacks = callbacks
         # Метаданные гиперпараметров/промптов, общие для всех вызовов скоринга.
         # Пишутся в каждый трейс, чтобы группировать/сравнивать запуски по конфигурации.
         self._base_metadata: dict[str, Any] = {
@@ -73,6 +79,7 @@ class Scorer:
         critics: str,
         session_id: str | None,
         metadata: dict[str, Any],
+        parent_config: RunnableConfig,
     ) -> FitResult:
         """Повторный fit с учётом критики судьи (best-effort: без гарантии JSON)."""
         messages_hint = (
@@ -83,6 +90,7 @@ class Scorer:
             description,
             session_id,
             metadata,
+            parent_config=parent_config,
         )
 
     def _stub_score(self, record: dict[str, Any], procurement_id: int | None) -> ScoringOutput:
@@ -135,27 +143,70 @@ class Scorer:
         ``run_id`` — идентификатор запуска (батча): все задания одного запуска
         объединяются в одну LangFuse-сессию (``session_id``). Если ``run_id`` не задан,
         сессией служит ``procurement_id`` (для разовых/синхронных вызовов).
+
+        Весь скоринг одного задания выполняется внутри единого корневого run
+        (``scoring_job``), поэтому fit/judge/refine попадают в ОДИН трейс как дочерние
+        спаны, а не в отдельные трейсы.
         """
         if self._settings.score_use_stub:
             return self._stub_score(record, procurement_id)
 
-        description = extract_description(record)
         session_id = run_id or (str(procurement_id) if procurement_id is not None else None)
         trace_meta = self._trace_metadata(procurement_id, run_id, metadata)
+        root_config = cast(
+            RunnableConfig,
+            {
+                "callbacks": self._callbacks or None,
+                "run_name": "scoring_job",
+                "metadata": {
+                    **trace_meta,
+                    **({"langfuse_session_id": session_id} if session_id is not None else {}),
+                },
+            },
+        )
+        runner = RunnableLambda(self._score_impl, name="scoring_job")
+        return runner.invoke(
+            (record, competencies, procurement_id, session_id, trace_meta, root_config),
+            config=root_config,
+        )
+
+    def _score_impl(
+        self,
+        inputs: tuple[
+            dict[str, Any],
+            str,
+            int | None,
+            str | None,
+            dict[str, Any],
+            RunnableConfig,
+        ],
+        config: RunnableConfig | None = None,
+    ) -> ScoringOutput:
+        """Внутренняя реализация скоринга; выполняется внутри корневого run."""
+        record, competencies, procurement_id, session_id, trace_meta, root_config = inputs
+        parent_config = config or root_config
+        description = extract_description(record)
 
         fit = self._fit.invoke(  # type: ignore[union-attr]
-            competencies, description, session_id, trace_meta
+            competencies, description, session_id, trace_meta, parent_config=parent_config
         )
         judge = self._judge.invoke(  # type: ignore[union-attr]
-            competencies, description, fit, session_id, trace_meta
+            competencies, description, fit, session_id, trace_meta, parent_config=parent_config
         )
 
         for _ in range(self._settings.num_refine_rounds):
             if judge.verdict != "reject":
                 break
-            fit = self._refine_fit(competencies, description, judge.critics, session_id, trace_meta)
+            fit = self._refine_fit(
+                competencies, description, judge.critics, session_id, trace_meta, parent_config
+            )
             judge = self._judge.invoke(  # type: ignore[union-attr]
-                competencies, description, fit, session_id, trace_meta
+                competencies,
+                description,
+                fit,
+                session_id,
+                trace_meta,
+                parent_config=parent_config,
             )
 
         final_fit = judge.final_fit_score
@@ -198,4 +249,5 @@ def build_scorer(settings: Settings) -> Scorer:
         FitChain(llm, callbacks, method=settings.llm_structured_method),
         JudgeChain(llm, callbacks, method=settings.llm_structured_method),
         settings,
+        callbacks=callbacks,
     )

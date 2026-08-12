@@ -67,6 +67,7 @@ class _FakeFit:
         description: str,
         session_id: str | None = None,
         metadata: dict[str, object] | None = None,
+        parent_config: object | None = None,
     ) -> FitResult:
         self.calls += 1
         value = self._scores.pop(0) if self._scores else 5.0
@@ -85,6 +86,7 @@ class _FakeJudge:
         fit_result: FitResult,
         session_id: str | None = None,
         metadata: dict[str, object] | None = None,
+        parent_config: object | None = None,
     ) -> JudgeResult:
         self.calls += 1
         return self._verdicts.pop(0)
@@ -170,6 +172,7 @@ def test_score_propagates_requires_tz_review() -> None:
             description: str,
             session_id: str | None = None,
             metadata: dict[str, object] | None = None,
+            parent_config: object | None = None,
         ) -> FitResult:
             return _fit(5.0, requires_tz_review=True)
 
@@ -211,6 +214,7 @@ def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
             description: str,
             session_id: str | None = None,
             metadata: dict[str, object] | None = None,
+            parent_config: object | None = None,
         ) -> FitResult:
             self.calls.append((session_id, metadata))
             return _fit(self._score)
@@ -243,6 +247,7 @@ def test_score_falls_back_to_procurement_session_without_run_id() -> None:
             description: str,
             session_id: str | None = None,
             metadata: dict[str, object] | None = None,
+            parent_config: object | None = None,
         ) -> FitResult:
             self.session_ids.append(session_id)
             return _fit(5.0)

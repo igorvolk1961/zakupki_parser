@@ -19,6 +19,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import patch_config
 
 from scoring_service.pipeline.prompts import build_fit_messages
 from scoring_service.schemas import FitResult
@@ -59,16 +60,36 @@ class FitChain:
             config["metadata"] = trace_meta
         return cast(RunnableConfig, config)
 
+    def _child_config(
+        self,
+        parent_config: RunnableConfig,
+        session_id: str | None,
+        metadata: dict[str, Any] | None,
+        run_name: str,
+    ) -> RunnableConfig:
+        """Конфиг вложенного run: наследует callbacks родителя (для одного трейса)."""
+        child = patch_config(parent_config, run_name=run_name)
+        trace_meta = dict(metadata or {})
+        if session_id is not None:
+            trace_meta["langfuse_session_id"] = session_id
+        child["metadata"] = {**(parent_config.get("metadata") or {}), **trace_meta}
+        return child
+
     def invoke(
         self,
         competencies: str,
         description: str,
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        parent_config: RunnableConfig | None = None,
     ) -> FitResult:
         """Выставить Fit-оценку (reasoning + fit_score)."""
         messages: list[BaseMessage] = build_fit_messages(competencies, description)
-        config = self._config(session_id, metadata)
+        config = (
+            self._config(session_id, metadata)
+            if parent_config is None
+            else self._child_config(parent_config, session_id, metadata, "fit_scoring")
+        )
         try:
             result = self._structured.invoke(messages, config=config)
         except OutputParserException:
