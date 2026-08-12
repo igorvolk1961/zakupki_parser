@@ -1,0 +1,82 @@
+# ЕИС (zakupki.gov.ru) — 223-ФЗ. Платформа_id = имя файла.
+# Серверный рендеринг; фильтрация через query-параметры расширенного поиска.
+# Детальные поля 223-ФЗ отличаются от 44-ФЗ: ОКПД2 — на отдельной странице лотов
+# (lot-list.html), путь документов — notice223/... (см. TODO).
+# Внимание: ОКПД2-фильтр (okpd2Ids) через GET пока не подтверждён — см. TODO.
+name: "ЕИС (223-ФЗ)"
+url: "https://zakupki.gov.ru"
+list_path: "/epz/order/extendedsearch/results.html"
+
+list_config:
+  container: "div.search-registry-entry-block"
+  detail_link: "a[href*='common-info.html']"
+  next_page: "a.paginator-button-next"
+  # Стоп-порог по дате «Обновлено» (task.md: дата обновления закупки)
+  publication_date: "update_date"
+  variables:
+    - { name: "number",          selector: "a[href*='common-info.html']", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
+    - { name: "law",             selector: "div.registry-entry__header-top__title", handler: "law", default: null }
+    - { name: "subject",         selector: "div.registry-entry__body-value", handler: "strip", default: "" }
+    - { name: "status",          selector: "div.registry-entry__header-mid__title", handler: "strip", default: "" }
+    # Заказчик 223-ФЗ — organization/view223/info.html
+    - { name: "customer",        selector: "a[href*='organization/view']", handler: "strip", default: "" }
+    - { name: "nmck",            selector: "div.price-block__value", handler: "money", default: null }
+    - { name: "publication_date", selector: "div.data-block__value", index: 0, handler: "date", default: null }
+    - { name: "update_date",     selector: "div.data-block__value", index: 1, handler: "date", default: null }
+    - { name: "deadline",        selector: "div.data-block__value", index: 2, handler: "date", default: null }
+
+detail:
+  # ОКПД2 223-ФЗ — на доп. странице лотов (notice223/lot-list.html). На основной
+  # странице 44-селекторы не работают, поэтому поля 44-ФЗ здесь не задаём.
+  variables: []
+  additional_pages:
+    - link_selector: "a[href*='lot-list.html']"
+      variables:
+        - { name: "okpd2_code", selector: "table.table.mb-0 td:nth-child(4)", handler: "regex", handler_arg: "(?<![,\\d])(\\d{2}(?:\\.\\d{1,4})*)", default: null }
+  # Файлы 223-ФЗ — путь notice223/documents.html (отличается от 44-ФЗ); TODO:
+  # проверить селектор и страницу документов при верификации.
+  files:
+    - { selector: "a[href*='filestore/public/']", name_attribute: null, url_attribute: "href" }
+
+# Сортировка: фиксированный порядок — по дате обновления по убыванию
+sort:
+  order: publication_date_desc
+  dropdown: null
+  option_text: null
+
+# Извлечение ИНН заказчика (ADR-4). На 223-ФЗ ИНН есть в org-ссылке
+# (view223/info.html?inn=...).
+organization:
+  customer_link_selector: "a[href*='organization/view']"
+  inn_from_link_regex: "inn=(\\d{10,12})"
+  inn_from_org_page: true
+  inn_page_selector: null
+
+# URL-фильтр расширенного поиска ЕИС, только 223-ФЗ (fz223=on; fz44 не мапится).
+search:
+  enabled: true
+  query_params:
+    morphology: "on"
+    search-filter: "Дате размещения"
+    pageNumber: "1"
+    sortDirection: "false"
+    recordsPerPage: "_50"
+    showLotsInfoHidden: "false"
+    sortBy: "UPDATE_DATE"
+    currencyIdGeneral: "-1"
+    okpd2IdsWithNested: "on"
+  filter_json: {}
+  state_json: {}
+  criteria_map:
+    publish_date:  { query_param: "publishDateFrom" }
+    update_date:   { query_param: "updateDateFrom" }
+    deadline_from: { query_param: "applSubmissionCloseDateFrom" }
+    fz223:         { query_param: "fz223" }
+    okpd2:
+      query_params:
+        okpd2Ids: "{okpd2_ids}"
+    nmck_min:      { query_param: "priceFromGeneral" }
+    nmck_max:      { query_param: "priceToGeneral" }
+  date_great_equal_format: "%d.%m.%Y"
+  # Маппинг «код ОКПД2 -> id ЕИС» (полное поддерево 62/63, см. gov.html)
+  okpd_tree_file: "configs/codes/gov_okpd2_tree.json"

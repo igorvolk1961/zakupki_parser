@@ -72,6 +72,83 @@ def handler_date_iso(value: Any) -> str | None:
 MSK = timezone(timedelta(hours=3))
 
 
+def handler_datetime(value: Any) -> datetime | None:
+    """Дата со временем «ДД.ММ.ГГГГ [ЧЧ:ММ[:СС]]» -> aware datetime (МСК).
+
+    Для чистых дат-колонок на площадках с серверной выдачей (напр. B2B-Center).
+    Без времени — полночь.
+    """
+    if value is None:
+        return None
+    text = handler_strip(value)
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=MSK)
+        except ValueError:
+            continue
+    return None
+
+
+def handler_regex_datetime(value: Any, arg: str | None = None) -> datetime | None:
+    """Извлекает дату/время regex-паттерном (группа 1) и парсит в aware datetime (МСК).
+
+    Для полей-текстов вида «Опубликована 12.08.2026 00:55», «12.08.2026 00:55 - …».
+    """
+    if value is None or not arg:
+        return None
+    m = re.search(arg, str(value))
+    if not m:
+        return None
+    text = m.group(1).strip()
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=MSK)
+        except ValueError:
+            continue
+    return None
+
+
+_RU_MONTHS = {
+    "января": 1,
+    "февраля": 2,
+    "марта": 3,
+    "апреля": 4,
+    "мая": 5,
+    "июня": 6,
+    "июля": 7,
+    "августа": 8,
+    "сентября": 9,
+    "октября": 10,
+    "ноября": 11,
+    "декабря": 12,
+}
+
+
+def handler_ru_date(value: Any) -> datetime | None:
+    """Дата «ДД месяц ГГГГ[, ЧЧ:ММ]» (русские месяцы) -> aware datetime (МСК).
+
+    Напр. «14 августа 2026, 18:00 МСК». Без времени — полночь.
+    """
+    if value is None:
+        return None
+    text = handler_strip(value)
+    m = re.search(r"(\d{1,2})\s+([а-яё]+)\s+(\d{4})\s*(?:,\s*(\d{1,2}:\d{2}))?", text)
+    if not m:
+        return None
+    day, month_name, year = int(m.group(1)), m.group(2).lower(), int(m.group(3))
+    month = _RU_MONTHS.get(month_name)
+    if month is None:
+        return None
+    try:
+        if m.group(4):
+            return datetime.strptime(
+                f"{day:02d}.{month:02d}.{year} {m.group(4)}", "%d.%m.%Y %H:%M"
+            ).replace(tzinfo=MSK)
+        return datetime(year, month, day).replace(tzinfo=MSK)
+    except ValueError:
+        return None
+
+
 def handler_date(value: Any) -> datetime | None:
     """Дата «ДД.ММ.ГГГГ» -> aware datetime (МСК). Для колонок DateTime."""
     if value is None:
@@ -171,6 +248,9 @@ HANDLERS: dict[str, Any] = {
     "int": handler_int,
     "date_iso": handler_date_iso,
     "date": handler_date,
+    "datetime": handler_datetime,
+    "regex_datetime": handler_regex_datetime,
+    "ru_date": handler_ru_date,
     "pub_date": handler_pub_date,
     "deadline": handler_deadline,
     "law": handler_law,

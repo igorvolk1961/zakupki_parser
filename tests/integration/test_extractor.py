@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from playwright.async_api import Page
 from tests.conftest import load_fixture, set_html
 
+from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
 from zakupki_parser.parser.detail import detail_files, extract_detail_vars
 from zakupki_parser.parser.extractor import extract_from_scope
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.asyncio
@@ -79,6 +83,25 @@ async def test_detail_files(app_config: AppConfig, page: Page) -> None:
     assert files, "Должны быть найдены ссылки на файлы"
     assert all(f["name"] for f in files), "У каждого файла должно быть имя"
     assert all("FileStorage/Download" in f["url"] for f in files)
+
+
+@pytest.mark.asyncio
+async def test_b2b_list_extraction(page: Page) -> None:
+    """Верифицированные селекторы B2B-Center против реальной HTML-фикстуры."""
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["b2b_center"]
+    await set_html(page, load_fixture("b2b_list.html"))
+
+    containers = page.locator(platform.list_config.container)
+    assert await containers.count() > 0, "Должны находиться строки таблицы B2B"
+
+    data = await extract_from_scope(containers.first, platform.list_config.variables)
+    assert data.get("number"), "Номер тендера должен извлекаться"
+    assert data.get("subject"), "Предмет должен извлекаться"
+    assert data.get("customer"), "Организатор должен извлекаться"
+    assert isinstance(data.get("publication_date"), datetime)
+    assert isinstance(data.get("deadline"), datetime)
+    assert data["publication_date"] <= data["deadline"]
 
 
 @pytest.mark.asyncio

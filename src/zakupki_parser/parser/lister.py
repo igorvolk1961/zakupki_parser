@@ -298,17 +298,73 @@ def list_containers(page: Page, platform: PlatformDom) -> Locator:
     return page.locator(platform.list_config.container)
 
 
+def _increment_url_page(url: str, param: str) -> str:
+    """Возвращает ``url`` с инкрементированным значением query-параметра ``param``.
+
+    Параметр отсутствует — считается 1 (следующая страница = 2). Прочие параметры
+    сохраняются в исходном виде (без перекодировки), переписывается только ``param``.
+    """
+    parts = urllib.parse.urlsplit(url)
+    # Разделяем query на пары, сохраняя исходное (сырое) представление каждого
+    # параметра, чтобы перекодировка через parse_qsl/urlencode не меняла их формат.
+    raw_pairs: list[tuple[str, str]] = []
+    for pair in parts.query.split("&"):
+        if not pair:
+            continue
+        key, _, value = pair.partition("=")
+        raw_pairs.append((key, value))
+
+    current = 1
+    for key, value in raw_pairs:
+        if key == param:
+            try:
+                current = int(value) if value else 1
+            except ValueError:
+                current = 1
+            break
+
+    next_param = f"{param}={current + 1}"
+    existing = [f"{k}={v}" for k, v in raw_pairs if k != param]
+    existing.append(next_param)
+    query = "&".join(existing)
+    return urllib.parse.urlunsplit(parts._replace(query=query))
+
+
 async def next_page_exists(page: Page, platform: PlatformDom) -> bool:
-    """Есть ли переход на следующую страницу."""
-    sel = platform.list_config.next_page
+    """Есть ли переход на следующую страницу.
+
+    При URL-пагинации (``page_param`` задан) — есть, пока на текущей странице найдено
+    не меньше ``page_size`` контейнеров (полная страница). Иначе — по DOM-селектору.
+    """
+    lc = platform.list_config
+    if lc.page_param:
+        if lc.page_size is None:
+            # Без знания размера страницы считаем, что страница не последняя,
+            # если на ней есть хоть один контейнер (стоп — по возврату 0).
+            count = await list_containers(page, platform).count()
+            return count > 0
+        count = await list_containers(page, platform).count()
+        return count >= lc.page_size
+    sel = lc.next_page
     if not sel:
         return False
     return await page.locator(sel).count() > 0
 
 
 async def goto_next_page(page: Page, platform: PlatformDom, delayer: Delayer) -> bool:
-    """Переходит на следующую страницу, возвращает True при успехе."""
-    sel = platform.list_config.next_page
+    """Переходит на следующую страницу, возвращает True при успехе.
+
+    При URL-пагинации — инкрементирует ``page_param`` в текущем URL и выполняет
+    навигацию; иначе — кликает по DOM-селектору ``next_page``.
+    """
+    lc = platform.list_config
+    if lc.page_param:
+        next_url = _increment_url_page(page.url, lc.page_param)
+        await page.goto(next_url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(SETTLE_MS)
+        await delayer.sleep()
+        return True
+    sel = lc.next_page
     if not sel:
         return False
     locator = page.locator(sel)

@@ -12,7 +12,7 @@
 - [x] Декомпозиция моделей в пакет `config/models/`
 - [x] Загрузка и валидация (`config/loader.py`), env-переопределения (`ZAKUPKI_DB_DSN`)
 - [x] `config_parser.yaml` — браузер и антиблок (UA, viewport, задержки, stealth, `ignore_https_errors`)
-- [x] `config_dom.yaml` — селекторы, переменные, сортировка, фильтры (ADR-1)
+- [x] `configs/dom/<platform_id>.yaml` — селекторы, переменные, сортировка, фильтры (ADR-1)
 - [x] `config_service.yaml` — таймер, сайты, пороги, флаги, БД, webhook, stop-условия
 - [x] `config_score.yaml` — скоринг (fit_table, default_fit, p_win; дефолтный score в парсере)
 - [x] `config_log.yaml` — логирование (файл, `truncate_on_start`)

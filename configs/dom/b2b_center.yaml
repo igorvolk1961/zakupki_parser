@@ -1,0 +1,42 @@
+# B2B-Center (b2b-center.ru). Платформа_id = имя файла.
+# Серверный рендер, фильтры в URL. Анонимно доступен поиск только по ключевым
+# словам (keywords=, синтаксис: смаз*, *пожар*, трубы !стальные, "электрод");
+# доп. фильтры (ОКПД2/НМЦК/регион) — только после регистрации. Сортировка только
+# по дате (order_by=1 публикация, order_by=2 дедлайн, order_dir=1/0) -> стоп-порог
+# по дате работает. Селекторы ВЕРИФИЦИРОВАНЫ (снимок 2026-08-12).
+name: "B2B-Center"
+url: "https://www.b2b-center.ru"
+list_path: "/market/"
+list_config:
+  container: "table.search-results tbody tr"
+  detail_link: "a.search-results-title"
+  next_page: ""
+  page_param: "page"
+  page_size: 20
+  variables:
+    # Номер: «Запрос предложений № 4558864 …» из текста ссылки на тендер.
+    - { name: "number",           selector: "a.search-results-title", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
+    # Предмет — блок описания под заголовком карточки.
+    - { name: "subject",          selector: ".search-results-title-desc", handler: "strip", default: "" }
+    # Организатор — ссылка на карточку фирмы.
+    - { name: "customer",         selector: "td a[href*='/firms/']", handler: "strip", default: "" }
+    # Дата публикации / «Актуально до» — две колонки дат (МСК, с временем).
+    - { name: "publication_date", selector: "td.nowrap", index: 0, handler: "datetime", default: null }
+    - { name: "deadline",         selector: "td.nowrap", index: 1, handler: "datetime", default: null }
+detail:
+  variables:
+    # НМЦК — «Общая стоимость закупки» (может быть «Без указания цены» -> None).
+    - { name: "nmck",             selector: "tr#trade-info-lot-price td:last-child", handler: "money", default: null }
+    - { name: "publication_date", selector: "tr#trade_info_date_begin td:last-child", handler: "datetime", default: null }
+    - { name: "deadline",         selector: "tr#trade_info_date_end td:last-child", handler: "datetime", default: null }
+    - { name: "customer",         selector: "tr#trade-info-organizer-name td:last-child", handler: "strip", default: "" }
+  # Файлы/документы на B2B-Center доступны только зарегистрированным — TODO
+  # при необходимости авторизации (см. plan).
+  files: []
+search:
+  enabled: true
+  query_params:
+    order_by: "1"
+    order_dir: "0"
+  criteria_map:
+    keywords: { query_param: "keywords" }

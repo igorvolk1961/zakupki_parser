@@ -1,0 +1,32 @@
+# ЭТП ГПБ — 44-ФЗ (etpgpb.ru). Платформа_id = имя файла.
+# Vue SPA, структура карточки та же, что у etpgpb_223 (data-testid="procedure-card").
+# Селекторы СПИСКА ВЕРИФИЦИРОВАНЫ (снимок 2026-08-12); детали — TODO.
+# ВНИМАНИЕ: выдачу /procedures/ по умолчанию и 44-ФЗ, и 223-ФЗ — разделяющий
+# параметр закона не подтверждён; пока 44 и 223 обходят один список (enabled: false).
+name: "ЭТП ГПБ (44-ФЗ)"
+url: "https://etpgpb.ru"
+list_path: "/procedures/"
+list_config:
+  container: "[data-testid='procedure-card']"
+  detail_link: "a.cardHeader__infoItem.lnk"
+  next_page: ""
+  page_param: "page"
+  page_size: 20
+  variables:
+    - { name: "number",           selector: "a.cardHeader__infoItem.lnk", handler: "regex", handler_arg: "№\\s*([\\w-]+)", default: "" }
+    - { name: "purchase_type",    selector: ".cardHeader__truncateItem", handler: "strip", default: "" }
+    - { name: "status",           selector: ".vTag--round", handler: "strip", default: "" }
+    - { name: "subject",          selector: "a.productCard__title", handler: "strip", default: "" }
+    - { name: "nmck",             selector: ".cardBody__price", handler: "money", default: null }
+    - { name: "customer",         selector: ".cardBody__truncate", index: 2, handler: "strip", default: "" }
+    - { name: "deadline",         selector: ".procedureDateExpired__value", index: 0, handler: "ru_date", default: null }
+    - { name: "publication_date", selector: ".procedureDateExpired__value", index: 1, handler: "ru_date", default: null }
+detail:
+  variables: []
+  files: []
+search:
+  enabled: true
+  query_params:
+    per: "20"
+    sort: "by_published_desc"
+    "procedure[stage][0]": "accepting"

@@ -1,0 +1,41 @@
+# ЭТП ГПБ — 223-ФЗ (etpgpb.ru). Платформа_id = имя файла.
+# Vue SPA, фильтры отражаются вложенными array-параметрами:
+# procedure[stage][0]=accepting (приём заявок), sort=by_published_desc (дата).
+# Селекторы СПИСКА ВЕРИФИЦИРОВАНЫ (снимок 2026-08-12); детали — TODO.
+name: "ЭТП ГПБ (223-ФЗ)"
+url: "https://etpgpb.ru"
+list_path: "/procedures/"
+list_config:
+  container: "[data-testid='procedure-card']"
+  detail_link: "a.cardHeader__infoItem.lnk"
+  next_page: ""
+  page_param: "page"
+  page_size: 20
+  variables:
+    # Номер — «№ ГП620822» в шапке карточки (ссылка на процедуру).
+    - { name: "number",           selector: "a.cardHeader__infoItem.lnk", handler: "regex", handler_arg: "№\\s*([\\w-]+)", default: "" }
+    # Способ проведения — «Предварительный отбор» в шапке.
+    - { name: "purchase_type",    selector: ".cardHeader__truncateItem", handler: "strip", default: "" }
+    # Статус — тег «Подача заявок».
+    - { name: "status",           selector: ".vTag--round", handler: "strip", default: "" }
+    # Предмет — ссылка-заголовок в теле карточки.
+    - { name: "subject",          selector: "a.productCard__title", handler: "strip", default: "" }
+    # НМЦК — «Начальная цена» (может быть «Цена не указана» -> None).
+    - { name: "nmck",             selector: ".cardBody__price", handler: "money", default: null }
+    # Организатор — блок «Организатор» (3-й .cardBody__truncate: Секция/Заказчики/Организатор).
+    - { name: "customer",         selector: ".cardBody__truncate", index: 2, handler: "strip", default: "" }
+    # «Подача заявок до» — первая дата; «Дата публикации» — вторая (русские месяцы).
+    - { name: "deadline",         selector: ".procedureDateExpired__value", index: 0, handler: "ru_date", default: null }
+    - { name: "publication_date", selector: ".procedureDateExpired__value", index: 1, handler: "ru_date", default: null }
+detail:
+  # TODO: детальная страница (SPA) — поля ОКПД2/файлы/детали требуют захвата.
+  variables: []
+  files: []
+search:
+  enabled: true
+  query_params:
+    per: "20"
+    sort: "by_published_desc"
+    "procedure[stage][0]": "accepting"
+  criteria_map:
+    keywords: { query_param: "procedure[name]" }   # TODO: verify

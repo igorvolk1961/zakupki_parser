@@ -1,0 +1,26 @@
+# Росэлторг — 223-ФЗ/коммерческие (roseltorg.ru). Платформа_id = имя файла.
+# Drupal+React, результаты рендерятся сервером, фильтры в URL. Сортировка по
+# релевантности анонсирована -> by_relevance=true (без стоп-порога по дате).
+# ВНИМАНИЕ: селекторы list_config/detail — ПЛЕЙСХОЛДЕРЫ (TODO: verify), снимаются
+# через `zp capture-fixture` (площадка в config_service.yaml enabled: false).
+name: "Росэлторг (223-ФЗ/коммерческие)"
+url: "https://www.roseltorg.ru"
+list_path: "/search/com"
+list_config:
+  container: "div"   # TODO: verify
+  detail_link: "a[href*='/procedure/']"
+  next_page: ""
+  variables: []
+detail:
+  variables: []
+  files: []
+sort:
+  by_relevance: true
+search:
+  enabled: true
+  query_params:
+    sale: "1"
+    currency: "all"
+    "status[]": "0"
+  criteria_map:
+    keywords: { query_param: "text" }   # TODO: verify

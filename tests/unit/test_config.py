@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from zakupki_parser.config.loader import load_config
+from zakupki_parser.config.loader import _load_dom_configs, load_config
 from zakupki_parser.config.models import AppConfig, NotificationsConfig, ServiceConfig, SortConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +24,28 @@ def test_stop_conditions_defaults(app_config: AppConfig) -> None:
     sc = app_config.service.stop_conditions
     assert sc.enabled is True
     assert sc.deadline_not_expired is True
+
+
+def test_load_dom_configs_from_dir(tmp_path: Path) -> None:
+    (tmp_path / "dom").mkdir()
+    (tmp_path / "dom" / "a.yaml").write_text("name: A\n", encoding="utf-8")
+    (tmp_path / "dom" / "b.yaml").write_text("name: B\n", encoding="utf-8")
+    data = _load_dom_configs(tmp_path)
+    assert set(data["platforms"]) == {"a", "b"}
+    assert data["platforms"]["a"]["name"] == "A"
+
+
+def test_load_dom_configs_legacy_fallback(tmp_path: Path) -> None:
+    (tmp_path / "config_dom.yaml").write_text(
+        "platforms:\n  zakupki_mos:\n    name: X\n", encoding="utf-8"
+    )
+    data = _load_dom_configs(tmp_path)
+    assert data["platforms"]["zakupki_mos"]["name"] == "X"
+
+
+def test_load_dom_configs_missing(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        _load_dom_configs(tmp_path)
 
 
 def test_platform_has_list_and_detail(app_config: AppConfig) -> None:

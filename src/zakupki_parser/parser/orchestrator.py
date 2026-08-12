@@ -28,6 +28,7 @@ from zakupki_parser.parser.detail import (
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.files import split_technical_spec
 from zakupki_parser.parser.json_utils import json_safe
+from zakupki_parser.parser.keywords import matches_any_keyword
 from zakupki_parser.parser.lister import (
     goto_next_page,
     iter_container_records,
@@ -82,6 +83,8 @@ class Orchestrator:
         )
         # Кеш ИНН по ссылке на организацию: страницу организации грузим не чаще раза за проход.
         self._inn_cache: dict[str, str | None] = {}
+        # Одноразовое предупреждение о пост-фильтре без переменной subject.
+        self._post_filter_warned = False
 
     async def _resolve_customer_inn(self, page: Page, customer_link: str | None) -> str | None:
         """ИНН заказчика с кешированием по ссылке на организацию.
@@ -182,6 +185,31 @@ class Orchestrator:
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
         number = list_vars.get("number")
+
+        # 1а) клиентский пост-фильтр по ключевым словам (для SPA без серверного текстового
+        #     поиска). Отсекаем записи, в предмете/номере которых нет ни одного слова.
+        if self._platform.list_config.post_filter_keywords:
+            if not self._post_filter_warned and not any(
+                v.name == "subject" for v in self._platform.list_config.variables
+            ):
+                # Без переменной subject фильтр отсекает все записи (пустой текст) —
+                # предупреждаем один раз, чтобы ошибка конфига была заметна.
+                self._post_filter_warned = True
+                logger.warning(
+                    "Площадка %s: post_filter_keywords=true, но переменная subject не задана — "
+                    "все записи будут отсеяны",
+                    self._platform_id,
+                )
+            subject = list_vars.get("subject")
+            if not matches_any_keyword(
+                f"{subject or ''} {number or ''}".strip(),
+                self._cfg.service.search_criteria.keywords,
+            ):
+                logger.info(
+                    "Запись %s пропущена: не прошла пост-фильтр по ключевым словам",
+                    number,
+                )
+                return
 
         # 2) ссылка на детальную страницу
         detail_link_loc = container.locator(self._platform.list_config.detail_link)

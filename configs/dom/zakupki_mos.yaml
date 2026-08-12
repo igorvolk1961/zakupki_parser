@@ -1,0 +1,100 @@
+# Портал поставщиков Москвы (zakupki.mos.ru). Платформа_id = имя файла.
+# Целевой раздел — Реестр закупок (/purchase/list). Классы styled-components
+# хешированные (sc-…) и могут меняться при деплое — правки выполняются только здесь.
+name: "Портал поставщиков Москвы"
+url: "https://zakupki.mos.ru"
+list_path: "/purchase/list"
+
+list_config:
+  # Контейнер карточки закупки: прямой ребёнок списка, содержащий MainInfoContainer
+  # (внутри него и MainInfo, и AdditionalInfo — регион/закон/даты).
+  container: "div.PublicListStyles__PublicListContentContainer-sc-1epmhkd-1 > div:has(div.CardStyles__MainInfoContainer-sc-1rn3iq8-1)"
+  # Ссылка на детальную страницу закупки
+  detail_link: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6"
+  # Селектор перехода на следующую страницу (Semantic UI пагинация)
+  next_page: "div.ui.pagination.menu a[type='nextItem']"
+  # Имя переменной с датой публикации (используется для стоп-порога)
+  publication_date: "publication_date"
+  variables:
+    - { name: "number",          selector: "a.CardStyles__MainInfoNumberHeader-sc-1rn3iq8-6", handler: "strip" }
+    - { name: "purchase_type",   selector: "div.CardStyles__MainInfoTypeHeader-sc-1rn3iq8-3 span", handler: "strip", default: "" }
+    - { name: "status",          selector: "span.EllipsedSpan__WordBreakSpan-sc-5i2ox1-0", index: 1, handler: "strip", default: "" }
+    - { name: "subject",         selector: "span.EllipsedSpan__WordBreakSpan-sc-5i2ox1-0", index: 2, handler: "strip", default: "" }
+    - { name: "customer",        selector: ".PurchaseCardStyles__MainInfoCustomerHeader-sc-xhk4mt-0", handler: "strip", default: "" }
+    - { name: "nmck",            selector: "div.CardStyles__PriceInfoNumber-sc-1rn3iq8-11", handler: "money", default: null }
+    - { name: "region",          selector: "div.CardStyles__AdditionalInfoHeader-sc-1rn3iq8-14", index: 0, handler: "strip", default: "" }
+    # Закон, строка дат и производные извлекаются regex-обработчиками из всего
+    # нижнего блока карточки — это не зависит от расклада полей внутри блока
+    # (у карточек «B2B-закупка» позиции отличаются).
+    - { name: "law",             selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "law", default: null }
+    - { name: "publication_date", selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "pub_date", default: null }
+    - { name: "deadline",        selector: "div.CardStyles__AdditionalInfoContainer-sc-1rn3iq8-13", handler: "deadline", default: null }
+
+detail:
+  variables:
+    - { name: "customer",    selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Заказчик')) > div", handler: "strip", default: "" }
+    - { name: "nmck",        selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Начальная цена')) > div", handler: "money", default: null }
+    - { name: "okpd2_name",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Наименование ОКПД2')) > div", handler: "strip", default: "" }
+    - { name: "okpd2_code",  selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Код ОКПД2')) > div", handler: "strip", default: "" }
+  files:
+    # Ссылки на скачиваемые файлы: имя — текст ссылки, url скачивания с ЭТП — href
+    - { selector: "a[href*='FileStorage/Download']", name_attribute: null, url_attribute: "href" }
+
+# Извлечение ИНН заказчика (ADR-4). На mos.ru ИНН — на странице организации
+# (/companyProfile/customer/{id}), куда ведёт ссылка на имя заказчика.
+organization:
+  customer_link_selector: "div.LabeledValue-sc-1ftjcqo-0:has(label:text-is('Заказчик')) a"
+  inn_from_link_regex: null
+  inn_from_org_page: true
+  inn_page_selector: null
+
+# --- Сортировка списка закупок ---
+# mos.ru поддерживает сортировку по релевантности (sortField=relevance в URL),
+# поэтому by_relevance=true: сортируем по релевантности и НЕ отсекаем по дате.
+sort:
+  order: publication_date_desc
+  by_relevance: true
+  dropdown: "div.SortDropdownStyles__SortDropdownContainer-sc-1j5g9d7-0 .ui.dropdown"
+  option_text: "По дате публикации"
+
+# --- Фильтры (DOM-шаги). Пока не заполнены — точные селекторы панели
+#     фильтров Реестра закупок требуют верификации (см. TODO). ---
+filters: []
+
+# --- URL-фильтр списка закупок (механизм для этой площадки). ---
+# Маппинг полностью из конфига: имена параметров, структуры JSON, формат даты.
+# Плейсхолдеры: {filter_json}, {state_json}, {publish_date_great_equal}.
+search:
+  enabled: true
+  query_params:
+    page: "1"
+    perPage: "10"
+    sortField: "relevance"
+    sortDesc: "true"
+    filter: "{filter_json}"
+    state: "{state_json}"
+  # Статичная часть параметра filter. Обобщённые критерии (config_service.yaml
+  # -> search_criteria) подставляются через criteria_map ниже.
+  filter_json:
+    typeIn:
+      values: [2]
+    needSpecificFilter: {}
+  state_json:
+    currentTab: 2
+  # Привязка обобщённых критериев к структуре запроса площадки. Коды ОКПД2
+  # резолвятся в пути через okpd_tree_file.
+  criteria_map:
+    publish_date:  { json_path: "publishDateGreatEqual" }
+    okpd2:         { json_path: "needSpecificFilter.okpdPaths" }
+    nmck_min:      { json_path: "priceFrom" }
+    nmck_max:      { json_path: "priceTo" }
+    # Ключевые слова -> nameLike (одно значение, слова через пробел).
+    keywords:      { json_path: "nameLike" }
+    # active_only -> состояние закупок (stateIdIn); ID — в state_ids ниже.
+    active_only:   { json_path: "auctionSpecificFilter.stateIdIn" }
+  # ID состояний для active_only: только активные = Active + OffersSigned.
+  state_ids:
+    active: [19000002, 19000008]
+  date_great_equal_format: "%d.%m.%Y 00:00:00"
+  # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. configs/codes/mos_okpd2_tree.json)
+  okpd_tree_file: "configs/codes/mos_okpd2_tree.json"

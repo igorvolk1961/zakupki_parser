@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from zakupki_parser.parser.handlers import (
     apply_handler,
     handler_date_iso,
+    handler_datetime,
     handler_deadline,
     handler_int,
     handler_law,
     handler_money,
     handler_pub_date,
     handler_regex,
+    handler_regex_datetime,
+    handler_ru_date,
     handler_security,
     handler_security_unit,
     handler_strip,
@@ -51,6 +56,49 @@ def test_date_iso() -> None:
     assert handler_date_iso("06.08.2026") == "2026-08-06T00:00:00"
     assert handler_date_iso("05.08.2026 10:00") == "2026-08-05T10:00:00"
     assert handler_date_iso("garbage") is None
+
+
+def _iso(value: datetime | None) -> str:
+    assert isinstance(value, datetime)
+    return value.isoformat()
+
+
+def test_datetime() -> None:
+    assert _iso(handler_datetime("12.08.2026 01:12")) == "2026-08-12T01:12:00+03:00"
+    assert _iso(handler_datetime("18.08.2026 10:00")) == "2026-08-18T10:00:00+03:00"
+    assert _iso(handler_datetime("06.08.2026")) == "2026-08-06T00:00:00+03:00"
+    assert handler_datetime("garbage") is None
+    assert handler_datetime(None) is None
+
+
+def test_regex_datetime() -> None:
+    assert (
+        _iso(
+            handler_regex_datetime(
+                "Опубликована 12.08.2026 00:55", r"(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})"
+            )
+        )
+        == "2026-08-12T00:55:00+03:00"
+    )
+    assert (
+        _iso(
+            handler_regex_datetime(
+                "12.08.2026 00:55 - 20.08.2026 05:56 (MSK+00:00)",
+                r"- (\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})",
+            )
+        )
+        == "2026-08-20T05:56:00+03:00"
+    )
+    assert handler_regex_datetime("garbage", r"(\d)") is None
+    assert handler_regex_datetime(None, r"(\d)") is None
+
+
+def test_ru_date() -> None:
+    assert _iso(handler_ru_date("14 августа 2026, 18:00 МСК")) == "2026-08-14T18:00:00+03:00"
+    assert _iso(handler_ru_date("11 августа 2026, 23:25")) == "2026-08-11T23:25:00+03:00"
+    assert _iso(handler_ru_date("01 января 2026")) == "2026-01-01T00:00:00+03:00"
+    assert handler_ru_date("не дата") is None
+    assert handler_ru_date(None) is None
 
 
 def test_apply_handler_none() -> None:

@@ -116,7 +116,7 @@ class NotificationsConfig(_BaseConfig):
 class SiteServiceEntry(_BaseConfig):
     """Одна запись в списке сайтов для периодического обхода."""
 
-    platform_id: str = Field(description="ключ площадки в config_dom.yaml")
+    platform_id: str = Field(description="ключ площадки в configs/dom/<platform_id>.yaml")
     enabled: bool = Field(default=True)
 
 
@@ -132,7 +132,7 @@ class StopConditions(_BaseConfig):
         default=True,
         description=(
             "не обрабатывать заявку, если срок приёма заявок (переменная 'deadline' "
-            "из config_dom.yaml) истёк к текущей дате"
+            "из configs/dom/<platform_id>.yaml) истёк к текущей дате"
         ),
     )
     min_deadline_days: int | None = Field(
@@ -151,7 +151,7 @@ class SearchCriteria(_BaseConfig):
 
     Эти поля платформонезависимы (ОКПД2, НМЦК, ключевые слова, регионы — это
     понятия закупочной тематики). Конкретная привязка каждого критерия к параметрам
-    URL-запроса или DOM-селекторам площадки выполняется в config_dom.yaml
+    URL-запроса или DOM-селекторам площадки выполняется в configs/dom/<platform_id>.yaml
     (``search.criteria_map``), поэтому здесь нет ни селекторов, ни имён query-параметров.
     """
 

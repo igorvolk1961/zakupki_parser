@@ -20,11 +20,13 @@ from zakupki_parser.config.models import (
 
 CONFIG_FILES = {
     "parser": "config_parser.yaml",
-    "dom": "config_dom.yaml",
     "service": "config_service.yaml",
     "logging": "config_log.yaml",
     "score": "config_score.yaml",
 }
+
+# Каталог с конфигами площадок (по одному YAML на площадку; имя файла = platform_id).
+DOM_CONFIGS_DIR = "dom"
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -36,6 +38,36 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return {}
     if not isinstance(data, dict):
         raise ValueError(f"Конфиг {path} должен быть YAML-словарём")
+    return data
+
+
+def _load_dom_configs(base: Path) -> dict[str, Any]:
+    """Собирает ``platforms`` из ``configs/dom/*.yaml``.
+
+    Каждый файл в подкаталоге ``dom`` описывает одну площадку: имя файла (без
+    расширения) — ``platform_id``, содержимое — сам блок площадки. Для обратной
+    совместимости (тестовый набор ``tests/configs``, имитатор) при отсутствии
+    подкаталога читается единый ``config_dom.yaml`` с ключом ``platforms``.
+    """
+    dom_dir = base / DOM_CONFIGS_DIR
+    if dom_dir.is_dir():
+        platforms: dict[str, Any] = {}
+        for path in sorted(dom_dir.glob("*.yaml")):
+            platform_id = path.stem
+            data = _load_yaml(path)
+            if platform_id in platforms:
+                raise ValueError(f"Дубликат platform_id в configs/{DOM_CONFIGS_DIR}: {path}")
+            platforms[platform_id] = data
+        return {"platforms": platforms}
+
+    legacy = base / "config_dom.yaml"
+    if not legacy.is_file():
+        raise FileNotFoundError(
+            f"Нет конфигов площадок: нет каталога configs/{DOM_CONFIGS_DIR} и файла config_dom.yaml"
+        )
+    data = _load_yaml(legacy)
+    if "platforms" not in data:
+        raise ValueError("config_dom.yaml должен содержать ключ platforms")
     return data
 
 
@@ -68,7 +100,7 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     load_dotenv(base.parent / ".env")
 
     parser_data = _load_yaml(base / CONFIG_FILES["parser"])
-    dom_data = _load_yaml(base / CONFIG_FILES["dom"])
+    dom_data = _load_dom_configs(base)
     service_data = _load_yaml(base / CONFIG_FILES["service"])
     logging_data = _load_yaml(base / CONFIG_FILES["logging"])
     score_data = _load_yaml(base / CONFIG_FILES["score"])

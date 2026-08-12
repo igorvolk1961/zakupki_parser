@@ -1,0 +1,22 @@
+# Фабрикант (fabrikant.ru). Платформа_id = имя файла.
+# Next.js SPA, фильтры в URL НЕ отражаются. URL-фильтр отключён; ключевые слова —
+# через клиентский пост-фильтр (post_filter_keywords) и/или DOM-шаги (filters,
+# TODO на capture). Сортировка по релевантности по умолчанию.
+# ВНИМАНИЕ: селекторы list_config/detail — ПЛЕЙСХОЛДЕРЫ (TODO: verify), снимаются
+# через `zp capture-fixture` (площадка в config_service.yaml enabled: false).
+name: "Фабрикант"
+url: "https://fabrikant.ru"
+list_path: "/procedure/search/purchases"
+list_config:
+  container: "div"   # TODO: verify
+  detail_link: "a[href*='/v2/trades/procedure/view/']"
+  next_page: ""
+  post_filter_keywords: true
+  variables: []
+detail:
+  variables: []
+  files: []
+sort:
+  by_relevance: true
+search:
+  enabled: false

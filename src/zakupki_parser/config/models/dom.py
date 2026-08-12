@@ -1,4 +1,4 @@
-"""Модели DOM-конфигурации площадки и фильтров (config_dom.yaml)."""
+"""Модели DOM-конфигурации площадки и фильтров (configs/dom/<platform_id>.yaml)."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ class DomVariable(BaseModel):
     handler: str | None = Field(
         default=None,
         description=(
-            "опциональная постобработка: none|strip|float|int|date_iso|lower|"
-            "pub_date|deadline|law|regex|money|dates|security"
+            "опциональная постобработка: none|strip|float|int|date_iso|datetime|regex_datetime|"
+            "ru_date|lower|pub_date|deadline|law|regex|money|dates|security"
         ),
     )
     handler_arg: str | None = Field(
@@ -41,6 +41,30 @@ class DomListConfig(BaseModel):
     publication_date: str = Field(
         default="publication_date",
         description="имя переменной в list.variables с датой публикации (для стоп-порога)",
+    )
+    page_param: str | None = Field(
+        default=None,
+        description=(
+            "имя query-параметра страницы для URL-пагинации (напр. page); если задан, "
+            "переходы между страницами выполняются изменением параметра в URL, а не кликом "
+            "по селектору next_page (для площадок с серверной постраничной выдачей)"
+        ),
+    )
+    page_size: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "число записей на страницу — условие останова при URL-пагинации: следующая "
+            "страница есть, пока на текущей найдено >= page_size контейнеров"
+        ),
+    )
+    post_filter_keywords: bool = Field(
+        default=False,
+        description=(
+            "клиентский пост-фильтр по ключевым словам (search_criteria.keywords): отсекать "
+            "записи, в subject/number которых нет ни одного слова. Для SPA без серверного "
+            "текстового поиска (напр. Фабрикант, lot-online 223-ФЗ)"
+        ),
     )
 
 

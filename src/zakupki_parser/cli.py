@@ -123,6 +123,12 @@ def _print_summary(cfg: AppConfig) -> None:
     for path in sorted(Path(cfg.configs_dir).glob("*.yaml")):
         size = path.stat().st_size
         print(f"  {path.name:<22} {size:>7} байт")
+    dom_dir = Path(cfg.configs_dir) / "dom"
+    if dom_dir.is_dir():
+        dom_files = sorted(dom_dir.glob("*.yaml"))
+        print(f"  {'dom/':<22} {len(dom_files):>7} файлов (площадки)")
+        for path in dom_files:
+            print(f"    - {path.stem}")
     print()
 
     # --- Сервис ----------------------------------------------------------
