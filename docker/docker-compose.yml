@@ -40,6 +40,107 @@ services:
       timeout: 3s
       retries: 10
 
+  # --- Self-hosted LangFuse (v3) для трассировки LLM-вызовов scoring_service ---
+  # UI: http://localhost:3000 (логин/пароль админа — из LANG_ADMIN_PASSWORD в docker/.env)
+  langfuse-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${LANG_PG_USER:?set in docker/.env}
+      POSTGRES_PASSWORD: ${LANG_PG_PASSWORD:?set in docker/.env}
+      POSTGRES_DB: ${LANG_PG_DB:-langfuse}
+    ports:
+      - "5433:5432"
+    volumes:
+      - langfuse_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LANG_PG_USER:-langfuse} -d ${LANG_PG_DB:-langfuse}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set in docker/.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set in docker/.env}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:?set in docker/.env} ${MINIO_ROOT_PASSWORD:?set in docker/.env}; do sleep 2; done;
+      mc mb --ignore-existing local/${LANG_S3_BUCKET:-langfuse};
+      "
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${LANG_DB_URL:?set in docker/.env}
+      SALT: ${LANG_SALT:?set in docker/.env}
+      ENCRYPTION_KEY: ${LANG_ENCRYPTION_KEY:?set in docker/.env}
+      NEXTAUTH_URL: ${LANG_NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${LANG_NEXTAUTH_SECRET:?set in docker/.env}
+      S3_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET_NAME: ${LANG_S3_BUCKET:-langfuse}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set in docker/.env}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set in docker/.env}
+      S3_REGION: ${LANG_S3_REGION:-us-east-1}
+      REDIS_HOST: ${LANG_REDIS_HOST:-redis}
+      REDIS_PORT: ${LANG_REDIS_PORT:-6379}
+      LANGFUSE_INIT_ORG_NAME: ${LANG_INIT_ORG:-zakupki}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANG_INIT_PROJECT:-zakupki}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:?set in docker/.env}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANG_INIT_SECRET_KEY:?set in docker/.env}
+      LANGFUSE_INIT_USER_EMAIL: ${LANG_INIT_USER_EMAIL:-admin@example.com}
+      LANGFUSE_INIT_USER_NAME: ${LANG_INIT_USER_NAME:-admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANG_ADMIN_PASSWORD:?set in docker/.env}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  langfuse-worker:
+    image: langfuse/langfuse:3
+    command: ["node", "worker_server.js"]
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${LANG_DB_URL:?set in docker/.env}
+      SALT: ${LANG_SALT:?set in docker/.env}
+      ENCRYPTION_KEY: ${LANG_ENCRYPTION_KEY:?set in docker/.env}
+      NEXTAUTH_URL: ${LANG_NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${LANG_NEXTAUTH_SECRET:?set in docker/.env}
+      S3_ENDPOINT: ${LANG_S3_ENDPOINT:-http://minio:9000}
+      S3_BUCKET_NAME: ${LANG_S3_BUCKET:-langfuse}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set in docker/.env}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set in docker/.env}
+      S3_REGION: ${LANG_S3_REGION:-us-east-1}
+      REDIS_HOST: ${LANG_REDIS_HOST:-redis}
+      REDIS_PORT: ${LANG_REDIS_PORT:-6379}
+    restart: unless-stopped
+
   scoring-service:
     build:
       context: ../src/scoring_service
@@ -50,7 +151,16 @@ services:
     environment:
       SCORE_REDIS_URL: redis://redis:6379/0
       SCORE_PARSER_API_URL: http://api:8000
-      SCORE_USE_STUB: "true"
+      SCORE_USE_STUB: "false"
+      # LLM (OpenAI-совместимый) — см. SCORE_LLM_* в docker/.env
+      SCORE_LLM_BASE_URL: ${SCORE_LLM_BASE_URL:?set in docker/.env}
+      SCORE_LLM_API_KEY: ${SCORE_LLM_API_KEY:?set in docker/.env}
+      SCORE_LLM_MODEL: ${SCORE_LLM_MODEL:?set in docker/.env}
+      # LangFuse-трассировка (self-hosted в этом compose). Ключи совпадают с
+      # LANG_INIT_PUBLIC_KEY/SECRET_KEY из docker/.env (см. сервис langfuse-web).
+      LANGFUSE_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:?set in docker/.env}
+      LANGFUSE_SECRET_KEY: ${LANG_INIT_SECRET_KEY:?set in docker/.env}
+      LANGFUSE_HOST: ${LANG_HOST:-http://langfuse-web:3000}
     restart: unless-stopped
 
   scoring-transport:
@@ -109,3 +219,5 @@ services:
 
 volumes:
   pgdata:
+  langfuse_pgdata:
+  minio_data:

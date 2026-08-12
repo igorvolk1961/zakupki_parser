@@ -34,6 +34,14 @@ card + competencies
 имеет `run_name` (`fit_scoring`/`judge_scoring`) и `metadata.procurement_id`. Если
 LangFuse не настроен — вызовы идут без трассировки (dev-режим).
 
+### Self-hosted в Docker (dev)
+В `docker/docker-compose.yml` добавлен стек LangFuse v3 (postgres + MinIO + web + worker;
+Redis — общий). Поднять: `docker compose -f docker/docker-compose.yml up -d langfuse-web`.
+UI: http://localhost:3000 (admin@example.com / changeme123). Проект `zakupki` создаётся
+автоматически при первом старте с публичным/секретным ключами из `LANGFUSE_INIT_*`;
+`scoring-service` уже получает `LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST`. Чтобы трассировка
+шла, заглушку нужно выключить (`SCORE_USE_STUB=false`).
+
 ## Запуск (из каталога подпроекта)
 ```bash
 uv sync --group dev
