@@ -32,6 +32,14 @@ class FitResult(BaseModel):
 
     reasoning: ReasoningSteps
     fit_score: float = Field(description="Оценка Fit от 0 до 10")
+    requires_tz_review: bool = Field(
+        description=(
+            "True, если по краткому описанию закупки невозможно однозначно установить, "
+            "идёт ли речь о сопровождении чужого ПО или об автоматизации бизнес-процессов "
+            "(например, используемое ПО не названо явно). Тогда скор нужно уточнить "
+            "по полному тексту ТЗ."
+        )
+    )
 
     @field_validator("fit_score")
     @classmethod
@@ -60,6 +68,9 @@ class ScoringOutput(BaseModel):
     fit: FitResult
     judge: JudgeResult
     final_fit_score: float = Field(description="Финальная оценка Fit 0..10")
+    requires_tz_review: bool = Field(
+        description="Нужно ли уточнить скор по полному тексту ТЗ (из fit.requires_tz_review)"
+    )
     fit_multiplier: float = Field(
         description=(
             "Множитель Fit 0..1 (final_fit_score / max_fit_score при normalize_fit_for_score)"

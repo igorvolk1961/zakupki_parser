@@ -47,8 +47,8 @@ def _reasoning() -> ReasoningSteps:
     )
 
 
-def _fit(score: float) -> FitResult:
-    return FitResult(reasoning=_reasoning(), fit_score=score)
+def _fit(score: float, requires_tz_review: bool = False) -> FitResult:
+    return FitResult(reasoning=_reasoning(), fit_score=score, requires_tz_review=requires_tz_review)
 
 
 def _judge(verdict: Literal["accept", "reject"], final: float, critics: str = "") -> JudgeResult:
@@ -159,6 +159,23 @@ def test_score_keeps_judge_final_over_fit() -> None:
     assert out.final_fit_score == 9.0
     assert out.score == 9.0
     assert fit.calls == 2
+
+
+def test_score_propagates_requires_tz_review() -> None:
+    class _FlaggedFit:
+        def invoke(
+            self,
+            competencies: str,
+            description: str,
+            session_id: str | None = None,
+            metadata: dict[str, object] | None = None,
+        ) -> FitResult:
+            return _fit(5.0, requires_tz_review=True)
+
+    judge = _FakeJudge([_judge("accept", 5.0)])
+    scorer = Scorer(_FlaggedFit(), judge, Settings(score_use_stub=False))  # type: ignore[arg-type]
+    out = scorer.score({"subject": "x", "nmck": 10.0}, "comp")
+    assert out.requires_tz_review is True
 
 
 def test_stub_returns_existing_score_without_chains() -> None:

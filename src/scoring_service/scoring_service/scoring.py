@@ -102,7 +102,7 @@ class Scorer:
             uncovered_scope="",
             fit_score_rationale="stub",
         )
-        fit = FitResult(reasoning=reasoning, fit_score=score)
+        fit = FitResult(reasoning=reasoning, fit_score=score, requires_tz_review=False)
         judge = JudgeResult(
             critics="Stub: возвращён существующий score закупки",
             verdict="accept",
@@ -114,6 +114,7 @@ class Scorer:
             fit=fit,
             judge=judge,
             final_fit_score=score,
+            requires_tz_review=False,
             fit_multiplier=score,
             p_win=p_win_module.p_win(record, self._settings),
             margin=margin_module.margin(record, self._settings),
@@ -174,6 +175,7 @@ class Scorer:
             fit=fit,
             judge=judge,
             final_fit_score=final_fit,
+            requires_tz_review=fit.requires_tz_review,
             fit_multiplier=fit_norm,
             p_win=pwin,
             margin=marg,

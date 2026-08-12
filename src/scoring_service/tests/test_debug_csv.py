@@ -65,7 +65,7 @@ def test_render_table_and_report(tmp_path: Path) -> None:
         uncovered_scope="f",
         fit_score_rationale="g",
     )
-    fit = FitResult(reasoning=reasoning, fit_score=8.0)
+    fit = FitResult(reasoning=reasoning, fit_score=8.0, requires_tz_review=False)
     judge = JudgeResult(critics="ok", verdict="accept", final_fit_score=8.0)
     out = ScoringOutput(
         procurement_id=178,
@@ -73,6 +73,7 @@ def test_render_table_and_report(tmp_path: Path) -> None:
         fit=fit,
         judge=judge,
         final_fit_score=8.0,
+        requires_tz_review=False,
         fit_multiplier=0.8,
         p_win=1.0,
         margin=150.0,

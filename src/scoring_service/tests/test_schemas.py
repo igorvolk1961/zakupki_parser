@@ -21,12 +21,12 @@ def _reasoning() -> ReasoningSteps:
 
 
 def test_fit_result_clamps_score() -> None:
-    fit = FitResult(reasoning=_reasoning(), fit_score=12.0)
+    fit = FitResult(reasoning=_reasoning(), fit_score=12.0, requires_tz_review=False)
     assert fit.fit_score == 10.0
 
 
 def test_fit_result_negative_score() -> None:
-    fit = FitResult(reasoning=_reasoning(), fit_score=-3.0)
+    fit = FitResult(reasoning=_reasoning(), fit_score=-3.0, requires_tz_review=False)
     assert fit.fit_score == 0.0
 
 
@@ -44,12 +44,14 @@ def test_scoring_output() -> None:
     out = ScoringOutput(
         procurement_id=1,
         description="desc",
-        fit=FitResult(reasoning=_reasoning(), fit_score=8.0),
+        fit=FitResult(reasoning=_reasoning(), fit_score=8.0, requires_tz_review=True),
         judge=JudgeResult(critics="ok", verdict="accept", final_fit_score=8.0),
         final_fit_score=8.0,
+        requires_tz_review=True,
         fit_multiplier=0.8,
         p_win=1.0,
         margin=100.0,
         score=800.0,
     )
     assert out.score == 800.0
+    assert out.requires_tz_review is True
