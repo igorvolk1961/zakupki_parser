@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import AliasChoices, Field
@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     llm_api_key: str = "sk-dummy"
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.0
+    # Способ строгого JSON-выхода для with_structured_output:
+    # "json_mode" — response_format={"type":"json_object"} (совместимо с DeepSeek и
+    # большинством OpenAI-совместимых API); "json_schema"/"function_calling" — для
+    # провайдеров, поддерживающих строгие схемы/тул-коллинг.
+    llm_structured_method: Literal["json_mode", "json_schema", "function_calling"] = "json_mode"
 
     # Парсер закупок (REST, без БД)
     parser_api_url: str = "http://localhost:8000"
@@ -95,9 +100,21 @@ class Settings(BaseSettings):
     )
 
     # LangFuse (None = выключен)
-    langfuse_public_key: str | None = None
-    langfuse_secret_key: str | None = None
-    langfuse_host: str | None = None
+    # LangFuse-трассировка (стандартные переменные LANGFUSE_*, без SCORE_ префикса).
+    # AliasChoices: из-за env_prefix="SCORE_" без явного алиаса pydantic ждёт
+    # SCORE_LANGFUSE_* вместо стандартного LANGFUSE_*.
+    langfuse_public_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("langfuse_public_key", "LANGFUSE_PUBLIC_KEY"),
+    )
+    langfuse_secret_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("langfuse_secret_key", "LANGFUSE_SECRET_KEY"),
+    )
+    langfuse_host: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("langfuse_host", "LANGFUSE_HOST"),
+    )
 
     # Опциональная авторизация HTTP-эндпоинтов (None = выключено, dev)
     auth_token: str | None = None

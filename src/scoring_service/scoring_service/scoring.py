@@ -151,7 +151,7 @@ def build_scorer(settings: Settings) -> Scorer:
     llm = build_llm(settings)
     callbacks = callbacks_for(langfuse_handler(settings))
     return Scorer(
-        FitChain(llm, callbacks),
-        JudgeChain(llm, callbacks),
+        FitChain(llm, callbacks, method=settings.llm_structured_method),
+        JudgeChain(llm, callbacks, method=settings.llm_structured_method),
         settings,
     )
