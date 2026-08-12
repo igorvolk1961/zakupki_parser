@@ -66,6 +66,22 @@ class DomListConfig(BaseModel):
             "текстового поиска (напр. Фабрикант, lot-online 223-ФЗ)"
         ),
     )
+    total_results_selector: str | None = Field(
+        default=None,
+        description=(
+            "CSS-селектор элемента с общим числом результатов поиска (на первой странице "
+            "списка). Используется для раннего пропуска прохода, если все результаты уже "
+            "сохранены в БД. None — не извлекать."
+        ),
+    )
+    total_results_regex: str | None = Field(
+        default=None,
+        description=(
+            "regex для извлечения числа из текста total_results_selector (например "
+            "'Найдено: (\\d+)'). Если не задан, из текста берутся все цифры подряд. "
+            "Группа (если есть) — число результатов, иначе первое совпадение."
+        ),
+    )
     active_statuses: list[str] | None = Field(
         default=None,
         description=(

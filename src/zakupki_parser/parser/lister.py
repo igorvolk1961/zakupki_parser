@@ -298,6 +298,38 @@ def list_containers(page: Page, platform: PlatformDom) -> Locator:
     return page.locator(platform.list_config.container)
 
 
+async def extract_total_results(page: Page, platform: PlatformDom) -> int | None:
+    """Извлекает общее число результатов поиска из DOM первой страницы списка.
+
+    Возвращает None, если селектор не задан или число не удалось распарсить.
+    """
+    lc = platform.list_config
+    if not lc.total_results_selector:
+        return None
+    locator = page.locator(lc.total_results_selector)
+    if await locator.count() == 0:
+        logger.warning("Селектор общего числа результатов не найден: %s", lc.total_results_selector)
+        return None
+    text = (await locator.first.inner_text() or "").strip()
+    if not text:
+        return None
+
+    if lc.total_results_regex:
+        m = re.search(lc.total_results_regex, text)
+        if m is None:
+            return None
+        num = m.group(1) if m.lastindex else m.group(0)
+    else:
+        digits = re.findall(r"\d+", text)
+        num = digits[0] if digits else None
+    if num is None:
+        return None
+    try:
+        return int(re.sub(r"\D", "", num))
+    except ValueError:
+        return None
+
+
 def _increment_url_page(url: str, param: str) -> str:
     """Возвращает ``url`` с инкрементированным значением query-параметра ``param``.
 
