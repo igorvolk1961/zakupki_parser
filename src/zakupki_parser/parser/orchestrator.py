@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
-from zakupki_parser.config.models import AppConfig, PlatformDom
+from zakupki_parser.config.models import AppConfig, PlatformDom, RetryConfig, SearchCriteria
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.cutoff import is_older_than_cutoff
 from zakupki_parser.parser.detail import (
@@ -423,8 +423,40 @@ class Orchestrator:
             )
 
         retry_cfg = self._cfg.parser.retry
+        search = self._platform.search
+        keywords = self._cfg.service.search_criteria.keywords
+        one_at_a_time = bool(search and search.keywords_one_at_a_time and keywords)
+
+        if one_at_a_time:
+            # Площадка объединяет слова по «И» (AND), OR-оператора нет (B2B-Center):
+            # перебираем слова по одному, результаты объединяются (дедуп по номеру
+            # закупки через self._known_numbers, пополняемый при сохранении).
+            logger.info(
+                "Площадка %s: поиск по словам по одному (AND на площадке) — %d слов",
+                self._platform_id,
+                len(keywords),
+            )
+            for word in keywords:
+                criteria = self._cfg.service.search_criteria.model_copy(update={"keywords": [word]})
+                await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
+        else:
+            await self._crawl(
+                page, cutoff, self._cfg.service.search_criteria, by_relevance, retry_cfg
+            )
+
+        self._site_cb.record_success()
+
+    async def _crawl(
+        self,
+        page: Page,
+        cutoff: datetime | None,
+        criteria: SearchCriteria,
+        by_relevance: bool,
+        retry_cfg: RetryConfig,
+    ) -> None:
+        """Обход страниц и записей для одного поискового запроса."""
         await run_with_retry(
-            lambda: open_list_page(page, self._platform, cutoff, self._cfg.service.search_criteria),
+            lambda: open_list_page(page, self._platform, cutoff, criteria),
             retry=retry_cfg,
             circuit=self._site_cb,
             label="Открытие списка",
@@ -450,7 +482,6 @@ class Orchestrator:
                         db_total,
                         search_total,
                     )
-                    self._site_cb.record_success()
                     return
 
         # Защита от вечного цикла пагинации (например, когда селектор next_page
@@ -515,5 +546,3 @@ class Orchestrator:
                 logger.info("Не удалось перейти на следующую страницу")
                 break
             await self._delayer.sleep()
-
-        self._site_cb.record_success()

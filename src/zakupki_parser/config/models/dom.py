@@ -262,6 +262,16 @@ class SearchFilterConfig(BaseModel):
             "задаётся в criteria_map для ключа active_only"
         ),
     )
+    keywords_one_at_a_time: bool = Field(
+        default=False,
+        description=(
+            "площадка склеивает слова текстового поиска по «И» (AND) и не даёт "
+            "OR-оператора (напр. B2B-Center f_keyword). Если true — слова из "
+            "search_criteria.keywords перебираются по одному: на каждое слово "
+            "открывается отдельный поиск, результаты объединяются (дедуп по номеру "
+            "закупки). False — все слова склеиваются пробелом в одно значение."
+        ),
+    )
 
 
 class OrganizationConfig(BaseModel):

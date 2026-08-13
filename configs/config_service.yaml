@@ -2,9 +2,9 @@ sites:
 - platform_id: zakupki_mos
   enabled: false
 - platform_id: zakupki_gov_44fz
-  enabled: true
+  enabled: false
 - platform_id: zakupki_gov_223fz
-  enabled: true
+  enabled: false
 # Коммерческие ЭТП (см. план .kilo/plans/*commercial-etps-addition-plan.md).
 # Все включены с enabled: false — селекторы list_config/detail ещё плейсхолдеры,
 # верификация по одной площадке (zp capture-fixture + run-once) перед включением.
@@ -15,7 +15,7 @@ sites:
 - platform_id: fabrikant
   enabled: false
 - platform_id: b2b_center
-  enabled: false
+  enabled: true
 - platform_id: etpgpb_223
   enabled: false
 - platform_id: etpgpb_44
@@ -24,14 +24,12 @@ sites:
   enabled: false
 - platform_id: lot_online_223
   enabled: false
-default_cutoff_days: 1
+default_cutoff_days: 1000
 search_criteria:
   okpd_codes:
   - '62.02'
   keywords:
-  - ии
-  - интеллект
-  - автоматизация
+  - искусственный интеллект
   # Выбор закупок по состоянию: false — все, true — только активные
   # (применяется на площадках, где поддерживается, через stateIdIn).
   active_only: false

@@ -1,9 +1,14 @@
 # B2B-Center (b2b-center.ru). Платформа_id = имя файла.
 # Серверный рендер, фильтры в URL. Анонимно доступен поиск только по ключевым
-# словам (keywords=, синтаксис: смаз*, *пожар*, трубы !стальные, "электрод");
+# словам (f_keyword=, синтаксис: смаз*, *пожар*, трубы !стальные, "электрод");
 # доп. фильтры (ОКПД2/НМЦК/регион) — только после регистрации. Сортировка только
 # по дате (order_by=1 публикация, order_by=2 дедлайн, order_dir=1/0) -> стоп-порог
-# по дате работает. Селекторы ВЕРИФИЦИРОВАНЫ (снимок 2026-08-12).
+# по дате работает. Селекторы ВЕРИФИЦИРОВАНЫ (снимок 2026-08-12, сверено с живым
+# запросом 2026-08-13).
+# ВНИМАНИЕ (пагинация): сервер ИГНОРИРУЕТ параметр page (проверено: ?page=2 отдаёт
+# первую страницу), пагинация — клиентский JS-виджет `.pagi` (20 записей/страница).
+# Поэтому обходим только первую страницу (next_page: ""), пока не подтверждён способ
+# серверного перехода по страницам (см. план commercial-etps-addition-plan, задача 4).
 name: "B2B-Center"
 url: "https://www.b2b-center.ru"
 list_path: "/market/"
@@ -11,12 +16,10 @@ list_config:
   container: "table.search-results tbody tr"
   detail_link: "a.search-results-title"
   next_page: ""
-  page_param: "page"
-  page_size: 20
   variables:
     # Номер: «Запрос предложений № 4558864 …» из текста ссылки на тендер.
     - { name: "number",           selector: "a.search-results-title", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
-    # Предмет — блок описания под заголовком карточки.
+    # Предмет — блок описания под заголовком карточки (вложен внутрь <a> заголовка).
     - { name: "subject",          selector: ".search-results-title-desc", handler: "strip", default: "" }
     # Организатор — ссылка на карточку фирмы.
     - { name: "customer",         selector: "td a[href*='/firms/']", handler: "strip", default: "" }
@@ -35,8 +38,20 @@ detail:
   files: []
 search:
   enabled: true
+  # Статические параметры формы поиска: searching (обязательный маркер поиска),
+  # trade=all (закупки+продажи), show=all (актуальные+архив), сортировка по дате.
   query_params:
+    searching: "1"
+    trade: "all"
+    show: "all"
     order_by: "1"
     order_dir: "0"
   criteria_map:
-    keywords: { query_param: "keywords" }
+    # ВАЖНО: на B2B-Center слова в f_keyword объединяются по «И» (AND) — в предмете
+    # должны встретиться ВСЕ слова, в отличие от mos.ru (nameLike, «любое из»/OR).
+    # Площадка не даёт OR-оператора (синтаксис: смаз*, *пожар*, "фраза", !исключение),
+    # поэтому включён keywords_one_at_a_time: слова из search_criteria.keywords
+    # перебираются по одному (отдельный поиск на слово), результаты объединяются.
+    keywords: { query_param: "f_keyword" }
+  # Поиск по словам по одному за раз (AND-семантика площадки вместо «любое из»).
+  keywords_one_at_a_time: true

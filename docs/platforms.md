@@ -26,7 +26,7 @@
 | zakupki_mos | SPA (styled) | JSON `filter`/`state` | ✅ `okpdPaths` (дерево) | ✅ `nameLike` | релевантность | нет (`by_relevance=true`) |
 | zakupki_gov_44fz | сервер | query-параметры | ✅ `okpd2Ids`+`okpd2IdsWithNested` | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | zakupki_gov_223fz | сервер | query-параметры | ✅ (через lot-list) | ✅ `searchString` | дата `UPDATE_DATE` | да |
-| b2b_center | сервер | `keywords=`+`order_by`/`order_dir`+`page` | ❌ анонимно нет (после регистрации) | ✅ `keywords=` (богатый синтаксис) | дата | да |
+| b2b_center | сервер | `f_keyword=`+`searching`/`trade`/`show`+`order_by`/`order_dir` | ❌ анонимно нет (после регистрации) | ✅ `f_keyword=` (богатый синтаксис; слова по «И») | дата | да |
 | lot_online_44 | SPA, список серверный | `limit`/`sort`/`sortDirection`/`status`+`page` | ⚠️ только детали (TODO) | ⚠️ | дата | да |
 | etpgpb_223 | Vue SPA | `procedure[stage][0]`+`sort`+`per`+`page` | ⚠️ | ⚠️ `procedure[name]` (TODO) | дата `by_published_desc` | да |
 | etpgpb_44 | Vue SPA | то же | ⚠️ | — | дата | да |
