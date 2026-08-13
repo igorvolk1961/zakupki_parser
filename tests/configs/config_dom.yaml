@@ -11,9 +11,9 @@ platforms:
     list_path: "/purchase/list"
 
     list_config:
-      # Контейнер карточки закупки: прямой ребёнок списка, содержащий MainInfoContainer
-      # (внутри него и MainInfo, и AdditionalInfo — регион/закон/даты).
-      container: "div:has(> div.CardStyles__MainInfoContainer-sc-1rn3iq8-1)"
+      # Контейнер карточки закупки — БЕЗ css-хеша: структура «обёртка > MainInfo > .ui.grid»
+      # (семантический класс Semantic UI) + текст-якорь «(МСК)» внизу карточки.
+      container: "div:has(> div > div.ui.grid):has-text('МСК')"
       # Ссылка на детальную страницу закупки
       detail_link: "a[href*='/need/']"
       # Селектор перехода на следующую страницу (Semantic UI пагинация)
@@ -38,6 +38,8 @@ platforms:
         - { name: "deadline",        selector: "xpath=//span[contains(., 'МСК')]/ancestor::div[2]", handler: "deadline", default: null }
 
     detail:
+      # Раскрытие полного списка документов перед извлечением файлов (см. detail_files).
+      files_expand: "button:has-text('Смотреть все документы'), a:has-text('Смотреть все документы')"
       variables:
         - { name: "customer",    selector: "div:has(> label:text-is('Заказчик')) > div", handler: "strip", default: "" }
         - { name: "nmck",        selector: "div:has(> label:text-is('Начальная цена')) > div", handler: "money", default: null }
@@ -61,7 +63,7 @@ platforms:
     sort:
       order: publication_date_desc
       by_relevance: true
-      dropdown: "div.SortDropdownStyles__SortDropdownContainer-sc-1j5g9d7-0 .ui.dropdown"
+      dropdown: "div.ui.dropdown:has-text('По релевантности')"
       option_text: "По дате публикации"
 
     # --- Фильтры (DOM-шаги). Пока не заполнены — точные селекторы панели

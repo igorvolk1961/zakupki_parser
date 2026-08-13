@@ -1,0 +1,10 @@
+<div class="ui blue large header"><span>Техническое обслуживание оборудования (полное описание)</span></div>
+<div class="LabeledValue-sc-1ftjcqo-0 bxyGtM"><label>Документы</label>
+  <div>
+    <div role="list" class="ui list" id="docs">
+      <div role="listitem" class="item"><a href="https://zakupki.mos.ru/newapi/api/FileStorage/Download?id=1" download="" class="content" style="text-align: left; padding: 0px;">Видимый документ 1.docx</a></div>
+      <div role="listitem" class="item"><a href="https://zakupki.mos.ru/newapi/api/FileStorage/Download?id=2" download="" class="content" style="text-align: left; padding: 0px;">Техническое задание.pdf</a></div>
+    </div>
+    <button id="expand-docs" onclick="var l=document.getElementById('docs');var f=[['ТЗ-полное.pdf',11],['Документ 3.docx',12],['Документ 4.docx',13]];for(var i=0;i<f.length;i++){var it=document.createElement('div');it.setAttribute('role','listitem');var a=document.createElement('a');a.href='https://zakupki.mos.ru/newapi/api/FileStorage/Download?id='+f[i][1];a.setAttribute('download','');a.setAttribute('class','content');a.textContent=f[i][0];it.appendChild(a);l.appendChild(it);}">Смотреть все документы</button>
+  </div>
+</div>

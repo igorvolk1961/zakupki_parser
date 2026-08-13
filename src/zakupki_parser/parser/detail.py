@@ -12,6 +12,9 @@ from zakupki_parser.parser.extractor import extract_from_scope
 
 logger = logging.getLogger(__name__)
 
+# Пауза после клика по кнопке раскрытия списка документов — ждём отрисовку полного списка.
+_FILES_EXPAND_WAIT_MS = 2000
+
 
 def _absolute(base_url: str, href: str) -> str:
     """Возвращает абсолютный URL (href может быть абсолютным или относительным)."""
@@ -48,12 +51,36 @@ async def extract_detail_vars(page: Page, platform: PlatformDom) -> dict[str, An
     return await extract_from_scope(page, platform.detail.variables)
 
 
+async def _expand_files(page: Page, platform: PlatformDom) -> None:
+    """Раскрывает полный список документов, если есть кнопка «Смотреть все документы».
+
+    На некоторых площадках (mos.ru) видимая часть списка файлов неполна: остальные
+    ссылки (в т.ч. на ТЗ) появляются в DOM только после клика по кнопке раскрытия.
+    Без этого шага файлы из скрытой части не попали бы в извлечённый список.
+    Отсутствие кнопки или сбой клика не прерывают извлечение видимой части.
+    """
+    selector = platform.detail.files_expand
+    if not selector:
+        return
+    button = page.locator(selector).first
+    if await button.count() == 0:
+        return
+    try:
+        await button.click()
+    except Exception:  # noqa: BLE001
+        logger.debug("Не удалось раскрыть список документов (%s)", selector)
+        return
+    await page.wait_for_timeout(_FILES_EXPAND_WAIT_MS)
+
+
 async def detail_files(page: Page, platform: PlatformDom) -> list[dict[str, str]]:
     """Возвращает список файлов закупки: ``{"name": ..., "url": ...}``.
 
     Имя — из текста элемента (или атрибута ``name_attribute``), URL скачивания
-    с ЭТП — из атрибута ``url_attribute`` (по умолчанию ``href``).
+    с ЭТП — из атрибута ``url_attribute`` (по умолчанию ``href``). Перед извлечением
+    раскрывает полный список документов (``detail.files_expand``), если задано.
     """
+    await _expand_files(page, platform)
     result: list[dict[str, str]] = []
     for spec in platform.detail.files:
         locators = page.locator(spec.selector)

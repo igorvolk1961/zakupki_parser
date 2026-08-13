@@ -27,6 +27,25 @@ async def test_list_container_count(app_config: AppConfig, page: Page) -> None:
 
 
 @pytest.mark.asyncio
+async def test_mos_container_hash_free(app_config: AppConfig, page: Page) -> None:
+    """Селектор контейнера карточки mos.ru не содержит css-хеша styled-components (sc-…).
+
+    Хешированные классы меняются при деплое — контейнер должен опираться на
+    семантические классы Semantic UI (.ui.grid) и текст-якорь «(МСК)».
+    """
+    platform = app_config.dom.platforms["zakupki_mos"]
+    container = platform.list_config.container
+    assert "sc-" not in container, "Контейнер не должен использовать css-хеш styled-components"
+    assert ".ui.grid" in container, "Контейнер должен опираться на семантический класс .ui.grid"
+    assert "МСК" in container, "Контейнер должен использовать текст-якорь «(МСК)»"
+
+    await set_html(page, load_fixture("list_cardregion.html"))
+    containers = page.locator(container)
+    count = await containers.count()
+    assert count == 10, f"Должно быть 10 контейнеров карточек, найдено {count}"
+
+
+@pytest.mark.asyncio
 async def test_extract_list_variables(app_config: AppConfig, page: Page) -> None:
     await set_html(page, load_fixture("list_cardregion.html"))
     platform = app_config.dom.platforms["zakupki_mos"]
@@ -84,6 +103,24 @@ async def test_detail_files(app_config: AppConfig, page: Page) -> None:
     files = await detail_files(page, platform)
     assert files, "Должны быть найдены ссылки на файлы"
     assert all(f["name"] for f in files), "У каждого файла должно быть имя"
+    assert all("FileStorage/Download" in f["url"] for f in files)
+
+
+@pytest.mark.asyncio
+async def test_detail_files_expand_full_list(app_config: AppConfig, page: Page) -> None:
+    """detail_files раскрывает «Смотреть все документы» и собирает все ссылки на файлы.
+
+    Видимая часть списка — 2 файла; после клика по кнопке в DOM добавляются ещё 3
+    (в т.ч. ТЗ). Без раскрытия они не попали бы в извлечённый список.
+    """
+    await set_html(page, load_fixture("detail_documents_expand.html"))
+    platform = app_config.dom.platforms["zakupki_mos"]
+    files = await detail_files(page, platform)
+
+    names = [f["name"] for f in files]
+    assert len(files) == 5, f"Должны быть собраны все файлы после раскрытия, получено: {names}"
+    assert "ТЗ-полное.pdf" in names, "Файл из скрытой части списка должен попасть в результат"
+    assert "Документ 3.docx" in names
     assert all("FileStorage/Download" in f["url"] for f in files)
 
 
