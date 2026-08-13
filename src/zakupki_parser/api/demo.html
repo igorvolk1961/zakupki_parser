@@ -134,9 +134,13 @@
             <option value="">Как в БД</option>
             <option value="publication_date">По дате публикации</option>
           </select>
+          <span style="margin-left:12px;">
+            <input type="checkbox" id="proc-relevant"> Только релевантные
+            <span class="muted" id="relevant-hint" style="font-size:12px;"></span>
+          </span>
         </label>
         <table>
-          <thead><tr><th>ID</th><th>Закупка</th><th>Дата публикации</th></tr></thead>
+          <thead><tr><th>ID</th><th>Закупка</th><th>Fit-скор</th><th>Статус</th><th>Дата публикации</th></tr></thead>
           <tbody id="proc-rows"></tbody>
         </table>
         <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
@@ -173,6 +177,8 @@ const fmtMoney = (v) => v == null ? "–" : new Intl.NumberFormat("ru-RU").forma
 const fmtDate = (v) => v ? new Date(v).toLocaleString("ru-RU") : "–";
 // Дата и время без секунд.
 const fmtDT = (v) => v ? new Date(v).toLocaleString("ru-RU", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "–";
+// Только дата (для таблицы закупок).
+const fmtDateOnly = (v) => v ? new Date(v).toLocaleDateString("ru-RU") : "–";
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -187,6 +193,7 @@ async function api(path, params) {
 
 let allItems = [];
 let selected = new Set();
+let relevanceThreshold = null;
 
 function card(row) {
   return `<div class="card selcard" data-id="${row.id}">
@@ -197,7 +204,8 @@ function card(row) {
     <div class="row"><span>Срок подачи</span><b>${fmtDate(row.deadline)}</b></div>
     <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
     <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.source_platform)}</span>
-      <span class="pill score">score ${row.score ?? "—"}</span></div>
+      <span class="pill score">score ${row.score ?? "—"}</span>
+      <span class="pill score">fit ${row.fit_score ?? "—"}</span></div>
   </div>`;
 }
 
@@ -205,7 +213,9 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}">
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
-    <td>${fmtDT(row.publication_date)}</td>
+    <td><span class="pill score">${row.fit_score ?? "—"}</span></td>
+    <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
+    <td>${fmtDateOnly(row.publication_date)}</td>
   </tr>`;
 }
 
@@ -258,6 +268,7 @@ function sigOfProc(data) {
 async function loadProc() {
   const params = { limit: 100 };
   if ($("#platform").value) params.source_platform = $("#platform").value;
+  if ($("#proc-relevant").checked && relevanceThreshold != null) params.min_fit_score = relevanceThreshold;
   const data = await api("procurements", params);
   allItems = data.items;
   lastProcSig = sigOfProc(data);
@@ -270,6 +281,7 @@ async function pollProc() {
   try {
     const params = { limit: 100 };
     if ($("#platform").value) params.source_platform = $("#platform").value;
+    if ($("#proc-relevant").checked && relevanceThreshold != null) params.min_fit_score = relevanceThreshold;
     const data = await api("procurements", params);
     const sig = sigOfProc(data);
     if (sig !== lastProcSig) {
@@ -302,6 +314,7 @@ async function openDetail(id) {
       ${f("Обеспечение", fmtMoney(row.security_amount) + (row.security_amount_unit ? " " + escapeHtml(row.security_amount_unit) : ""))}
       ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
       ${f("Score", (row.score ?? "—") + " (" + escapeHtml(row.score_method || "") + ")")}
+      ${f("Fit-скор", row.fit_score ?? "—")}
       ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
       ${f("ТЗ", ts)}
       ${f("Файлы", files)}
@@ -377,6 +390,10 @@ $("#proc-detail").addEventListener("click", (e) => {
 $("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 $("#proc-sort").addEventListener("change", renderProc);
+$("#proc-relevant").addEventListener("change", () => {
+  localStorage.setItem("zp_relevant", $("#proc-relevant").checked ? "1" : "0");
+  loadProc();
+});
 $("#platform").addEventListener("change", loadProc);
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
@@ -542,12 +559,19 @@ connectWS();
   adminMode = false;
   $("#admin").checked = false;
   updateControls();
+  // Порог релевантности и состояние переключателя «Только релевантные».
+  try {
+    const thr = await api("config/threshold");
+    relevanceThreshold = thr.notify_min_fit_score;
+    $("#relevant-hint").textContent = `≥ ${relevanceThreshold}`;
+  } catch (err) { relevanceThreshold = null; }
+  $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
   try {
     await loadPlatforms();
     await loadProc();
     await loadCustomers();
   } catch (err) {
-    $("#proc-rows").innerHTML = `<tr><td colspan="2" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
+    $("#proc-rows").innerHTML = `<tr><td colspan="4" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
   }
 })();
 </script>

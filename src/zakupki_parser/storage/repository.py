@@ -65,6 +65,7 @@ class ProcurementRepository:
         okpd2: str | None = None,
         customer: str | None = None,
         active: bool | None = None,
+        min_fit_score: float | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[Procurement], int]:
@@ -80,6 +81,8 @@ class ProcurementRepository:
             conditions.append(Customer.name.ilike(f"%{customer}%"))
         if active is not None:
             conditions.append(Procurement.is_active == active)
+        if min_fit_score is not None:
+            conditions.append(Procurement.fit_score >= min_fit_score)
 
         stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
         if customer:

@@ -141,6 +141,34 @@ def test_missing_procurement_404(api_client: tuple[TestClient, Path]) -> None:
     assert client.get("/api/procurements/999999").status_code == 404
 
 
+def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    body = client.get("/api/config/threshold").json()
+    assert "notify_min_fit_score" in body
+    assert isinstance(body["notify_min_fit_score"], (int, float))
+
+
+def test_list_filter_min_fit_score(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
+    client, _ = api_client
+    # Задаём закупке фит-скор (выше порога по умолчанию 0.4).
+    resp = client.post(
+        f"/api/procurements/{inserted_id}/score",
+        json={"score": 123.5, "fit_score": 0.85, "score_method": "external"},
+    )
+    assert resp.status_code == 200
+
+    # Порог ниже/равен 0.85 — закупка попадает в выборку.
+    below = client.get("/api/procurements", params={"min_fit_score": 0.5}).json()
+    assert any(item["id"] == inserted_id for item in below["items"])
+    assert all(
+        item["fit_score"] is not None and item["fit_score"] >= 0.5 for item in below["items"]
+    )
+
+    # Порог выше 0.85 — закупка исключается.
+    above = client.get("/api/procurements", params={"min_fit_score": 0.99}).json()
+    assert all(item["id"] != inserted_id for item in above["items"])
+
+
 def test_technical_spec_download(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, docs = api_client
     (docs / "API-1").mkdir(parents=True, exist_ok=True)

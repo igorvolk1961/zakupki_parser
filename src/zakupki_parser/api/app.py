@@ -279,6 +279,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         okpd2: str | None = None,
         customer: str | None = None,
         active: bool | None = None,
+        min_fit_score: float | None = None,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> ProcurementListOut:
@@ -288,6 +289,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             okpd2=okpd2,
             customer=customer,
             active=active,
+            min_fit_score=min_fit_score,
             limit=limit,
             offset=offset,
         )
@@ -520,6 +522,15 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     # ------------------------------------------------------------------ #
     # Конфигурация сервиса (config_service.yaml) — просмотр/редактирование
     # ------------------------------------------------------------------ #
+    @app.get("/api/config/threshold", response_model=dict[str, Any], include_in_schema=False)
+    async def get_relevance_threshold() -> dict[str, Any]:
+        """Порог релевантности (fit_score) — используется переключателем «Только релевантные».
+
+        Значение берётся из config_ops.yaml (notifications.notify_min_fit_score),
+        эксплуатационные параметры целиком через API не отдаются.
+        """
+        return {"notify_min_fit_score": state.cfg.ops.notifications.notify_min_fit_score}
+
     @app.get("/api/config", response_model=dict[str, Any], include_in_schema=False)
     async def get_config() -> dict[str, Any]:
         """Текущие параметры config_service.yaml (аналитические настройки).
