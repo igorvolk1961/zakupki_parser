@@ -74,16 +74,23 @@ def run_evaluation(
     details: list[dict[str, Any]] = []
     # Отдельный run_id на каждый пример: каждый — своя LangFuse-сессия/трейс,
     # чтобы в UI можно было разглядывать отдельную закупку (а не один общий трейс
-    # на весь датасет). Повторы примера остаются в одном трейсе.
-    for item in dataset:
+    # на весь датасет). Повторы примера группируются в один трейс, но имя трейса
+    # различает их (номер повтора + фрагмент описания).
+    for idx, item in enumerate(dataset):
         run_id = uuid.uuid4().hex
         record = {"subject": item.description}
         scores: list[float] = []
         business: list[bool] = []
         verdicts: list[str] = []
         first_result = None
-        for _ in range(repeat):
-            result = scorer.score(record, comp, run_id=run_id)
+        desc_tag = " ".join(item.description.split())[:50]
+        for r in range(repeat):
+            result = scorer.score(
+                record,
+                comp,
+                run_id=run_id,
+                run_name=f"score #{idx} rep {r + 1}/{repeat} · {desc_tag}",
+            )
             if first_result is None:
                 first_result = result
             scores.append(result.final_fit_score)

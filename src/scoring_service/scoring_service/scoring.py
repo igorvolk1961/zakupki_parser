@@ -194,6 +194,7 @@ class Scorer:
         procurement_id: int | None = None,
         run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        run_name: str = "scoring_job",
     ) -> ScoringOutput:
         """Полный скоринг закупки по карточке и компетенциям.
 
@@ -201,9 +202,12 @@ class Scorer:
         объединяются в одну LangFuse-сессию (``session_id``). Если ``run_id`` не задан,
         сессией служит ``procurement_id`` (для разовых/синхронных вызовов).
 
-        Весь скоринг одного задания выполняется внутри единого корневого run
-        (``scoring_job``), поэтому fit/judge/refine попадают в ОДИН трейс как дочерние
-        спаны, а не в отдельные трейсы.
+        ``run_name`` — имя корневого run (трейса) в LangFuse; по умолчанию
+        ``scoring_job``. Позволяет различать трейсы (например, номер повтора и
+        фрагмент описания закупки).
+
+        Весь скоринг одного задания выполняется внутри единого корневого run,
+        поэтому fit/judge/refine попадают в ОДИН трейс как дочерние спаны.
         """
         if self._settings.score_use_stub:
             return self._stub_score(record, procurement_id)
@@ -214,14 +218,14 @@ class Scorer:
             RunnableConfig,
             {
                 "callbacks": self._callbacks or None,
-                "run_name": "scoring_job",
+                "run_name": run_name,
                 "metadata": {
                     **trace_meta,
                     **({"langfuse_session_id": session_id} if session_id is not None else {}),
                 },
             },
         )
-        runner = RunnableLambda(self._score_impl, name="scoring_job")
+        runner = RunnableLambda(self._score_impl, name=run_name)
         return runner.invoke(
             (record, competencies, procurement_id, session_id, trace_meta, root_config),
             config=root_config,
