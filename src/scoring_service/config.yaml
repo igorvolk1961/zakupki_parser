@@ -46,7 +46,7 @@ tz_review_enabled: true
 tz_download_timeout: 30.0
 
 # Заглушка: возвращать score из данных закупки без LLM-пайплайна (пока пайплайн не отлажен)
-score_use_stub: true
+score_use_stub: false
 
 # LangFuse (пустые значения = выключен)
 langfuse_public_key:

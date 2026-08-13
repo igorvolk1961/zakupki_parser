@@ -400,7 +400,7 @@ class Orchestrator:
         # 10) авто-пуш задания на внешний скоринг (ADR-7): закупка сохранена с дефолтным
         #     скором; transport ставит её в приоритетную очередь. Уведомление подписчиков
         #     отправляется позже — в POST /score, после прихода внешнего скора и проверки
-        #     порога notify_min_score (см. api/app.py). deadline_expired не скорим (скор=0).
+        #     порога notify_min_fit_score (см. api/app.py). deadline_expired не скорим (скор=0).
         if saved and self._transport is not None and record.get("score_method") == "default":
             procurement_id = record.get("id")
             if procurement_id is not None:

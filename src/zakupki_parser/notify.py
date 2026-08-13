@@ -66,6 +66,7 @@ def render_telegram_message(record: dict[str, Any]) -> str:
         ("НМЦК", "nmck"),
         ("Опубликовано", "publication_date"),
         ("Срок подачи", "deadline"),
+        ("Fit", "fit_score"),
         ("Оценка", "score"),
     ]
     lines: list[str] = []

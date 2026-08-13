@@ -182,17 +182,17 @@ def test_set_score_notifies_above_threshold(
 
     state = cast(Any, client.app).state.parser
     state.notifier = _FakeNotifier()
-    state.notify_min_score = 100.0
+    state.notify_min_fit_score = 0.5
 
     # Ниже порога — score обновляется, уведомления нет.
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 50.0, "score_method": "external"},
+        json={"score": 50.0, "fit_score": 0.3, "score_method": "external"},
     )
     assert resp.status_code == 200
     assert calls == []
 
-    # Выше порога — уведомление с обновлённой карточкой.
+    # Выше порога (по fit_score) — уведомление с обновлённой карточкой.
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
         json={"score": 150.0, "fit_score": 0.9, "score_method": "external"},

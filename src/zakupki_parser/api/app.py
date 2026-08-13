@@ -146,10 +146,10 @@ class AppState:
         }
         # WebSocket-клиенты web-демо (живые обновления при изменении БД).
         self.ws_clients: set[WebSocket] = set()
-        # Отложенное пороговое уведомление (ADR-7): Notifier + порог score,
+        # Отложенное пороговое уведомление (ADR-7): Notifier + порог fit_score,
         # используется в POST /score.
         self.notifier: Notifier | None = None
-        self.notify_min_score: float = 0.0
+        self.notify_min_fit_score: float = 0.0
 
 
 async def _broadcast(state: AppState, message: str = "data-changed") -> None:
@@ -256,9 +256,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         return state.repository
 
     # Уведомления подписчиков — отправляются в POST /score после прихода внешнего
-    # скора и прохождения порога notify_min_score (ADR-7).
+    # скора и прохождения порога notify_min_fit_score (ADR-7).
     state.notifier = Notifier(state.cfg.ops.notifications)
-    state.notify_min_score = state.cfg.ops.notifications.notify_min_score
+    state.notify_min_fit_score = state.cfg.ops.notifications.notify_min_fit_score
 
     @app.get("/health", response_model=HealthOut)
     async def health() -> HealthOut:
@@ -366,7 +366,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         """Обновление score внешним сервисом по его инициативе.
 
         После обновления score уведомляет подписчиков, если
-        score >= notify_min_score (отложенное пороговое уведомление, ADR-7).
+        fit_score >= notify_min_fit_score (отложенное пороговое уведомление, ADR-7).
         """
         if await _repo().get_by_id(procurement_id) is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
@@ -377,8 +377,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         if (
             state.notifier is not None
-            and row.score is not None
-            and row.score >= state.notify_min_score
+            and row.fit_score is not None
+            and row.fit_score >= state.notify_min_fit_score
         ):
             await state.notifier.notify(_row_to_record(row))
         return _procurement_detail_out(row)

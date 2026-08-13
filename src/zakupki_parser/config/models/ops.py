@@ -101,12 +101,14 @@ class NotificationsConfig(_BaseConfig):
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     max: MaxConfig = Field(default_factory=MaxConfig)
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
-    notify_min_score: float = Field(
+    notify_min_fit_score: float = Field(
         default=0.0,
         ge=0,
+        le=1,
         description=(
-            "порог: уведомлять только если финальный score >= notify_min_score "
-            "(проверяется в POST /score после прихода внешнего скора, ADR-7)"
+            "порог: уведомлять только если финальный fit_score >= notify_min_fit_score "
+            "(fit_score на шкале 0..1; проверяется в POST /score после прихода "
+            "внешнего скора, ADR-7)"
         ),
     )
 
