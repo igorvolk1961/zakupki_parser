@@ -31,7 +31,9 @@ def build_llm(settings: Settings) -> ChatOpenAI:
         temperature=settings.llm_temperature,
         base_url=settings.llm_base_url,
         api_key=SecretStr(settings.llm_api_key),
-    )
+        request_timeout=settings.llm_request_timeout,
+        max_retries=settings.llm_max_retries,
+    )  # type: ignore[call-arg] # поддерживается runtime (уходит в openai-клиент)
 
 
 def langfuse_handler(settings: Settings) -> object | None:

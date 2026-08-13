@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ from scoring_service.eval.metrics import (
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.judge_chain import JudgeChain
+from scoring_service.schemas import ScoringOutput
 from scoring_service.scoring import Scorer
 from scoring_service.settings import Settings
 
@@ -42,6 +44,46 @@ def _resolve_thresholds(
         max_acc_reg=max_acc,
         min_spearman_reg=min_spearman,
     )
+
+
+def _score_item(
+    scorer: Scorer,
+    item: EvalItem,
+    competencies: str,
+    repeat: int,
+    accept_threshold: float,
+    idx: int,
+) -> tuple[list[float], list[bool], list[str], ScoringOutput]:
+    """Прогнать все повторы одной закупки; вернуть скоры, бизнес-решения, вердикты.
+
+    Выполняется в отдельном потоке, чтобы circuit breaker мог прервать зависший
+    предмет по дедлайну, не блокируя остальной датасет.
+    """
+    run_id = uuid.uuid4().hex
+    record = {"subject": item.description}
+    desc_tag = " ".join(item.description.split())[:50]
+    scores: list[float] = []
+    business: list[bool] = []
+    verdicts: list[str] = []
+    first_result: ScoringOutput | None = None
+    for r in range(repeat):
+        result = scorer.score(
+            record,
+            competencies,
+            run_id=run_id,
+            run_name=f"score #{idx} rep {r + 1}/{repeat} · {desc_tag}",
+        )
+        if first_result is None:
+            first_result = result
+        scores.append(result.final_fit_score)
+        # Бизнес-решение «брать/не брать» выводится порогом по финальному скору.
+        # НЕ используем judge.verdict: это проверка адекватности оценки fit, а не
+        # решение о целесообразности участия в закупке.
+        business.append(result.final_fit_score >= accept_threshold)
+        verdicts.append(result.judge.verdict)
+    if first_result is None:  # repeat >= 1, но для mypy
+        raise RuntimeError("ни одного повтора не выполнено")
+    return scores, business, verdicts, first_result
 
 
 def run_evaluation(
@@ -65,40 +107,37 @@ def run_evaluation(
     )
     comp = competencies or settings.competencies()
 
-    expected = [item.expected_fit for item in dataset]
-    expected_verdict = [resolve_expected_verdict(item, accept_threshold) for item in dataset]
-    # [пример][повтор]: финальный скор, бизнес-решение, verdict судьи.
+    # Скоринг предметов выполняется параллельно (до 2 одновременно) с пер-предметным
+    # дедлайном (circuit breaker): зависшая закупка помечается failed и не блокирует
+    # весь датасет. По каждому предмету — своя LangFuse-сессия/трейс; повторы примера
+    # различаются именем трейса (номер повтора + фрагмент описания).
+    results: dict[int, tuple[list[float], list[bool], list[str], ScoringOutput]] = {}
+    failures: list[str] = []
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures: dict[Future[Any], int] = {
+            pool.submit(_score_item, scorer, item, comp, repeat, accept_threshold, idx): idx
+            for idx, item in enumerate(dataset)
+        }
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            try:
+                results[idx] = fut.result(timeout=settings.eval_item_timeout_seconds)
+            except Exception:  # noqa: BLE001 - circuit breaker: пропускаем предмет
+                failures.append(dataset[idx].description)
+
+    # Собираем массивы ТОЛЬКО по успешным предметам (в порядке датасета).
+    expected: list[float] = []
+    expected_verdict: list[bool] = []
     predicted_all: list[list[float]] = []
     business_all: list[list[bool]] = []
     verdict_all: list[list[str]] = []
     details: list[dict[str, Any]] = []
-    # Отдельный run_id на каждый пример: каждый — своя LangFuse-сессия/трейс,
-    # чтобы в UI можно было разглядывать отдельную закупку (а не один общий трейс
-    # на весь датасет). Повторы примера группируются в один трейс, но имя трейса
-    # различает их (номер повтора + фрагмент описания).
     for idx, item in enumerate(dataset):
-        run_id = uuid.uuid4().hex
-        record = {"subject": item.description}
-        scores: list[float] = []
-        business: list[bool] = []
-        verdicts: list[str] = []
-        first_result = None
-        desc_tag = " ".join(item.description.split())[:50]
-        for r in range(repeat):
-            result = scorer.score(
-                record,
-                comp,
-                run_id=run_id,
-                run_name=f"score #{idx} rep {r + 1}/{repeat} · {desc_tag}",
-            )
-            if first_result is None:
-                first_result = result
-            scores.append(result.final_fit_score)
-            # Бизнес-решение «брать/не брать» выводится порогом по финальному скору.
-            # НЕ используем judge.verdict: это проверка адекватности оценки fit, а не
-            # решение о целесообразности участия в закупке.
-            business.append(result.final_fit_score >= accept_threshold)
-            verdicts.append(result.judge.verdict)
+        if idx not in results:
+            continue
+        scores, business, verdicts, first_result = results[idx]
+        expected.append(item.expected_fit)
+        expected_verdict.append(resolve_expected_verdict(item, accept_threshold))
         predicted_all.append(scores)
         business_all.append(business)
         verdict_all.append(verdicts)
@@ -106,7 +145,7 @@ def run_evaluation(
             {
                 "description": item.description,
                 "expected_fit": item.expected_fit,
-                "expected_verdict": expected_verdict[-1],
+                "expected_verdict": resolve_expected_verdict(item, accept_threshold),
                 "final_fit_score": scores[0],
                 "verdict": verdicts[0],
                 "critics": first_result.judge.critics if first_result else "",
@@ -115,9 +154,10 @@ def run_evaluation(
 
     reps_metrics: list[Metrics] = []
     reps_class: list[ClassificationMetrics] = []
+    n_ok = len(predicted_all)
     for r in range(repeat):
-        pred_r = [predicted_all[i][r] for i in range(len(dataset))]
-        biz_r = [business_all[i][r] for i in range(len(dataset))]
+        pred_r = [predicted_all[i][r] for i in range(n_ok)]
+        biz_r = [business_all[i][r] for i in range(n_ok)]
         reps_metrics.append(compute_metrics(expected, pred_r, tolerance))
         reps_class.append(
             compute_classification_metrics(expected_verdict, biz_r, expected, pred_r, k=precision_k)
@@ -146,6 +186,8 @@ def run_evaluation(
         repetitions=repeat,
         continuous_stats=continuous_stats,
         classification_stats=class_stats,
+        failed=len(failures),
+        failed_items=failures,
     )
     return report, details
 

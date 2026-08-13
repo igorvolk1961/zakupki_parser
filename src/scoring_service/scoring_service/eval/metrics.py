@@ -101,6 +101,8 @@ class EvaluationReport(BaseModel):
     repetitions: int = 1
     continuous_stats: MetricsStats | None = None
     classification_stats: ClassificationStats | None = None
+    failed: int = 0
+    failed_items: list[str] = Field(default_factory=list)
 
 
 class RegressionThresholds(BaseModel):
