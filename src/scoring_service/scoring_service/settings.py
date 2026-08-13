@@ -60,8 +60,8 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     # Таймаут одного LLM-запроса (сек) и число повторов при сетевой ошибке/таймауте.
     # Без таймаута зависший запрос блокирует весь прогон (например, оценку --repeat).
-    llm_request_timeout: float = 60.0
-    llm_max_retries: int = 2
+    llm_request_timeout: float = 45.0
+    llm_max_retries: int = 1
     # Дедлайн на одну закупку в прогоне оценки (сек): если предмет не уложился —
     # помечается failed и прогон переходит к следующему (circuit breaker).
     eval_item_timeout_seconds: float = 300.0

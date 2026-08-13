@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -33,6 +34,13 @@ from scoring_service.pipeline.judge_chain import JudgeChain
 from scoring_service.schemas import ScoringOutput
 from scoring_service.scoring import Scorer
 from scoring_service.settings import Settings
+
+
+def _item_std(scores: list[float]) -> float:
+    """Стандартное отклонение финального скора предмета по повторам."""
+    if len(scores) < 2:
+        return 0.0
+    return statistics.stdev(scores)
 
 
 def _resolve_thresholds(
@@ -136,19 +144,30 @@ def run_evaluation(
         if idx not in results:
             continue
         scores, business, verdicts, first_result = results[idx]
+        exp_verdict = resolve_expected_verdict(item, accept_threshold)
         expected.append(item.expected_fit)
-        expected_verdict.append(resolve_expected_verdict(item, accept_threshold))
+        expected_verdict.append(exp_verdict)
         predicted_all.append(scores)
         business_all.append(business)
         verdict_all.append(verdicts)
+        s_mean = statistics.fmean(scores)
         details.append(
             {
                 "description": item.description,
                 "expected_fit": item.expected_fit,
-                "expected_verdict": resolve_expected_verdict(item, accept_threshold),
+                "expected_verdict": exp_verdict,
                 "final_fit_score": scores[0],
                 "verdict": verdicts[0],
                 "critics": first_result.judge.critics if first_result else "",
+                # per-procurement метрики по повторам
+                "scores": scores,
+                "scores_mean": round(s_mean, 2),
+                "scores_std": round(_item_std(scores), 2),
+                "scores_min": round(min(scores), 2),
+                "scores_max": round(max(scores), 2),
+                "error": round(abs(s_mean - item.expected_fit), 2),
+                "business_decisions": business,
+                "business_stable": len(set(business)) == 1,
             }
         )
 
