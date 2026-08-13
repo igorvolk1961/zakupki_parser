@@ -466,11 +466,13 @@ def build_scorer(settings: Settings) -> Scorer:
                 client_secret=settings.giga_client_secret,
                 scope=settings.giga_auth_scope,
                 min_ttl_seconds=settings.giga_min_token_ttl_seconds,
+                verify_ssl=settings.giga_verify_ssl,
             )
             embedder = GigaEmbedder(
                 base_url=settings.giga_base_url,
                 model=settings.giga_embeddings_model,
                 token_provider=token_provider,
+                verify_ssl=settings.giga_verify_ssl,
             )
         else:
             embedding_skip_reason = "missing giga credentials"

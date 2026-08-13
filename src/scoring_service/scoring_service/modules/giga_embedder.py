@@ -29,18 +29,20 @@ class GigaTokenProvider:
         client_secret: str,
         scope: str = "GIGACHAT_API_PERS",
         min_ttl_seconds: float = 60.0,
+        verify_ssl: bool = True,
     ) -> None:
         self._auth_url = auth_url
         self._client_id = client_id
         self._client_secret = client_secret
         self._scope = scope
         self._min_ttl = min_ttl_seconds
+        self._verify_ssl = verify_ssl
         self._token: str | None = None
         self._expires_at: float = 0.0
         self._lock = threading.Lock()
 
     def _fetch(self) -> tuple[str, float]:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=30.0, verify=self._verify_ssl) as client:
             resp = client.post(
                 self._auth_url,
                 headers={
@@ -77,10 +79,17 @@ class GigaTokenProvider:
 class GigaEmbedder:
     """Эмбеддинги текста через GigaChat (best-effort: не роняет скоринг)."""
 
-    def __init__(self, base_url: str, model: str, token_provider: GigaTokenProvider) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        token_provider: GigaTokenProvider,
+        verify_ssl: bool = True,
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._model = model
         self._tokens = token_provider
+        self._verify_ssl = verify_ssl
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Векторные представления списка текстов."""
@@ -95,7 +104,7 @@ class GigaEmbedder:
             raise
 
     def _embed_once(self, payload: Mapping[str, object]) -> list[list[float]]:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=30.0, verify=self._verify_ssl) as client:
             resp = client.post(
                 f"{self._base}/embeddings",
                 headers={

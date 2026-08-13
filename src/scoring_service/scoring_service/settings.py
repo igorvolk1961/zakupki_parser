@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     giga_timeout_seconds: float = 30.0
     # Порог остаточного времени жизни токена (сек): при значении меньше — обновить.
     giga_min_token_ttl_seconds: float = 60.0
+    # Проверять SSL-сертификат при обращении к Giga. Giga OAuth (ngw...:9443)
+    # использует самоподписанный сертификат — для локальной разработки можно
+    # выключить (false). По умолчанию проверка включена (безопасно).
+    giga_verify_ssl: bool = True
 
     @property
     def giga_configured(self) -> bool:

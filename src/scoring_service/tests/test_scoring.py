@@ -545,7 +545,12 @@ def test_score_embedding_missing_credentials_no_crash() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, giga_enabled=True),  # без client_id/client_secret
+        Settings(
+            score_use_stub=False,
+            giga_enabled=True,
+            giga_client_id="",
+            giga_client_secret="",
+        ),
     )  # type: ignore[arg-type]
     assert scorer._embedder is None  # noqa: SLF001
     assert scorer._base_metadata["embedding_skipped"] == "missing giga credentials"
