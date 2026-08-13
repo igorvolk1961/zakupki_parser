@@ -72,6 +72,8 @@ search:
     update_date:   { query_param: "updateDateFrom" }
     deadline_from: { query_param: "applSubmissionCloseDateFrom" }
     fz223:         { query_param: "fz223" }
+    # Ключевые слова -> свободный текстовый поиск ЕИС (searchString).
+    keywords:      { query_param: "searchString" }
     okpd2:
       query_params:
         okpd2Ids: "{okpd2_ids}"

@@ -1,13 +1,10 @@
 sites:
 - platform_id: zakupki_mos
-  enabled: true
-# ЕИС временно отключена — разбираемся с фильтрами на zakupki_mos
-# (на ЕИС серверная фильтрация по ОКПД2/словам не подтверждена).
-# Разделена на 44-ФЗ и 223-ФЗ (разные структуры детальных страниц).
+  enabled: false
 - platform_id: zakupki_gov_44fz
-  enabled: false
+  enabled: true
 - platform_id: zakupki_gov_223fz
-  enabled: false
+  enabled: true
 # Коммерческие ЭТП (см. план .kilo/plans/*commercial-etps-addition-plan.md).
 # Все включены с enabled: false — селекторы list_config/detail ещё плейсхолдеры,
 # верификация по одной площадке (zp capture-fixture + run-once) перед включением.

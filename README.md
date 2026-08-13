@@ -16,8 +16,7 @@
   service, ops, score, log + `dom/`).
 - Сортировка по убыванию даты публикации (порядок фиксирован: `publication_date_desc`)
   или по релевантности (`sort.by_relevance=true` — без стоп-порога по дате);
-  фильтрация: URL-фильтр (`configs/dom/<platform_id>.yaml -> search`), DOM-шаги (`filters`)
-  и/или клиентский пост-фильтр по ключевым словам (`post_filter_keywords`).
+   фильтрация: URL-фильтр (`configs/dom/<platform_id>.yaml -> search`) и DOM-шаги (`filters`).
 - Цикл по страницам и записям с остановкой по порогу даты / концу пагинации;
   пагинация — кликом по кнопке или через query-параметр `page=N` (`page_param`);
   потолок страниц за проход (`parser.max_list_pages`) — защита от вечного цикла.

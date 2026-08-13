@@ -29,7 +29,6 @@ from zakupki_parser.parser.detail import (
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.files import split_technical_spec
 from zakupki_parser.parser.json_utils import json_safe
-from zakupki_parser.parser.keywords import matches_any_keyword
 from zakupki_parser.parser.lister import (
     extract_total_results,
     goto_next_page,
@@ -85,8 +84,6 @@ class Orchestrator:
         )
         # Кеш ИНН по ссылке на организацию: страницу организации грузим не чаще раза за проход.
         self._inn_cache: dict[str, str | None] = {}
-        # Одноразовое предупреждение о пост-фильтре без переменной subject.
-        self._post_filter_warned = False
         # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
         # (relevance-режим): детальные страницы известных закупок не открываем.
         self._known_numbers: set[str] | None = None
@@ -227,31 +224,6 @@ class Orchestrator:
         if self._is_known(number):
             logger.info("Закупка %s уже в БД, детали не обрабатываем", number)
             return
-
-        # 1а) клиентский пост-фильтр по ключевым словам (для SPA без серверного текстового
-        #     поиска). Отсекаем записи, в предмете/номере которых нет ни одного слова.
-        if self._platform.list_config.post_filter_keywords:
-            if not self._post_filter_warned and not any(
-                v.name == "subject" for v in self._platform.list_config.variables
-            ):
-                # Без переменной subject фильтр отсекает все записи (пустой текст) —
-                # предупреждаем один раз, чтобы ошибка конфига была заметна.
-                self._post_filter_warned = True
-                logger.warning(
-                    "Площадка %s: post_filter_keywords=true, но переменная subject не задана — "
-                    "все записи будут отсеяны",
-                    self._platform_id,
-                )
-            subject = list_vars.get("subject")
-            if not matches_any_keyword(
-                f"{subject or ''} {number or ''}".strip(),
-                self._cfg.service.search_criteria.keywords,
-            ):
-                logger.info(
-                    "Запись %s пропущена: не прошла пост-фильтр по ключевым словам",
-                    number,
-                )
-                return
 
         # 2) ссылка на детальную страницу
         detail_link_loc = container.locator(self._platform.list_config.detail_link)
@@ -463,11 +435,7 @@ class Orchestrator:
         # Ранний пропуск прохода (relevance-режим, без клиентского пост-фильтра):
         # если все результаты поиска уже сохранены в БД (в БД записей не меньше,
         # чем нашёл поиск) — открывать детальные страницы незачем.
-        if (
-            by_relevance
-            and not self._platform.list_config.post_filter_keywords
-            and self._platform.list_config.total_results_selector
-        ):
+        if by_relevance and self._platform.list_config.total_results_selector:
             try:
                 search_total = await extract_total_results(page, self._platform)
             except Exception:  # noqa: BLE001

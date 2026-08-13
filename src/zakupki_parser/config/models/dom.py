@@ -58,14 +58,6 @@ class DomListConfig(BaseModel):
             "страница есть, пока на текущей найдено >= page_size контейнеров"
         ),
     )
-    post_filter_keywords: bool = Field(
-        default=False,
-        description=(
-            "клиентский пост-фильтр по ключевым словам (search_criteria.keywords): отсекать "
-            "записи, в subject/number которых нет ни одного слова. Для SPA без серверного "
-            "текстового поиска (напр. Фабрикант, lot-online 223-ФЗ)"
-        ),
-    )
     total_results_selector: str | None = Field(
         default=None,
         description=(

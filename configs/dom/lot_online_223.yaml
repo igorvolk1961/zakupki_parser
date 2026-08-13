@@ -1,6 +1,7 @@
 # lot-online (РАД) — 223-ФЗ (tender.lot-online.ru). Платформа_id = имя файла.
-# Angular SPA, фильтры в URL не отражаются. URL-фильтр отключён; ключевые слова —
-# через клиентский пост-фильтр. В списке НЕТ дат публикации/дедлайна, поэтому
+# Angular SPA, фильтры в URL не отражаются. URL-фильтр отключён; фильтрация по
+# словам/ОКПД2 — через DOM-шаги (filters, TODO на capture). В списке НЕТ дат
+# публикации/дедлайна, поэтому
 # by_relevance=true: сортировка по релевантности отключает стоп-порог по дате
 # (см. договорённость: порог по дате не нужен при сортировке по релевантности).
 # ВНИМАНИЕ: селекторы list_config/detail — ПЛЕЙСХОЛДЕРЫ (TODO: verify), снимаются
@@ -14,7 +15,6 @@ list_config:
   container: "div"   # TODO: verify
   detail_link: "a"
   next_page: ""
-  post_filter_keywords: true
   variables: []
 detail:
   variables: []

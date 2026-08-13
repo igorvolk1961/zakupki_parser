@@ -34,7 +34,7 @@
 - [ ] **Ранний пропуск прохода по числу результатов поиска** — реализован движок
       (`list_config.total_results_selector` + `total_results_regex`,
       `parser/lister.py:extract_total_results`, `repository.count`, ранний `return` в
-      `run()` для relevance-режима без `post_filter_keywords`). Осталось: верифицировать
+      `run()` для relevance-режима). Осталось: верифицировать
       селектор счётчика для каждой площадки (`zp capture-fixture`) и включить в
       `configs/dom/<platform_id>.yaml` (у zakupki.mos.ru — закомментирован).
 - [ ] **Верифицировать DOM-шаги фильтров** (`config_dom.yaml -> filters`) для площадок
@@ -73,8 +73,8 @@
       Giga-эмбеддингов (`giga_embedding_alpha`) по метрикам `evaluate`; проставить рейтинги
       заказчиков (`customers.rating`) и включить их в `P(win)`.
 - [x] **Добавить коммерческие ЭТП (движок + конфиги-каркасы)** — расширены механизмы движка
-      (URL-пагинация `page_param`/`page_size`, вложенные array-параметры, клиентский пост-фильтр
-      по ключевым словам `post_filter_keywords`); добавлены конфиги Росэлторг (44/223), Фабрикант,
+      (URL-пагинация `page_param`/`page_size`, вложенные array-параметры); добавлены конфиги
+      Росэлторг (44/223), Фабрикант,
       B2B-Center, ЭТП ГПБ (44/223), lot-online (44/223) в `config_dom.yaml` + список в
       `config_service.yaml` (все `enabled: false`). План: `.kilo/plans/1786484077646-commercial-etps-addition-plan.md`.
 - [ ] **Верификация селекторов коммерческих ЭТП** — для каждой площадки `zp capture-fixture`

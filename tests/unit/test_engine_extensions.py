@@ -1,4 +1,4 @@
-"""Unit-тесты новых механизмов движка: URL-пагинация, array-параметры, пост-фильтр слов."""
+"""Unit-тесты новых механизмов движка: URL-пагинация, array-параметры, вложенные JSON-пути."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from zakupki_parser.config.models import (
     SearchCriteria,
     SearchFilterConfig,
 )
-from zakupki_parser.parser.keywords import matches_any_keyword
 from zakupki_parser.parser.lister import _increment_url_page, build_query
 
 
@@ -86,16 +85,3 @@ def test_nested_filter_json_paths_without_state_ids_unchanged() -> None:
     )
     filt = _decode_filter(build_query(search, None, SearchCriteria(active_only=True)))
     assert filt["auctionSpecificFilter"] == {}
-
-
-def test_matches_any_keyword_pass() -> None:
-    assert matches_any_keyword("Обследование ИИ-ландшафта", ["ии", "автоматизация"]) is True
-    assert matches_any_keyword("разработка нейросети", ["Нейросет"]) is True
-    assert matches_any_keyword("Автоматизация процессов", ["автоматизация"]) is True
-    assert matches_any_keyword("предмет", []) is True  # пустой список — без фильтра
-
-
-def test_matches_any_keyword_fail() -> None:
-    assert matches_any_keyword("Поставка мебели", ["ии", "нейросеть"]) is False
-    assert matches_any_keyword(None, ["ии"]) is False
-    assert matches_any_keyword("", ["ии"]) is False
