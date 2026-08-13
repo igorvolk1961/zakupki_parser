@@ -52,12 +52,42 @@ def _cmd_evaluate(
     out: Path | None,
     competencies: Path | None,
     tolerance: float,
+    accept_threshold: float,
+    precision_k: int | None,
+    repeat: int,
+    compare: Path | None,
+    max_mae: float,
+    max_rmse: float,
+    max_acc: float,
+    min_spearman: float,
 ) -> int:
-    from scoring_service.eval.evaluate import evaluate_cli
+    from scoring_service.eval.evaluate import (
+        _dump_comparison,
+        _dump_report,
+        evaluate_cli,
+    )
 
     comp = competencies.read_text(encoding="utf-8") if competencies else None
-    metrics = evaluate_cli(settings, dataset, out, comp, tolerance)
-    print(json.dumps(metrics.model_dump(), ensure_ascii=False, indent=2))
+    report, comparison = evaluate_cli(
+        settings,
+        dataset,
+        out,
+        comp,
+        tolerance,
+        accept_threshold=accept_threshold,
+        precision_k=precision_k,
+        repeat=repeat,
+        compare=compare,
+        max_mae=max_mae,
+        max_rmse=max_rmse,
+        max_acc=max_acc,
+        min_spearman=min_spearman,
+    )
+    print(_dump_report(report))
+    if comparison is not None:
+        print("--- сравнение с baseline ---")
+        print(_dump_comparison(comparison))
+        return 0 if comparison.passed else 1
     return 0
 
 
@@ -104,6 +134,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--out", type=Path, default=None)
     p_eval.add_argument("--competencies", type=Path, default=None)
     p_eval.add_argument("--tolerance", type=float, default=1.0)
+    p_eval.add_argument(
+        "--accept-threshold", type=float, default=5.0, help="порог для бинарной метки"
+    )
+    p_eval.add_argument(
+        "--precision-k", type=int, default=None, help="K для precision@K (по умолчанию не считаем)"
+    )
+    p_eval.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="сколько раз прогнать каждый пример (для консистентности, дорого)",
+    )
+    p_eval.add_argument(
+        "--compare",
+        type=Path,
+        default=None,
+        help="JSON-отчёт baseline; сравнить и вернуть ненулевой код при деградации",
+    )
+    p_eval.add_argument("--max-mae-reg", type=float, default=0.3)
+    p_eval.add_argument("--max-rmse-reg", type=float, default=0.4)
+    p_eval.add_argument("--max-acc-reg", type=float, default=0.03)
+    p_eval.add_argument("--min-spearman-reg", type=float, default=0.02)
 
     p_csv = sub.add_parser("score-csv", help="отладка пайплайна на выгрузке БД (CSV)")
     p_csv.add_argument(
@@ -134,7 +186,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "score":
         return _cmd_score(settings, args.card, args.competencies)
     if args.command == "evaluate":
-        return _cmd_evaluate(settings, args.dataset, args.out, args.competencies, args.tolerance)
+        return _cmd_evaluate(
+            settings,
+            args.dataset,
+            args.out,
+            args.competencies,
+            args.tolerance,
+            args.accept_threshold,
+            args.precision_k,
+            args.repeat,
+            args.compare,
+            args.max_mae_reg,
+            args.max_rmse_reg,
+            args.max_acc_reg,
+            args.min_spearman_reg,
+        )
     if args.command == "score-csv":
         return _cmd_score_csv(
             settings, args.csv, args.competencies, args.limit, args.stub, args.out

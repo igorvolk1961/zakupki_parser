@@ -73,10 +73,22 @@ uv run python -m scoring_service score-csv --stub          # заглушка д
 
 # оценка точности на тестовом наборе (пары: описание — скор)
 uv run python -m scoring_service evaluate --dataset data/dataset.example.json
+# сохранить baseline (для regression-гейта)
+uv run python -m scoring_service evaluate --dataset data/dataset.example.json --out baseline.json
+# сравнить текущий прогон с baseline; ненулевой код выхода при деградации метрик
+uv run python -m scoring_service evaluate --dataset data/dataset.example.json --compare baseline.json
 
 # FastAPI: GET /health, POST /score
 uv run python -m scoring_service serve --port 8100
 ```
+
+`evaluate` считает непрерывные метрики (MAE, RMSE, accuracy@tol, Pearson, Spearman, bias, WAPE),
+бинарные метрики решения судьи accept/reject (precision/recall/F1/confusion, precision@K через
+`--precision-k`) и, при `--repeat N`, консистентность пайплайна (std скора и долю нестабильных
+verdict — дорого, используйте на ограниченном наборе). Бинарная метка выводится из `expected_fit`
+порогом `--accept-threshold` (по умолчанию 5.0) либо берётся из явного поля `expected_verdict`.
+`--compare baseline.json` печатает дельты к сохранённому отчёту и возвращает код 1 при деградации
+сильнее порогов `--max-mae-reg`/`--max-rmse-reg`/`--max-acc-reg`/`--min-spearman-reg`.
 
 ## Переменные окружения (`SCORE_*`, `LANGFUSE_*`)
 

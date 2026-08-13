@@ -18,11 +18,25 @@ class EvalItem(BaseModel):
 
     description: str
     expected_fit: float = Field(description="Ожидаемая Fit-оценка 0..10")
+    expected_verdict: bool | None = Field(
+        default=None,
+        description=(
+            "Ожидаемое решение «берём/не берём». Если не задано — выводится из "
+            "expected_fit через порог accept_threshold."
+        ),
+    )
 
     @field_validator("expected_fit")
     @classmethod
     def _clamp(cls, value: float) -> float:
         return max(0.0, min(10.0, value))
+
+
+def resolve_expected_verdict(item: EvalItem, accept_threshold: float) -> bool:
+    """Бинарная метка примера: явное ``expected_verdict`` либо порог по ``expected_fit``."""
+    if item.expected_verdict is not None:
+        return item.expected_verdict
+    return item.expected_fit >= accept_threshold
 
 
 def load_dataset(path: Path) -> list[EvalItem]:
