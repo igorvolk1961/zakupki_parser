@@ -24,7 +24,7 @@ notifications:
   webhook:
     enabled: false
     timeout_seconds: 10.0
-  notify_min_fit_score: 0.3
+  notify_min_fit_score: 0.4
 export_dir: data/export
 circuit_breaker_failure_threshold: 5
 circuit_breaker_reset_timeout_seconds: 60.0
