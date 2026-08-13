@@ -91,6 +91,7 @@ class Scorer:
             session_id,
             metadata,
             parent_config=parent_config,
+            run_name="fit_refine",
         )
 
     def _stub_score(self, record: dict[str, Any], procurement_id: int | None) -> ScoringOutput:

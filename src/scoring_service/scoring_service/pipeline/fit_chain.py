@@ -46,10 +46,11 @@ class FitChain:
         self,
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        run_name: str = "fit_scoring",
     ) -> RunnableConfig:
         config: dict[str, Any] = {
             "callbacks": self._callbacks or None,
-            "run_name": "fit_scoring",
+            "run_name": run_name,
         }
         trace_meta = dict(metadata or {})
         if session_id is not None:
@@ -82,13 +83,14 @@ class FitChain:
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         parent_config: RunnableConfig | None = None,
+        run_name: str = "fit_scoring",
     ) -> FitResult:
         """Выставить Fit-оценку (reasoning + fit_score)."""
         messages: list[BaseMessage] = build_fit_messages(competencies, description)
         config = (
-            self._config(session_id, metadata)
+            self._config(session_id, metadata, run_name)
             if parent_config is None
-            else self._child_config(parent_config, session_id, metadata, "fit_scoring")
+            else self._child_config(parent_config, session_id, metadata, run_name)
         )
         try:
             result = self._structured.invoke(messages, config=config)
