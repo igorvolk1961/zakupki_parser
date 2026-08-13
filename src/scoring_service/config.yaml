@@ -51,7 +51,8 @@ tz_download_timeout: 30.0
 # фиксируется в метаданных LangFuse-трейса (без падения).
 giga_enabled: false
 giga_base_url: "https://gigachat.devices.sberbank.ru/api/v1"
-giga_embeddings_model: "Embeddings"
+# Giga Embedder, окно 4096 токенов (умещает профиль компетенций без разбиения).
+giga_embeddings_model: "EmbeddingsGigaR"
 giga_auth_url: "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 giga_client_id: ""
 giga_client_secret: ""

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from collections.abc import Mapping
 
 import httpx
@@ -48,6 +49,8 @@ class GigaTokenProvider:
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Accept": "application/json",
+                    # Sber требует заголовок RqUID (UUID запроса) — без него 400.
+                    "RqUID": str(uuid.uuid4()),
                 },
                 data={
                     "scope": self._scope,
@@ -79,6 +82,12 @@ class GigaTokenProvider:
 class GigaEmbedder:
     """Эмбеддинги текста через GigaChat (best-effort: не роняет скоринг)."""
 
+    # Консервативный лимит длины текста в одном запросе (в символах): для модели
+    # EmbeddingsGigaR окно 4096 токенов (~15000 символов RU). Длинный текст
+    # (например, расширенный профиль компетенций) разбивается на чанки,
+    # эмбеддинги усредняются.
+    MAX_CHARS_PER_CHUNK = 12000
+
     def __init__(
         self,
         base_url: str,
@@ -92,19 +101,69 @@ class GigaEmbedder:
         self._verify_ssl = verify_ssl
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        """Векторные представления списка текстов."""
-        payload = {"model": self._model, "input": texts}
+        """Векторные представления списка текстов (длинные — усреднённые по чанкам)."""
+        return [self._embed_one(text) for text in texts]
+
+    def _embed_one(self, text: str) -> list[float]:
+        chunks = self._chunks(text)
+        if len(chunks) == 1:
+            return self._embed_raw(chunks[0])
+        vecs = [self._embed_raw(chunk) for chunk in chunks]
+        return self._average(vecs)
+
+    def _chunks(self, text: str) -> list[str]:
+        """Разбить текст на чанки не длиннее MAX_CHARS_PER_CHUNK (по границам абзацев)."""
+        text = text.strip()
+        if not text:
+            return [""]
+        if len(text) <= self.MAX_CHARS_PER_CHUNK:
+            return [text]
+        paragraphs = [p for p in text.split("\n") if p.strip()]
+        chunks: list[str] = []
+        buf = ""
+        for para in paragraphs:
+            if len(buf) + len(para) + 1 <= self.MAX_CHARS_PER_CHUNK:
+                buf = f"{buf}\n{para}" if buf else para
+            else:
+                if buf:
+                    chunks.append(buf)
+                # Очень длинный абзац — режем по словам.
+                buf = para
+                while len(buf) > self.MAX_CHARS_PER_CHUNK:
+                    cut = buf.rfind(" ", 0, self.MAX_CHARS_PER_CHUNK)
+                    if cut <= 0:
+                        cut = self.MAX_CHARS_PER_CHUNK
+                    chunks.append(buf[:cut])
+                    buf = buf[cut:].lstrip()
+        if buf:
+            chunks.append(buf)
+        return chunks
+
+    @staticmethod
+    def _average(vecs: list[list[float]]) -> list[float]:
+        if not vecs:
+            return []
+        n = len(vecs)
+        dim = len(vecs[0])
+        avg = [0.0] * dim
+        for v in vecs:
+            for i, val in enumerate(v):
+                avg[i] += val
+        return [x / n for x in avg]
+
+    def _embed_raw(self, text: str) -> list[float]:
+        payload: Mapping[str, object] = {"model": self._model, "input": text}
         try:
-            return self._embed_once(payload)
+            return self._embed_once(payload)[0]
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
                 # Токен всё же протух — принудительно обновляем и повторяем.
                 self._tokens.reset()
-                return self._embed_once(payload)
+                return self._embed_once(payload)[0]
             raise
 
     def _embed_once(self, payload: Mapping[str, object]) -> list[list[float]]:
-        with httpx.Client(timeout=30.0, verify=self._verify_ssl) as client:
+        with httpx.Client(timeout=60.0, verify=self._verify_ssl) as client:
             resp = client.post(
                 f"{self._base}/embeddings",
                 headers={

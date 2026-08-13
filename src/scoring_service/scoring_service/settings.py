@@ -103,7 +103,8 @@ class Settings(BaseSettings):
     # фиксируется в метаданных LangFuse-трейса (падения нет).
     giga_enabled: bool = False
     giga_base_url: str = "https://gigachat.devices.sberbank.ru/api/v1"
-    giga_embeddings_model: str = "Embeddings"
+    # Giga Embedder, окно 4096 токенов (умещает профиль компетенций без разбиения).
+    giga_embeddings_model: str = "EmbeddingsGigaR"
     giga_auth_url: str = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
     giga_client_id: str = ""
     giga_client_secret: str = ""
