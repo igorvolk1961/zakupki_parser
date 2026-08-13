@@ -8,10 +8,14 @@ from pathlib import Path
 from scoring_service.eval.dataset import EvalItem, load_dataset, resolve_expected_verdict
 from scoring_service.eval.metrics import (
     RegressionThresholds,
+    classification_stats,
     compare_reports,
     compute_classification_metrics,
     compute_consistency,
     compute_metrics,
+    mean_classification,
+    mean_metrics,
+    metrics_stats,
 )
 
 
@@ -134,3 +138,34 @@ def test_compare_reports_fails_on_spearman_drop() -> None:
     cmp = compare_reports(base, cur, RegressionThresholds(min_spearman_reg=0.02))
     assert not cmp.passed
     assert cmp.spearman_delta is not None and cmp.spearman_delta < -0.02
+
+
+def test_mean_metrics_averages() -> None:
+    m1 = compute_metrics([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])  # mae 0
+    m2 = compute_metrics([1.0, 2.0, 3.0], [2.0, 3.0, 4.0])  # mae 1
+    mean = mean_metrics([m1, m2])
+    assert mean.mae == 0.5
+    assert mean.rmse > 0.0
+
+
+def test_metrics_stats_reports_spread() -> None:
+    m1 = compute_metrics([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
+    m2 = compute_metrics([1.0, 2.0, 3.0], [3.0, 3.0, 3.0])
+    s = metrics_stats([m1, m2])
+    assert s.mean_mae == round((0.0 + 1.0) / 2, 4)
+    assert s.std_mae > 0.0
+
+
+def test_mean_classification_keeps_first_confusion() -> None:
+    c1 = compute_classification_metrics(
+        [True, False], [True, False], [8.0, 2.0], [9.0, 1.0], k=None
+    )  # tp=1, tn=1
+    c2 = compute_classification_metrics(
+        [True, False], [True, True], [8.0, 2.0], [9.0, 6.0], k=None
+    )  # tp=1, fp=1
+    mean = mean_classification([c1, c2])
+    assert mean.accuracy_binary == round((1.0 + 0.5) / 2, 4)
+    assert mean.tp == 1  # confusion берётся из первого повтора
+    assert mean.fp == 0
+    s = classification_stats([c1, c2])
+    assert s.std_accuracy > 0.0

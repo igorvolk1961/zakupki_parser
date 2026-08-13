@@ -150,7 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--repeat",
         type=int,
         default=1,
-        help="сколько раз прогнать каждый пример (для консистентности, дорого)",
+        help=(
+            "прогонов каждого примера: при >1 метрики усредняются по повторам (mean±std), "
+            "дорого, но устойчиво к стохастичности модели"
+        ),
     )
     p_eval.add_argument(
         "--compare",

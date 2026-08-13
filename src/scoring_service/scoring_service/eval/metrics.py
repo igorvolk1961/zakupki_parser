@@ -56,13 +56,51 @@ class ConsistencyMetrics(BaseModel):
     )
 
 
+class MetricsStats(BaseModel):
+    """Разброс непрерывных метрик по повторам (mean ± std)."""
+
+    mean_mae: float
+    std_mae: float
+    mean_rmse: float
+    std_rmse: float
+    mean_accuracy_at_tol: float
+    std_accuracy_at_tol: float
+    mean_spearman: float | None
+    std_spearman: float | None
+    mean_bias: float
+    std_bias: float
+    mean_wape: float
+    std_wape: float
+
+
+class ClassificationStats(BaseModel):
+    """Разброс бинарных метрик по повторам (mean ± std)."""
+
+    mean_accuracy: float
+    std_accuracy: float
+    mean_precision: float
+    std_precision: float
+    mean_recall: float
+    std_recall: float
+    mean_f1: float
+    std_f1: float
+
+
 class EvaluationReport(BaseModel):
-    """Полный отчёт офлайн-оценки: непрерывные + классификационные + (опц.) консистентность."""
+    """Полный отчёт офлайн-оценки: непрерывные + классификационные + (опц.) консистентность.
+
+    ``continuous``/``classification`` — «головные» значения: при ``repetitions>1`` это
+    средние по повторам, ``continuous_stats``/``classification_stats`` — разброс (mean±std).
+    Confusion-счётчики в агрегированной классификации показаны по первому повтору.
+    """
 
     n: int
     continuous: Metrics
     classification: ClassificationMetrics | None = None
     consistency: ConsistencyMetrics | None = None
+    repetitions: int = 1
+    continuous_stats: MetricsStats | None = None
+    classification_stats: ClassificationStats | None = None
 
 
 class RegressionThresholds(BaseModel):
@@ -143,6 +181,90 @@ def compute_metrics(
         tolerance=tolerance,
         bias=round(bias, 4),
         wape=round(wape, 4),
+    )
+
+
+def _std(xs: list[float]) -> float:
+    return statistics.stdev(xs) if len(xs) > 1 else 0.0
+
+
+def _mean_optional(xs: list[float | None]) -> float | None:
+    present = [x for x in xs if x is not None]
+    if not present:
+        return None
+    return statistics.fmean(present)
+
+
+def _std_optional(xs: list[float | None]) -> float | None:
+    present = [x for x in xs if x is not None]
+    if not present:
+        return None
+    return _std(present)
+
+
+def mean_metrics(metrics: list[Metrics]) -> Metrics:
+    """Усреднить непрерывные метрики по повторам (по первому берём n и tolerance)."""
+    first = metrics[0]
+    return Metrics(
+        n=first.n,
+        mae=round(statistics.fmean(m.mae for m in metrics), 4),
+        rmse=round(statistics.fmean(m.rmse for m in metrics), 4),
+        accuracy_at_tol=round(statistics.fmean(m.accuracy_at_tol for m in metrics), 4),
+        pearson=_mean_optional([m.pearson for m in metrics]),
+        spearman=_mean_optional([m.spearman for m in metrics]),
+        tolerance=first.tolerance,
+        bias=round(statistics.fmean(m.bias for m in metrics), 4),
+        wape=round(statistics.fmean(m.wape for m in metrics), 4),
+    )
+
+
+def metrics_stats(metrics: list[Metrics]) -> MetricsStats:
+    """Разброс непрерывных метрик по повторам."""
+    return MetricsStats(
+        mean_mae=round(statistics.fmean(m.mae for m in metrics), 4),
+        std_mae=round(_std([m.mae for m in metrics]), 4),
+        mean_rmse=round(statistics.fmean(m.rmse for m in metrics), 4),
+        std_rmse=round(_std([m.rmse for m in metrics]), 4),
+        mean_accuracy_at_tol=round(statistics.fmean(m.accuracy_at_tol for m in metrics), 4),
+        std_accuracy_at_tol=round(_std([m.accuracy_at_tol for m in metrics]), 4),
+        mean_spearman=_mean_optional([m.spearman for m in metrics]),
+        std_spearman=_std_optional([m.spearman for m in metrics]),
+        mean_bias=round(statistics.fmean(m.bias for m in metrics), 4),
+        std_bias=round(_std([m.bias for m in metrics]), 4),
+        mean_wape=round(statistics.fmean(m.wape for m in metrics), 4),
+        std_wape=round(_std([m.wape for m in metrics]), 4),
+    )
+
+
+def mean_classification(classification: list[ClassificationMetrics]) -> ClassificationMetrics:
+    """Усреднить бинарные метрики по повторам; confusion — по первому повтору."""
+    first = classification[0]
+    return ClassificationMetrics(
+        n=first.n,
+        k=first.k,
+        accuracy_binary=round(statistics.fmean(c.accuracy_binary for c in classification), 4),
+        precision=round(statistics.fmean(c.precision for c in classification), 4),
+        recall=round(statistics.fmean(c.recall for c in classification), 4),
+        f1=round(statistics.fmean(c.f1 for c in classification), 4),
+        tp=first.tp,
+        fp=first.fp,
+        tn=first.tn,
+        fn=first.fn,
+        precision_at_k=_mean_optional([c.precision_at_k for c in classification]),
+    )
+
+
+def classification_stats(classification: list[ClassificationMetrics]) -> ClassificationStats:
+    """Разброс бинарных метрик по повторам."""
+    return ClassificationStats(
+        mean_accuracy=round(statistics.fmean(c.accuracy_binary for c in classification), 4),
+        std_accuracy=round(_std([c.accuracy_binary for c in classification]), 4),
+        mean_precision=round(statistics.fmean(c.precision for c in classification), 4),
+        std_precision=round(_std([c.precision for c in classification]), 4),
+        mean_recall=round(statistics.fmean(c.recall for c in classification), 4),
+        std_recall=round(_std([c.recall for c in classification]), 4),
+        mean_f1=round(statistics.fmean(c.f1 for c in classification), 4),
+        std_f1=round(_std([c.f1 for c in classification]), 4),
     )
 
 
