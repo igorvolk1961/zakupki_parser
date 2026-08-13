@@ -39,6 +39,12 @@ min_fit_score: 0.0
 score_round_digits: 2
 normalize_fit_for_score: true
 
+# Уточнение скора по тексту ТЗ (requires_tz_review): поиск файла ТЗ в карточке,
+# извлечение текста и повторный fit/judge по тексту ТЗ.
+tz_review_enabled: true
+# Таймаут скачивания файла ТЗ (сек).
+tz_download_timeout: 30.0
+
 # Заглушка: возвращать score из данных закупки без LLM-пайплайна (пока пайплайн не отлажен)
 score_use_stub: true
 

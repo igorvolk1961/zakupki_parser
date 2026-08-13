@@ -15,6 +15,10 @@ dependencies = [
     "pyyaml>=6.0",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.30",
+    # Извлечение текста из файлов ТЗ (PDF/DOCX). Опционально: без них
+    # извлекается только plain text (txt/md/html и т.п.).
+    "pypdf>=4.0",
+    "python-docx>=1.1",
 ]
 
 [dependency-groups]

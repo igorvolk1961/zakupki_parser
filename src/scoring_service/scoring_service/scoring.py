@@ -24,6 +24,7 @@ from scoring_service.modules import p_win as p_win_module
 from scoring_service.pipeline.description import extract_description
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.judge_chain import JudgeChain
+from scoring_service.pipeline.tz_reviewer import TzReviewer, TzReviewOutcome
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps, ScoringOutput
 from scoring_service.settings import Settings
 
@@ -37,6 +38,7 @@ class Scorer:
         judge_chain: JudgeChain | None,
         settings: Settings,
         callbacks: list[Any] | None = None,
+        tz_reviewer: TzReviewer | None = None,
     ) -> None:
         self._fit = fit_chain
         self._judge = judge_chain
@@ -44,6 +46,13 @@ class Scorer:
         # Callbacks для корневого run скоринга: один трейс на задание, в который
         # вложены fit/judge/refine как дочерние спаны (вместо отдельных трейсов).
         self._callbacks = callbacks
+        # Уточнение по ТЗ работает только при tz_review_enabled=true (флаг имеет
+        # приоритет над явно переданным reviewer — для тестов).
+        self._tz_reviewer = (
+            tz_reviewer
+            if (settings.tz_review_enabled and tz_reviewer)
+            else (TzReviewer(settings, callbacks) if settings.tz_review_enabled else None)
+        )
         # Метаданные гиперпараметров/промптов, общие для всех вызовов скоринга.
         # Пишутся в каждый трейс, чтобы группировать/сравнивать запуски по конфигурации.
         self._base_metadata: dict[str, Any] = {
@@ -191,19 +200,51 @@ class Scorer:
         fit = self._fit.invoke(  # type: ignore[union-attr]
             competencies, description, session_id, trace_meta, parent_config=parent_config
         )
+
+        # Уточнение по тексту ТЗ: если fit потребовал (requires_tz_review), ищем файл ТЗ
+        # в карточке и извлекаем его текст. Если найден — повторный fit/judge выполняются
+        # по тексту ТЗ вместо описания закупки. Иначе скор остаётся без изменений.
+        tz_outcome: TzReviewOutcome | None = None
+        effective_description = description
+        # True, только если уточнение реально состоялось (ТЗ найден и текст непустой).
+        tz_refined = False
+        if fit.requires_tz_review and self._tz_reviewer is not None:
+            tz_outcome = self._tz_reviewer.invoke(record, parent_config, trace_meta, session_id)
+            if tz_outcome.found and tz_outcome.description and tz_outcome.description.strip():
+                tz_refined = True
+                effective_description = tz_outcome.description
+                fit = self._fit.invoke(  # type: ignore[union-attr]
+                    competencies,
+                    effective_description,
+                    session_id,
+                    trace_meta,
+                    parent_config=parent_config,
+                    run_name="fit_tz",
+                )
+
         judge = self._judge.invoke(  # type: ignore[union-attr]
-            competencies, description, fit, session_id, trace_meta, parent_config=parent_config
+            competencies,
+            effective_description,
+            fit,
+            session_id,
+            trace_meta,
+            parent_config=parent_config,
         )
 
         for _ in range(self._settings.num_refine_rounds):
             if judge.verdict != "reject":
                 break
             fit = self._refine_fit(
-                competencies, description, judge.critics, session_id, trace_meta, parent_config
+                competencies,
+                effective_description,
+                judge.critics,
+                session_id,
+                trace_meta,
+                parent_config,
             )
             judge = self._judge.invoke(  # type: ignore[union-attr]
                 competencies,
-                description,
+                effective_description,
                 fit,
                 session_id,
                 trace_meta,
@@ -224,11 +265,16 @@ class Scorer:
 
         return ScoringOutput(
             procurement_id=procurement_id,
-            description=description,
+            description=effective_description,
             fit=fit,
             judge=judge,
             final_fit_score=final_fit,
-            requires_tz_review=fit.requires_tz_review,
+            # Флаг остаётся, если уточнение не запрошено или не состоялось
+            # (ТЗ не найден / текст пуст) — скор не уточнён. При успешном
+            # уточнении снимаем флаг.
+            requires_tz_review=(
+                fit.requires_tz_review if tz_outcome is None or not tz_refined else False
+            ),
             fit_multiplier=fit_norm,
             p_win=pwin,
             margin=marg,

@@ -10,6 +10,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import RunnableLambda
 
 from scoring_service.pipeline.fit_chain import FitChain
+from scoring_service.pipeline.tz_reviewer import TzReviewOutcome
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps
 from scoring_service.scoring import Scorer, build_scorer
 from scoring_service.settings import Settings
@@ -277,3 +278,115 @@ def test_fit_chain_config_sets_session_via_langfuse_session_id() -> None:
 
     cfg_no_session = chain._config(metadata={"procurement_id": 7})  # noqa: SLF001
     assert "langfuse_session_id" not in cfg_no_session.get("metadata", {})
+
+
+class _RecordingFit:
+    """Fit, запоминающий переданное описание (для проверки подстановки ТЗ)."""
+
+    def __init__(self, scores: list[float]) -> None:
+        self._scores = list(scores)
+        self.descriptions: list[str] = []
+        self.run_names: list[str] = []
+
+    def invoke(
+        self,
+        competencies: str,
+        description: str,
+        session_id: str | None = None,
+        metadata: dict[str, object] | None = None,
+        parent_config: object | None = None,
+        run_name: str = "fit_scoring",
+    ) -> FitResult:
+        self.descriptions.append(description)
+        self.run_names.append(run_name)
+        value = self._scores.pop(0) if self._scores else 5.0
+        return _fit(value, requires_tz_review=(len(self.descriptions) == 1))
+
+
+def _fake_tz_reviewer(description: str | None) -> object:
+    class _Tz:
+        def invoke(
+            self,
+            record: dict[str, object],
+            parent_config: object,
+            trace_meta: dict[str, object],
+            session_id: str | None,
+        ) -> TzReviewOutcome:
+            return TzReviewOutcome(
+                found=description is not None,
+                file_name="ТЗ.docx",
+                description=description,
+                reason="ok",
+            )
+
+    return _Tz()
+
+
+def test_score_uses_tz_text_when_requires_tz_review() -> None:
+    """Если requires_tz_review и найден текст ТЗ — fit повторяется по тексту ТЗ."""
+    fit = _RecordingFit([5.0, 8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, tz_review_enabled=True),
+        tz_reviewer=_fake_tz_reviewer("ТЗ: автоматизация документооборота"),  # type: ignore[arg-type]
+    )
+    out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
+
+    assert len(fit.descriptions) == 2
+    assert fit.descriptions[0] != fit.descriptions[1]
+    assert fit.descriptions[1] == "ТЗ: автоматизация документооборота"
+    assert fit.run_names == ["fit_scoring", "fit_tz"]
+    assert out.requires_tz_review is False
+    assert out.final_fit_score == 8.0
+    assert out.description == "ТЗ: автоматизация документооборота"
+
+
+def test_score_keeps_score_when_tz_not_found() -> None:
+    """Если требует уточнение, но ТЗ не найден — скор без изменений, флаг сохранён."""
+    fit = _RecordingFit([5.0, 8.0])
+    judge = _FakeJudge([_judge("accept", 5.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, tz_review_enabled=True),
+        tz_reviewer=_fake_tz_reviewer(None),  # type: ignore[arg-type]
+    )
+    out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
+
+    # ТЗ не найден — повторного fit нет, описание исходное.
+    assert len(fit.descriptions) == 1
+    assert out.requires_tz_review is True
+    assert out.final_fit_score == 5.0
+
+
+def test_score_keeps_score_when_tz_text_empty() -> None:
+    """Пустой текст ТЗ трактуется как «не найден»: флаг сохраняется, скор без изменений."""
+    fit = _RecordingFit([5.0])
+    judge = _FakeJudge([_judge("accept", 5.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, tz_review_enabled=True),
+        tz_reviewer=_fake_tz_reviewer("   \n\t "),  # type: ignore[arg-type]
+    )
+    out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
+
+    assert len(fit.descriptions) == 1
+    assert out.requires_tz_review is True
+    assert out.final_fit_score == 5.0
+
+
+def test_score_skips_tz_when_flag_off() -> None:
+    fit = _RecordingFit([5.0])
+    judge = _FakeJudge([_judge("accept", 5.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, tz_review_enabled=False),
+        tz_reviewer=_fake_tz_reviewer("ТЗ-текст"),  # type: ignore[arg-type]
+    )
+    out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
+    assert len(fit.descriptions) == 1
+    assert out.requires_tz_review is True

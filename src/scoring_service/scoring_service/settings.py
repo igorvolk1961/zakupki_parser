@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     score_round_digits: int = 2
     normalize_fit_for_score: bool = True
 
+    # Уточнение скора по тексту ТЗ (requires_tz_review): поиск файла ТЗ в карточке,
+    # извлечение текста и повторный fit/judge. Включается/выключается целиком.
+    tz_review_enabled: bool = True
+    # Таймаут скачивания файла ТЗ (сек).
+    tz_download_timeout: float = 30.0
+
     # Заглушка: возвращать score, уже присутствующий в данных закупки (без LLM-пайплайна).
     # Включать, пока LLM-пайплайн не отлажен.
     # AliasChoices: имя поля уже содержит префикс "score_", поэтому без явного
