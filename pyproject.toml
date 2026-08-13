@@ -55,7 +55,7 @@ ignore = [
 [tool.ruff.lint.isort]
 # Все пакеты проекта (в т.ч. подпроекты) считаем first-party — единая сортировка
 # импортов независимо от версии ruff.
-known-first-party = ["zakupki_parser", "scoring_service", "scoring_transport", "zakupki_mos_simulator"]
+known-first-party = ["zakupki_parser", "scoring_service", "scoring_transport"]
 
 [tool.mypy]
 python_version = "3.12"
