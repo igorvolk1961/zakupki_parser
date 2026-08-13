@@ -227,7 +227,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        db = Database(state.cfg.service.db)
+        db = Database(state.cfg.ops.db)
         try:
             await db.connect()
             state.db = db
@@ -257,8 +257,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
 
     # Уведомления подписчиков — отправляются в POST /score после прихода внешнего
     # скора и прохождения порога notify_min_score (ADR-7).
-    state.notifier = Notifier(state.cfg.service.notifications)
-    state.notify_min_score = state.cfg.service.notifications.notify_min_score
+    state.notifier = Notifier(state.cfg.ops.notifications)
+    state.notify_min_score = state.cfg.ops.notifications.notify_min_score
 
     @app.get("/health", response_model=HealthOut)
     async def health() -> HealthOut:
@@ -339,7 +339,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                     out[col] = out[col].isoformat()
             writer.writerow(out)
 
-        export_dir = Path(state.cfg.service.export_dir)
+        export_dir = Path(state.cfg.ops.export_dir)
         try:
             export_dir.mkdir(parents=True, exist_ok=True)
             target = export_dir / "procurements.csv"
@@ -520,23 +520,21 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     # ------------------------------------------------------------------ #
     # Конфигурация сервиса (config_service.yaml) — просмотр/редактирование
     # ------------------------------------------------------------------ #
-    def _redacted_service(service: ServiceConfig) -> dict[str, Any]:
-        """Сервис-конфиг без секретов (токены ботов подставляются из env)."""
-        data = service.model_dump()
-        data.setdefault("notifications", {}).setdefault("telegram", {})["token"] = None
-        data["notifications"].setdefault("max", {})["token"] = None
-        return data
-
     @app.get("/api/config", response_model=dict[str, Any], include_in_schema=False)
     async def get_config() -> dict[str, Any]:
-        """Текущие параметры config_service.yaml (без секретов)."""
-        return _redacted_service(state.cfg.service)
+        """Текущие параметры config_service.yaml (аналитические настройки).
+
+        Секреты и эксплуатационные параметры (БД, уведомления, таймер) живут в
+        config_ops.yaml и не редактируются через этот API.
+        """
+        return state.cfg.service.model_dump()
 
     @app.put("/api/config", response_model=dict[str, Any], include_in_schema=False)
     async def put_config(body: dict[str, Any]) -> dict[str, Any]:
-        """Валидирует и сохраняет параметры config_service.yaml.
+        """Валидирует и сохраняет аналитические параметры config_service.yaml.
 
-        Секреты (токены ботов) не редактируются через API — они берутся из env.
+        Эксплуатационные параметры (БД, уведомления, секреты) не редактируются
+        через API — они живут в config_ops.yaml и берутся из env.
         """
         try:
             new_service = ServiceConfig.model_validate(body)
@@ -557,6 +555,6 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=500, detail=detail) from exc
         state.cfg.service = new_service
         logger.info("Сохранён config_service.yaml (%s)", target)
-        return _redacted_service(new_service)
+        return new_service.model_dump()
 
     return app

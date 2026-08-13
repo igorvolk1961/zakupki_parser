@@ -32,18 +32,18 @@ class Scheduler:
         # Колбэк уведомления об изменении данных (например, WebSocket-широковещание).
         self._on_update = on_update
 
-        self._db = Database(cfg.service.db)
+        self._db = Database(cfg.ops.db)
         self._repository = ProcurementRepository(self._db)
-        self._notifier = Notifier(cfg.service.notifications)
+        self._notifier = Notifier(cfg.ops.notifications)
         self._site_cb = CircuitBreaker(
             "site",
-            cfg.service.circuit_breaker_failure_threshold,
-            cfg.service.circuit_breaker_reset_timeout_seconds,
+            cfg.ops.circuit_breaker_failure_threshold,
+            cfg.ops.circuit_breaker_reset_timeout_seconds,
         )
         self._db_cb = CircuitBreaker(
             "db",
-            cfg.service.circuit_breaker_failure_threshold,
-            cfg.service.circuit_breaker_reset_timeout_seconds,
+            cfg.ops.circuit_breaker_failure_threshold,
+            cfg.ops.circuit_breaker_reset_timeout_seconds,
         )
 
     async def start(self) -> None:
@@ -80,11 +80,9 @@ class Scheduler:
         try:
             while not self._stop.is_set():
                 await self.run_once()
-                logger.info("Цикл завершён, ожидание %d с", self._cfg.service.timeout_seconds)
+                logger.info("Цикл завершён, ожидание %d с", self._cfg.ops.timeout_seconds)
                 try:
-                    await asyncio.wait_for(
-                        self._stop.wait(), timeout=self._cfg.service.timeout_seconds
-                    )
+                    await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.ops.timeout_seconds)
                 except TimeoutError:
                     continue
         finally:

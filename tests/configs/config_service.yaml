@@ -1,6 +1,5 @@
 # Фиксированный тестовый конфиг: тесты НЕ должны зависеть от рабочих configs/*.
 # Менять значения — только вместе с соответствующими тестами.
-timeout_seconds: 3600
 sites:
   - platform_id: zakupki_mos
     enabled: true
@@ -16,18 +15,7 @@ search_criteria:
   active_only: false
   fz44: true
   fz223: true
-export_dir: "data/export"
-db:
-  enabled: true
-  dsn: "postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki"
-notifications:
-  backend: "max"
-  max:
-    enabled: true
-    chat_id: null
 stop_conditions:
   enabled: true
   deadline_not_expired: true
   min_deadline_days: null
-circuit_breaker_failure_threshold: 5
-circuit_breaker_reset_timeout_seconds: 60

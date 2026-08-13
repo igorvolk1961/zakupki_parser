@@ -13,6 +13,7 @@ from zakupki_parser.config.models import (
     AppConfig,
     DomConfig,
     LoggingConfig,
+    OpsConfig,
     ParserConfig,
     ScoreConfig,
     ServiceConfig,
@@ -21,6 +22,7 @@ from zakupki_parser.config.models import (
 CONFIG_FILES = {
     "parser": "config_parser.yaml",
     "service": "config_service.yaml",
+    "ops": "config_ops.yaml",
     "logging": "config_log.yaml",
     "score": "config_score.yaml",
 }
@@ -102,17 +104,20 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     parser_data = _load_yaml(base / CONFIG_FILES["parser"])
     dom_data = _load_dom_configs(base)
     service_data = _load_yaml(base / CONFIG_FILES["service"])
+    ops_data = _load_yaml(base / CONFIG_FILES["ops"])
     logging_data = _load_yaml(base / CONFIG_FILES["logging"])
     score_data = _load_yaml(base / CONFIG_FILES["score"])
 
     # chat_id каналов можно задать из env (как и токены) — подставляем ДО
     # валидации, т.к. включённый бэкенд без chat_id — ошибка конфигурации.
-    _inject_chat_ids(service_data)
+    # Уведомления относятся к эксплуатационному (devops) конфигу.
+    _inject_chat_ids(ops_data)
 
     service_model = ServiceConfig.model_validate(service_data)
     logging_model = LoggingConfig.model_validate(logging_data)
     dom_model = DomConfig.model_validate(dom_data)
     score_model = ScoreConfig.model_validate(score_data)
+    ops_model = OpsConfig.model_validate(ops_data)
 
     # Относительный путь файла лога — относительно корня проекта (родителя configs).
     if logging_model.file:
@@ -132,7 +137,7 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     # Переопределение через переменные окружения (для Docker/CI).
     env_dsn = os.environ.get("ZAKUPKI_DB_DSN")
     if env_dsn:
-        service_model.db.dsn = env_dsn
+        ops_model.db.dsn = env_dsn
 
     # Путь к исполняемому файлу Chromium — из env (имеет приоритет над YAML).
     env_chromium = os.environ.get("ZAKUPKI_CHROMIUM_EXECUTABLE")
@@ -142,17 +147,17 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     # Секрет токена Telegram-бота — только из env, не хранится в YAML.
     env_token = os.environ.get("ZAKUPKI_TELEGRAM_TOKEN")
     if env_token:
-        service_model.notifications.telegram.token = env_token
+        ops_model.notifications.telegram.token = env_token
 
     # Секрет токена MAX-бота — только из env, не хранится в YAML.
     env_max_token = os.environ.get("ZAKUPKI_MAX_TOKEN")
     if env_max_token:
-        service_model.notifications.max.token = env_max_token
+        ops_model.notifications.max.token = env_max_token
 
     # Бэкенд уведомлений — из env (имеет приоритет над YAML). 'none' — выключить.
     env_backend = os.environ.get("ZAKUPKI_NOTIFY_BACKEND")
     if env_backend in ("telegram", "webhook", "max", "none"):
-        service_model.notifications.backend = cast(
+        ops_model.notifications.backend = cast(
             Literal["telegram", "webhook", "max", "none"], env_backend
         )
 
@@ -167,6 +172,7 @@ def load_config(configs_dir: str | Path) -> AppConfig:
         parser=ParserConfig.model_validate(parser_data),
         dom=dom_model,
         service=service_model,
+        ops=ops_model,
         logging=logging_model,
         score=score_model,
     )

@@ -1,0 +1,30 @@
+# Эксплуатационная конфигурация (config_ops.yaml) — управляется devops.
+# Здесь: таймер цикла, подключение к БД, уведомления, каталог выгрузки,
+# параметры circuit breaker. Аналитические настройки — в config_service.yaml.
+timeout_seconds: 3600
+db:
+  dsn: postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki
+  enabled: true
+  connect_timeout_seconds: 5.0
+  pool_min: 1
+  pool_max: 5
+  retry_max_attempts: 3
+  retry_backoff_seconds: 1.0
+notifications:
+  backend: max
+  telegram:
+    enabled: false
+    chat_id: '-1004416405744'
+    timeout_seconds: 10.0
+  max:
+    enabled: true
+    chat_id: '-77593707840894'
+    timeout_seconds: 10.0
+    insecure_tls: true
+  webhook:
+    enabled: false
+    timeout_seconds: 10.0
+  notify_min_score: 0.0
+export_dir: data/export
+circuit_breaker_failure_threshold: 5
+circuit_breaker_reset_timeout_seconds: 60.0

@@ -1,8 +1,6 @@
-# Сервисная конфигурация: таймер, список сайтов, пороги дат, флаги,
-# подключение к БД, уведомления и условия прекращения обработки заявки.
-
-# Период запуска парсера по таймеру (в секундах)
-timeout_seconds: 3600
+# Сервисная конфигурация (аналитика): список сайтов, пороги дат, критерии
+# поиска и условия прекращения обработки заявки. Эксплуатационные параметры
+# (таймер, БД, уведомления, circuit breaker) — в config_ops.yaml.
 
 # Список сайтов закупок (platform_id должен присутствовать в config_dom.yaml)
 # Демо: обрабатываем только имитатор zakupki.mos.ru.
@@ -38,43 +36,6 @@ search_criteria:
 # (ТЗ — technical_spec_name/technical_spec_url, остальные — files_json).
 data_dir: "data"
 
-# --- База данных (PostgreSQL) ---
-# Демо записывает закупки в PostgreSQL (Scheduler всегда подключается к БД).
-# Сначала поднимите БД проекта:  ./scripts/db_up.sh
-#
-# ВАЖНО: по умолчанию демо пишет в общую БД проекта «zakupki», которую используют
-# другие агенты. Для повторных демо задайте изолированную БД через env:
-#   ZAKUPKI_DB_DSN='postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki_demo'
-# (создайте БД и примените схему, см. docker/liquibase), чтобы не засорять общую.
-db:
-  enabled: true
-  dsn: "postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki"
-  connect_timeout_seconds: 5
-  pool_min: 1
-  pool_max: 5
-  # Повторы записи при транзиентной ошибке БД (недоступность), до открытия circuit breaker
-  retry_max_attempts: 3
-  retry_backoff_seconds: 1.0
-
-# --- Уведомления подписчиков (telegram | webhook) ---
-# В демо уведомления отключены.
-notifications:
-  backend: "telegram"
-  telegram:
-    enabled: false
-    chat_id: "-1004416405744"
-    timeout_seconds: 10
-  max:
-    enabled: false
-    chat_id: null
-    timeout_seconds: 10
-    insecure_tls: true
-  webhook:
-    enabled: false
-    url: null
-    token: null
-    timeout_seconds: 10
-
 # --- Набор флагов-условий прекращения обработки очередной заявки ---
 # Каждый флаг — условие, при котором заявка пропускается (не сохраняется,
 # не уведомляется). Набор расширяется добавлением новых флагов.
@@ -86,7 +47,3 @@ stop_conditions:
   # Не обрабатывать заявку, если до срока подачи осталось меньше N календарных
   # дней (нужно время на подготовку заявки). null — условие отключено.
   min_deadline_days: 3
-
-# --- Circuit Breaker (вежливая деградация) ---
-circuit_breaker_failure_threshold: 5
-circuit_breaker_reset_timeout_seconds: 60

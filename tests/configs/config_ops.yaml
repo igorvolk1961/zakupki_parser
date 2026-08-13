@@ -1,0 +1,14 @@
+# Фиксированный тестовый эксплуатационный конфиг: тесты НЕ должны зависеть
+# от рабочих configs/*. Менять значения — только вместе с соответствующими тестами.
+timeout_seconds: 3600
+db:
+  enabled: true
+  dsn: "postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki"
+notifications:
+  backend: "max"
+  max:
+    enabled: true
+    chat_id: null
+export_dir: "data/export"
+circuit_breaker_failure_threshold: 5
+circuit_breaker_reset_timeout_seconds: 60

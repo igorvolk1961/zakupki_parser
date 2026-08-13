@@ -53,7 +53,7 @@ def test_check_config_masks_dsn(app_config: AppConfig) -> None:
     out = buf.getvalue()
     assert "Подключение: " in out
 
-    dsn = app_config.service.db.dsn
+    dsn = app_config.ops.db.dsn
     userinfo = dsn.split("://")[1].split("@")[0]
     if ":" in userinfo:
         password = userinfo.split(":", 1)[1]

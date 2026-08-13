@@ -175,13 +175,13 @@ class Orchestrator:
         Транзиентные ошибки повторяются с экспоненциальным backoff
         (base × 2^(n-1)) до исчерпания попыток.
         """
-        if not self._cfg.service.db.enabled or self._repository is None:
+        if not self._cfg.ops.db.enabled or self._repository is None:
             return False
         if not self._db_cb.allow_request():
             logger.warning("БД недоступна (circuit open), запись пропущена")
             return False
 
-        db_cfg = self._cfg.service.db
+        db_cfg = self._cfg.ops.db
         attempts = db_cfg.retry_max_attempts
         for attempt in range(1, attempts + 1):
             try:

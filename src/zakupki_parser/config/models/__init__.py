@@ -28,6 +28,14 @@ from zakupki_parser.config.models.dom import (
     SortConfig,
 )
 from zakupki_parser.config.models.logging import LoggingConfig
+from zakupki_parser.config.models.ops import (
+    DbConfig,
+    MaxConfig,
+    NotificationsConfig,
+    OpsConfig,
+    TelegramConfig,
+    WebhookConfig,
+)
 from zakupki_parser.config.models.parser import (
     BrowserConfig,
     ParserConfig,
@@ -41,15 +49,10 @@ from zakupki_parser.config.models.score import (
     ScoreConfig,
 )
 from zakupki_parser.config.models.service import (
-    DbConfig,
-    MaxConfig,
-    NotificationsConfig,
     SearchCriteria,
     ServiceConfig,
     SiteServiceEntry,
     StopConditions,
-    TelegramConfig,
-    WebhookConfig,
 )
 
 __all__ = [
@@ -66,6 +69,7 @@ __all__ = [
     "LoggingConfig",
     "MaxConfig",
     "NotificationsConfig",
+    "OpsConfig",
     "OrganizationConfig",
     "ParserConfig",
     "PlatformDom",
@@ -94,5 +98,6 @@ class AppConfig(BaseModel):
     parser: ParserConfig
     dom: DomConfig
     service: ServiceConfig
+    ops: OpsConfig = Field(default_factory=OpsConfig)
     logging: LoggingConfig
     score: ScoreConfig = Field(default_factory=ScoreConfig)

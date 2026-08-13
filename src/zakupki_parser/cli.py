@@ -67,7 +67,7 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
     if cmd in ("run-once", "run-service"):
         from zakupki_parser.migrations import run_migrations
 
-        run_migrations(cfg_dir, cfg.service.db)
+        run_migrations(cfg_dir, cfg.ops.db)
 
     from zakupki_parser.scheduler import Scheduler
 
@@ -160,8 +160,8 @@ def _print_summary(cfg: AppConfig) -> None:
         f" (deadline истёк: {_yn(sc_cond.deadline_not_expired)}; мин. дней до срока: {min_days})"
     )
     print(
-        f"  Circuit breaker: порог сбоев {cfg.service.circuit_breaker_failure_threshold}, "
-        f"сброс {cfg.service.circuit_breaker_reset_timeout_seconds} сек"
+        f"  Circuit breaker: порог сбоев {cfg.ops.circuit_breaker_failure_threshold}, "
+        f"сброс {cfg.ops.circuit_breaker_reset_timeout_seconds} сек"
     )
     print()
 
@@ -180,8 +180,8 @@ def _print_summary(cfg: AppConfig) -> None:
     print()
 
     # --- Уведомления -----------------------------------------------------
-    notif = cfg.service.notifications
-    print("Уведомления (config_service.yaml):")
+    notif = cfg.ops.notifications
+    print("Уведомления (config_ops.yaml):")
     print(f"  Бэкенд: {notif.backend}")
     tg = notif.telegram
     mx = notif.max
@@ -192,8 +192,8 @@ def _print_summary(cfg: AppConfig) -> None:
     print()
 
     # --- БД --------------------------------------------------------------
-    db = cfg.service.db
-    print("БД (config_service.yaml):")
+    db = cfg.ops.db
+    print("БД (config_ops.yaml):")
     print(f"  Включена: {_yn(db.enabled)}")
     print(f"  Подключение: {_mask_dsn(db.dsn)}")
     print(
@@ -264,7 +264,7 @@ def _serve(cfg_dir: str, host: str, port: int) -> int:
 
     from zakupki_parser.migrations import run_migrations
 
-    run_migrations(cfg_dir, cfg.service.db)
+    run_migrations(cfg_dir, cfg.ops.db)
 
     from zakupki_parser.api.app import create_app
 

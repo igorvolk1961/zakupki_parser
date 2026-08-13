@@ -282,10 +282,11 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
     app = create_app(str(cfgdir))
     with TestClient(app) as client:
         cfg = client.get("/api/config").json()
-        assert "timeout_seconds" in cfg
-        # Токены ботов — секреты из env, через API не отдаются.
-        assert cfg["notifications"]["telegram"]["token"] is None
-        assert cfg["notifications"]["max"]["token"] is None
+        assert "sites" in cfg
+        # Эксплуатационные параметры (таймер, БД, уведомления) не отдаются через API —
+        # они живут в config_ops.yaml.
+        assert "timeout_seconds" not in cfg
+        assert "notifications" not in cfg
 
         old = cfg["default_cutoff_days"]
         cfg["default_cutoff_days"] = old + 1
@@ -297,7 +298,7 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
         assert f"default_cutoff_days: {old + 1}" in saved
 
         # Некорректные данные — 422, файл не меняется.
-        bad = client.put("/api/config", json={"timeout_seconds": "not-a-number"})
+        bad = client.put("/api/config", json={"default_cutoff_days": "not-a-number"})
         assert bad.status_code == 422
     os.environ.pop("ZAKUPKI_DB_DSN", None)
 
@@ -308,7 +309,7 @@ def test_export_csv_writes_to_export_dir(
     client, _ = api_client
     export_dir = tmp_path / "export"
     state = cast(Any, client.app).state.parser
-    state.cfg.service.export_dir = str(export_dir)
+    state.cfg.ops.export_dir = str(export_dir)
 
     resp = client.post("/api/procurements/export")
     assert resp.status_code == 200

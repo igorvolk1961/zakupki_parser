@@ -73,21 +73,21 @@ def test_sort_default_order() -> None:
 def test_telegram_token_injected_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZAKUPKI_TELEGRAM_TOKEN", "123:ABC")
     cfg = load_config(CONFIGS_DIR)
-    assert cfg.service.notifications.telegram.token == "123:ABC"
+    assert cfg.ops.notifications.telegram.token == "123:ABC"
 
 
 def test_chat_id_injected_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """chat_id канала можно задать из env (до валидации), как токены."""
     monkeypatch.setenv("ZAKUPKI_MAX_CHAT_ID", "111111111")
     cfg = load_config(CONFIGS_DIR)
-    assert cfg.service.notifications.max.chat_id == "111111111"
+    assert cfg.ops.notifications.max.chat_id == "111111111"
 
 
 def test_chat_id_in_env_satisfies_validation(monkeypatch: pytest.MonkeyPatch) -> None:
     """Включённый бэкенд max без chat_id в YAML валиден, если chat_id из env."""
     monkeypatch.setenv("ZAKUPKI_MAX_CHAT_ID", "111111111")
     cfg = load_config(CONFIGS_DIR)
-    n = cfg.service.notifications
+    n = cfg.ops.notifications
     # В конфиге backend=max, max.enabled=true, chat_id: null в YAML.
     assert n.backend == "max"
     assert n.max.enabled is True
@@ -104,11 +104,52 @@ def test_notifications_default_backend_is_webhook() -> None:
 def test_service_config_rejects_unknown_keys() -> None:
     """Опечатки в ключах конфига не должны молча игнорироваться (extra='forbid')."""
     with pytest.raises(ValidationError):
-        ServiceConfig.model_validate({"timeout_second": 100})
+        ServiceConfig.model_validate({"default_cutoff_day": 100})
+
+
+def test_service_config_rejects_ops_keys() -> None:
+    """Эксплуатационные ключи (таймер, БД, уведомления) не входят в аналитический
+    ServiceConfig — они переехали в OpsConfig (config_ops.yaml)."""
+    with pytest.raises(ValidationError):
+        ServiceConfig.model_validate({"timeout_seconds": 3600})
+
+
+def test_ops_config_accepts_devops_keys() -> None:
+    """Devops-параметры валидируются через OpsConfig."""
+    from zakupki_parser.config.models import OpsConfig
+
+    ops = OpsConfig.model_validate(
+        {
+            "timeout_seconds": 7200,
+            "db": {"dsn": "postgresql+asyncpg://u:p@h:5432/db", "enabled": True},
+            "notifications": {"backend": "none"},
+            "export_dir": "/tmp/export",
+            "circuit_breaker_failure_threshold": 3,
+            "circuit_breaker_reset_timeout_seconds": 30.0,
+        }
+    )
+    assert ops.timeout_seconds == 7200
+    assert ops.db.enabled is True
+    assert ops.notifications.backend == "none"
+    assert ops.circuit_breaker_failure_threshold == 3
+
+
+def test_ops_config_rejects_unknown_keys() -> None:
+    from zakupki_parser.config.models import OpsConfig
+
+    with pytest.raises(ValidationError):
+        OpsConfig.model_validate({"timeout_second": 100})
 
 
 def test_service_config_rejects_unknown_nested_keys() -> None:
     with pytest.raises(ValidationError):
-        ServiceConfig.model_validate(
+        ServiceConfig.model_validate({"search_criteria": {"okpd_cod": "x"}})
+
+
+def test_ops_config_rejects_unknown_nested_keys() -> None:
+    from zakupki_parser.config.models import OpsConfig
+
+    with pytest.raises(ValidationError):
+        OpsConfig.model_validate(
             {"notifications": {"backend": "webhook", "telegram": {"chatd": "x"}}}
         )
