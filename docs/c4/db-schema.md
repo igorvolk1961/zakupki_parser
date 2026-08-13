@@ -37,7 +37,10 @@ erDiagram
         text technical_spec_name "имя файла технического задания"
         jsonb files_json "остальные файлы: [{name, url скачивания с ЭТП}]"
         double score "скоринг Fit × P(win) × Margin"
+        double fit_score "множитель Fit (default 0..1 по ОКПД2; external 0..1 нормализованный)"
         varchar(64) score_method "default | external | deadline_expired"
+        double embedding_similarity "косинусная близость 0..1 (Giga Embedder); NULL если ветка выключена"
+        boolean is_active "активна ли закупка (false: завершённая/отменённая и т.п.)"
         jsonb detail_json "полный набор переменных карточки"
         timestamptz created_at "server_default now()"
         timestamptz updated_at "server_default now(), onupdate"
@@ -62,6 +65,10 @@ erDiagram
   `ix_procurements_customer_id` по `customer_id`.
 - `score_method`: `default | external | deadline_expired` (значение `calculating`
   удалено вместе с воркером внешнего скоринга, ADR-7).
+- `fit_score` (миграция 1.15): множитель Fit — дефолтный (0..1 из `fit_table` по ОКПД2)
+  или нормализованный внешний (0..1). `embedding_similarity` (миграция 1.16) —
+  косинусная близость ветки Giga Embedder. `is_active` (миграция 1.14) — активна ли
+  закупка; выставляется парсером по текстовому `status` из `detail_json`.
 - `detail_json` хранит весь набор извлечённых переменных карточки для аналитики.
 
 ## Ключевые SQL-запросы

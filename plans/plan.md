@@ -13,7 +13,8 @@
 - [x] Загрузка и валидация (`config/loader.py`), env-переопределения (`ZAKUPKI_DB_DSN`)
 - [x] `config_parser.yaml` — браузер и антиблок (UA, viewport, задержки, stealth, `ignore_https_errors`)
 - [x] `configs/dom/<platform_id>.yaml` — селекторы, переменные, сортировка, фильтры (ADR-1)
-- [x] `config_service.yaml` — таймер, сайты, пороги, флаги, БД, webhook, stop-условия
+- [x] `config_service.yaml` — аналитические настройки (сайты, пороги дат, критерии поиска, stop-условия)
+- [x] `config_ops.yaml` — эксплуатационные настройки (таймер, БД, уведомления, export_dir, circuit breaker)
 - [x] `config_score.yaml` — скоринг (fit_table, default_fit, p_win; дефолтный score в парсере)
 - [x] `config_log.yaml` — логирование (файл, `truncate_on_start`)
 
@@ -44,8 +45,16 @@
 - [x] Выпил deprecated-путей (`ExternalScoreClient` `before_save`/`worker`,
       `run_scoring_worker`) и дублирующей fit-таблицы транспорта (ADR-7)
 - [x] Авто-пуш задания в транспорт после сохранения закупки (шаг 1 ADR-7)
-- [x] Пороговое уведомление `notify_min_score` + отложенная отправка в `POST /score`
+- [x] Пороговое уведомление `notify_min_fit_score` + отложенная отправка в `POST /score`
       (шаг 6 ADR-7)
+- [x] LLM-пайплайн `scoring_service`: Fit → Judge → refine (`num_refine_rounds`) →
+      уточнение по тексту ТЗ (`tz_review`) → Score = Fit × P(win) × Margin
+      (заглушка `score_use_stub` снята)
+- [x] Ветка векторной близости **Giga Embedder** (`modules/giga_embedder.py`:
+      EmbeddingsGigaR, OAuth `RqUID`, чанкинг; `giga_embedding_alpha`) — отображение
+      на карточке закупки (`embedding_similarity`)
+- [x] Оценка качества и regression-гейт (`scoring_service/eval/`: metrics, dataset,
+      evaluate; CLI `evaluate`, `--compare` с порогами MAE/RMSE/accuracy/Spearman)
 
 ## 5. Файлы (метаданные, без скачивания)
 - [x] Парсер НЕ скачивает файлы: в БД сохраняются имя и URL скачивания с ЭТП
@@ -56,7 +65,8 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - [x] ORM (SQLAlchemy 2.x async) и репозиторий (upsert, дубликаты, чтение)
-- [x] Миграции Liquibase (1.0–1.11): колонки, даты, score, `technical_spec_*`, комментарии
+- [x] Миграции Liquibase (1.0–1.16): колонки, даты, score, `fit_score`/`embedding_similarity`/
+      `is_active`, `technical_spec_*`, комментарии
 - [x] Поля task.md: number, customer, law, subject, nmck, deadline, okpd2, ТЗ, files_json
 - [x] Колонки security_amount/advance (обеспечение/аванс), security_amount_unit, update_date
 - [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (сделано: okpd2, обеспечение+единица, срок; осталось: kpgz_codes/advance)
@@ -93,16 +103,20 @@
 - [x] `GET /api/procurements` (фильтры + пагинация), `GET /api/procurements/{id}`
 - [x] `GET /api/procurements/{id}/technical-spec` (скачивание ТЗ)
 - [x] `POST /api/procurements/{id}/score` (возврат результата из транспорта; обновляет score
-      и при `score ≥ notify_min_score` отправляет уведомление — ADR-7)
+      и `fit_score`, при `fit_score ≥ notify_min_fit_score` отправляет уведомление — ADR-7)
 - [x] `POST /api/procurements/export` (выгрузка БД в CSV, каталог `export_dir`; кнопка «Выгрузить CSV»)
-- [ ] ⬜ TODO: эндпойнт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту записи) —
+- [x] Управление парсером из web-демо: `POST /api/parser/start|stop`, `GET /api/parser/status`
+- [x] Очистка БД: `POST /api/db/clear` (только при остановленном парсере)
+- [x] Конфиг: `GET/PUT /api/config` (аналитические), `GET /api/config/threshold`; WebSocket `/ws`
+- [ ] 🟡 Эндпоинт чистки БД по фильтрам/возрасту записи (`DELETE /api/procurements`) —
       при удалении записей удалять и связанные файлы из хранилища (S3/local), ссылки на которые
-      хранятся в `technical_spec_url` и `files_json`
+      хранятся в `technical_spec_url` и `files_json` (сейчас — только полная очистка `POST /api/db/clear`)
 
 ## 11. Уведомления
 - [x] Бэкенды Telegram / MAX / webhook (реальный HTTP POST, `notify.py`)
 - [x] `insecure_tls` для MAX-уведомлений, токены из env (`ZAKUPKI_TELEGRAM_TOKEN`, `ZAKUPKI_MAX_TOKEN`)
-- [ ] 🟡 Порог `notify_min_score` (уведомление только при `score ≥ notify_min_score`, отложено до `POST /score`)
+- [x] Порог `notify_min_fit_score` (уведомление только при `fit_score ≥ notify_min_fit_score`,
+      отложено до `POST /score`)
 
 ## 12. Тесты и CI
 - [x] Unit: обработчики, конфиг, circuit breaker, дата последней обработки, stop-условия, ОКПД2, скоринг, retry
@@ -136,10 +150,12 @@
 - [ ] ⬜ Устранение дублирования кода между площадками (общие хелперы селекторов/дат).
 
 ## Текущий фокус
-- Конвейер внешнего скоринга (ADR-7) реализован: авто-пуш из парсера в транспорт,
-  scoring_service со заглушкой (`score_use_stub`), возврат через `POST /score`,
-  отложенное пороговое уведомление (`notify_min_score`). Далее — отладка LLM-пайплайна
-  scoring_service вместо заглушки.
+- Конвейер внешнего скоринга (ADR-7) реализован и работает без заглушки: авто-пуш из
+  парсера в транспорт, LLM-пайплайн scoring_service (Fit → Judge → refine → уточнение
+  по ТЗ), параллельная ветка Giga-эмбеддингов, возврат через `POST /score`,
+  отложенное пороговое уведомление (`notify_min_fit_score`). Далее — подбор гиперпараметров
+  и порогов regression-гейта, оценка влияния ветки эмбеддингов (`giga_embedding_alpha`).
+- Коммерческие ЭТП: верификация селекторов (list/detail) и включение по одной площадке.
 - ЕИС: `kpgz_codes`/`advance` на детальных страницах, детальные поля по типам извещений
   (ezt20/zk20/ok504).
-- Эндпоинт чистки БД (`DELETE /api/procurements`) с удалением файлов из хранилища.
+- Авторизация администраторов в web-приложении.

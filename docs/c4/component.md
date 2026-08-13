@@ -56,10 +56,11 @@ flowchart TB
 - **stop_conditions** обрабатываются в **Orchestrator** перед сохранением.
 - **Обработка файлов** (PDF/DOCX/ZIP, поиск ТЗ) вынесена во **внешний сервис** (ADR-5):
   парсер хранит метаданные, результат внешний сервис возвращает через API.
-- **Scoring**: при сохранении проставляется дефолтный score (`default`) или
-  `deadline_expired` для просроченных; затем **Transport client** автоматически отправляет
-  задание в транспорт скоринга (`POST /api/scoring/jobs` с приоритетом = дефолтным score).
-  Финальный внешний score возвращается в парсер через `POST /score` (ADR-7).
+- **Scoring**: при сохранении проставляется дефолтный score и `fit_score`
+  (`default`, fit-множитель по ОКПД2) или `deadline_expired` для просроченных; затем
+  **Transport client** автоматически отправляет задание в транспорт скоринга
+  (`POST /api/scoring/jobs` с приоритетом = дефолтным score). Финальный внешний score
+  и `fit_score` возвращаются в парсер через `POST /score` (ADR-7).
 - **Уведомления** подписчиков отправляются **не в движке**, а в FastAPI-слое —
-  в обработчике `POST /api/procurements/{id}/score` после обновления score, если
-  `score ≥ notify_min_score` (порог из конфига).
+  в обработчике `POST /api/procurements/{id}/score` после обновления `fit_score`, если
+  `fit_score ≥ notify_min_fit_score` (порог из `config_ops.yaml`).

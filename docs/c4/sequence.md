@@ -58,13 +58,13 @@ sequenceDiagram
     SG->>RS: ZPOPMAX scoring:jobs
     SG->>A: GET /api/procurements/{id}
     A-->>SG: карточка (вкл. detail_json)
-    SG->>SG: score (заглушка возвращает score из карточки)
+    SG->>SG: score (LLM: Fit → Judge → refine → ТЗ → Giga)
     SG->>RS: LPUSH scoring:results {id, score}
     TR->>RS: BRPOP scoring:results
     TR->>A: POST /api/procurements/{id}/score
-    A->>R: update_score (score_method=external)
-    A->>A: score ≥ notify_min_score?
-    alt score ≥ notify_min_score
+    A->>R: update_score (score, fit_score; score_method=external)
+    A->>A: fit_score ≥ notify_min_fit_score?
+    alt fit_score ≥ notify_min_fit_score
         A->>N: notify(record)
     end
 
@@ -83,14 +83,14 @@ sequenceDiagram
   (`files_json`, `technical_spec_name/url`). Глубокую обработку (PDF/DOCX/ZIP, поиск ТЗ)
   выполняет **внешний сервис** (ADR-5).
 - **Скоринг (ADR-7)**: при сохранении ставится `default` (или `deadline_expired` для
-  просроченных). Для новой записи парсер **автоматически** отправляет задание в транспорт
-  (`POST /api/scoring/jobs` с приоритетом = дефолтным score). Дальше конвейер работает
-  **асинхронно**: `scoring_service` берёт задание из Redis (`ZPOPMAX`), получает карточку
-  через API парсера (`GET /api/procurements/{id}`), считает score и публикует результат;
-  транспорт возвращает его в API парсера (`POST /score`). Пока `score_use_stub` включён,
-  `scoring_service` возвращает score из карточки без LLM-пайплайна.
+  просроченных) вместе с дефолтным `fit_score`. Для новой записи парсер **автоматически**
+  отправляет задание в транспорт (`POST /api/scoring/jobs` с приоритетом = дефолтным score).
+  Дальше конвейер работает **асинхронно**: `scoring_service` берёт задание из Redis
+  (`ZPOPMAX`), получает карточку через API парсера (`GET /api/procurements/{id}`), считает
+  score по LLM-пайплайну (Fit → Judge → refine → уточнение по ТЗ → ветка Giga-эмбеддингов)
+  и публикует результат; транспорт возвращает его в API парсера (`POST /score`).
 - **Уведомление подписчиков** выполняется **в FastAPI-слое** — в обработчике
-  `POST /api/procurements/{id}/score` после обновления финального score, только если
-  `score ≥ notify_min_score` (порог из конфига). В цикле парсинга уведомлений нет.
+  `POST /api/procurements/{id}/score` после обновления финального `fit_score`, только если
+  `fit_score ≥ notify_min_fit_score` (порог из `config_ops.yaml`). В цикле парсинга уведомлений нет.
 - **upsert** гарантирует отсутствие повторной записи заявки с тем же номером
   (unique-констрейнт + проверка перед вставкой).

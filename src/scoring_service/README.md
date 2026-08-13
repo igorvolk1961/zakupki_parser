@@ -10,9 +10,11 @@
 ## Поток
 ```
 card + competencies
-  ├─ extract description   (subject + detail_json; без текстов документов)
+  ├─ extract description   (subject + detail_json; при requires_tz_review — текст ТЗ)
   ├─ fit-chain:  reasoning + fit_score (0–10)   [few-shot + negative-example]
+  ├─ (опц.) tz_review: уточнение по тексту ТЗ, повторный fit/judge
   ├─ judge-chain: critics / verdict / final_fit_score
+  ├─ (опц.) embedding branch: косинусная близость Giga Embedder, смешивание через alpha
   └─ Score = final_fit_score × P(win) × Margin
 ```
 Вход в асинхронном режиме — Redis ZSET `scoring:jobs` (приоритет = дефолтный score,
@@ -29,6 +31,22 @@ card + competencies
 `competencies_essence`, `relevant_competencies`, `term_overlap_mismatch_check`,
 `synonym_semantic_bridge`, `uncovered_scope`, `fit_score_rationale`.
 
+## Уточнение по ТЗ (`tz_review`)
+Если fit запросил (`requires_tz_review`), `TzReviewer` ищет файл ТЗ в карточке закупки,
+извлекает его текст (скачивание) и выполняет повторный fit/judge по расширенному описанию.
+Флаги `requires_tz_review` / `requires_tz_body` фиксируют неполноту описания; включается
+целиком флагом `tz_review_enabled` (`SCORE_TZ_REVIEW_ENABLED`, по умолчанию `true`).
+
+## Параллельная ветка Giga Embedder
+`modules/giga_embedder.py`: `GigaTokenProvider` (OAuth 2.0 `client_credentials`, обязательный
+заголовок `RqUID`, автообновление токена) и `GigaEmbedder` (модель `EmbeddingsGigaR`, окно
+4096 токенов; длинные тексты режутся на чанки и усредняются). Ветка считает косинусную
+близость эмбеддингов текста компетенций и описания закупки в отдельном потоке параллельно
+с LLM-пайплайном. Влияние на score — через `giga_embedding_alpha` (`SCORE_GIGA_EMBEDDING_ALPHA`,
+0.0 = только диагностика); результат пишется в БД парсера как `embedding_similarity` и в
+метаданные LangFuse-трейса. Без ключа доступа ветка не выполняется (факт пропуска
+фиксируется, падения нет).
+
 ## LangFuse
 `llm_factory.langfuse_handler` строит `langfuse.CallbackHandler` из env. Каждый вызов
 имеет `run_name` (`fit_scoring`/`judge_scoring`) и `metadata` с гиперпараметрами
@@ -44,7 +62,7 @@ LangFuse-сессию** (`session_id = run_id`): воркер создаёт о�
 без трассировки (dev-режим).
 
 ### Self-hosted в Docker (dev)
-В `docker/docker-compose.yml` стек LangFuse v3 (+ ClickHouse) за compose-профилем `langfuse`:
+В `docker/docker-compose.yml` стек LangFuse v4 (+ ClickHouse) за compose-профилем `langfuse`:
 postgres, clickhouse, MinIO, web, worker. Профиль **включён по умолчанию** для локального
 `docker compose up` (переменная `COMPOSE_PROFILES=langfuse` в `docker/.env`), поэтому при
 разработке LangFuse поднимается автоматически; отключить — `COMPOSE_PROFILES= docker compose up ...`.

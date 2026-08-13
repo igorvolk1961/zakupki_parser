@@ -29,8 +29,9 @@
 |----------------------|---------------------------------------------------------------------|
 | `config_parser.yaml` | Параметры браузера и антиблок-мер (задержки, UA, stealth, лимиты), потолок страниц списка за проход `max_list_pages`. |
 | `dom/` (`<platform_id>.yaml`) | URL площадки, имена переменных, селекторы контейнеров и значений, селекторы сортировки и фильтров (блоки `sort`/`filters`), пагинация (`page_param`/`page_size`/`next_page`) и селектор общего числа результатов (`total_results_selector`/`total_results_regex`). |
-| `config_service.yaml`| Таймер, список сайтов, пороги дат, флаги, БД, `export_dir` (каталог выгрузки CSV), уведомления (telegram/max/webhook, порог `notify_min_score`), stop-условия. |
-| `config_score.yaml`  | Скоринг: fit-таблица ОКПД2, `default_fit`, `p_win` (дефолтный score вычисляется в парсере; внешний score приходит через конвейер transport + scoring_service, ADR-7). |
+| `config_service.yaml`| **Аналитические** настройки: список сайтов (`sites`), порог дат (`default_cutoff_days`), критерии поиска (`search_criteria`), stop-условия. |
+| `config_ops.yaml`    | **Эксплуатационные** настройки (devops): таймер (`timeout_seconds`), БД (`db`), уведомления (`notifications`, порог `notify_min_fit_score`), `export_dir` (каталог выгрузки CSV), параметры circuit breaker. Управляется devops, через API не редактируется. |
+| `config_score.yaml`  | Скоринг: fit-таблица ОКПД2, `default_fit`, `empty_code_fit`, `p_win`, `margin_rate`, адрес транспорта `scoring_transport_url`. Дефолтный score и `fit_score` вычисляются в парсере; внешний score приходит через конвейер transport + scoring_service (ADR-7). |
 | `config_log.yaml`    | Конфигурация логирования.                                           |
 
 Все параметры загружаются и валидируются через pydantic-модели
@@ -83,8 +84,9 @@
    (0/None — без ограничения; в `config_parser.yaml` по умолчанию 100).
    Выход из цикла при любом из условий:
    - достигнут конец пагинации или потолок `max_list_pages`;
-   - запись с датой публикации **старее** порога `last_processed_date`
-     (по умолчанию «сейчас − 1 неделя», настраивается `default_cutoff_days`);
+    - запись с датой публикации **старее** порога `last_processed_date`
+      (порог по умолчанию — из `config_service.yaml -> default_cutoff_days`,
+      в конфиге установлено `1`);
    - обработка записи с аномальной (будущей) датой публикации — лог + стоп.
 
    **Оптимизации для сортировки по релевантности** (у таких площадок нет даты-порога):
@@ -138,8 +140,8 @@
    11. возврат к списку записей.
 
    > **Уведомление подписчиков** при внешнем скоринге выполняется **не в цикле парсинга**,
-   > а в обработчике `POST /api/procurements/{id}/score` после возврата финального внешнего
-   > скора, и только если `score ≥ notify_min_score` (см. §8а и §11а).
+   > а в обработчике `POST /api/procurements/{id}/score` после возврата финального
+   > `fit_score`, и только если `fit_score ≥ notify_min_fit_score` (см. §8а и §11а).
 
 ## 4. Условия прекращения обработки заявки (`stop_conditions`)
 Набор флагов-условий в `config_service.yaml`. Каждый флаг — условие, при котором
@@ -149,7 +151,10 @@
 Текущие флаги:
 - `enabled` — главный переключатель набора;
 - `deadline_not_expired` — не обрабатывать заявку, если срок приёма заявок
-  (переменная `deadline` из `configs/dom/<platform_id>.yaml`) истёк к текущей дате.
+  (переменная `deadline` из `configs/dom/<platform_id>.yaml`) истёк к текущей дате;
+- `min_deadline_days` — (применяется только если `deadline_not_expired=true`) не
+  обрабатывать заявку, если до срока приёма осталось меньше N дней; `null` — условие
+  отключено.
 
 ## 5. Меры против блокировки IP
 Реализованы в `src/zakupki_parser/browser/`:
@@ -164,7 +169,7 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - Доступ к БД — SQLAlchemy 2.x (async, asyncpg).
-- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.13`),
+- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.16`),
   таблицы `procurements` и `customers`.
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
@@ -172,10 +177,17 @@
   (FK → `customers.id`), `law`, `subject`, `nmck`, `publication_date`, `update_date`,
   `deadline`, `execution_term`, `security_amount`+`security_amount_unit`, `advance`,
   `okpd2_codes`, `kpgz_codes`, `technical_spec_name/url`, `files_json`,
-  `score`/`score_method`, `detail_json`, `created_at`, `updated_at`.
+  `score`/`fit_score`/`score_method`, `embedding_similarity`, `is_active`,
+  `detail_json`, `created_at`, `updated_at`.
 - **Справочник заказчиков** `customers` (ADR-4, реализован): `name`, `normalized_name`
   (ключ дедупликации, UNIQUE), `inn`, `rating`; связь `procurements.customer_id → customers.id`
   (ON DELETE SET NULL). Денормализованная колонка `customer` удалена.
+- **Скоринг в БД**: `score` — финальный (Score = Fit × P(win) × Margin);
+  `fit_score` (миграция 1.15) — множитель Fit (дефолтный 0..1 из `fit_table` по ОКПД2,
+  либо нормализованный внешний 0..1); `embedding_similarity` (миграция 1.16) —
+  косинусная близость ветки Giga Embedder (NULL, если ветка выключена/не настроена/сбой);
+  `is_active` (миграция 1.14) — активна ли закупка (выставляется парсером по текстовому
+  `status` из `detail_json`, фильтр `active`).
 - Дата последней обработанной записи **берётся из БД** — `MAX(update_date)` по площадке;
   если записей ещё нет — порог по умолчанию `default_cutoff_days` из конфига.
   Отдельного state-файла нет.
@@ -205,32 +217,49 @@
 ## 8а. Скоринг закупок (`config_score.yaml`)
 Формула: **Score = Fit(ОКПД2) × P(win) × Margin** (простейшая эвристика:
 Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml -> fit_table`).
-- **Дефолтный score** вычисляется в парсере (`score_method=default`);
+- **Дефолтный score и `fit_score`** вычисляются в парсере (`score_method=default`);
+  `fit_score` — множитель Fit (0..1), отдельной колонкой в БД;
 - **Просроченный срок подачи заявок** (`deadline < now`) → `score = 0`,
   `score_method = deadline_expired`;
 - `fit_table` — коэффициент соответствия по ОКПД2 (подбор по ближайшему предку,
-  если точного кода нет); `default_fit` — для неизвестных кодов.
+  если точного кода нет); `default_fit` — для неизвестных кодов, `empty_code_fit` —
+  для закупки без кода ОКПД2.
 
 ### 8а.1 Канонический конвейер внешнего скоринга (ADR-7)
 Внешний скоринг выполняется асинхронным конвейером **`scoring_transport` (gateway) +
 `scoring_service` (LLM-скоринг) + Redis**:
-1. Парсер сохраняет «сырую» запись с дефолтным скором (`score_method=default`), затем
-   **автоматически** передаёт задание в транспорт: `POST /api/scoring/jobs
-   {procurement_id, priority=default_score}`.
+1. Парсер сохраняет «сырую» запись с дефолтным скором и `fit_score`
+   (`score_method=default`), затем **автоматически** передаёт задание в транспорт:
+   `POST /api/scoring/jobs {procurement_id, priority=default_score}`.
 2. Транспорт ставит задание в Redis ZSET `scoring:jobs` (`member = proc:{id}`, `score =
    priority`). **Приоритет приходит из парсера** (дефолтный score) — транспорт не
    пересчитывает эвристику по собственной fit-таблице (единственный источник — `config_score.yaml`).
 3. `scoring_service` берёт задание **напрямую из Redis** (`ZPOPMAX`, сначала самая «ценная»
    закупка), получает карточку через REST парсера (`GET /api/procurements/{id}`), прогоняет
-   LLM-пайплайн и публикует результат в `scoring:results` (`LPUSH`). Надёжность — TTL-аренда
+   **LLM-пайплайн** и публикует результат в `scoring:results` (`LPUSH`). Надёжность — TTL-аренда
    `scoring:processing` + `recover_stale`; идемпотентность — перезапись через `POST /score`.
-   Пока LLM-пайплайн не отлажен, включён флаг `score_use_stub` — сервис возвращает score
-   из карточки без вызова LLM.
 4. Транспорт (`BRPOP`) получает результат и возвращает его в парсер:
-   `POST /api/procurements/{id}/score {score, score_method:"external"}` (с ретраями/backoff).
-   Транспорт — единственная граница между конвейером и парсером.
-5. Парсер обновляет `score` в БД, затем в обработчике `POST /score` сравнивает
-   `score ≥ notify_min_score` и **уведомляет подписчиков только при прохождении порога**.
+   `POST /api/procurements/{id}/score {score, fit_score, score_method:"external",
+   embedding_similarity}` (с ретраями/backoff). Транспорт — единственная граница между
+   конвейером и парсером.
+5. Парсер обновляет `score`/`fit_score` в БД, затем в обработчике `POST /score` сравнивает
+   `fit_score ≥ notify_min_fit_score` и **уведомляет подписчиков только при прохождении порога**.
+
+**LLM-пайплайн `scoring_service`** (`scoring_service/scoring.py`):
+- **Fit** (0–10): reasoning + `fit_score` по описанию закупки и компетенциям поставщика;
+- **Judge**: критики / verdict / `final_fit_score`; при `verdict == reject` — до
+  `num_refine_rounds` повторных Fit с учётом критики (`fit_refine`);
+- **Уточнение по тексту ТЗ** (`requires_tz_review`): при запросе Fit ищется файл ТЗ в
+  карточке, извлекается текст, повторный Fit/Judge по расширенному описанию
+  (`tz_review`, `requires_tz_body` — флаги неполноты описания);
+- **Параллельная ветка векторной близости (Giga Embedder)**: эмбеддинги текста
+  компетенций и описания закупки (`EmbeddingsGigaR`, OAuth с `RqUID`, чанкинг длинных
+  текстов) выполняются в отдельном потоке; результат (`embedding_similarity`, 0..1)
+  смешивается с Fit через `giga_embedding_alpha` и пишется в БД/трейс;
+- **Score = final_fit (нормализованный) × P(win) × Margin**; Fit приводится к шкале
+  0–1 (`normalize_fit_for_score`).
+Режим заглушки `score_use_stub` (возврат существующего score без LLM) выключен
+по умолчанию.
 
 > Прежние «прямые» пути внешнего скоринга (`external_call_mode: before_save|worker`,
 > `ExternalScoreClient`, `Scheduler.run_scoring_worker`) удалены (ADR-7). Приоритет в
@@ -258,33 +287,42 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 Поднимается командой `serve` (или сервисом `api` в docker-compose). Читает
 конфиг (БД) и отдаёт:
 - `GET /health` — статус: ok, доступность БД;
+- `GET /` — web-демо (просмотр закупок/заказчиков, запуск/остановка парсера,
+  редактирование аналитического конфига);
 - `GET /api/procurements` — список с фильтрами (`number`, `source_platform`,
-  `okpd2`, `customer`) и пагинацией (`limit`, `offset`);
+  `okpd2`, `customer`, `active`, `min_fit_score`) и пагинацией (`limit`, `offset`);
 - `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
 - `POST /api/procurements/{id}/score` — возврат результата скоринга от транспорта:
-  парсер обновляет `score` закупки и, если `score ≥ notify_min_score`, отправляет
-  уведомление подписчикам (ADR-7);
+  парсер обновляет `score`/`fit_score` закупки и, если `fit_score ≥ notify_min_fit_score`,
+  отправляет уведомление подписчикам (ADR-7);
 - `POST /api/procurements/{id}/technical-spec` — внешний сервис возвращает найденное
   ТЗ, парсер записывает его в `technical_spec_name/url`;
 - `GET /api/procurements/{id}/technical-spec` — редирект на URL скачивания ТЗ с ЭТП
   (в старых данных возможен локальный путь);
 - `GET /api/customers`, `GET /api/customers/{id}` — справочник заказчиков;
-- `POST /api/customers/{id}/rating` — установка рейтинга заказчика (ADR-6).
+- `POST /api/customers/{id}/rating` — установка рейтинга заказчика (ADR-6);
 - `POST /api/procurements/export` — выгрузка закупок из БД в CSV на сервере в каталог
-  `config_service.yaml -> export_dir` (создаётся при необходимости, файл
+  `config_ops.yaml -> export_dir` (создаётся при необходимости, файл
   `procurements.csv`, UTF-8 с BOM — открывается в Excel). Операция read-only;
   используется кнопкой «Выгрузить CSV» в web-приложении.
+- `POST /api/parser/start` / `POST /api/parser/stop` / `GET /api/parser/status` —
+  управление постоянным мониторингом парсера из web-демо;
+- `POST /api/db/clear` — очистка БД (закупки и заказчики); доступна только при
+  остановленном парсере;
+- `GET /api/config` / `PUT /api/config` — просмотр и сохранение аналитических
+  параметров `config_service.yaml` (эксплуатационные из `config_ops.yaml` через API
+  не редактируются);
+- `GET /api/config/threshold` — порог релевантности `notify_min_fit_score`
+  (используется переключателем «Только релевантные»);
+- `/ws` — WebSocket-канал живых обновлений (`data-changed` при изменении БД).
 
 **Конвейер скоринга (ADR-7)** дополнительно использует API транспорта:
 - `POST /api/scoring/jobs {procurement_id, priority?}` — приём задания на скоринг
   (вызывается парсером после сохранения новой закупки); транспорт ставит его в
   Redis-очередь по приоритету (если `priority` не задан — берётся дефолтный score карточки).
 
-TODO: эндпоинт чистки БД (например, `DELETE /api/procurements` по фильтрам/возрасту
-записи).
-
 ## 11а. Уведомления подписчиков
-Доставка новых закупок настраивается в `config_service.yaml -> notifications`:
+Доставка новых закупок настраивается в `config_ops.yaml -> notifications`:
 бэкенд выбирается полем `backend` (`telegram | max | webhook`). Бэкенд активен, только
 если выбран и у него включён флаг `enabled`.
 - **Telegram** — `sendMessage` через REST API (`chat_id` в конфиге, токен — env
@@ -295,9 +333,9 @@ TODO: эндпоинт чистки БД (например, `DELETE /api/procure
   Bearer-заголовок).
 
 Уведомление отправляется только для новых записей и только после обновления
-`score` в БД (ADR-3/ADR-7), если `score ≥ notify_min_score` (порог из
-`config_service.yaml -> notifications`). Ошибки отправки логируются и не прерывают
-проход парсера.
+`fit_score` в БД (ADR-3/ADR-7), если `fit_score ≥ notify_min_fit_score` (порог из
+`config_ops.yaml -> notifications.notify_min_fit_score`). Ошибки отправки логируются
+и не прерывают проход парсера.
 
 ## 12. Тестирование
 - Unit: обработчики значений, конфиг, circuit breaker, дата последней обработки, stop-условия,

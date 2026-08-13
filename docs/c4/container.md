@@ -23,7 +23,7 @@ flowchart LR
     TR <-->|"jobs (ZADD) / results (BRPOP)"| RS
     RS <-->|"jobs (ZPOPMAX) / results (LPUSH)"| SG
     TR -->|"POST /score (возврат результата)"| P
-    P -->|"уведомления (score ≥ notify_min_score)"| SUB
+    P -->|"уведомления (fit_score ≥ notify_min_fit_score)"| SUB
 
     class U,SUB actor
 ```
@@ -42,5 +42,9 @@ flowchart LR
   **Scoring Service** обрабатывает задание и возвращает результат через транспорт
   (`POST /score`). Транспорт — единственная граница между конвейером и парсером;
   приоритет приходит из парсера (эвристика дефолтного score в транспорте не дублируется).
-- **Уведомления** подписчиков отправляются только после обновления финального score,
-  если `score ≥ notify_min_score` (порог из конфига).
+- **LLM-пайплайн** `scoring_service`: Fit → Judge → refine (`num_refine_rounds`) →
+  уточнение по тексту ТЗ (`tz_review`) → параллельная ветка векторной близости
+  **Giga Embedder** (влияет на score через `giga_embedding_alpha`, результат —
+  `embedding_similarity`). Режим заглушки `score_use_stub` выключен.
+- **Уведомления** подписчиков отправляются только после обновления финального
+  `fit_score`, если `fit_score ≥ notify_min_fit_score` (порог из `config_ops.yaml`).

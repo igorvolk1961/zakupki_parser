@@ -29,9 +29,9 @@ flowchart LR
     TR -->|"ZADD jobs / BRPOP results"| RS
     RS -->|"ZPOPMAX jobs / LPUSH results"| SG
     TR -->|"POST /score (возврат результата)"| P
-    P -->|"POST JSON-уведомления (score ≥ notify_min_score)"| TG
-    P -->|"POST JSON-уведомления (score ≥ notify_min_score)"| MX
-    P -->|"POST JSON-уведомления (score ≥ notify_min_score)"| WH
+    P -->|"POST JSON-уведомления (fit_score ≥ notify_min_fit_score)"| TG
+    P -->|"POST JSON-уведомления (fit_score ≥ notify_min_fit_score)"| MX
+    P -->|"POST JSON-уведомления (fit_score ≥ notify_min_fit_score)"| WH
     TG --> S
     MX --> S
     WH --> S
@@ -50,5 +50,6 @@ flowchart LR
   парсера, редактирование конфигурации).
 - **Скоринг** выполняется конвейером `Scoring Transport` → `Redis` → `Scoring Service`
   (ADR-7): парсер после сохранения автоматически передаёт задание в транспорт, а
-  уведомление подписчиков отправляется только после возврата финального скора, если
-  `score ≥ notify_min_score`.
+  уведомление подписчиков отправляется только после возврата финального `fit_score`,
+  если `fit_score ≥ notify_min_fit_score`. `scoring_service` считает score по
+  LLM-пайплайну (Fit → Judge → refine → ТЗ → Giga-эмбеддинги).

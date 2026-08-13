@@ -12,7 +12,8 @@
 по умолчанию выключены до верификации селекторов), тематика — ИТ-услуги.
 
 ## Возможности
-- Движок парсинга, настраиваемый через 5 YAML-конфигов (см. `configs/`).
+- Движок парсинга, настраиваемый через 6 YAML-конфигов (см. `configs/`: parser,
+  service, ops, score, log + `dom/`).
 - Сортировка по убыванию даты публикации (порядок фиксирован: `publication_date_desc`)
   или по релевантности (`sort.by_relevance=true` — без стоп-порога по дате);
   фильтрация: URL-фильтр (`configs/dom/<platform_id>.yaml -> search`), DOM-шаги (`filters`)
@@ -29,14 +30,17 @@
 - Хранилище: SQLAlchemy 2.x (async) + PostgreSQL, миграции Liquibase.
 - Файлы закупки (в т.ч. техническое задание) — в БД сохраняются только метаданные
   (имя и URL скачивания с ЭТП); парсер не скачивает файлы.
-- **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры),
-  `GET /api/procurements/{id}` (карточка), `POST /{id}/score` (возврат результата скоринга
-  из транспорта + пороговое уведомление), `POST /{id}/technical-spec` и
-  `GET /{id}/technical-spec` (ТЗ).
+- **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры,
+  включая `active`/`min_fit_score`), `GET /api/procurements/{id}` (карточка),
+  `POST /{id}/score` (возврат результата скоринга из транспорта + пороговое уведомление),
+  `POST /{id}/technical-spec` и `GET /{id}/technical-spec` (ТЗ), управление парсером
+  (`/api/parser/start|stop|status`), очистка БД (`/api/db/clear`), конфиг
+  (`/api/config`, `/api/config/threshold`), WebSocket `/ws`.
 - **Асинхронный внешний скоринг** (ADR-7): после сохранения закупки парсер автоматически
   передаёт задание в `scoring_transport`, тот ставит его в Redis-очередь по дефолтному
-  скору, `scoring_service` (LLM) обрабатывает и возвращает результат через транспорт;
-  уведомление подписчиков — только при `score ≥ notify_min_score`.
+  скору, `scoring_service` считает score по **LLM-пайплайну** (Fit → Judge → refine →
+  уточнение по ТЗ → ветка Giga-эмбеддингов) и возвращает результат через транспорт;
+  уведомление подписчиков — только при `fit_score ≥ notify_min_fit_score`.
 - Защита от повторной записи заявки с тем же номером.
 - Circuit Breaker и вежливая деградация при отказе БД/сайта.
 - Таймерный запуск по списку сайтов, уведомления подписчиков
@@ -55,7 +59,7 @@ src/zakupki_parser/
   storage/                     # SQLAlchemy (БД), customers
   circuit.py                   # circuit breaker
   notify.py                    # уведомления (telegram / max / webhook)
-src/scoring_service/           # LLM-сервис скоринга (Fit → Judge → Score), Redis-воркер
+src/scoring_service/           # LLM-сервис скоринга (Fit → Judge → refine → ТЗ → Giga), Redis-воркер
 src/scoring_transport/         # gateway скоринга: ingest, Redis-очередь, возврат результата
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
@@ -106,12 +110,12 @@ uv run zp --configs configs serve --host 0.0.0.0 --port 8000
   заказчиков с ИНН/рейтингом). Приложение **не зависит от источника данных** — ему
   безразлично, откуда приходят закупки: живой парсер, имитатор ЭТП или иное наполнение.
 - **Выгрузка CSV** (режим администратора) — кнопка «Выгрузить CSV» пишет закупки
-  из БД в CSV-файл на сервере в каталог `config_service.yaml -> export_dir`
+  из БД в CSV-файл на сервере в каталог `config_ops.yaml -> export_dir`
   (по умолчанию `data/export/procurements.csv`, кодировка UTF-8 с BOM — открывается в Excel).
-- **Параметры** — удобный просмотр и редактирование параметров
-  `config_service.yaml` (JSON-редактор + сохранение). Секреты (токены ботов) через
-  API не редактируются — они берутся из env. Изменения применяются при следующем
-  запуске парсера.
+- **Параметры** — удобный просмотр и редактирование **аналитических** параметров
+  `config_service.yaml` (JSON-редактор + сохранение). Секреты и эксплуатационные
+  параметры (БД, уведомления, таймер — `config_ops.yaml`) через API не редактируются —
+  они берутся из env. Изменения применяются при следующем запуске парсера.
 
 ## Остановка
 
@@ -204,11 +208,13 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
   (`configs/dom/<platform_id>.yaml`): URL, переменные, селекторы контейнеров и значений,
   а также селекторы сортировки и фильтров (блоки `sort`/`filters`) и URL-фильтр `search`
   (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
-- `config_service.yaml` — таймер, список сайтов, пороги дат, флаги, БД,
-  уведомления (telegram/max/webhook, порог `notify_min_score`), stop-условия, circuit breaker.
-- `config_score.yaml` — скоринг: метод (default/external), fit-таблица ОКПД2, параметры
-  конвейера внешнего скоринга (`scoring_transport` + `scoring_service` + Redis, ADR-7);
-  приоритет очереди = дефолтный score парсера.
+- `config_service.yaml` — **аналитические** настройки: список сайтов, порог дат,
+  критерии поиска, stop-условия (редактируется через web-интерфейс).
+- `config_ops.yaml` — **эксплуатационные** настройки (devops): таймер, БД, уведомления
+  (telegram/max/webhook, порог `notify_min_fit_score`), каталог выгрузки CSV, circuit breaker.
+- `config_score.yaml` — скоринг: fit-таблица ОКПД2, параметры конвейера внешнего скоринга
+  (`scoring_transport` + `scoring_service` + Redis, ADR-7); приоритет очереди = дефолтный score
+  парсера.
 - `config_log.yaml` — логирование.
 
 Переменные окружения (для Docker/CI):
