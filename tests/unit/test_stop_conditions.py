@@ -123,6 +123,22 @@ def test_is_active_inactive_status(app_config: AppConfig) -> None:
     assert orch._is_active({}) is False  # noqa: SLF001
 
 
+def test_is_active_inactive_by_expired_deadline(app_config: AppConfig) -> None:
+    """Активный статус, но срок актуальности истёк — закупка не активна."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None)
+    expired = {"status": "Прием предложений", "deadline": datetime(2026, 8, 1, tzinfo=UTC)}
+    assert orch._is_active(expired) is False  # noqa: SLF001
+
+
+def test_is_active_active_status_with_future_deadline(app_config: AppConfig) -> None:
+    """Активный статус и будущий дедлайн — закупка активна."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None)
+    active = {"status": "Прием предложений", "deadline": datetime(2026, 8, 10, tzinfo=UTC)}
+    assert orch._is_active(active) is True  # noqa: SLF001
+
+
 def test_is_active_default_true_when_no_statuses(app_config: AppConfig) -> None:
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
     orch = _make_orch(app_config, now, min_deadline_days=None)

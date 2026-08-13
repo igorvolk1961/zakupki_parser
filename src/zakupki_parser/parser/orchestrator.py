@@ -103,22 +103,29 @@ class Orchestrator:
 
     # -- приватные помощники -------------------------------------------------
     def _is_active(self, record: dict[str, Any]) -> bool:
-        """Определяет активность закупки по её текстовому статусу.
+        """Определяет активность закупки.
 
-        Если в конфиге площадки задан ``list_config.active_statuses`` — закупка
-        активна, только если её status входит в список. В противном случае
-        (список не задан или статус пуст) — считаем активной.
+        Закупка НЕ активна, если:
+          - явно задан неактивный статус: в конфиге площадки задан
+            ``list_config.active_statuses`` и status закупки не входит в список;
+          - истёк срок актуальности: переменная ``deadline`` — datetime и раньше
+            текущего момента.
 
-        Сравнение нормализованное: регистронезависимое, без хвостового
+        Если ``active_statuses`` не задан — по статусу не фильтруем (любой статус
+        считается активным), но проверка срока актуальности остаётся.
+
+        Сравнение статусов нормализованное: регистронезависимое, без хвостового
         ``...``/``…`` (CSS-обрезание) и лишних пробелов, чтобы статусы площадок
         («ПРИЕМ ПРЕДЛОЖЕНИЙ ...», «Прием предложений») корректно сопоставлялись
         с активными статусами конфига.
         """
         statuses = self._platform.list_config.active_statuses
-        if not statuses:
-            return True
-        status = (record.get("status") or "").strip()
-        return self._normalize_status(status) in {self._normalize_status(s) for s in statuses}
+        if statuses:
+            status = (record.get("status") or "").strip()
+            if self._normalize_status(status) not in {self._normalize_status(s) for s in statuses}:
+                return False
+        deadline = record.get("deadline")
+        return not (isinstance(deadline, datetime) and deadline < self._now)
 
     @staticmethod
     def _normalize_status(status: str) -> str:
@@ -329,8 +336,8 @@ class Orchestrator:
         # ИНН заказчика (универсальный механизм, ADR-4). При сбое — None (nullable).
         record["inn"] = await self._resolve_customer_inn(page, customer_link)
 
-        # Активна ли закупка (is_active): по текстовому статусу с площадки из списка
-        # активных статусов конфига. Не задан список или статус пуст — считаем активной.
+        # Активна ли закупка (is_active): не активна, если задан неактивный статус
+        # (не входит в active_statuses) ИЛИ истёк срок актуальности (deadline < now).
         record["is_active"] = self._is_active(record)
 
         # 4) условия прекращения обработки
