@@ -169,6 +169,42 @@ def test_list_filter_min_fit_score(api_client: tuple[TestClient, Path], inserted
     assert all(item["id"] != inserted_id for item in above["items"])
 
 
+def test_list_filter_min_fit_score_ignores_default_scored(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Дефолтный фит-скор (до обработки скорингом) не считается релевантным."""
+    client, _ = api_client
+
+    async def _insert_default() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "API-DEFAULT",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Дефолтный скор",
+                    "customer": "Заказчик ООО",
+                    "fit_score": 0.9,
+                    "score_method": "default",
+                }
+            )
+            rows, _ = await repo.list_procurements(number="API-DEFAULT")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    default_id = asyncio.run(_insert_default())
+
+    # Несмотря на высокий fit_score, дефолтный не попадает в «релевантные».
+    relevant = client.get("/api/procurements", params={"min_fit_score": 0.5}).json()
+    assert all(item["id"] != default_id for item in relevant["items"])
+    # Но присутствует в обычном списке (без фильтра).
+    all_procs = client.get("/api/procurements", params={"number": "API-DEFAULT"}).json()
+    assert any(item["id"] == default_id for item in all_procs["items"])
+
+
 def test_technical_spec_download(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, docs = api_client
     (docs / "API-1").mkdir(parents=True, exist_ok=True)

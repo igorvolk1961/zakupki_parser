@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
+from zakupki_parser.config.models import SCORE_METHOD_EXTERNAL
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import Customer, Database, Procurement
 
@@ -83,6 +84,9 @@ class ProcurementRepository:
             conditions.append(Procurement.is_active == active)
         if min_fit_score is not None:
             conditions.append(Procurement.fit_score >= min_fit_score)
+            # Учитываем только фит-скор, полученный сервисом скоринга: дефолтный
+            # (эвристика до обработки) и deadline_expired не являются «релевантными».
+            conditions.append(Procurement.score_method == SCORE_METHOD_EXTERNAL)
 
         stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
         if customer:

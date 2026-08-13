@@ -179,6 +179,9 @@ const fmtDate = (v) => v ? new Date(v).toLocaleString("ru-RU") : "–";
 const fmtDT = (v) => v ? new Date(v).toLocaleString("ru-RU", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "–";
 // Только дата (для таблицы закупок).
 const fmtDateOnly = (v) => v ? new Date(v).toLocaleDateString("ru-RU") : "–";
+// Фит-скор считается только после обработки сервисом скоринга (score_method=external);
+// до этого (дефолтный/просроченный) возвращаем null → показываем прочерк.
+const realFit = (row) => (row.score_method === "external" ? row.fit_score : null);
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -205,7 +208,7 @@ function card(row) {
     <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
     <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.source_platform)}</span>
       <span class="pill score">score ${row.score ?? "—"}</span>
-      <span class="pill score">fit ${row.fit_score ?? "—"}</span></div>
+      <span class="pill score">fit ${realFit(row) ?? "—"}</span></div>
   </div>`;
 }
 
@@ -213,7 +216,7 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}">
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
-    <td><span class="pill score">${row.fit_score ?? "—"}</span></td>
+    <td><span class="pill score">${realFit(row) ?? "—"}</span></td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
     <td>${fmtDateOnly(row.publication_date)}</td>
   </tr>`;
@@ -314,7 +317,7 @@ async function openDetail(id) {
       ${f("Обеспечение", fmtMoney(row.security_amount) + (row.security_amount_unit ? " " + escapeHtml(row.security_amount_unit) : ""))}
       ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
       ${f("Score", (row.score ?? "—") + " (" + escapeHtml(row.score_method || "") + ")")}
-      ${f("Fit-скор", row.fit_score ?? "—")}
+      ${f("Fit-скор", realFit(row) ?? "—")}
       ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
       ${f("ТЗ", ts)}
       ${f("Файлы", files)}
