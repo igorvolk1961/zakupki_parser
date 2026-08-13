@@ -49,8 +49,17 @@ def _reasoning() -> ReasoningSteps:
     )
 
 
-def _fit(score: float, requires_tz_review: bool = False) -> FitResult:
-    return FitResult(reasoning=_reasoning(), fit_score=score, requires_tz_review=requires_tz_review)
+def _fit(
+    score: float,
+    requires_tz_review: bool = False,
+    requires_tz_body: bool = True,
+) -> FitResult:
+    return FitResult(
+        reasoning=_reasoning(),
+        fit_score=score,
+        requires_tz_review=requires_tz_review,
+        requires_tz_body=requires_tz_body,
+    )
 
 
 def _judge(verdict: Literal["accept", "reject"], final: float, critics: str = "") -> JudgeResult:
@@ -70,6 +79,8 @@ class _FakeFit:
         metadata: dict[str, object] | None = None,
         parent_config: object | None = None,
         run_name: str = "fit_scoring",
+        truncated: bool = False,
+        full_text: bool = False,
     ) -> FitResult:
         self.calls += 1
         value = self._scores.pop(0) if self._scores else 5.0
@@ -176,6 +187,8 @@ def test_score_propagates_requires_tz_review() -> None:
             metadata: dict[str, object] | None = None,
             parent_config: object | None = None,
             run_name: str = "fit_scoring",
+            truncated: bool = False,
+            full_text: bool = False,
         ) -> FitResult:
             return _fit(5.0, requires_tz_review=True)
 
@@ -219,6 +232,8 @@ def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
             metadata: dict[str, object] | None = None,
             parent_config: object | None = None,
             run_name: str = "fit_scoring",
+            truncated: bool = False,
+            full_text: bool = False,
         ) -> FitResult:
             self.calls.append((session_id, metadata))
             return _fit(self._score)
@@ -253,6 +268,8 @@ def test_score_falls_back_to_procurement_session_without_run_id() -> None:
             metadata: dict[str, object] | None = None,
             parent_config: object | None = None,
             run_name: str = "fit_scoring",
+            truncated: bool = False,
+            full_text: bool = False,
         ) -> FitResult:
             self.session_ids.append(session_id)
             return _fit(5.0)
@@ -287,6 +304,8 @@ class _RecordingFit:
         self._scores = list(scores)
         self.descriptions: list[str] = []
         self.run_names: list[str] = []
+        self.truncated_flags: list[bool] = []
+        self.full_text_flags: list[bool] = []
 
     def invoke(
         self,
@@ -296,9 +315,13 @@ class _RecordingFit:
         metadata: dict[str, object] | None = None,
         parent_config: object | None = None,
         run_name: str = "fit_scoring",
+        truncated: bool = False,
+        full_text: bool = False,
     ) -> FitResult:
         self.descriptions.append(description)
         self.run_names.append(run_name)
+        self.truncated_flags.append(truncated)
+        self.full_text_flags.append(full_text)
         value = self._scores.pop(0) if self._scores else 5.0
         return _fit(value, requires_tz_review=(len(self.descriptions) == 1))
 
@@ -338,6 +361,8 @@ def test_score_uses_tz_text_when_requires_tz_review() -> None:
     assert fit.descriptions[0] != fit.descriptions[1]
     assert fit.descriptions[1] == "ТЗ: автоматизация документооборота"
     assert fit.run_names == ["fit_scoring", "fit_tz"]
+    # Повторный fit уже получил полный текст ТЗ — не запрашиваем чтение файла повторно.
+    assert fit.full_text_flags == [False, True]
     assert out.requires_tz_review is False
     assert out.final_fit_score == 8.0
     assert out.description == "ТЗ: автоматизация документооборота"
@@ -390,3 +415,98 @@ def test_score_skips_tz_when_flag_off() -> None:
     out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
     assert len(fit.descriptions) == 1
     assert out.requires_tz_review is True
+
+
+class _HeaderRecordingFit:
+    """Fit, возвращающий requires_tz_review=true + requires_tz_body=false на первом вызове."""
+
+    def __init__(self, scores: list[float]) -> None:
+        self._scores = list(scores)
+        self.descriptions: list[str] = []
+        self.run_names: list[str] = []
+        self.truncated_flags: list[bool] = []
+        self.full_text_flags: list[bool] = []
+
+    def invoke(
+        self,
+        competencies: str,
+        description: str,
+        session_id: str | None = None,
+        metadata: dict[str, object] | None = None,
+        parent_config: object | None = None,
+        run_name: str = "fit_scoring",
+        truncated: bool = False,
+        full_text: bool = False,
+    ) -> FitResult:
+        self.descriptions.append(description)
+        self.run_names.append(run_name)
+        self.truncated_flags.append(truncated)
+        self.full_text_flags.append(full_text)
+        value = self._scores.pop(0) if self._scores else 5.0
+        return _fit(
+            value,
+            requires_tz_review=(len(self.descriptions) == 1),
+            requires_tz_body=(len(self.descriptions) != 1),
+        )
+
+
+def test_score_truncated_description_passes_truncated_flag() -> None:
+    """Обрезанное многоточием описание передаёт truncated=True в первый fit."""
+    fit = _RecordingFit([5.0])
+    judge = _FakeJudge([_judge("accept", 5.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, tz_review_enabled=False),
+        tz_reviewer=_fake_tz_reviewer("ТЗ-текст"),  # type: ignore[arg-type]
+    )
+    scorer.score({"subject": "Разработка ПО и внедрение системы...", "nmck": 10.0}, "comp")
+    assert fit.truncated_flags == [True]
+
+
+def test_score_header_extends_description_from_tz() -> None:
+    """requires_tz_body=false: описание расширяется заголовком из текста ТЗ."""
+    tz_text = (
+        "Разработка и внедрение системы автоматизации документооборота предприятия\n"
+        "Общие положения..."
+    )
+    fit = _HeaderRecordingFit([5.0, 8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, tz_review_enabled=True),
+        tz_reviewer=_fake_tz_reviewer(tz_text),  # type: ignore[arg-type]
+    )
+    out = scorer.score(
+        {"subject": "Разработка и внедрение системы автоматизации документооборота", "nmck": 10.0},
+        "comp",
+    )
+
+    assert fit.run_names == ["fit_scoring", "fit_tz"]
+    # Повторный fit уже получил текст (заголовок) из ТЗ — не запрашиваем чтение файла.
+    assert fit.full_text_flags == [False, True]
+    # Второй fit получает расширенный заголовок из ТЗ, а не весь текст ТЗ.
+    assert fit.descriptions[1] == (
+        "Разработка и внедрение системы автоматизации документооборота предприятия"
+    )
+    assert out.description == (
+        "Разработка и внедрение системы автоматизации документооборота предприятия"
+    )
+    assert out.final_fit_score == 8.0
+
+
+def test_score_header_falls_back_to_full_tz_when_not_found() -> None:
+    """requires_tz_body=false, но фрагмент не найден — используется весь текст ТЗ."""
+    tz_text = "Совершенно другой текст технического задания\n"
+    fit = _HeaderRecordingFit([5.0, 8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, tz_review_enabled=True),
+        tz_reviewer=_fake_tz_reviewer(tz_text),  # type: ignore[arg-type]
+    )
+    out = scorer.score({"subject": "Разработка системы автоматизации", "nmck": 10.0}, "comp")
+    assert fit.descriptions[1] == tz_text
+    assert out.description == tz_text

@@ -26,10 +26,13 @@ class ReasoningSteps(BaseModel):
     uncovered_scope: str = Field(description="Что из закупки НЕ покрывается компетенциями")
     tz_review_necessity: str = Field(
         description=(
-            "Нужно ли уточнять скор по полному тексту ТЗ (requires_tz_review) и почему: "
+            "Нужно ли уточнять скор по тексту ТЗ (requires_tz_review) и почему: "
             "обоснуй, есть ли реальная неоднозначность (например, не названо ПО), и почему "
             "уточнение оправдано (закупка иначе потенциально релевантна). Уточнение дорогое — "
-            "не запускай его, если закупка уже однозначно вне/внутри компетенций."
+            "не запускай его, если закупка уже однозначно вне/внутри компетенций. Если уточнение "
+            "нужно, укажи, достаточно ли прочитать только полный заголовок ТЗ (тогда "
+            "requires_tz_body=false) или необходимо читать всё тело ТЗ (requires_tz_body=true), "
+            "и почему."
         )
     )
     fit_score_rationale: str = Field(description="Обоснование числовой оценки fit_score")
@@ -42,11 +45,20 @@ class FitResult(BaseModel):
     fit_score: float = Field(description="Оценка Fit от 0 до 10")
     requires_tz_review: bool = Field(
         description=(
-            "True, если по краткому описанию закупки невозможно однозначно установить, "
-            "идёт ли речь о сопровождении чужого ПО или об автоматизации бизнес-процессов "
-            "(например, используемое ПО не названо явно). Тогда скор нужно уточнить "
-            "по полному тексту ТЗ."
+            "True, если по краткому/обрезанному описанию закупки невозможно однозначно "
+            "установить, идёт ли речь о сопровождении чужого ПО или об автоматизации "
+            "бизнес-процессов (например, используемое ПО не названо или описание обрезано "
+            "многоточием). Тогда скор нужно уточнить по тексту ТЗ."
         )
+    )
+    requires_tz_body: bool = Field(
+        default=True,
+        description=(
+            "Нужно ли для уточнения скора читать всё тело ТЗ (requires_tz_body=true), или "
+            "достаточно только полного заголовка ТЗ (requires_tz_body=false). Имеет смысл, "
+            "когда описание закупки обрезано многоточием. Действует только при "
+            "requires_tz_review=true: requires_tz_body=false означает чтение только заголовка ТЗ."
+        ),
     )
 
     @field_validator("fit_score")
@@ -64,6 +76,9 @@ class FitResult(BaseModel):
         """
         if self.requires_tz_review and not 4.0 <= self.fit_score <= 7.0:
             self.requires_tz_review = False
+        # requires_tz_body=false (только заголовок) допустим лишь при requires_tz_review=true.
+        if self.requires_tz_body is False and not self.requires_tz_review:
+            self.requires_tz_body = True
         return self
 
 
@@ -89,7 +104,13 @@ class ScoringOutput(BaseModel):
     judge: JudgeResult
     final_fit_score: float = Field(description="Финальная оценка Fit 0..10")
     requires_tz_review: bool = Field(
-        description="Нужно ли уточнить скор по полному тексту ТЗ (из fit.requires_tz_review)"
+        description="Нужно ли уточнить скор по тексту ТЗ (из fit.requires_tz_review)"
+    )
+    requires_tz_body: bool = Field(
+        default=True,
+        description=(
+            "Нужно ли читать всё тело ТЗ (из fit.requires_tz_body); false = только заголовок"
+        ),
     )
     fit_multiplier: float = Field(
         description=(

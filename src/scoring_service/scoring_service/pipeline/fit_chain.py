@@ -84,9 +84,19 @@ class FitChain:
         metadata: dict[str, Any] | None = None,
         parent_config: RunnableConfig | None = None,
         run_name: str = "fit_scoring",
+        truncated: bool = False,
+        full_text: bool = False,
     ) -> FitResult:
-        """Выставить Fit-оценку (reasoning + fit_score)."""
-        messages: list[BaseMessage] = build_fit_messages(competencies, description)
+        """Выставить Fit-оценку (reasoning + fit_score).
+
+        ``truncated`` — описание обрезано многоточием: добавляется явное указание
+        на неполноту описания (см. ``prompts.build_fit_messages``).
+        ``full_text`` — уже предоставлен полный текст ТЗ: модель не должна снова
+        запрашивать чтение ТЗ (requires_tz_review/requires_tz_body).
+        """
+        messages: list[BaseMessage] = build_fit_messages(
+            competencies, description, truncated=truncated, full_text=full_text
+        )
         config = (
             self._config(session_id, metadata, run_name)
             if parent_config is None

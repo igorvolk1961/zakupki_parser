@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from scoring_service.pipeline.description import extract_description
+from scoring_service.pipeline.description import (
+    extend_description_from_tz,
+    extract_description,
+    is_truncated_description,
+)
 
 
 def test_extract_uses_subject() -> None:
@@ -36,3 +40,38 @@ def test_extract_includes_okpd2_codes() -> None:
 
 def test_extract_empty() -> None:
     assert "(описание отсутствует)" in extract_description({})
+
+
+def test_is_truncated_true_for_ellipsis() -> None:
+    assert is_truncated_description("Разработка ПО и внедрение системы...")
+    assert is_truncated_description("Разработка ПО и внедрение системы…")
+    assert is_truncated_description("Разработка ПО и внедрение системы..")
+
+
+def test_is_truncated_false_for_full() -> None:
+    assert not is_truncated_description("Разработка ПО и внедрение системы")
+    assert not is_truncated_description("")
+    assert not is_truncated_description("Текст с точкой в середине.")
+
+
+def test_extend_description_finds_header_line() -> None:
+    tz = (
+        "Разработка и внедрение системы автоматизации документооборота предприятия\n"
+        "Общие положения...\n"
+    )
+    out = extend_description_from_tz(
+        "Разработка и внедрение системы автоматизации документооборота", tz
+    )
+    assert out == "Разработка и внедрение системы автоматизации документооборота предприятия"
+
+
+def test_extend_description_finds_by_prefix() -> None:
+    tz = "Внедрение ПО для оптимизации потоков обработки информации в организации\nдалее..."
+    out = extend_description_from_tz("Внедрение ПО для оптимизации потоков", tz)
+    assert out == "Внедрение ПО для оптимизации потоков обработки информации в организации"
+
+
+def test_extend_description_not_found_returns_none() -> None:
+    assert extend_description_from_tz("Совершенно другое описание", "текст ТЗ") is None
+    assert extend_description_from_tz("", "текст ТЗ") is None
+    assert extend_description_from_tz("описание", "") is None

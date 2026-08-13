@@ -21,7 +21,11 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
 from scoring_service.modules import margin as margin_module
 from scoring_service.modules import p_win as p_win_module
-from scoring_service.pipeline.description import extract_description
+from scoring_service.pipeline.description import (
+    extend_description_from_tz,
+    extract_description,
+    is_truncated_description,
+)
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.judge_chain import JudgeChain
 from scoring_service.pipeline.tz_reviewer import TzReviewer, TzReviewOutcome
@@ -89,6 +93,7 @@ class Scorer:
         session_id: str | None,
         metadata: dict[str, Any],
         parent_config: RunnableConfig,
+        full_text: bool = False,
     ) -> FitResult:
         """Повторный fit с учётом критики судьи (best-effort: без гарантии JSON)."""
         messages_hint = (
@@ -101,6 +106,7 @@ class Scorer:
             metadata,
             parent_config=parent_config,
             run_name="fit_refine",
+            full_text=full_text,
         )
 
     def _stub_score(self, record: dict[str, Any], procurement_id: int | None) -> ScoringOutput:
@@ -121,7 +127,12 @@ class Scorer:
             tz_review_necessity="",
             fit_score_rationale="stub",
         )
-        fit = FitResult(reasoning=reasoning, fit_score=score, requires_tz_review=False)
+        fit = FitResult(
+            reasoning=reasoning,
+            fit_score=score,
+            requires_tz_review=False,
+            requires_tz_body=True,
+        )
         judge = JudgeResult(
             critics="Stub: возвращён существующий score закупки",
             verdict="accept",
@@ -134,6 +145,7 @@ class Scorer:
             judge=judge,
             final_fit_score=score,
             requires_tz_review=False,
+            requires_tz_body=True,
             fit_multiplier=score,
             p_win=p_win_module.p_win(record, self._settings),
             margin=margin_module.margin(record, self._settings),
@@ -196,23 +208,43 @@ class Scorer:
         record, competencies, procurement_id, session_id, trace_meta, root_config = inputs
         parent_config = config or root_config
         description = extract_description(record)
+        # Описание обрезано многоточием: явно сообщаем модели о неполноте описания.
+        truncated = is_truncated_description(description)
 
         fit = self._fit.invoke(  # type: ignore[union-attr]
-            competencies, description, session_id, trace_meta, parent_config=parent_config
+            competencies,
+            description,
+            session_id,
+            trace_meta,
+            parent_config=parent_config,
+            truncated=truncated,
         )
 
         # Уточнение по тексту ТЗ: если fit потребовал (requires_tz_review), ищем файл ТЗ
         # в карточке и извлекаем его текст. Если найден — повторный fit/judge выполняются
-        # по тексту ТЗ вместо описания закупки. Иначе скор остаётся без изменений.
+        # по расширенному описанию вместо обрезанного. Иначе скор остаётся без изменений.
         tz_outcome: TzReviewOutcome | None = None
         effective_description = description
         # True, только если уточнение реально состоялось (ТЗ найден и текст непустой).
         tz_refined = False
+        # True, когда модели уже предоставлен полный текст ТЗ: дальше не запрашиваем
+        # повторное чтение файла (requires_tz_review/requires_tz_body).
+        full_text = False
         if fit.requires_tz_review and self._tz_reviewer is not None:
             tz_outcome = self._tz_reviewer.invoke(record, parent_config, trace_meta, session_id)
             if tz_outcome.found and tz_outcome.description and tz_outcome.description.strip():
                 tz_refined = True
-                effective_description = tz_outcome.description
+                if not fit.requires_tz_body:
+                    # Достаточно заголовка (тело ТЗ не нужно): пытаемся алгоритмически
+                    # расширить обрезанное описание фрагментом из полного текста ТЗ.
+                    # Если не нашли — читаем всё тело ТЗ.
+                    effective_description = (
+                        extend_description_from_tz(description, tz_outcome.description)
+                        or tz_outcome.description
+                    )
+                else:
+                    effective_description = tz_outcome.description
+                full_text = True
                 fit = self._fit.invoke(  # type: ignore[union-attr]
                     competencies,
                     effective_description,
@@ -220,6 +252,7 @@ class Scorer:
                     trace_meta,
                     parent_config=parent_config,
                     run_name="fit_tz",
+                    full_text=True,
                 )
 
         judge = self._judge.invoke(  # type: ignore[union-attr]
@@ -241,6 +274,7 @@ class Scorer:
                 session_id,
                 trace_meta,
                 parent_config,
+                full_text=full_text,
             )
             judge = self._judge.invoke(  # type: ignore[union-attr]
                 competencies,
@@ -274,6 +308,9 @@ class Scorer:
             # уточнении снимаем флаг.
             requires_tz_review=(
                 fit.requires_tz_review if tz_outcome is None or not tz_refined else False
+            ),
+            requires_tz_body=(
+                fit.requires_tz_body if tz_outcome is None or not tz_refined else True
             ),
             fit_multiplier=fit_norm,
             p_win=pwin,

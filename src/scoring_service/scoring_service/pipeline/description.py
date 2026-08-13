@@ -2,10 +2,15 @@
 
 На первом этапе сервис НЕ использует тексты документов — только описание закупки
 (``subject`` + разумный набор полей ``detail_json``).
+
+Здесь же — вспомогательные функции для обработки обрезанного (многоточием)
+описания: ``is_truncated_description`` и алгоритмическое расширение заголовка
+описания из полного текста ТЗ (``extend_description_from_tz``).
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 _DETAIL_FIELDS = (
@@ -21,6 +26,9 @@ _DETAIL_FIELDS = (
     "deadline",
     "execution_term",
 )
+
+# Маркеры обрезанного описания: «…», три точки (в т.ч. «..» в конце).
+_TRUNCATION_RE = re.compile(r"(?:\.{2,}|…)\s*$")
 
 
 def _clean(value: Any) -> str:
@@ -59,3 +67,47 @@ def extract_description(record: dict[str, Any]) -> str:
             parts.append(f"{field}: {value}")
 
     return "\n".join(parts) if parts else "(описание отсутствует)"
+
+
+def is_truncated_description(description: str) -> bool:
+    """Заканчивается ли описание закупки многоточием (обрезано ли).
+
+    Срезаться многоточием может любой фрагмент (обычно subject — первая строка),
+    поэтому проверяем каждую непустую строку описания.
+    """
+    if not description:
+        return False
+    return any(_TRUNCATION_RE.search(line) for line in description.splitlines() if line.strip())
+
+
+def _collapse(text: str) -> str:
+    """Нормализовать пробелы для поиска фрагмента (без смены регистра)."""
+    return " ".join(text.split())
+
+
+def extend_description_from_tz(description: str, tz_text: str) -> str | None:
+    """Алгоритмически расширить обрезанное описание фрагментом из текста ТЗ.
+
+    Ищем в полном тексте ТЗ фрагмент, совпадающий с обрезанной частью описания
+    закупки (subject). Если найден — возвращаем расширенный заголовок: полную
+    строку ТЗ, содержащую этот фрагмент (фрагмент + продолжение до переноса
+    строки). Если фрагмент не найден — возвращаем ``None`` (тогда используется
+    весь текст ТЗ).
+    """
+    if not description or not tz_text:
+        return None
+    # За основу берём subject — первую строку описания (обрезанную многоточием).
+    first_line = description.splitlines()[0] if description.splitlines() else description
+    subject = _TRUNCATION_RE.sub("", _collapse(first_line)).rstrip()
+    if not subject:
+        return None
+
+    # Ищем фрагмент описания по строкам ТЗ (заголовок обычно одна строка).
+    subject_words = subject.split()
+    for cut in range(len(subject_words), 0, -1):
+        prefix = _collapse(" ".join(subject_words[:cut]))
+        for raw_line in tz_text.splitlines():
+            line = _collapse(raw_line)
+            if prefix and line.startswith(prefix):
+                return line
+    return None
