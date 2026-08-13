@@ -33,6 +33,7 @@ class ParserApiClient:
         score: float,
         score_method: str = "external",
         fit_score: float | None = None,
+        embedding_similarity: float | None = None,
         retry_max: int = 3,
         retry_backoff: float = 2.0,
     ) -> dict[str, Any]:
@@ -41,6 +42,8 @@ class ParserApiClient:
         payload = {"score": score, "score_method": score_method}
         if fit_score is not None:
             payload["fit_score"] = fit_score
+        if embedding_similarity is not None:
+            payload["embedding_similarity"] = embedding_similarity
         last_exc: Exception | None = None
         for attempt in range(retry_max):
             try:

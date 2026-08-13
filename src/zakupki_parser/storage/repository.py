@@ -243,6 +243,7 @@ class ProcurementRepository:
         score: float,
         fit_score: float | None = None,
         method: str = "external",
+        embedding_similarity: float | None = None,
     ) -> None:
         async with self._db.session() as session:
             obj = await session.get(Procurement, procurement_id)
@@ -251,6 +252,11 @@ class ProcurementRepository:
                 obj.score = rounded
                 obj.fit_score = _round_score(fit_score) if fit_score is not None else None
                 obj.score_method = method
+                obj.embedding_similarity = (
+                    round(float(embedding_similarity), 4)
+                    if embedding_similarity is not None
+                    else None
+                )
                 await session.commit()
                 logger.info(
                     "Обновлён score заявки %s: %s (fit %s, метод %s)",

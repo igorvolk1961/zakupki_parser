@@ -97,6 +97,29 @@ class Settings(BaseSettings):
     # Таймаут скачивания файла ТЗ (сек).
     tz_download_timeout: float = 30.0
 
+    # Параллельная ветка векторной близости (Giga Embedder): сравнение текста
+    # компетенций и описания закупки через эмбеддинги. Если не задан ключ доступа
+    # (giga_client_id/giga_client_secret) — ветка не выполняется, но факт пропуска
+    # фиксируется в метаданных LangFuse-трейса (падения нет).
+    giga_enabled: bool = False
+    giga_base_url: str = "https://gigachat.devices.sberbank.ru/api/v1"
+    giga_embeddings_model: str = "Embeddings"
+    giga_auth_url: str = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    giga_client_id: str = ""
+    giga_client_secret: str = ""
+    giga_auth_scope: str = "GIGACHAT_API_PERS"
+    # Влияние ветки на score: 0.0 — ветка не влияет (только диагностика/просмотр).
+    giga_embedding_alpha: float = 0.0
+    # Таймаут запроса эмбеддингов (сек).
+    giga_timeout_seconds: float = 30.0
+    # Порог остаточного времени жизни токена (сек): при значении меньше — обновить.
+    giga_min_token_ttl_seconds: float = 60.0
+
+    @property
+    def giga_configured(self) -> bool:
+        """Ключ доступа Giga задан (можно выполнять эмбеддинги)."""
+        return bool(self.giga_client_id and self.giga_client_secret)
+
     # Заглушка: возвращать score, уже присутствующий в данных закупки (без LLM-пайплайна).
     # Включать, пока LLM-пайплайн не отлажен.
     # AliasChoices: имя поля уже содержит префикс "score_", поэтому без явного

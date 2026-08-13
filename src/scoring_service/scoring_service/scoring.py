@@ -14,11 +14,15 @@ score, уже присутствующий в данных закупки (см.
 
 from __future__ import annotations
 
+import logging
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
+from scoring_service.modules import embedding as embedding_module
 from scoring_service.modules import margin as margin_module
 from scoring_service.modules import p_win as p_win_module
 from scoring_service.pipeline.description import (
@@ -32,6 +36,23 @@ from scoring_service.pipeline.tz_reviewer import TzReviewer, TzReviewOutcome
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps, ScoringOutput
 from scoring_service.settings import Settings
 
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _PipelineResult:
+    """Результат основного LLM-пайплайна (fit/judge/refine)."""
+
+    description: str
+    fit: FitResult
+    judge: JudgeResult
+    final_fit: float
+    pwin: float
+    marg: float
+    fit_norm: float
+    requires_tz_review: bool
+    requires_tz_body: bool
+
 
 class Scorer:
     """Оркестратор: карточка + компетенции → полный результат скоринга."""
@@ -43,6 +64,8 @@ class Scorer:
         settings: Settings,
         callbacks: list[Any] | None = None,
         tz_reviewer: TzReviewer | None = None,
+        embedder: Any | None = None,
+        embedding_skip_reason: str | None = None,
     ) -> None:
         self._fit = fit_chain
         self._judge = judge_chain
@@ -50,6 +73,12 @@ class Scorer:
         # Callbacks для корневого run скоринга: один трейс на задание, в который
         # вложены fit/judge/refine как дочерние спаны (вместо отдельных трейсов).
         self._callbacks = callbacks
+        # Параллельная ветка векторной близости (Giga Embedder). None, если ветка
+        # выключена либо не настроен ключ доступа.
+        self._embedder = embedder
+        # Причина пропуска ветки (например, отсутствие ключа доступа) — пишется в
+        # метаданные LangFuse-трейса, чтобы не было тихого «пропуска без следа».
+        self._embedding_skip_reason = embedding_skip_reason
         # Уточнение по ТЗ работает только при tz_review_enabled=true (флаг имеет
         # приоритет над явно переданным reviewer — для тестов).
         self._tz_reviewer = (
@@ -67,7 +96,13 @@ class Scorer:
             "normalize_fit_for_score": settings.normalize_fit_for_score,
             "p_win": settings.p_win,
             "margin_rate": settings.margin_rate,
+            "giga_enabled": settings.giga_enabled,
+            "giga_configured": settings.giga_configured,
+            "giga_model": settings.giga_embeddings_model,
+            "giga_embedding_alpha": settings.giga_embedding_alpha,
         }
+        if settings.giga_enabled and not settings.giga_configured:
+            self._base_metadata["embedding_skipped"] = "missing giga credentials"
 
     def _trace_metadata(
         self,
@@ -208,6 +243,68 @@ class Scorer:
         record, competencies, procurement_id, session_id, trace_meta, root_config = inputs
         parent_config = config or root_config
         description = extract_description(record)
+
+        if self._embedder is not None:
+            # Параллельная ветка векторной близости: эмбеддинги не зависят от
+            # fit/judge, поэтому выполняются в отдельном потоке параллельно с
+            # LLM-пайплайном. Ветка логируется в LangFuse как дочерний спан.
+            branch = RunnableLambda(
+                lambda _: embedding_module.embedding_similarity(
+                    self._embedder, competencies, description
+                ),
+                name="embedding_similarity",
+            )
+            span_config = cast(
+                RunnableConfig,
+                {
+                    **parent_config,
+                    "metadata": {
+                        **(parent_config.get("metadata") or {}),
+                        "branch": "embedding",
+                        "model": self._settings.giga_embeddings_model,
+                        "alpha": self._settings.giga_embedding_alpha,
+                    },
+                },
+            )
+
+            def _run_branch() -> float:
+                return branch.invoke(None, config=span_config)
+
+            embed_sim: float | None = None
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(_run_branch)
+                try:
+                    result = self._run_pipeline(
+                        record,
+                        competencies,
+                        description,
+                        session_id,
+                        trace_meta,
+                        parent_config,
+                    )
+                finally:
+                    try:
+                        embed_sim = fut.result(timeout=self._settings.giga_timeout_seconds)
+                    except Exception:  # noqa: BLE001 - best-effort, не роняет скоринг
+                        logger.exception("embedding branch failed for %s", procurement_id)
+                        embed_sim = None
+            return self._build_output(result, embed_sim, procurement_id)
+
+        result = self._run_pipeline(
+            record, competencies, description, session_id, trace_meta, parent_config
+        )
+        return self._build_output(result, None, procurement_id)
+
+    def _run_pipeline(
+        self,
+        record: dict[str, Any],
+        competencies: str,
+        description: str,
+        session_id: str | None,
+        trace_meta: dict[str, Any],
+        parent_config: RunnableConfig,
+    ) -> _PipelineResult:
+        """Основной LLM-пайплайн (fit → tz_review → judge → refine)."""
         # Описание обрезано многоточием: явно сообщаем модели о неполноте описания.
         truncated = is_truncated_description(description)
 
@@ -295,14 +392,15 @@ class Scorer:
             if self._settings.normalize_fit_for_score
             else final_fit
         )
-        score = round(fit_norm * pwin * marg, self._settings.score_round_digits)
 
-        return ScoringOutput(
-            procurement_id=procurement_id,
+        return _PipelineResult(
             description=effective_description,
             fit=fit,
             judge=judge,
-            final_fit_score=final_fit,
+            final_fit=final_fit,
+            pwin=pwin,
+            marg=marg,
+            fit_norm=fit_norm,
             # Флаг остаётся, если уточнение не запрошено или не состоялось
             # (ТЗ не найден / текст пуст) — скор не уточнён. При успешном
             # уточнении снимаем флаг.
@@ -312,10 +410,35 @@ class Scorer:
             requires_tz_body=(
                 fit.requires_tz_body if tz_outcome is None or not tz_refined else True
             ),
-            fit_multiplier=fit_norm,
-            p_win=pwin,
-            margin=marg,
+        )
+
+    def _build_output(
+        self,
+        result: _PipelineResult,
+        embed_sim: float | None,
+        procurement_id: int | None,
+    ) -> ScoringOutput:
+        """Финальный ScoringOutput с учётом ветки векторной близости."""
+        # Смешиваем Fit с веткой векторной близости, если ветка выполнена и alpha>0.
+        base = result.fit_norm
+        if embed_sim is not None and self._settings.giga_embedding_alpha > 0:
+            alpha = self._settings.giga_embedding_alpha
+            base = (1 - alpha) * base + alpha * embed_sim
+        score = round(base * result.pwin * result.marg, self._settings.score_round_digits)
+
+        return ScoringOutput(
+            procurement_id=procurement_id,
+            description=result.description,
+            fit=result.fit,
+            judge=result.judge,
+            final_fit_score=result.final_fit,
+            requires_tz_review=result.requires_tz_review,
+            requires_tz_body=result.requires_tz_body,
+            fit_multiplier=result.fit_norm,
+            p_win=result.pwin,
+            margin=result.marg,
             score=score,
+            embedding_similarity=embed_sim,
         )
 
 
@@ -329,9 +452,33 @@ def build_scorer(settings: Settings) -> Scorer:
         return Scorer(None, None, settings)
     llm = build_llm(settings)
     callbacks = callbacks_for(langfuse_handler(settings))
+    # Параллельная ветка векторной близости. Строится только при включённом флаге
+    # и заданном ключе доступа; иначе — None с причиной пропуска (без падения).
+    embedder: Any | None = None
+    embedding_skip_reason: str | None = None
+    if settings.giga_enabled:
+        if settings.giga_configured:
+            from scoring_service.modules.giga_embedder import GigaEmbedder, GigaTokenProvider
+
+            token_provider = GigaTokenProvider(
+                auth_url=settings.giga_auth_url,
+                client_id=settings.giga_client_id,
+                client_secret=settings.giga_client_secret,
+                scope=settings.giga_auth_scope,
+                min_ttl_seconds=settings.giga_min_token_ttl_seconds,
+            )
+            embedder = GigaEmbedder(
+                base_url=settings.giga_base_url,
+                model=settings.giga_embeddings_model,
+                token_provider=token_provider,
+            )
+        else:
+            embedding_skip_reason = "missing giga credentials"
     return Scorer(
         FitChain(llm, callbacks, method=settings.llm_structured_method),
         JudgeChain(llm, callbacks, method=settings.llm_structured_method),
         settings,
         callbacks=callbacks,
+        embedder=embedder,
+        embedding_skip_reason=embedding_skip_reason,
     )

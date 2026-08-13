@@ -53,6 +53,7 @@ class ResultsConsumer:
                 float(score),
                 payload.get("score_method", "external"),
                 fit_score=payload.get("fit_score"),
+                embedding_similarity=payload.get("embedding_similarity"),
                 retry_max=self._settings.retry_max,
                 retry_backoff=self._settings.retry_backoff_seconds,
             )

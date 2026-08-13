@@ -60,6 +60,7 @@ class ProcurementOut(BaseModel):
     score: float | None = None
     fit_score: float | None = None
     score_method: str | None = None
+    embedding_similarity: float | None = None
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
@@ -112,6 +113,7 @@ class ScoreUpdate(BaseModel):
     score: float
     fit_score: float | None = None
     score_method: str = "external"
+    embedding_similarity: float | None = None
 
 
 class TechnicalSpecUpdate(BaseModel):
@@ -218,6 +220,7 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
         "score": row.score,
         "fit_score": row.fit_score,
         "score_method": row.score_method,
+        "embedding_similarity": row.embedding_similarity,
         "is_active": row.is_active,
     }
 
@@ -372,7 +375,13 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         """
         if await _repo().get_by_id(procurement_id) is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
-        await _repo().update_score(procurement_id, body.score, body.fit_score, body.score_method)
+        await _repo().update_score(
+            procurement_id,
+            body.score,
+            body.fit_score,
+            body.score_method,
+            embedding_similarity=body.embedding_similarity,
+        )
         await _broadcast(state)
         row = await _repo().get_by_id(procurement_id)
         if row is None:  # pragma: no cover - проверено выше

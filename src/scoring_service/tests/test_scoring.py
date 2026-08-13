@@ -510,3 +510,91 @@ def test_score_header_falls_back_to_full_tz_when_not_found() -> None:
     out = scorer.score({"subject": "Разработка системы автоматизации", "nmck": 10.0}, "comp")
     assert fit.descriptions[1] == tz_text
     assert out.description == tz_text
+
+
+class _FakeEmbedder:
+    """Фейковый эмбеддер: возвращает вектор на основе первого текста."""
+
+    def __init__(self, similarity: float = 0.7) -> None:
+        self._similarity = similarity
+        self.calls = 0
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls += 1
+        # Векторы, косинусная близость которых равна self._similarity.
+        return [[1.0, 0.0], [self._similarity, (1.0 - self._similarity**2) ** 0.5]]
+
+
+def test_score_embedding_disabled_returns_none() -> None:
+    """Ветка выключена (giga_enabled=False) — embedding_similarity=None, без эмбеддера."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    out = _scorer(fit, judge).score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+    assert out.embedding_similarity is None
+    assert out.score == 80.0
+
+
+def test_score_embedding_missing_credentials_no_crash() -> None:
+    """giga_enabled=True, но ключ доступа не задан — не падаем, ветка пропущена.
+
+    Факт пропуска фиксируется в базовых метаданных (embedding_skipped), которые
+    пишутся в LangFuse-трейс.
+    """
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(score_use_stub=False, giga_enabled=True),  # без client_id/client_secret
+    )  # type: ignore[arg-type]
+    assert scorer._embedder is None  # noqa: SLF001
+    assert scorer._base_metadata["embedding_skipped"] == "missing giga credentials"
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+    assert out.embedding_similarity is None
+    assert out.score == 80.0
+
+
+def test_score_embedding_branch_runs_and_sets_similarity() -> None:
+    """Ветка выполняется, similarity попадает в результат и влияет на score при alpha>0."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    embedder = _FakeEmbedder(similarity=0.6)
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(
+            p_win=1.0,
+            margin_rate=1.0,
+            score_use_stub=False,
+            giga_enabled=True,
+            giga_client_id="cid",
+            giga_client_secret="secret",
+            giga_embedding_alpha=0.5,
+        ),
+        embedder=embedder,  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+    assert embedder.calls == 1
+    assert out.embedding_similarity == 0.6
+    # fit_norm = 8/10 = 0.8; base = 0.5*0.8 + 0.5*0.6 = 0.7; score = 0.7*1*100 = 70.0
+    assert out.score == 70.0
+
+
+def test_score_embedding_branch_sets_similarity_but_alpha_zero_keeps_score() -> None:
+    """alpha=0 — similarity фиксируется, но на score не влияет."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(
+            score_use_stub=False,
+            giga_enabled=True,
+            giga_client_id="c",
+            giga_client_secret="s",
+        ),
+        embedder=_FakeEmbedder(similarity=0.3),  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+    assert out.embedding_similarity == 0.3
+    assert out.score == 80.0

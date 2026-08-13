@@ -1,0 +1,12 @@
+databaseChangeLog:
+  - changeSet:
+      id: 18
+      author: zakupki-parser
+      comment: "Колонка procurements.embedding_similarity (double precision): косинусная близость 0..1 текста компетенций и описания закупки (Giga Embedder)."
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE procurements ADD COLUMN embedding_similarity double precision;
+
+              COMMENT ON COLUMN procurements.embedding_similarity IS
+                'Косинусная близость 0..1 эмбеддингов текста компетенций и описания закупки (Giga Embedder). NULL, если ветка выключена/не настроена/сбой.';

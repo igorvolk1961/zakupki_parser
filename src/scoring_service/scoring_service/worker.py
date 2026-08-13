@@ -60,6 +60,7 @@ class ScoringWorker:
                     "p_win": result.p_win,
                     "margin": result.margin,
                     "score_method": "external",
+                    "embedding_similarity": result.embedding_similarity,
                 }
             )
         except Exception as exc:  # noqa: BLE001

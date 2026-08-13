@@ -120,6 +120,9 @@ class ScoringOutput(BaseModel):
     p_win: float
     margin: float
     score: float
+    # Ветка векторной близости (Giga Embedder). None, если ветка выключена/не
+    # настроен ключ доступа/произошёл сбой (best-effort).
+    embedding_similarity: float | None = None
 
     @field_validator("final_fit_score")
     @classmethod

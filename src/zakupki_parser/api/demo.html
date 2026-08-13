@@ -208,7 +208,8 @@ function card(row) {
     <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
     <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.source_platform)}</span>
       <span class="pill score">score ${row.score ?? "—"}</span>
-      <span class="pill score">fit ${realFit(row) ?? "—"}</span></div>
+      <span class="pill score">fit ${realFit(row) ?? "—"}</span>
+      <span class="pill score">sim ${row.embedding_similarity ?? "—"}</span></div>
   </div>`;
 }
 
@@ -318,6 +319,7 @@ async function openDetail(id) {
       ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
       ${f("Score", (row.score ?? "—") + " (" + escapeHtml(row.score_method || "") + ")")}
       ${f("Fit-скор", realFit(row) ?? "—")}
+      ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
       ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
       ${f("ТЗ", ts)}
       ${f("Файлы", files)}

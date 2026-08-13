@@ -85,6 +85,9 @@ class Procurement(Base):
     score: Mapped[float | None] = mapped_column(Float)
     fit_score: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str | None] = mapped_column(String(64))
+    # Ветка векторной близости (Giga Embedder): косинусная близость 0..1 текста
+    # компетенций и описания закупки. None, если ветка выключена/не настроена/сбой.
+    embedding_similarity: Mapped[float | None] = mapped_column(Float)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
