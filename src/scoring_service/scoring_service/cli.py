@@ -36,6 +36,7 @@ async def _cmd_worker(settings: Settings) -> int:
 
 
 def _cmd_score(settings: Settings, card: Path, competencies: Path | None) -> int:
+    from scoring_service.llm_factory import flush_langfuse
     from scoring_service.scoring import build_scorer
 
     record = json.loads(card.read_text(encoding="utf-8"))
@@ -43,6 +44,7 @@ def _cmd_score(settings: Settings, card: Path, competencies: Path | None) -> int
     scorer = build_scorer(settings)
     result = scorer.score(record, comp, record.get("id"), run_id=uuid.uuid4().hex)
     print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
+    flush_langfuse()
     return 0
 
 
@@ -66,6 +68,7 @@ def _cmd_evaluate(
         _dump_report,
         evaluate_cli,
     )
+    from scoring_service.llm_factory import flush_langfuse
 
     comp = competencies.read_text(encoding="utf-8") if competencies else None
     report, comparison = evaluate_cli(
@@ -84,6 +87,7 @@ def _cmd_evaluate(
         min_spearman=min_spearman,
     )
     print(_dump_report(report))
+    flush_langfuse()
     if comparison is not None:
         print("--- сравнение с baseline ---")
         print(_dump_comparison(comparison))
@@ -100,12 +104,14 @@ def _cmd_score_csv(
     out: Path | None,
 ) -> int:
     from scoring_service.debug_csv import render_table, run_debug, write_report
+    from scoring_service.llm_factory import flush_langfuse
 
     comp = competencies.read_text(encoding="utf-8") if competencies else settings.competencies()
     results = run_debug(settings, csv_path, comp, limit=limit, stub=stub)
     if out is not None:
         write_report(out, results)
     print(render_table(results))
+    flush_langfuse()
     return 0
 
 

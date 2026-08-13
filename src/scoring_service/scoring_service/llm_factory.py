@@ -61,3 +61,22 @@ def callbacks_for(handler: object | None) -> list[Any] | None:
     if handler is None:
         return None
     return [handler]
+
+
+def flush_langfuse() -> None:
+    """Принудительно отправить буферизованные LangFuse-трейсы.
+
+    Нужен для одноразовых CLI-команд (score / score-csv / evaluate): процесс
+    завершается сразу после вызова LLM, а глобальный клиент LangFuse отправляет
+    трейсы асинхронно. Без явного ``flush()`` они теряются при выходе.
+    В long-running процессах (worker/serve) клиент флашит сам, поэтому вызов
+    безопасен и там.
+    """
+    if not _LANGFUSE_AVAILABLE:
+        return
+    try:
+        from langfuse import get_client
+
+        get_client().flush()
+    except Exception:  # pragma: no cover - best-effort, не должно ронять команду
+        pass

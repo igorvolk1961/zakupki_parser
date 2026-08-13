@@ -71,7 +71,10 @@ def run_evaluation(
         expected.append(item.expected_fit)
         predicted.append(result.final_fit_score)
         expected_verdict.append(resolve_expected_verdict(item, accept_threshold))
-        predicted_verdict.append(result.judge.verdict == "accept")
+        # Бизнес-решение «брать/не брать» выводится порогом по финальному скору.
+        # НЕ используем judge.verdict: это проверка адекватности оценки fit, а не
+        # решение о целесообразности участия в закупке.
+        predicted_verdict.append(result.final_fit_score >= accept_threshold)
         details.append(
             {
                 "description": item.description,
