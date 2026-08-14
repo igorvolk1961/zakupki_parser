@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 19
+      author: zakupki-parser
+      comment: >
+        ЭТП ГПБ не различает закон 44/223 (проверено 2026-08-14): площадка одна.
+        Удаляем записи etpgpb_223 и переименовываем etpgpb_44 -> etpgpb.
+      changes:
+        - sql:
+            sql: |
+              DELETE FROM procurements WHERE source_platform = 'etpgpb_223';
+
+              UPDATE procurements
+                 SET source_platform = 'etpgpb'
+               WHERE source_platform = 'etpgpb_44';

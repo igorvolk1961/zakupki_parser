@@ -13,9 +13,7 @@ sites:
   enabled: false
 - platform_id: b2b_center
   enabled: false
-- platform_id: etpgpb_223
-  enabled: true
-- platform_id: etpgpb_44
+- platform_id: etpgpb
   enabled: true
 - platform_id: lot_online_44
   enabled: false

@@ -15,7 +15,7 @@
   разные структуры детальных страниц);
 - коммерческие ЭТП (конфиги добавлены, селекторы — плейсхолдеры, по умолчанию
   `enabled: false` до верификации): `roseltorg_44fz`, `roseltorg_com`, `fabrikant`,
-  `b2b_center`, `etpgpb_223`, `etpgpb_44`, `lot_online_44`, `lot_online_223`.
+  `b2b_center`, `etpgpb`, `lot_online_44`, `lot_online_223`.
 
 Статус верификации селекторов, механика фильтрации/сортировки по каждой площадке —
 в [docs/platforms.md](docs/platforms.md).

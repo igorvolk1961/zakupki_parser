@@ -126,9 +126,9 @@ async def test_detail_files_expand_full_list(app_config: AppConfig, page: Page) 
 
 @pytest.mark.asyncio
 async def test_etpgpb_list_extraction(page: Page) -> None:
-    """Верифицированные селекторы etpgpb (223-ФЗ) против реальной HTML-фикстуры."""
+    """Верифицированные селекторы etpgpb против реальной HTML-фикстуры."""
     cfg = load_config(REPO_ROOT / "configs")
-    platform = cfg.dom.platforms["etpgpb_223"]
+    platform = cfg.dom.platforms["etpgpb"]
     await set_html(page, load_fixture("etpgpb_list.html"))
 
     containers = page.locator(platform.list_config.container)
@@ -150,7 +150,7 @@ async def test_etpgpb_list_extraction(page: Page) -> None:
 async def test_etpgpb_detail_variables(page: Page) -> None:
     """Детальные поля etpgpb (статус/заказчик/ОКПД2) извлекаются с детальной страницы."""
     cfg = load_config(REPO_ROOT / "configs")
-    platform = cfg.dom.platforms["etpgpb_223"]
+    platform = cfg.dom.platforms["etpgpb"]
     await set_html(page, load_fixture("etpgpb_detail.html"))
 
     data = await extract_detail_vars(page, platform)
@@ -164,7 +164,7 @@ async def test_etpgpb_detail_variables(page: Page) -> None:
 async def test_etpgpb_detail_files(page: Page) -> None:
     """Ссылки на файлы etpgpb (Документация) извлекаются с детальной страницы."""
     cfg = load_config(REPO_ROOT / "configs")
-    platform = cfg.dom.platforms["etpgpb_223"]
+    platform = cfg.dom.platforms["etpgpb"]
     await set_html(page, load_fixture("etpgpb_detail.html"))
 
     files = await detail_files(page, platform)
@@ -185,7 +185,7 @@ async def test_etpgpb_customer_inn_from_org_page(page: Page) -> None:
     from zakupki_parser.parser.organization import extract_inn_from_text
 
     cfg = load_config(REPO_ROOT / "configs")
-    platform = cfg.dom.platforms["etpgpb_223"]
+    platform = cfg.dom.platforms["etpgpb"]
     org = platform.organization
     assert org is not None, "organization должен быть задан для etpgpb"
     selector = org.inn_page_selector
