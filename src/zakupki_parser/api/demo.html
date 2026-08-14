@@ -49,10 +49,19 @@
   .proc-list { flex:1 1 auto; min-width:0; max-height:72vh; overflow:auto;
                border:1px solid var(--line); border-radius:10px; background: var(--panel);}
   .proc-list table { width:100%; border-collapse:collapse; font-size:13px; }
-  .sort-toggle { display:block; margin-bottom:8px; font-size:13px; color: var(--muted, #888); }
+  .sort-toggle { display:block; margin-bottom:8px; font-size:13px; color: var(--muted, #888);
+                 position:sticky; top:0; z-index:2; background: var(--panel); padding:8px 12px 0; }
   .sort-toggle select { margin-left:6px; }
+  #proc-min-fit::-webkit-outer-spin-button, #proc-min-fit::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  #proc-min-fit { -moz-appearance:textfield; }
+  .step { display:inline-flex; align-items:stretch; vertical-align:middle; }
+  .step input { width:32px; text-align:right; padding:1px 2px; border:1px solid var(--line); border-radius:6px 0 0 6px; background:var(--panel2); color:var(--text); }
+  .step-btn { display:inline-flex; flex-direction:column; }
+  .step-btn button { border:1px solid var(--line); border-left:0; background:var(--panel2); color:var(--text); padding:0 3px; font-size:6px; line-height:1.3; cursor:pointer; }
+  .step-btn button:first-child { border-radius:0 6px 0 0; border-bottom:0; }
+  .step-btn button:last-child { border-radius:0 0 6px 0; }
   .proc-list th, .proc-list td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
-  .proc-list th { position:sticky; top:0; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
+  .proc-list th { position:sticky; top:32px; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
   .proc-list tr { cursor:pointer; }
   .proc-list tr:hover { background: var(--panel2); }
   .proc-list tr.sel { background: var(--sel-bg); }
@@ -136,7 +145,15 @@
           </select>
           <span style="margin-left:12px;">
             <input type="checkbox" id="proc-relevant"> Только релевантные
-            <span class="muted" id="relevant-hint" style="font-size:12px;"></span>
+            <label id="min-fit-wrap" style="display:none; margin-left:8px; color:var(--text);">fit-score ≥
+              <span class="step" id="min-fit-step">
+                <input type="number" id="proc-min-fit" value="0.4" min="0" max="0.9" step="0.1">
+                <span class="step-btn">
+                  <button type="button" id="fit-up" title="+0.1">▲</button>
+                  <button type="button" id="fit-dn" title="-0.1">▼</button>
+                </span>
+              </span>
+            </label>
           </span>
         </label>
         <table>
@@ -156,7 +173,6 @@
   </div>
 
   <div id="view-cfg" style="display:none;">
-    <p class="muted">Параметры <code>config_service.yaml</code> (секреты, например токены ботов, не редактируются — берутся из env). После сохранения применяются при следующем запуске парсера.</p>
     <textarea id="cfg-editor" spellcheck="false" style="width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
     <div class="toolbar" style="margin-top:12px;">
       <button class="primary" id="cfg-save">Сохранить</button>
@@ -196,7 +212,10 @@ async function api(path, params) {
 
 let allItems = [];
 let selected = new Set();
-let relevanceThreshold = null;
+
+function updateMinFit() {
+  $("#min-fit-wrap").style.display = $("#proc-relevant").checked ? "inline" : "none";
+}
 
 function card(row) {
   return `<div class="card selcard" data-id="${row.id}">
@@ -272,7 +291,7 @@ function sigOfProc(data) {
 async function loadProc() {
   const params = { limit: 100 };
   if ($("#platform").value) params.source_platform = $("#platform").value;
-  if ($("#proc-relevant").checked && relevanceThreshold != null) params.min_fit_score = relevanceThreshold;
+  if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
   const data = await api("procurements", params);
   allItems = data.items;
   lastProcSig = sigOfProc(data);
@@ -285,7 +304,7 @@ async function pollProc() {
   try {
     const params = { limit: 100 };
     if ($("#platform").value) params.source_platform = $("#platform").value;
-    if ($("#proc-relevant").checked && relevanceThreshold != null) params.min_fit_score = relevanceThreshold;
+    if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
     const data = await api("procurements", params);
     const sig = sigOfProc(data);
     if (sig !== lastProcSig) {
@@ -397,8 +416,20 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal
 $("#proc-sort").addEventListener("change", renderProc);
 $("#proc-relevant").addEventListener("change", () => {
   localStorage.setItem("zp_relevant", $("#proc-relevant").checked ? "1" : "0");
+  updateMinFit();
   loadProc();
 });
+$("#proc-min-fit").addEventListener("change", loadProc);
+function stepFit(d) {
+  const input = $("#proc-min-fit");
+  let v = parseFloat(input.value);
+  if (isNaN(v)) v = 0.4;
+  v = Math.min(0.9, Math.max(0, Math.round((v + d) * 10) / 10));
+  input.value = v;
+  loadProc();
+}
+$("#fit-up").addEventListener("click", () => stepFit(0.1));
+$("#fit-dn").addEventListener("click", () => stepFit(-0.1));
 $("#platform").addEventListener("change", loadProc);
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
@@ -564,13 +595,9 @@ connectWS();
   adminMode = false;
   $("#admin").checked = false;
   updateControls();
-  // Порог релевантности и состояние переключателя «Только релевантные».
-  try {
-    const thr = await api("config/threshold");
-    relevanceThreshold = thr.notify_min_fit_score;
-    $("#relevant-hint").textContent = `≥ ${relevanceThreshold}`;
-  } catch (err) { relevanceThreshold = null; }
+  // Состояние переключателя «Только релевантные» и числового поля порога.
   $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
+  updateMinFit();
   try {
     await loadPlatforms();
     await loadProc();
