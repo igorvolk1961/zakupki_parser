@@ -46,11 +46,11 @@
   .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
   .empty { text-align:center; color: var(--muted); padding: 60px 0;}
   .split { display:flex; gap:16px; align-items:flex-start; }
-  .proc-list { flex:1 1 auto; min-width:0; max-height:72vh; overflow:auto;
+  .proc-list { flex:1 1 auto; min-width:0; max-height:72vh; display:flex; flex-direction:column;
                border:1px solid var(--line); border-radius:10px; background: var(--panel);}
-  .proc-list table { width:100%; border-collapse:collapse; font-size:13px; }
-  .sort-toggle { display:block; margin-bottom:8px; font-size:13px; color: var(--muted, #888);
-                 position:sticky; top:0; z-index:2; background: var(--panel); padding:8px 12px 0; }
+  .proc-list table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+  .sort-toggle { display:block; flex:0 0 auto; font-size:13px; color: var(--muted, #888); padding:8px 12px; }
+  .proc-table { flex:1 1 auto; min-height:0; overflow:auto; }
   .sort-toggle select { margin-left:6px; }
   #proc-min-fit::-webkit-outer-spin-button, #proc-min-fit::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
   #proc-min-fit { -moz-appearance:textfield; }
@@ -61,7 +61,7 @@
   .step-btn button:first-child { border-radius:0 6px 0 0; border-bottom:0; }
   .step-btn button:last-child { border-radius:0 0 6px 0; }
   .proc-list th, .proc-list td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
-  .proc-list th { position:sticky; top:32px; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
+  .proc-list th { position:sticky; top:0; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
   .proc-list tr { cursor:pointer; }
   .proc-list tr:hover { background: var(--panel2); }
   .proc-list tr.sel { background: var(--sel-bg); }
@@ -156,11 +156,13 @@
             </label>
           </span>
         </label>
-        <table>
-          <thead><tr><th>ID</th><th>Закупка</th><th>Fit-скор</th><th>Статус</th><th>Дата публикации</th></tr></thead>
-          <tbody id="proc-rows"></tbody>
-        </table>
-        <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
+        <div class="proc-table">
+          <table>
+            <thead><tr><th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>Статус</th><th>Дата публикации</th></tr></thead>
+            <tbody id="proc-rows"></tbody>
+          </table>
+          <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
+        </div>
       </div>
       <div class="proc-detail" id="proc-detail">
         <div class="empty">Выберите закупку слева<br><span class="muted" style="font-size:12px">Несколько — удерживайте Ctrl при клике</span></div>
@@ -236,6 +238,7 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}">
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
+    <td><span class="pill">${escapeHtml(row.source_platform)}</span></td>
     <td><span class="pill score">${realFit(row) ?? "—"}</span></td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
     <td>${fmtDateOnly(row.publication_date)}</td>
