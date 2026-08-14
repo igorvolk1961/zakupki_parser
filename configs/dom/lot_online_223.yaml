@@ -1,23 +1,59 @@
 # lot-online (РАД) — 223-ФЗ (tender.lot-online.ru). Платформа_id = имя файла.
-# Angular SPA, фильтры в URL не отражаются. URL-фильтр отключён; фильтрация по
-# словам/ОКПД2 — через DOM-шаги (filters, TODO на capture). В списке НЕТ дат
-# публикации/дедлайна, поэтому
-# by_relevance=true: сортировка по релевантности отключает стоп-порог по дате
-# (см. договорённость: порог по дате не нужен при сортировке по релевантности).
-# ВНИМАНИЕ: селекторы list_config/detail — ПЛЕЙСХОЛДЕРЫ (TODO: verify), снимаются
-# через `zp capture-fixture` (enabled: false).
+# Angular SPA (Taiga UI). Карточки — app-purchase-card; список рендерится клиентом,
+# извлекается по DOM (как на gz.lot-online.ru). Пагинация — кнопка tui-pagination
+# «Следующая страница» (URL-параметра page нет; :not([disabled]) отсекает последнюю
+# страницу, чтобы не было вечного цикла). В списке ЕСТЬ даты публикации и окончания
+# приёма заявок. Фильтры в URL не отражаются — URL-фильтр выключен.
+# Селекторы списка проверены по снимку (2026-08-14). Детальная страница грузится
+# асинхронно (ОКПД2/файлы отдаются через внутренний API) — TODO (см. docs/platforms.md).
 name: "lot-online РАД (223-ФЗ)"
 url: "https://tender.lot-online.ru"
 list_path: "/search"
-sort:
-  by_relevance: true
 list_config:
-  container: "div"   # TODO: verify
-  detail_link: "a"
-  next_page: ""
-  variables: []
+  # Контейнер карточки закупки.
+  container: "app-purchase-card"
+  # Ссылка на детальную страницу (/procedure?procedureNumber=…&lotNumber=…).
+  detail_link: "a[href*='/procedure?procedureNumber=']"
+  # Пагинация — кнопка «Следующая страница»; на последней странице она disabled
+  # (:not([disabled]) → конец пагинации).
+  next_page: "button[title='Следующая страница']:not([disabled])"
+  # Имя переменной с датой публикации (стоп-порог; by_relevance=true — не применяется).
+  publication_date: "publication_date"
+  # Активность — по сроку приёма заявок (deadline).
+  # active_statuses: null
+  variables:
+    # number — «№ 32616293355 / RAD260040078 / Лот 1» → внутренний номер.
+    - { name: "number",           selector: "a[href*='/procedure?procedureNumber=']", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
+    # subject — наименование закупки (ссылка .purchase-title).
+    - { name: "subject",          selector: "a.purchase-title", handler: "strip", default: "" }
+    # law — платформа 223-ФЗ по определению; бейджа закона в карточке нет.
+    - { name: "law",              selector: ".__no_law_badge", handler: "none", default: "223-ФЗ" }
+    # customer — «Организатор».
+    - { name: "customer",         selector: ".organization span", handler: "strip", default: "" }
+    # status — бейдж статуса («Прием заявок»).
+    - { name: "status",           selector: "app-purchase-status .t-text", handler: "strip", default: "" }
+    # purchase_type — «Способ закупки».
+    - { name: "purchase_type",    selector: ".purchase-method span", handler: "strip", default: "" }
+    # nmck — «Начальная цена» (формат «1 089 900,00 ₽»).
+    - { name: "nmck",             selector: "xpath=//div[contains(@class,'tui-text_body-s')][.='Начальная цена']/following-sibling::div[contains(@class,'tui-text_h6')]", handler: "money", default: null }
+    # Даты — app-date-time в блоках «Дата публикации» / «Дата окончания приема заявок».
+    # regex_datetime нужен для deadline: в тексте блока есть «Осталось N дней».
+    - { name: "publication_date", selector: "xpath=//div[.='Дата публикации']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
+    - { name: "deadline",         selector: "xpath=//div[.='Дата окончания приема заявок']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
 detail:
+  # TODO: детальная страница грузится асинхронно (внутренний API) — поля ОКПД2/файлы
+  # требуют доработки (см. docs/platforms.md).
   variables: []
   files: []
+# Сортировка по релевантности (фильтр по дате/словам в URL не отражается) —
+# стоп-порог по дате не применяется.
+sort:
+  order: publication_date_desc
+  by_relevance: true
+  dropdown: null
+  option_text: null
+# Фильтры (DOM-шаги) и URL-фильтр не реализованы: поиск по словам/ОКПД2 на 223
+# не отражается в URL; обходится полный список (TODO).
+filters: []
 search:
   enabled: false

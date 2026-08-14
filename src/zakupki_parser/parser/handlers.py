@@ -264,4 +264,7 @@ def apply_handler(name: str | None, value: Any, arg: str | None = None) -> Any:
     if not name:
         return value
     handler = HANDLERS.get(name, HANDLERS["none"])
-    return handler(value, arg) if name == "regex" else handler(value)
+    # Обработчики, которым нужен аргумент (regex-паттерн).
+    if name in ("regex", "regex_datetime"):
+        return handler(value, arg)
+    return handler(value)

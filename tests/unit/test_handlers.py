@@ -106,6 +106,22 @@ def test_apply_handler_none() -> None:
     assert apply_handler("lower", "AbC") == "abc"
 
 
+def test_apply_handler_passes_arg_to_regex_handlers() -> None:
+    # apply_handler должен передавать handler_arg и в regex, и в regex_datetime
+    # (ранее аргумент доходил только до "regex" — даты с regex_datetime падали в None).
+    assert apply_handler("regex", "№ 1167043-1", r"№\s*(\d+(?:-\d+)?)") == "1167043-1"
+    assert (
+        _iso(
+            apply_handler(
+                "regex_datetime",
+                "Опубликована 12.08.2026 00:55",
+                r"(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})",
+            )
+        )
+        == "2026-08-12T00:55:00+03:00"
+    )
+
+
 def test_pub_date() -> None:
     dt = handler_pub_date("с 06.08.2026 до 06.08.2026 15:00 (МСК)")
     assert dt is not None and dt.isoformat().startswith("2026-08-06T00:00:00")
