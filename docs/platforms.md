@@ -15,7 +15,7 @@
 | `etpgpb` | ЭТП ГПБ | 44-ФЗ/223-ФЗ (не различает) | ✅ список+детали+файлы+ИНН (снимок) | готов к тесту | **вкл** |
 | `roseltorg_44fz` | Росэлторг | 44-ФЗ | ⛔ антибот-блок | нужен stealth/ручной ввод | выкл |
 | `roseltorg_com` | Росэлторг | 223-ФЗ/коммерческие | ⛔ антибот-блок | нужен stealth/ручной ввод | выкл |
-| `fabrikant` | Фабрикант | закупки (44/коммерческие) | ⛔ нет семантических классов (Tailwind) | нужен отдельный подход | выкл |
+| `fabrikant` | Фабрикант | закупки (44/коммерческие) | ✅ список+детали (data-slot, снимок); ОКПД2/файлы — TODO (client-rendered) | готов к тесту | **вкл** |
 | `lot_online_223` | lot-online РАД | 223-ФЗ | ⚠️ частично (purchase-*) | нет дат в списке; fragile | выкл |
 
 ## Механизм фильтрации и сортировки
@@ -30,7 +30,7 @@
 | etpgpb | Vue SPA | `procedure[stage][0]`+`procedure[okpd][N]`+`sort`+`per`+`page` | ✅ `procedure[okpd][0]=62.02` (raw, префиксный матчинг) | ❌ (`procedure[name]` не фильтрует) | дата `by_published_desc` | да |
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
 | roseltorg_com | Drupal+React | то же | ✅ (TODO) | ✅ | релевантность | нет |
-| fabrikant | Next.js SPA | — (в URL не отражается) | ❌ | ❌ (фильтры вне URL) | релевантность | нет |
+| fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | релевантность | нет |
 | lot_online_223 | Angular SPA | — (в URL не отражается) | ❌ | ❌ (фильтры вне URL) | релевантность | нет |
 
 ## Замечания
@@ -61,11 +61,24 @@
 площадки (нужна фикстура `zp capture-fixture`); в `configs/dom/zakupki_mos.yaml` он закомментирован.
 
 ### Непригодные для CSS-селекторного движка
-- **fabrikant** — только Tailwind-утилитные классы (`flex items-center gap-2` и т.п.), семантических
-  классов нет; часть результатов уходит на сабдомен `44.fabrikant.ru`. Нужен разбор внутреннего
-  API Next.js либо структурное извлечение.
 - **roseltorg** — блокирует headless-браузер («URL blocked»). Нужен stealth-проход или ручной ввод
   селекторов по сохранённым страницам.
+
+### Особенности fabrikant
+- Селекторы построены на стабильных `data-slot`-атрибутах shadcn (карточки серверно-рендерятся,
+  css-хешей нет). Список и детальная страница 44-ФЗ (`44.fabrikant.ru/44/procedure/…`) верифицированы
+  (снимок 2026-08-14): number, reg_number, purchase_type, subject, law, publication_date, deadline,
+  nmck, customer/inn (ИНН прямо со страницы), status.
+- Фильтры и пагинация — через URL: `query` (слова), `okpd2[]` (внутренние opaque-id, коды
+  резолвятся через `code_to_id` в `configs/codes/fabrikant_okpd2_tree.json`), `page_number` (10/стр).
+  Поэтому используется URL-механизм `search` (как на zakupki.mos.ru). Список — вкладка
+  `/procedure/search/purchases` (закупки; корневой `/search` включает «Мониторинг цен»).
+- **Гетерогенность типов закупок**: детальные страницы коммерческих типов (`v2/trades/procedure/`,
+  `trades/atom/PriceRequest|ProposalRequest|PriceMonitoring`) имеют иную разметку (без
+  `field-label`/`field-text`) — извлечение nmck/customer/inn/status полноценно только для 44-ФЗ.
+  Для коммерческих карточек сохраняются поля уровня списка (number, subject, даты); остальное — TODO.
+- ОКПД2 и список файлов на деталях 44-ФЗ грузятся клиентски — их селекторы требуют верификации на
+  живой странице (`zp capture-fixture`/`zp run-once`). Маппинг `code_to_id` частичный (62, 62.01–62.09).
 
 ### TODO по деталям (SPA)
 - `lot_online_44` — детальные страницы грузятся асинхронно; поля

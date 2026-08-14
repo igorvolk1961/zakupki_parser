@@ -94,6 +94,37 @@ def _nearest_ancestor_id(code: str, code_to_id: dict[str, str]) -> str | None:
     return best_id
 
 
+def _resolve_okpd2_ids(codes: list[str], tree_file: str | None) -> list[str] | None:
+    """Резолвит коды ОКПД2 в внутренние ID площадки для массива ``okpd2[]``.
+
+    Фабрикант фильтрует по ОКПД2 через ``okpd2[]=<opaque-id>`` (не коды):
+    id берутся из дерева площадки (``code_to_id``). Код без собственного id
+    резолвится в id ближайшего предка (по цифровому префиксу). Если дерево
+    не задано (или в нём нет ``code_to_id``) — возвращается None: вызывающий
+    передаёт коды как есть (например, etpgpb с префиксным матчингом сервера).
+    """
+    if not codes:
+        return []
+    if not tree_file:
+        return None
+    try:
+        tree = load_okpd_tree(tree_file)
+    except (OSError, ValueError) as exc:
+        logger.warning("Не удалось загрузить дерево ОКПД2 %s: %s", tree_file, exc)
+        return None
+    code_to_id = tree.get("code_to_id") or {}
+    if not code_to_id:
+        return None
+    ids: list[str] = []
+    for code in codes:
+        cid = code_to_id.get(code)
+        if cid is None:
+            cid = _nearest_ancestor_id(code, code_to_id)
+        if cid and cid not in ids:
+            ids.append(cid)
+    return ids
+
+
 def _set_json_path(data: dict[str, Any], path: str, value: Any) -> None:
     """Вставляет ``value`` в ``data`` по точечному пути ``path`` (создаёт словари)."""
     parts = path.split(".")
@@ -175,16 +206,19 @@ def build_query(
                     extra_params[param] = value
             continue
         if key == "okpd2" and mapping.raw_array:
-            # Площадка матчит код ОКПД2 по префиксу: вложенные коды включаются
-            # сервером, дерево (okpd_tree_file) не нужно. Передаём коды как есть
-            # индексированным массивом: <name>[0]=...&<name>[1]=...
+            # Площадка фильтрует по ОКПД2 индексированным массивом <name>[N].
+            # Значения: либо внутренние opaque-id из дерева площадки (fabrikant,
+            # okpd2[] — резолв кодов в id через okpd_tree_file.code_to_id), либо
+            # сами коды как есть (etpgpb: сервер матчит по префиксу, дерево не нужно).
             codes = criteria.okpd_codes
             if not codes:
                 continue
-            # Код передаётся КАК ЕСТЬ (с точками): сервер матчит по префиксу,
-            # 62.02 vs 6202 (без точек) даёт разные результаты.
-            for i, code in enumerate(codes):
-                extra_params[f"{mapping.raw_array}[{i}]"] = code
+            okpd_ids = _resolve_okpd2_ids(codes, search.okpd_tree_file)
+            if okpd_ids is None:
+                # Без дерева — коды как есть (с точками), сервер матчит по префиксу.
+                okpd_ids = codes
+            for i, value in enumerate(okpd_ids):
+                extra_params[f"{mapping.raw_array}[{i}]"] = value
             continue
         if key == "keywords":
             kws = criteria.keywords

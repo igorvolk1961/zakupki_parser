@@ -10,7 +10,7 @@ sites:
 - platform_id: roseltorg_com
   enabled: false
 - platform_id: fabrikant
-  enabled: false
+  enabled: true
 - platform_id: b2b_center
   enabled: false
 - platform_id: etpgpb

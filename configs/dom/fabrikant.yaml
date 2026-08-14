@@ -1,21 +1,103 @@
 # Фабрикант (fabrikant.ru). Платформа_id = имя файла.
-# Next.js SPA, фильтры в URL НЕ отражаются. URL-фильтр отключён; фильтрация по
-# словам/ОКПД2 — через DOM-шаги (filters, TODO на capture). Сортировка по
-# релевантности по умолчанию.
-# ВНИМАНИЕ: селекторы list_config/detail — ПЛЕЙСХОЛДЕРЫ (TODO: verify), снимаются
-# через `zp capture-fixture` (площадка в config_service.yaml enabled: false).
+# Next.js SPA (App Router). Карточки списка и детальные страницы серверно-рендерятся
+# (shadcn data-slot, без css-хешей). Фильтры и пагинация отражаются в URL: `query`
+# (слова), `okpd2[]` (внутренние opaque-id), `page_number` (10 на страницу) —
+# поэтому используется URL-механизм search (как на zakupki.mos.ru), а не DOM-шаги.
+# Список — вкладка /procedure/search/purchases (закупки; корневой /search включает
+# «Мониторинг цен»). Детальные страницы 44-ФЗ на сабдомене 44.fabrikant.ru,
+# коммерческие — /v2/trades/procedure/ и /trades/atom/*.
+# Селекторы сняты и проверены по фикстуре (2026-08-14). ВНИМАНИЕ: ОКПД2 и список
+# файлов на деталях грузятся клиентски; у коммерческих деталей иная разметка
+# (без field-label/field-text) — полноценное извлечение nmck/inn/status для 44-ФЗ.
+# Ограничения и TODO — см. docs/platforms.md и TODO.md.
 name: "Фабрикант"
 url: "https://fabrikant.ru"
 list_path: "/procedure/search/purchases"
+
 list_config:
-  container: "div"   # TODO: verify
-  detail_link: "a[href*='/v2/trades/procedure/view/']"
+  # Контейнер карточки закупки — shadcn Card с data-id (lotId). Без data-id —
+  # служебные карточки (шапка поиска, «Вам также понадобится»).
+  container: "[data-slot='card'][data-id]"
+  # Ссылка на детальную страницу. У fabrikant несколько паттернов в зависимости от
+  # типа закупки: 44-ФЗ на сабдомене 44.fabrikant.ru, коммерческие — v2/trades/
+  # procedure или trades/atom/PriceRequest|ProposalRequest|PriceMonitoring.
+  detail_link: "a[href*='/44/procedure/'], a[href*='/v2/trades/procedure/'], a[href*='/trades/atom/']"
+  # Пагинация по query-параметру page_number (10 записей на страницу).
+  page_param: "page_number"
+  page_size: 10
   next_page: ""
-  variables: []
+  # Имя переменной с датой публикации (используется для стоп-порога; здесь
+  # сортировка по релевантности — порог не применяется).
+  publication_date: "publication_date"
+  # Активность определяется по сроку приёма заявок (deadline): статусные бейджи
+  # нестабильны (перемешаны с МСП/законом). active_statuses не задаём.
+  # active_statuses: null
+  variables:
+    # number — внутренний номер «№ 1167043-1» (уникален, присутствует всегда).
+    - { name: "number",           selector: "span.text-bali-hai-700.whitespace-nowrap.font-medium", handler: "regex", handler_arg: "№\\s*(\\d+(?:-\\d+)?)", default: "" }
+    # reg_number — регистрационный номер ЕИС (44-ФЗ): текст ссылки на zakupki.gov.ru.
+    - { name: "reg_number",       selector: "a[href*='zakupki.gov.ru/epz/order']", handler: "strip", default: "" }
+    # purchase_type — тип процедуры: первый span «text-bali-hai-700 mr-2» БЕЗ
+    # font-medium (у номера стоит font-medium, поэтому :not исключает его).
+    - { name: "purchase_type",    selector: "span.text-bali-hai-700.mr-2:not(.font-medium)", handler: "strip", default: "" }
+    # subject — текст ссылки на детальную страницу (наименование закупки);
+    # селектор совпадает с detail_link (охватывает и 44-ФЗ, и коммерческие типы).
+    - { name: "subject",          selector: "a[href*='/44/procedure/'], a[href*='/v2/trades/procedure/'], a[href*='/trades/atom/']", handler: "strip", default: "" }
+    # law — из бейджа «Закупки по 44-ФЗ» (handler извлекает 44-ФЗ/223-ФЗ).
+    - { name: "law",              selector: "span[data-slot='badge']:has-text('ФЗ')", handler: "law", default: null }
+    # publication_date/deadline — значения «Дата публикации» / «Дата окончания …».
+    - { name: "publication_date", selector: "xpath=//div[@data-slot='text'][.='Дата публикации']/following-sibling::div[@data-slot='text']", handler: "datetime", default: null }
+    - { name: "deadline",         selector: "xpath=//div[@data-slot='text'][starts-with(.,'Дата окончания')]/following-sibling::div[@data-slot='text']", handler: "datetime", default: null }
+
 detail:
-  variables: []
-  files: []
+  variables:
+    # nmck — «Начальная (максимальная) цена» (формат «10 448 518.67»).
+    - { name: "nmck",             selector: "xpath=//*[@data-slot='field-label'][contains(.,'Начальная (максимальная) цена')]/following-sibling::div[@data-slot='field-text']", handler: "money", default: null }
+    # okpd2 — «Код по ОКПД2» («42.21 Сооружения и строительные работы…»).
+    # ВАЖНО: раздел грузится клиентски — селектор требует верификации на живой странице.
+    - { name: "okpd2_code",       selector: "xpath=//*[@data-slot='field-label'][contains(.,'Код по ОКПД2')]/following-sibling::div[@data-slot='field-text']", handler: "regex", handler_arg: "^(\\d[\\d.]*)", default: null }
+    - { name: "okpd2_name",       selector: "xpath=//*[@data-slot='field-label'][contains(.,'Код по ОКПД2')]/following-sibling::div[@data-slot='field-text']", handler: "strip", default: "" }
+    # customer/inn — «Наименование организации» («АДМИНИСТРАЦИЯ …  •  ИНН 5701000745»).
+    - { name: "customer",         selector: "xpath=//*[@data-slot='field-label'][contains(.,'Наименование организации')]/following-sibling::div[@data-slot='field-text']", handler: "regex", handler_arg: "^(.+?)\\s*•\\s*ИНН", default: "" }
+    - { name: "inn",              selector: "xpath=//*[@data-slot='field-label'][contains(.,'Наименование организации')]/following-sibling::div[@data-slot='field-text']", handler: "regex", handler_arg: "ИНН\\s*(\\d{10,12})", default: null }
+    # status — бейдж в шапке «Этапы процедуры» (текущий этап).
+    - { name: "status",           selector: "h2:text-is('Этапы процедуры') ~ span[data-slot='badge']", handler: "strip", default: "" }
+  files:
+    # Ссылки на файлы — на ЕИС (zakupki.gov.ru filestore), куда уводит fabrikant.
+    # ВАЖНО: список документов грузится клиентски — селектор требует верификации.
+    - { selector: "a[href*='zakupki.gov.ru/44fz/filestore'], a[href*='zakupki.gov.ru/223fz/filestore']", name_attribute: null, url_attribute: "href" }
+
+# ИНН заказчика извлекается прямо с детальной страницы (переменная inn выше),
+# страницу организации открывать не нужно.
+organization:
+  customer_link_selector: null
+  inn_from_link_regex: null
+  inn_from_org_page: false
+  inn_page_selector: null
+
+# Сортировка по релевантности по умолчанию: стоп-порог по дате не применяется
+# (обходим все страницы до конца пагинации; результаты сужены query-фильтром).
 sort:
+  order: publication_date_desc
   by_relevance: true
+  dropdown: null
+  option_text: null
+
+# DOM-шаги фильтров не нужны: фильтр по словам и пагинация — через URL-параметры
+# (см. search ниже). Панель «Расширенный поиск» (ОКПД2/НМЦ) — TODO.
+filters: []
+
+# URL-фильтр списка. Фильтр по словам — query-параметр `query` (критерий keywords);
+# по ОКПД2 — массив `okpd2[]` с внутренними opaque-id площадки (критерий okpd2,
+# коды резолвятся в id через okpd_tree_file.code_to_id). Статично — `page_number=1`
+# (пагинация через page_param/page_size в list_config).
 search:
-  enabled: false
+  enabled: true
+  query_params:
+    page_number: "1"
+  criteria_map:
+    keywords: { query_param: "query" }
+    okpd2:    { raw_array: "okpd2" }
+  # Маппинг «код ОКПД2 -> внутренний id fabrikant» (см. configs/codes/fabrikant_okpd2_tree.json).
+  # ВНИМАНИЕ: маппинг частичный (62, 62.01–62.09); полный сбор — TODO (fetch-tree).
+  okpd_tree_file: "configs/codes/fabrikant_okpd2_tree.json"
