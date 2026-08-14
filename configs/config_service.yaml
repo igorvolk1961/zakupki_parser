@@ -10,20 +10,22 @@ sites:
 - platform_id: roseltorg_com
   enabled: false
 - platform_id: fabrikant
-  enabled: true
+  enabled: false
 - platform_id: b2b_center
   enabled: false
 - platform_id: etpgpb
-  enabled: true
+  enabled: false
 - platform_id: lot_online_44
-  enabled: false
+  enabled: true
 - platform_id: lot_online_223
-  enabled: false
+  enabled: true
 default_cutoff_days: 1000
 search_criteria:
   okpd_codes:
   - '62.02'
   keywords:
+  - искусственный интеллект
+  - ии
   - автоматизация
   fz44: true
   fz223: true
