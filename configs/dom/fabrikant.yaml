@@ -91,8 +91,13 @@ filters: []
 # по ОКПД2 — массив `okpd2[]` с внутренними opaque-id площадки (критерий okpd2,
 # коды резолвятся в id через okpd_tree_file.code_to_id). Статично — `page_number=1`
 # (пагинация через page_param/page_size в list_config).
+# fabrikant НЕ поддерживает оператор «ИЛИ» в query (пробел/запятая/| = И).
+# Чтобы слова из search_criteria.keywords искались по «ИЛИ», задаём
+# keywords_one_at_a_time: парсер открывает отдельный поиск на каждое слово и
+# объединяет результаты (дедуп по номеру закупки через known_numbers).
 search:
   enabled: true
+  keywords_one_at_a_time: true
   query_params:
     page_number: "1"
   criteria_map:
