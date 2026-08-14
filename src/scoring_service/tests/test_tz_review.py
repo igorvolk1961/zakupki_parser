@@ -50,11 +50,12 @@ def test_find_tz_file_priority() -> None:
     assert ref.name == "техническое задание.pdf"
 
 
-def test_find_tz_uses_technical_spec_fields() -> None:
+def test_find_tz_uses_files_json() -> None:
     record = {
-        "technical_spec_name": "ТЗ_1.pdf",
-        "technical_spec_url": "http://x/tz.pdf",
-        "files_json": [_file("приложение.docx")],
+        "files_json": [
+            {"name": "ТЗ_1.pdf", "url": "http://x/tz.pdf"},
+            _file("приложение.docx"),
+        ]
     }
     ref = find_tz_file(record)
     assert ref is not None
@@ -62,13 +63,11 @@ def test_find_tz_uses_technical_spec_fields() -> None:
     assert ref.url == "http://x/tz.pdf"
 
 
-def test_collect_files_merges_spec_and_json() -> None:
+def test_collect_files_reads_json() -> None:
     record = {
-        "technical_spec_name": "ТЗ.pdf",
-        "technical_spec_url": "http://x/tz.pdf",
         "files_json": [_file("doc.docx"), _file("doc2.docx")],
     }
-    assert len(collect_files(record)) == 3
+    assert len(collect_files(record)) == 2
 
 
 def test_find_tz_reference_none_when_no_tz() -> None:

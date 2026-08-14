@@ -79,8 +79,6 @@ class Procurement(Base):
     advance: Mapped[float | None] = mapped_column(Float)
     okpd2_codes: Mapped[str | None] = mapped_column(Text)
     kpgz_codes: Mapped[str | None] = mapped_column(Text)
-    technical_spec_url: Mapped[str | None] = mapped_column(Text)
-    technical_spec_name: Mapped[str | None] = mapped_column(Text)
     files_json: Mapped[list[Any] | None] = mapped_column(JSONB)
     score: Mapped[float | None] = mapped_column(Float)
     fit_score: Mapped[float | None] = mapped_column(Float)

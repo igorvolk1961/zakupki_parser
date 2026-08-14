@@ -121,14 +121,11 @@
    5. проверка набора флагов-условий прекращения обработки (`stop_conditions`);
       при срабатывании — запись пропускается;
    6. **Файлы** (парсер НЕ скачивает файлы): со страницы деталей берутся имя и URL
-   скачивания с ЭТП каждого файла. Техническое задание (по имени файла, по умолчанию
-   содержит «техническое задание») сохраняется в два отдельных поля
-   `technical_spec_name`/`technical_spec_url`; остальные файлы — в `files_json`
-   (JSONB-список пар `{name, url}`).
+   скачивания с ЭТП каждого файла. Все файлы (в т.ч. техническое задание)
+   сохраняются в `files_json` (JSONB-список пар `{name, url}`).
    7. извлечение переменных из файлов (в т.ч. распаковка ZIP и поиск ТЗ внутри)
       выполняет **внешний сервис** (в парсере не реализуется; контракт —
-      `docs/external-service-contract.md`); найденное ТЗ внешний сервис возвращает
-      через `POST /api/procurements/{id}/technical-spec`;
+      `docs/external-service-contract.md`);
    8. запись в БД (если доступна) с контролем дубликатов;
    9. для новой записи — **автоматическая отправка задания на скоринг в транспорт**
       (`POST /api/scoring/jobs {procurement_id, priority=default_score}`), задание
@@ -173,7 +170,7 @@
 - `procurements` (колонки): `id`, `number`, `source_platform`, `url`, `customer_id`
   (FK → `customers.id`), `law`, `subject`, `nmck`, `publication_date`, `update_date`,
   `deadline`, `execution_term`, `security_amount`+`security_amount_unit`, `advance`,
-  `okpd2_codes`, `kpgz_codes`, `technical_spec_name/url`, `files_json`,
+   `okpd2_codes`, `kpgz_codes`, `files_json`,
   `score`/`fit_score`/`score_method`, `embedding_similarity`, `is_active`,
   `detail_json`, `created_at`, `updated_at`.
 - **Справочник заказчиков** `customers` (ADR-4, реализован): `name`, `normalized_name`
@@ -292,10 +289,6 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `POST /api/procurements/{id}/score` — возврат результата скоринга от транспорта:
   парсер обновляет `score`/`fit_score` закупки и, если `fit_score ≥ notify_min_fit_score`,
   отправляет уведомление подписчикам (ADR-7);
-- `POST /api/procurements/{id}/technical-spec` — внешний сервис возвращает найденное
-  ТЗ, парсер записывает его в `technical_spec_name/url`;
-- `GET /api/procurements/{id}/technical-spec` — редирект на URL скачивания ТЗ с ЭТП
-  (в старых данных возможен локальный путь);
 - `GET /api/customers`, `GET /api/customers/{id}` — справочник заказчиков;
 - `POST /api/customers/{id}/rating` — установка рейтинга заказчика (ADR-6);
 - `POST /api/procurements/export` — выгрузка закупок из БД в CSV на сервере в каталог

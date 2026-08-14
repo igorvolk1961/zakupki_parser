@@ -6,17 +6,15 @@ import asyncio
 import csv
 import io
 import logging
-import mimetypes
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib import parse as urlparse
 
 import yaml
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import text as sql_text
 
@@ -54,8 +52,6 @@ class ProcurementOut(BaseModel):
     kpgz_codes: str | None = None
     security_amount: float | None = None
     security_amount_unit: str | None = None
-    technical_spec_url: str | None = None
-    technical_spec_name: str | None = None
     files_json: list[dict[str, Any]] | None = None
     score: float | None = None
     fit_score: float | None = None
@@ -114,17 +110,6 @@ class ScoreUpdate(BaseModel):
     fit_score: float | None = None
     score_method: str = "external"
     embedding_similarity: float | None = None
-
-
-class TechnicalSpecUpdate(BaseModel):
-    """Метаданные ТЗ, возвращаемые внешним сервисом обработки файлов.
-
-    Внешний сервис скачивает файлы закупки (в т.ч. извлекает ТЗ из ZIP-архивов)
-    и возвращает имя/URL файла технического задания для записи в БД.
-    """
-
-    name: str | None = None
-    url: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -317,8 +302,6 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         "security_amount",
         "security_amount_unit",
         "advance",
-        "technical_spec_url",
-        "technical_spec_name",
         "score",
         "fit_score",
         "score_method",
@@ -393,57 +376,6 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         ):
             await state.notifier.notify(_row_to_record(row))
         return _procurement_detail_out(row)
-
-    @app.post(
-        "/api/procurements/{procurement_id}/technical-spec",
-        response_model=ProcurementDetailOut,
-    )
-    async def set_technical_spec(
-        procurement_id: int, body: TechnicalSpecUpdate
-    ) -> ProcurementDetailOut:
-        """Обновление метаданных ТЗ внешним сервисом обработки файлов.
-
-        Внешний сервис скачивает файлы (в т.ч. извлекает ТЗ из ZIP-архивов) и
-        возвращает имя/URL файла технического задания.
-        """
-        if await _repo().get_by_id(procurement_id) is None:
-            raise HTTPException(status_code=404, detail="Закупка не найдена")
-        await _repo().update_technical_spec(procurement_id, name=body.name, url=body.url)
-        await _broadcast(state)
-        row = await _repo().get_by_id(procurement_id)
-        if row is None:  # pragma: no cover - проверено выше
-            raise HTTPException(status_code=404, detail="Закупка не найдена")
-        return _procurement_detail_out(row)
-
-    @app.get("/api/procurements/{procurement_id}/technical-spec")
-    async def download_technical_spec(procurement_id: int) -> Response:
-        row = await _repo().get_by_id(procurement_id)
-        if row is None or not row.technical_spec_url:
-            raise HTTPException(status_code=404, detail="ТЗ не найдено")
-
-        ts_url = row.technical_spec_url
-        # Парсер не скачивает файлы: technical_spec_url — URL скачивания с ЭТП,
-        # поэтому обычно делаем редирект на оригинал.
-        if ts_url.startswith("http"):
-            return Response(status_code=302, headers={"Location": ts_url})
-
-        # Локальный путь возможен в старых данных (до отказа от скачивания).
-        try:
-            data = Path(ts_url).read_bytes()
-        except OSError as exc:
-            logger.error("Не удалось прочитать файл ТЗ %s: %s", ts_url, exc)
-            raise HTTPException(status_code=404, detail="Файл ТЗ недоступен") from exc
-
-        filename = ts_url.rsplit("/", 1)[-1]
-        media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        # RFC 5987: не-ASCII имена в filename* (ASCII-имя в filename как запасной вариант)
-        quoted = urlparse.quote(filename)
-        disposition = f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"
-        return Response(
-            content=data,
-            media_type=media_type,
-            headers={"Content-Disposition": disposition},
-        )
 
     @app.get("/api/customers", response_model=CustomerListOut)
     async def list_customers(

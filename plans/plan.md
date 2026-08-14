@@ -58,8 +58,7 @@
 
 ## 5. Файлы (метаданные, без скачивания)
 - [x] Парсер НЕ скачивает файлы: в БД сохраняются имя и URL скачивания с ЭТП
-  (ТЗ — `technical_spec_name`/`technical_spec_url`, остальные — `files_json`).
-- [x] Определение ТЗ по имени файла (по умолчанию «техническое задание»).
+  всех файлов (включая ТЗ) в `files_json`.
 - [x] Глубокая обработка файлов (PDF/DOCX/ZIP, поиск ТЗ) — внешний сервис (ADR-5).
 - ~~Скачивание файлов в хранилище (MinIO/local) — удалено~~
 
@@ -101,7 +100,6 @@
 ## 10. API-сервис (FastAPI)
 - [x] `GET /health`
 - [x] `GET /api/procurements` (фильтры + пагинация), `GET /api/procurements/{id}`
-- [x] `GET /api/procurements/{id}/technical-spec` (скачивание ТЗ)
 - [x] `POST /api/procurements/{id}/score` (возврат результата из транспорта; обновляет score
       и `fit_score`, при `fit_score ≥ notify_min_fit_score` отправляет уведомление — ADR-7)
 - [x] `POST /api/procurements/export` (выгрузка БД в CSV, каталог `export_dir`; кнопка «Выгрузить CSV»)
@@ -110,7 +108,7 @@
 - [x] Конфиг: `GET/PUT /api/config` (аналитические), `GET /api/config/threshold`; WebSocket `/ws`
 - [ ] 🟡 Эндпоинт чистки БД по фильтрам/возрасту записи (`DELETE /api/procurements`) —
       при удалении записей удалять и связанные файлы из хранилища (S3/local), ссылки на которые
-      хранятся в `technical_spec_url` и `files_json` (сейчас — только полная очистка `POST /api/db/clear`)
+      хранятся в `files_json` (сейчас — только полная очистка `POST /api/db/clear`)
 
 ## 11. Уведомления
 - [x] Бэкенды Telegram / MAX / webhook (реальный HTTP POST, `notify.py`)

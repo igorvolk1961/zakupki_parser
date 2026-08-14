@@ -143,6 +143,9 @@
             <option value="">Как в БД</option>
             <option value="publication_date">По дате публикации</option>
           </select>
+          <label style="margin-left:12px;">Площадка:
+            <select id="proc-platform"><option value="">Все площадки</option></select>
+          </label>
           <span style="margin-left:12px;">
             <input type="checkbox" id="proc-relevant"> Только релевантные
             <label id="min-fit-wrap" style="display:none; margin-left:8px; color:var(--text);">fit-score ≥
@@ -293,7 +296,7 @@ function sigOfProc(data) {
 
 async function loadProc() {
   const params = { limit: 100 };
-  if ($("#platform").value) params.source_platform = $("#platform").value;
+  if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
   if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
   const data = await api("procurements", params);
   allItems = data.items;
@@ -306,7 +309,7 @@ async function loadProc() {
 async function pollProc() {
   try {
     const params = { limit: 100 };
-    if ($("#platform").value) params.source_platform = $("#platform").value;
+    if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
     if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
     const data = await api("procurements", params);
     const sig = sigOfProc(data);
@@ -324,7 +327,6 @@ async function openDetail(id) {
   const f = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
   const files = (row.files_json || []).map((x) =>
     `<div><a href="${escapeHtml(x.url)}" target="_blank" rel="noopener">${escapeHtml(x.name)}</a></div>`).join("") || "–";
-  const ts = row.technical_spec_url ? `<a href="${escapeHtml(row.technical_spec_url)}" target="_blank" rel="noopener">${escapeHtml(row.technical_spec_name || "ТЗ")}</a>` : "–";
   $("#modal").innerHTML = `
     <span class="close" onclick="closeModal()">×</span>
     <h2>${escapeHtml(row.number)}</h2>
@@ -343,7 +345,6 @@ async function openDetail(id) {
       ${f("Fit-скор", realFit(row) ?? "—")}
       ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
       ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
-      ${f("ТЗ", ts)}
       ${f("Файлы", files)}
       ${f("Ссылка", row.url ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">открыть</a>` : "—")}
     </table>`;
@@ -387,11 +388,16 @@ async function pollCustomers() {
 }
 
 async function loadPlatforms() {
-  const sel = $("#platform");
   const set = new Set();
   const paged = await api("procurements", { limit: 100 });
   paged.items.forEach((r) => set.add(r.source_platform));
-  set.forEach((p) => { const o = document.createElement("option"); o.value = p; o.textContent = p; sel.appendChild(o); });
+  ["#platform", "#proc-platform"].forEach((id) => {
+    const sel = document.querySelector(id);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Все площадки</option>';
+    set.forEach((p) => { const o = document.createElement("option"); o.value = p; o.textContent = p; sel.appendChild(o); });
+    if (cur) sel.value = cur;
+  });
 }
 
 function closeModal() { $("#modal-bg").classList.remove("open"); }
@@ -434,6 +440,7 @@ function stepFit(d) {
 $("#fit-up").addEventListener("click", () => stepFit(0.1));
 $("#fit-dn").addEventListener("click", () => stepFit(-0.1));
 $("#platform").addEventListener("change", loadProc);
+$("#proc-platform").addEventListener("change", loadProc);
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
   $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";

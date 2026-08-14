@@ -42,7 +42,7 @@ sequenceDiagram
             alt условие stop (deadline истёк)
                 Note over S: заявка пропускается
             else файлы (метаданные)
-                Note over S: files_json + technical_spec_name/url<br/>(глубокая обработка — внешний сервис, ADR-5)
+                Note over S: files_json (включая ТЗ)<br/>(глубокая обработка — внешний сервис, ADR-5)
             end
             S->>S: score (default / deadline_expired)
             S->>R: upsert(record) (контроль дубликатов)
@@ -80,7 +80,7 @@ sequenceDiagram
   (или до него меньше `min_deadline_days`) — заявка пропускается (не сохраняется,
   не уведомляется).
 - **Файлы**: в основном режиме не скачиваются — сохраняются только метаданные
-  (`files_json`, `technical_spec_name/url`). Глубокую обработку (PDF/DOCX/ZIP, поиск ТЗ)
+  в `files_json` (включая ТЗ). Глубокую обработку (PDF/DOCX/ZIP, поиск ТЗ)
   выполняет **внешний сервис** (ADR-5).
 - **Скоринг (ADR-7)**: при сохранении ставится `default` (или `deadline_expired` для
   просроченных) вместе с дефолтным `fit_score`. Для новой записи парсер **автоматически**

@@ -27,7 +27,6 @@ from zakupki_parser.parser.detail import (
     open_detail,
 )
 from zakupki_parser.parser.extractor import extract_from_scope
-from zakupki_parser.parser.files import split_technical_spec
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
     extract_total_results,
@@ -345,13 +344,9 @@ class Orchestrator:
             return
 
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
-        #    (имя и URL скачивания с ЭТП). ТЗ — два отдельных поля, остальные — files_json.
-        ts_files, other_files = split_technical_spec(files)
-        if ts_files:
-            record["technical_spec_name"] = ts_files[0]["name"]
-            record["technical_spec_url"] = ts_files[0]["url"]
-        if other_files:
-            record["files_json"] = other_files
+        #    (имя и URL скачивания с ЭТП). Все файлы, включая ТЗ, — в files_json.
+        if files:
+            record["files_json"] = files
 
         # 6) скоринг закупки (Score = Fit × P(win) × Margin).
         #    Просроченный срок подачи заявок -> score=0, score_method=deadline_expired.

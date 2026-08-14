@@ -172,8 +172,6 @@ class ProcurementRepository:
             advance=data.get("advance"),
             okpd2_codes=data.get("okpd2_codes") or data.get("okpd2_code"),
             kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
-            technical_spec_url=data.get("technical_spec_url"),
-            technical_spec_name=data.get("technical_spec_name"),
             files_json=data.get("files_json"),
             score=_round_score(data.get("score")),
             fit_score=_round_score(data.get("fit_score")),
@@ -265,24 +263,6 @@ class ProcurementRepository:
                     obj.fit_score,
                     method,
                 )
-
-    async def update_technical_spec(
-        self,
-        procurement_id: int,
-        *,
-        name: str | None = None,
-        url: str | None = None,
-    ) -> None:
-        """Обновляет метаданные ТЗ (вызывается внешним сервисом обработки файлов)."""
-        async with self._db.session() as session:
-            obj = await session.get(Procurement, procurement_id)
-            if obj is not None:
-                if name is not None:
-                    obj.technical_spec_name = name
-                if url is not None:
-                    obj.technical_spec_url = url
-                await session.commit()
-                logger.info("Обновлены метаданные ТЗ заявки %s", procurement_id)
 
     async def get_customer(self, customer_id: int) -> Customer | None:
         async with self._db.session() as session:

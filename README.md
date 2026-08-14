@@ -28,11 +28,11 @@
   персистентная сессия, ретраи с экспоненциальным backoff.
 - Хранилище: SQLAlchemy 2.x (async) + PostgreSQL, миграции Liquibase.
 - Файлы закупки (в т.ч. техническое задание) — в БД сохраняются только метаданные
-  (имя и URL скачивания с ЭТП); парсер не скачивает файлы.
+  (имя и URL скачивания с ЭТП) в `files_json`; парсер не скачивает файлы.
 - **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры,
   включая `active`/`min_fit_score`), `GET /api/procurements/{id}` (карточка),
   `POST /{id}/score` (возврат результата скоринга из транспорта + пороговое уведомление),
-  `POST /{id}/technical-spec` и `GET /{id}/technical-spec` (ТЗ), управление парсером
+  управление парсером
   (`/api/parser/start|stop|status`), очистка БД (`/api/db/clear`), конфиг
   (`/api/config`, `/api/config/threshold`), WebSocket `/ws`.
 - **Асинхронный внешний скоринг** (ADR-7): после сохранения закупки парсер автоматически

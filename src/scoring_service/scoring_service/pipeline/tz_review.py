@@ -97,10 +97,8 @@ def is_archive(name: str | None) -> bool:
 
 
 def collect_files(record: dict[str, Any]) -> list[FileRef]:
-    """Собрать все файлы карточки: ``technical_spec_*`` + ``files_json``."""
+    """Собрать все файлы карточки из ``files_json`` (включая ТЗ)."""
     refs: list[FileRef] = []
-    if record.get("technical_spec_name") and record.get("technical_spec_url"):
-        refs.append(FileRef(str(record["technical_spec_name"]), str(record["technical_spec_url"])))
     for entry in record.get("files_json") or []:
         if isinstance(entry, dict) and entry.get("url"):
             refs.append(FileRef(str(entry.get("name") or ""), str(entry["url"])))

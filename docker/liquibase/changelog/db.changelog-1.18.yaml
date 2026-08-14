@@ -1,0 +1,10 @@
+databaseChangeLog:
+  - changeSet:
+      id: 20
+      author: zakupki-parser
+      comment: "Удалены колонки technical_spec_url/technical_spec_name: файлы (включая ТЗ) хранятся в files_json"
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE procurements DROP COLUMN technical_spec_url;
+              ALTER TABLE procurements DROP COLUMN technical_spec_name;
