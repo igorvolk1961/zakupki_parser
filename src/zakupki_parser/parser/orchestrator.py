@@ -86,6 +86,10 @@ class Orchestrator:
         # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
         # (relevance-режим): детальные страницы известных закупок не открываем.
         self._known_numbers: set[str] | None = None
+        # Сочетание слов с кодами ОКПД2: True — независимый OR (расширение, по кодам
+        # мало выдачи); False — AND (слова сужают выбор по кодам). Задаётся в конфиге
+        # площадки (search.keywords_codes).
+        self._codes_expand = bool(platform.search and platform.search.keywords_codes == "or")
 
     async def _resolve_customer_inn(self, page: Page, customer_link: str | None) -> str | None:
         """ИНН заказчика с кешированием по ссылке на организацию.
@@ -427,24 +431,58 @@ class Orchestrator:
         retry_cfg = self._cfg.parser.retry
         search = self._platform.search
         keywords = self._cfg.service.search_criteria.keywords
-        one_at_a_time = bool(search and search.keywords_one_at_a_time and keywords)
+        # Слова по «ИЛИ» — только если площадка реально использует keywords
+        # (есть маппинг критерия keywords): иначе перебор слов дал бы одинаковые обходы
+        # (например etpgpb, где procedure[name] не фильтрует).
+        keywords_mapped = bool(search and "keywords" in (search.criteria_map or {}))
+        one_at_a_time = bool(
+            search and search.keywords_one_at_a_time and keywords and keywords_mapped
+        )
 
         if one_at_a_time:
             # Площадка объединяет слова по «И» (AND), OR-оператора нет (B2B-Center):
             # перебираем слова по одному, результаты объединяются (дедуп по номеру
             # закупки через self._known_numbers, пополняемый при сохранении).
+            # Сочетание с кодами — по search.keywords_codes (см. ниже).
             logger.info(
-                "Площадка %s: поиск по словам по одному (AND на площадке) — %d слов",
+                "Площадка %s: поиск по словам по одному (AND на площадке) — %d слов, коды: %s",
                 self._platform_id,
                 len(keywords),
+                self._cfg.service.search_criteria.okpd_codes,
             )
+            base = self._cfg.service.search_criteria
             for word in keywords:
-                criteria = self._cfg.service.search_criteria.model_copy(update={"keywords": [word]})
+                criteria = base.model_copy(update={"keywords": [word]})
+                if self._codes_expand:
+                    criteria = criteria.model_copy(update={"okpd_codes": []})
+                await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
+            if self._codes_expand and base.okpd_codes:
+                criteria = base.model_copy(update={"keywords": []})
                 await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
         else:
-            await self._crawl(
-                page, cutoff, self._cfg.service.search_criteria, by_relevance, retry_cfg
-            )
+            base = self._cfg.service.search_criteria
+            if self._codes_expand and base.okpd_codes:
+                # Расширение: слова (без кодов) + коды (без слов) — объединение.
+                logger.info(
+                    "Площадка %s: коды и слова ищутся независимо (or) — словами %s, кодами %s",
+                    self._platform_id,
+                    base.keywords,
+                    base.okpd_codes,
+                )
+                await self._crawl(
+                    page,
+                    cutoff,
+                    base.model_copy(update={"okpd_codes": []}),
+                    by_relevance,
+                    retry_cfg,
+                )
+                await self._crawl(
+                    page, cutoff, base.model_copy(update={"keywords": []}), by_relevance, retry_cfg
+                )
+            else:
+                await self._crawl(
+                    page, cutoff, self._cfg.service.search_criteria, by_relevance, retry_cfg
+                )
 
         self._site_cb.record_success()
 

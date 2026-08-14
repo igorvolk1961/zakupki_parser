@@ -35,8 +35,21 @@ detail:
   files: []
 search:
   enabled: true
+  # Слова ищутся по «ИЛИ»: парсер открывает отдельный поиск на каждое слово
+  # (keywords_one_at_a_time) и объединяет результаты (дедуп по номеру).
+  keywords_one_at_a_time: true
+  # Расширение: слова и коды ищутся независимо (OR), чтобы слова не сужали
+  # поиск по кодам.
+  keywords_codes: "or"
   query_params:
     limit: "10"
     sort: "1"
     sortDirection: "ASC"
     status: "accept"
+  criteria_map:
+    # Слова -> параметр keywords (site принимает и одинарную, и двойную кодировку;
+    # движок выдаёт одинарную — работает).
+    keywords: { query_param: "keywords" }
+    # ОКПД2 -> повторяемый okpd2=код (без индекса; индексную форму okpd2[0] сайт
+    # игнорирует). Коды передаются как есть, сервер матчит по префиксу.
+    okpd2:    { raw_array_flat: "okpd2" }

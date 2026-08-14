@@ -98,6 +98,8 @@ filters: []
 search:
   enabled: true
   keywords_one_at_a_time: true
+  # Расширение: слова и коды ОКПД2 ищутся независимо (OR), слова не сужают коды.
+  keywords_codes: "or"
   query_params:
     page_number: "1"
   criteria_map:

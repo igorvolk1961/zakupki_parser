@@ -198,6 +198,9 @@ def build_query(
     state_json = copy.deepcopy(search.state_json)
 
     extra_params: dict[str, str] = {}
+    # Повторяющиеся параметры без индекса (<name>=<v>&<name>=<v>) — для площадок,
+    # которые игнорируют индексную форму (например, lot-online okpd2=).
+    flat_params: list[tuple[str, str]] = []
     for key, mapping in (search.criteria_map or {}).items():
         if key == "okpd2" and mapping.query_params:
             values = _resolve_okpd2_eis(criteria.okpd_codes, search.okpd_tree_file)
@@ -205,11 +208,14 @@ def build_query(
                 for param, value in values.items():
                     extra_params[param] = value
             continue
-        if key == "okpd2" and mapping.raw_array:
-            # Площадка фильтрует по ОКПД2 индексированным массивом <name>[N].
-            # Значения: либо внутренние opaque-id из дерева площадки (fabrikant,
-            # okpd2[] — резолв кодов в id через okpd_tree_file.code_to_id), либо
-            # сами коды как есть (etpgpb: сервер матчит по префиксу, дерево не нужно).
+        if key == "okpd2" and (mapping.raw_array or mapping.raw_array_flat):
+            # Площадка фильтрует по ОКПД2 массивом параметров. Значения: либо
+            # внутренние opaque-id из дерева площадки (fabrikant, okpd2[] — резолв
+            # кодов в id через okpd_tree_file.code_to_id), либо сами коды как есть
+            # (etpgpb, lot-online: сервер матчит по префиксу, дерево не нужно).
+            # Форма: raw_array — индексированная <name>[N]=..., raw_array_flat —
+            # повторяющаяся без индекса <name>=...&<name>=... (lot-online okpd2=
+            # индексную форму игнорирует).
             codes = criteria.okpd_codes
             if not codes:
                 continue
@@ -217,8 +223,12 @@ def build_query(
             if okpd_ids is None:
                 # Без дерева — коды как есть (с точками), сервер матчит по префиксу.
                 okpd_ids = codes
-            for i, value in enumerate(okpd_ids):
-                extra_params[f"{mapping.raw_array}[{i}]"] = value
+            if mapping.raw_array_flat:
+                for value in okpd_ids:
+                    flat_params.append((mapping.raw_array_flat, value))
+            else:
+                for i, value in enumerate(okpd_ids):
+                    extra_params[f"{mapping.raw_array}[{i}]"] = value
             continue
         if key == "keywords":
             kws = criteria.keywords
@@ -263,6 +273,8 @@ def build_query(
         # Статические значения (в т.ч. кириллица/пробелы) URL-кодируются целиком.
         parts.append(f"{key}={urllib.parse.quote(value, safe='')}")
     for name, value in extra_params.items():
+        parts.append(f"{name}={urllib.parse.quote(value, safe='')}")
+    for name, value in flat_params:
         parts.append(f"{name}={urllib.parse.quote(value, safe='')}")
     return "&".join(parts)
 

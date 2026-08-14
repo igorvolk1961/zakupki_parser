@@ -26,7 +26,7 @@
 | zakupki_gov_44fz | сервер | query-параметры | ✅ `okpd2Ids`+`okpd2IdsWithNested` | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | zakupki_gov_223fz | сервер | query-параметры | ✅ (через lot-list) | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | b2b_center | сервер | `f_keyword=`+`searching`/`trade`/`show`+`order_by`/`order_dir` | ❌ анонимно нет (после регистрации) | ✅ `f_keyword=` (богатый синтаксис; слова по «И») | дата | да |
-| lot_online_44 | SPA (Taiga/Angular) | `limit`/`sort`/`sortDirection`/`status`+`page` | ❌ (детали, SPA-API) | ❌ (не в URL) | дата | да |
+| lot_online_44 | SPA (Taiga/Angular) | `limit`/`sort`/`sortDirection`/`status`+`page`+`keywords`+`okpd2` | ✅ `okpd2=код` (повторяемый, префиксный) | ✅ `keywords` (URL) | дата | да |
 | etpgpb | Vue SPA | `procedure[stage][0]`+`procedure[okpd][N]`+`sort`+`per`+`page` | ✅ `procedure[okpd][0]=62.02` (raw, префиксный матчинг) | ❌ (`procedure[name]` не фильтрует) | дата `by_published_desc` | да |
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
 | roseltorg_com | Drupal+React | то же | ✅ (TODO) | ✅ | релевантность | нет |
@@ -41,6 +41,16 @@
 отключается (обходим все страницы). Это важно для площадок без релевантности-сортировки
 (у них в списке есть даты -> дата-сортировка + порог), и для площадок с релевантностью
 (порог не нужен).
+
+### Сочетание ключевых слов с кодами ОКПД2 (`search.keywords_codes`)
+Как слова сочетаются с кодами — задаётся в конфиге площадки, потому что наполнение по
+кодам разное:
+- `keywords_codes: "and"` (по умолчанию) — **сужение**: слова применяются внутри выбора
+  по кодам (AND). Для площадок, где по кодам много выдачи.
+- `keywords_codes: "or"` — **расширение**: слова и коды ищутся независимо и результаты
+  объединяются (OR, дедуп по номеру). Для площадок, где по кодам мало выдачи и слова
+  не должны её отсекать.
+`fabrikant`, `lot_online_44` — `"or"`; остальные — `"and"` (по умолчанию).
 
 ### Механизмы движка, добавленные под новые ЭТП
 - **URL-пагинация** `page_param`/`page_size` — переход по `page=N` вместо клика по кнопке
