@@ -174,6 +174,18 @@ def build_query(
                 for param, value in values.items():
                     extra_params[param] = value
             continue
+        if key == "okpd2" and mapping.raw_array:
+            # Площадка матчит код ОКПД2 по префиксу: вложенные коды включаются
+            # сервером, дерево (okpd_tree_file) не нужно. Передаём коды как есть
+            # индексированным массивом: <name>[0]=...&<name>[1]=...
+            codes = criteria.okpd_codes
+            if not codes:
+                continue
+            # Код передаётся КАК ЕСТЬ (с точками): сервер матчит по префиксу,
+            # 62.02 vs 6202 (без точек) даёт разные результаты.
+            for i, code in enumerate(codes):
+                extra_params[f"{mapping.raw_array}[{i}]"] = code
+            continue
         if key == "keywords":
             kws = criteria.keywords
             if not kws:

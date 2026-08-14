@@ -6,7 +6,12 @@ import json
 import urllib.parse
 from datetime import datetime
 
-from zakupki_parser.config.models import AppConfig, CriteriaMapping, SearchFilterConfig
+from zakupki_parser.config.models import (
+    AppConfig,
+    CriteriaMapping,
+    SearchCriteria,
+    SearchFilterConfig,
+)
 from zakupki_parser.parser.lister import build_list_url, build_query
 
 
@@ -51,6 +56,35 @@ def test_build_query_without_cutoff_omits_date() -> None:
     params = dict(urllib.parse.parse_qsl(q))
     filt = json.loads(urllib.parse.unquote(params["filter"]))
     assert "publishDateGreatEqual" not in filt
+
+
+def test_build_query_okpd_raw_array() -> None:
+    """ОКПД2 на площадках с префиксным матчингом (raw_array) передаётся как есть.
+
+    etpgpb: код передаётся в индексированный массив procedure[okpd][0]=62.02,
+    вложенные коды включаются сервером (дерево не нужно).
+    """
+    search = SearchFilterConfig(
+        query_params={"per": "20"},
+        criteria_map={
+            "okpd2": CriteriaMapping(raw_array="procedure[okpd]"),
+        },
+    )
+    criteria = SearchCriteria(okpd_codes=["62.02", "62.02.20.140"])
+    q = build_query(search, None, criteria)
+    params = dict(urllib.parse.parse_qsl(q))
+    assert params["procedure[okpd][0]"] == "62.02"
+    assert params["procedure[okpd][1]"] == "62.02.20.140"
+
+
+def test_build_query_okpd_raw_array_empty_codes() -> None:
+    """Без кодов ОКПД2 параметр массива не добавляется."""
+    search = SearchFilterConfig(
+        query_params={"per": "20"},
+        criteria_map={"okpd2": CriteriaMapping(raw_array="procedure[okpd]")},
+    )
+    q = build_query(search, None, SearchCriteria())
+    assert "procedure[okpd]" not in q
 
 
 def test_build_list_url_with_search(app_config: AppConfig) -> None:

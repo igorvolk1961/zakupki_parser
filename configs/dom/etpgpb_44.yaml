@@ -1,6 +1,6 @@
 # ЭТП ГПБ — 44-ФЗ (etpgpb.ru). Платформа_id = имя файла.
 # Vue SPA, структура карточки та же, что у etpgpb_223 (data-testid="procedure-card").
-# Селекторы СПИСКА ВЕРИФИЦИРОВАНЫ (снимок 2026-08-12); детали — TODO.
+# Селекторы СПИСКА И ДЕТАЛЕЙ ВЕРИФИЦИРОВАНЫ (снимки 2026-08-14).
 # ВНИМАНИЕ: выдачу /procedures/ по умолчанию и 44-ФЗ, и 223-ФЗ — разделяющий
 # параметр закона не подтверждён; пока 44 и 223 обходят один список (enabled: false).
 name: "ЭТП ГПБ (44-ФЗ)"
@@ -12,21 +12,48 @@ list_config:
   next_page: ""
   page_param: "page"
   page_size: 20
+  # Статусы, считающиеся активными (is_active). Неактивны — завершённые, отменённые.
+  active_statuses: ["Подача заявок", "Прием заявок на участие"]
   variables:
     - { name: "number",           selector: "a.cardHeader__infoItem.lnk", handler: "regex", handler_arg: "№\\s*([\\w-]+)", default: "" }
     - { name: "purchase_type",    selector: ".cardHeader__truncateItem", handler: "strip", default: "" }
     - { name: "status",           selector: ".vTag--round", handler: "strip", default: "" }
-    - { name: "subject",          selector: "a.productCard__title", handler: "strip", default: "" }
+    # Предмет — ссылка-заголовок в теле карточки (класс на div, ссылка внутри).
+    - { name: "subject",          selector: "div.productCard__title a", handler: "strip", default: "" }
     - { name: "nmck",             selector: ".cardBody__price", handler: "money", default: null }
     - { name: "customer",         selector: ".cardBody__truncate", index: 2, handler: "strip", default: "" }
     - { name: "deadline",         selector: ".procedureDateExpired__value", index: 0, handler: "ru_date", default: null }
     - { name: "publication_date", selector: ".procedureDateExpired__value", index: 1, handler: "ru_date", default: null }
 detail:
-  variables: []
-  files: []
+  variables:
+    - { name: "status",      selector: "dt:text-is('Текущий статус') + dd", handler: "strip", default: "" }
+    - { name: "customer",    selector: "dt:text-is('Наименование организации') + dd", handler: "strip", default: "" }
+    - { name: "okpd2_code",  selector: "h4:text-is('Классификатор ОКПД2') + dl dt.procedureCardDl__value--name", handler: "strip", default: "" }
+    - { name: "okpd2_name",  selector: "h4:text-is('Классификатор ОКПД2') + dl dd.procedureCardDl__value--desc", handler: "strip", default: "" }
+  files:
+    - { selector: "a.procedureDocItem__title", name_attribute: null, url_attribute: "href" }
+
+# Извлечение ИНН заказчика (ADR-4). На etpgpb ИНН — на странице организации
+# (/catalog/customers/{slug}), куда ведёт ссылка на наименование организации.
+organization:
+  customer_link_selector: "dt:text-is('Наименование организации') + dd a"
+  inn_from_link_regex: null
+  inn_from_org_page: true
+  # ИНН на странице организации — строка «ИНН: 6731033838» (метка+значение).
+  # Точный селектор обязателен: обобщённый поиск по body ловит ИНН из рекламы
+  # в шапке/меню («Банк ГПБ (АО) ИНН 7744001497»).
+  inn_page_selector: "div.customerInfo__item:has(> .customerInfo__label:text-is('ИНН: '))"
+
 search:
   enabled: true
   query_params:
     per: "20"
     sort: "by_published_desc"
     "procedure[stage][0]": "accepting"
+  # Текстовый поиск procedure[name] НЕ фильтрует выдачу (проверено 2026-08-14),
+  # поэтому keywords не подставляются (нет в criteria_map).
+  criteria_map:
+    # ОКПД2 — код передаётся как есть (с точками) в массив procedure[okpd][0]=...
+    # Сервер матчит код по ПРЕФИКСУ: вложенные коды включаются автоматически,
+    # дерево okpd_tree_file не нужно (проверено 2026-08-14).
+    okpd2: { raw_array: "procedure[okpd]" }

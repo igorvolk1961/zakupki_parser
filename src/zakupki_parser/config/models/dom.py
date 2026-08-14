@@ -211,6 +211,16 @@ class CriteriaMapping(BaseModel):
             "(okpd2Ids + okpd2IdsCodes)"
         ),
     )
+    raw_array: str | None = Field(
+        default=None,
+        description=(
+            "базовое имя query-параметра-массива, в который передаются значения "
+            "как есть (raw) с индексами: `<name>[0]=...&<name>[1]=...`. "
+            "Используется для ОКПД2 на площадках, которые матчат код по префиксу "
+            "(вложенные коды включаются сервером, дерево не нужно), например ЭТП ГПБ "
+            "(procedure[okpd][0]=62.02)"
+        ),
+    )
 
 
 class SearchFilterConfig(BaseModel):

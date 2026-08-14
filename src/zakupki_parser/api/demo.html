@@ -485,10 +485,11 @@ let parserTimer = null;
 let prevRunning = false;
 let adminMode = false;
 let parserRunning = false;
+let stopping = false;
 
 function updateControls() {
   $("#parser-start").disabled = parserRunning;
-  $("#parser-stop").disabled = !parserRunning;
+  $("#parser-stop").disabled = !parserRunning || stopping;
   // Элементы режима администратора скрываются, а не просто блокируются.
   const adminOn = adminMode;
   $("#db-clear").style.display = adminOn ? "" : "none";
@@ -501,6 +502,7 @@ async function refreshParserStatus() {
   let s;
   try { s = await api("parser/status"); } catch { return; }
   parserRunning = s.running;
+  if (!s.running) stopping = false;
   updateControls();
   const el = $("#parser-status");
   if (s.running) {
@@ -541,6 +543,7 @@ function pollParser() {
 }
 $("#parser-start").addEventListener("click", async () => {
   $("#parser-status").textContent = "запуск…";
+  stopping = false;
   parserRunning = true; updateControls(); renderProc(); // мгновенно блокируем «Запустить» и убираем подсказку
   const r = await fetch("/api/parser/start", { method: "POST" });
   if (!r.ok) {
@@ -552,7 +555,8 @@ $("#parser-start").addEventListener("click", async () => {
 });
 $("#parser-stop").addEventListener("click", async () => {
   $("#parser-status").textContent = "остановка…";
-  parserRunning = false; updateControls(); // мгновенно блокируем «Остановить»
+  stopping = true;
+  parserRunning = false; updateControls(); // мгновенно блокируем «Остановить» до фактической остановки
   await fetch("/api/parser/stop", { method: "POST" });
   await refreshParserStatus(); pollParser();
 });
