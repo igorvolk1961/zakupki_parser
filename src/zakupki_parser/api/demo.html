@@ -146,9 +146,16 @@
           <label style="margin-left:12px;">Площадка:
             <select id="proc-platform"><option value="">Все площадки</option></select>
           </label>
+          <label style="margin-left:12px;">Активность:
+            <select id="proc-active">
+              <option value="">Все</option>
+              <option value="1">Активна</option>
+              <option value="0">Не активна</option>
+            </select>
+          </label>
           <span style="margin-left:12px;">
-            <input type="checkbox" id="proc-relevant"> Только релевантные
-            <label id="min-fit-wrap" style="display:none; margin-left:8px; color:var(--text);">fit-score ≥
+            <label style="white-space:nowrap;"><input type="checkbox" id="proc-relevant"> Только релевантные</label>
+            <label id="min-fit-wrap" style="display:none; margin-left:8px; color:var(--text); white-space:nowrap;">fit-score ≥
               <span class="step" id="min-fit-step">
                 <input type="number" id="proc-min-fit" value="0.4" min="0" max="0.9" step="0.1">
                 <span class="step-btn">
@@ -297,6 +304,7 @@ function sigOfProc(data) {
 async function loadProc() {
   const params = { limit: 100 };
   if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
+  if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
   if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
   const data = await api("procurements", params);
   allItems = data.items;
@@ -310,6 +318,7 @@ async function pollProc() {
   try {
     const params = { limit: 100 };
     if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
+    if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
     if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
     const data = await api("procurements", params);
     const sig = sigOfProc(data);
@@ -389,6 +398,12 @@ async function pollCustomers() {
 
 async function loadPlatforms() {
   const set = new Set();
+  // Включённые площадки из config_service.yaml (показываем даже без записей в БД).
+  try {
+    const cfg = await api("config");
+    (cfg.sites || []).forEach((s) => { if (s.enabled) set.add(s.platform_id); });
+  } catch (err) { /* конфиг недоступен — полагаемся на БД */ }
+  // Площадки, по которым уже есть сохранённые закупки.
   const paged = await api("procurements", { limit: 100 });
   paged.items.forEach((r) => set.add(r.source_platform));
   ["#platform", "#proc-platform"].forEach((id) => {
@@ -441,6 +456,7 @@ $("#fit-up").addEventListener("click", () => stepFit(0.1));
 $("#fit-dn").addEventListener("click", () => stepFit(-0.1));
 $("#platform").addEventListener("change", loadProc);
 $("#proc-platform").addEventListener("change", loadProc);
+$("#proc-active").addEventListener("change", loadProc);
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
   $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";
