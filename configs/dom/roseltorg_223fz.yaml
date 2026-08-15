@@ -6,10 +6,12 @@
 #    ZAKUPKI_CHROMIUM_EXECUTABLE) и вежливые задержки (delayer).
 #  - поиск — /procedures/search, параметры query_field (слова, пробел = OR),
 #    okpd2[] (код), status[] (2,3,4), page (пагинация).
-#  - ОКПД2 на деталях client-rendered, в публичном DOM нет.
+#  - ОКПД2 на деталях — только в JSON-LD (script[type='application/ld+json']).
 # Ограничения: страница rate-limit'ится при частых запросах; page_size/контейнер
 # снимались по /search/com и нуждаются в повторной проверке на /procedures/search.
-name: "Росэлторг (223-ФЗ/коммерческие)"
+# На roseltorg 223-ФЗ и коммерческие закупки идут через /search/com (отдельного
+# чисто-223-ФЗ пути нет).
+name: "Росэлторг (223-ФЗ)"
 url: "https://www.roseltorg.ru"
 list_path: "/procedures/search"
 list_config:

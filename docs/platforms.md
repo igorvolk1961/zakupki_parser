@@ -14,7 +14,7 @@
 | `lot_online_44` | lot-online РАД | 44-ФЗ | ✅ список (вкл. даты); ✅ детали: ОКПД2 (несколько кодов, wait_selector) | частично | **вкл** |
 | `etpgpb` | ЭТП ГПБ | 44-ФЗ/223-ФЗ (не различает) | ✅ список+детали+файлы+ИНН (снимок) | готов к тесту | **вкл** |
 | `roseltorg_44fz` | Росэлторг | 44-ФЗ | ⛔ антибот (нужен полный Chromium); селекторы — TODO | нужен полный Chromium | выкл |
-| `roseltorg_com` | Росэлторг | 223-ФЗ/коммерческие | ✅ список (первая страница) + детали: ОКПД2 (JSON-LD); полный Chromium | частично | **вкл** |
+| `roseltorg_223fz` | Росэлторг | 223-ФЗ | ✅ список (первая страница) + детали: ОКПД2 (JSON-LD); полный Chromium | частично | **вкл** |
 | `fabrikant` | Фабрикант | закупки (44/коммерческие) | ✅ список+детали (data-slot, снимок); ОКПД2/файлы — TODO (client-rendered) | готов к тесту | **вкл** |
 | `lot_online_223` | lot-online РАД | 223-ФЗ | ✅ список (вкл. даты); ✅ детали: ОКПД2; ✅ поиск: searchToken «или» + okpd2 JSON | частично | **вкл** |
 
@@ -29,7 +29,7 @@
 | lot_online_44 | SPA (Taiga/Angular) | `limit`/`sort`/`sortDirection`/`status`+`page`+`keywords`+`okpd2` | ✅ `okpd2=код` (повторяемый, префиксный) | ✅ `keywords` (URL) | дата | да |
 | etpgpb | Vue SPA | `procedure[stage][0]`+`procedure[okpd][N]`+`sort`+`per`+`page` | ✅ `procedure[okpd][0]=62.02` (raw, префиксный матчинг) | ❌ (`procedure[name]` не фильтрует) | дата `by_published_desc` | да |
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
-| roseltorg_com | Drupal+React | то же | ✅ (TODO) | ✅ | релевантность | нет |
+| roseltorg_223fz | Drupal+React | `query_field`/`okpd2[]`/`status[]`/`page` | ✅ (JSON-LD деталей) | ✅ `query_field` (пробел=OR) | релевантность | нет |
 | fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | релевантность | нет |
 | lot_online_223 | Angular SPA (Taiga) | — (в URL не отражается) | ❌ (детали, SPA-API) | ❌ (не в URL) | релевантность | нет |
 
@@ -84,7 +84,7 @@
   Обход: полный Chromium (`browser.chromium_executable_path` / env `ZAKUPKI_CHROMIUM_EXECUTABLE`)
   + stealth-скрипты и сохранённая сессия (`persist_session`) — через `BrowserManager` работает.
   ОКПД2 на деталях — только в JSON-LD (`script[type='application/ld+json']`, «Код ОКПД»),
-  извлекается regex-обработчиком. roseltorg_com настроен (первая страница, пагинация page);
+  извлекается regex-обработчиком. roseltorg_223fz настроен (первая страница, пагинация page);
   roseltorg_44fz — селекторы ещё не сняты.
 
 ### Особенности fabrikant

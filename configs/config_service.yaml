@@ -7,7 +7,7 @@ sites:
   enabled: false
 - platform_id: roseltorg_44fz
   enabled: false
-- platform_id: roseltorg_com
+- platform_id: roseltorg_223fz
   enabled: true
 - platform_id: fabrikant
   enabled: false
