@@ -1,24 +1,24 @@
 sites:
 - platform_id: zakupki_mos
-  enabled: false
+  enabled: true
 - platform_id: zakupki_gov_44fz
-  enabled: false
+  enabled: true
 - platform_id: zakupki_gov_223fz
-  enabled: false
+  enabled: true
 - platform_id: roseltorg_44fz
-  enabled: false
+  enabled: true
 - platform_id: roseltorg_223fz
   enabled: true
 - platform_id: fabrikant
-  enabled: false
+  enabled: true
 - platform_id: b2b_center
-  enabled: false
+  enabled: true
 - platform_id: etpgpb
-  enabled: false
+  enabled: true
 - platform_id: lot_online_44
-  enabled: false
+  enabled: true
 - platform_id: lot_online_223
-  enabled: false
+  enabled: true
 default_cutoff_days: 1000
 search_criteria:
   okpd_codes:
@@ -29,8 +29,6 @@ search_criteria:
   fz44: true
   fz223: true
   active_only: false
-  # Слова и коды ОКПД2 всегда обрабатываются раздельно (OR): поиск по словам без
-  # кодов + поиск по кодам без слов, результаты объединяются (дедуп по номеру).
 stop_conditions:
   enabled: true
   deadline_not_expired: false

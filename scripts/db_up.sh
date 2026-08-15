@@ -58,8 +58,16 @@ wait_db() {
 
 run_migrations() {
     echo "Применение миграций Liquibase..."
+    # Git Bash (MSYS) на Windows превращает POSIX-пути в пути Windows, ломая и
+    # host-маунт, и контейнерные пути вида /liquibase/... (MSYS_NO_PATHCONV).
+    # Host-путь передаём в Windows-формате через cygpath -w.
+    local mount_src="$PWD/docker/liquibase/changelog"
+    if command -v cygpath >/dev/null 2>&1; then
+        mount_src="$(cygpath -w "$mount_src")"
+    fi
+    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
     docker run --rm --network host \
-        -v "$PWD/docker/liquibase/changelog:/liquibase/changelog" \
+        -v "$mount_src:/liquibase/changelog" \
         liquibase/liquibase:4.30 \
         --search-path=/liquibase/changelog \
         --changelog-file=db.changelog-master.yaml \

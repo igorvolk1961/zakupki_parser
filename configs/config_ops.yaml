@@ -17,7 +17,7 @@ notifications:
     chat_id: '-1004416405744'
     timeout_seconds: 10.0
   max:
-    enabled: true
+    enabled: false
     chat_id: '-77593707840894'
     timeout_seconds: 10.0
     insecure_tls: true

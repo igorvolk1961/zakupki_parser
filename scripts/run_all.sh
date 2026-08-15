@@ -37,8 +37,25 @@ COMPOSE_FILE="$ROOT_DIR/docker/docker-compose.yml"
 # Ловим живые процессы по командам и PID-файлу — это закрывает и осиротевшие
 # процессы от ранее убитого/закрытого терминала (иначе порт 8200 остаётся занят).
 scoring_process_pids() {
-    pgrep -f "scoring_transport serve" 2>/dev/null
-    pgrep -f "scoring_service worker" 2>/dev/null
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -f "scoring_transport serve" 2>/dev/null
+        pgrep -f "scoring_service worker" 2>/dev/null
+    else
+        # Windows (Git Bash): pgrep отсутствует — ищем python-процессы по
+        # командной строке через PowerShell (скоринг-транспорт/воркер).
+        powershell -NoProfile -Command \
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -match 'scoring_(transport serve|service worker)' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null
+    fi
+}
+
+port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltn 2>/dev/null | grep -qE ":$port\b"
+    else
+        # Windows: ss нет — используем netstat.
+        netstat -ano 2>/dev/null | grep -qE ":$port[[:space:]].*LISTENING"
+    fi
 }
 
 stop_services() {
@@ -59,7 +76,7 @@ stop_services() {
     # Ждём освобождения портов.
     for port in "$PORT_PARSER" "$PORT_TRANSPORT"; do
         for _ in $(seq 1 40); do
-            if ! (ss -ltn 2>/dev/null | grep -qE ":$port\b"); then
+            if ! port_in_use "$port"; then
                 break
             fi
             sleep 0.5
