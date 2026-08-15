@@ -145,3 +145,48 @@ async def test_is_active_default_and_upsert(db: Database) -> None:
     assert all(p.number != "ABC-5" for p in inactive)
     assert any(p.number == "ABC-6" for p in inactive)
     assert all(p.number != "ABC-6" for p in active)
+
+
+@pytest.mark.asyncio
+async def test_list_active_considers_deadline(db: Database) -> None:
+    """Фильтр active на стороне клиента учитывает срок актуальности.
+
+    is_active в БД — только статус; истёкший дедлайн делает закупку неактивной
+    при чтении (active фильтр/эффективная активность).
+    """
+    repo = ProcurementRepository(db)
+    now = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
+    # Активный статус, но срок истёк — в БД is_active=true, клиент считает неактивной.
+    await repo.upsert(
+        {
+            "number": "DL-1",
+            "source_platform": "zakupki_mos",
+            "subject": "x",
+            "is_active": True,
+            "deadline": datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        }
+    )
+    # Активный статус и будущий дедлайн — активна.
+    await repo.upsert(
+        {
+            "number": "DL-2",
+            "source_platform": "zakupki_mos",
+            "subject": "y",
+            "is_active": True,
+            "deadline": datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+        }
+    )
+    # Неактивный статус, дедлайн в будущем — неактивна.
+    await repo.upsert(
+        {
+            "number": "DL-3",
+            "source_platform": "zakupki_mos",
+            "subject": "z",
+            "is_active": False,
+            "deadline": datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
+        }
+    )
+    active, _ = await repo.list_procurements(active=True, now=now)
+    inactive, _ = await repo.list_procurements(active=False, now=now)
+    assert {p.number for p in active} == {"DL-2"}
+    assert {p.number for p in inactive} == {"DL-1", "DL-3"}

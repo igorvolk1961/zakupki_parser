@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,6 +24,21 @@ def _round_score(value: Any) -> float | None:
     if value is None:
         return None
     return round(float(value), 2)
+
+
+def effective_is_active(
+    is_active: bool, deadline: datetime | None, now: datetime | None = None
+) -> bool:
+    """Эффективная активность на стороне клиента.
+
+    Активна, если закупка активна по статусу (``is_active``) И срок актуальности
+    не истёк (``deadline`` отсутствует или не раньше ``now``).
+    """
+    if not is_active:
+        return False
+    if deadline is None:
+        return True
+    return deadline >= (now or datetime.now(UTC))
 
 
 class ProcurementRepository:
@@ -69,8 +84,14 @@ class ProcurementRepository:
         min_fit_score: float | None = None,
         limit: int = 20,
         offset: int = 0,
+        now: datetime | None = None,
     ) -> tuple[list[Procurement], int]:
-        """Возвращает записи и их общее количество по фильтрам."""
+        """Возвращает записи и их общее количество по фильтрам.
+
+        ``active`` учитывает текущую дату на стороне клиента: закупка активна,
+        если активна по статусу (is_active) И срок актуальности не истёк
+        (deadline отсутствует или не раньше ``now``).
+        """
         conditions: list[ColumnElement[bool]] = []
         if number:
             conditions.append(Procurement.number.ilike(f"%{number}%"))
@@ -81,7 +102,27 @@ class ProcurementRepository:
         if customer:
             conditions.append(Customer.name.ilike(f"%{customer}%"))
         if active is not None:
-            conditions.append(Procurement.is_active == active)
+            now = now or datetime.now(UTC)
+            if active:
+                conditions.append(
+                    and_(
+                        Procurement.is_active.is_(True),
+                        or_(
+                            Procurement.deadline.is_(None),
+                            Procurement.deadline >= now,
+                        ),
+                    )
+                )
+            else:
+                conditions.append(
+                    or_(
+                        Procurement.is_active.is_(False),
+                        and_(
+                            Procurement.deadline.is_not(None),
+                            Procurement.deadline < now,
+                        ),
+                    )
+                )
         if min_fit_score is not None:
             conditions.append(Procurement.fit_score >= min_fit_score)
             # Учитываем только фит-скор, полученный сервисом скоринга: дефолтный

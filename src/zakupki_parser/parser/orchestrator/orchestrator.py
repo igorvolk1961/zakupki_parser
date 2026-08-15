@@ -229,7 +229,8 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         record["inn"] = await self._resolve_customer_inn(page, customer_link)
 
         # Активна ли закупка (is_active): не активна, если задан неактивный статус
-        # (не входит в active_statuses) ИЛИ истёк срок актуальности (deadline < now).
+        # (не входит в active_statuses). Проверка срока актуальности (deadline)
+        # выполняется на стороне клиента (репозиторий/API), а не при записи.
         record["is_active"] = self._is_active(record)
 
         # 4) условия прекращения обработки

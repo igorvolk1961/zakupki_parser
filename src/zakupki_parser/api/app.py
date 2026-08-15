@@ -22,7 +22,7 @@ from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig, ServiceConfig
 from zakupki_parser.notify import Notifier
 from zakupki_parser.storage.db import Database, Procurement
-from zakupki_parser.storage.repository import ProcurementRepository
+from zakupki_parser.storage.repository import ProcurementRepository, effective_is_active
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +180,8 @@ def _procurement_out(row: Procurement) -> ProcurementOut:
     out = ProcurementOut.model_validate(row)
     out.customer_id = row.customer_id
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
+    # Клиентская сторона: активность учитывает текущую дату (срок актуальности).
+    out.is_active = effective_is_active(row.is_active, row.deadline)
     return out
 
 
@@ -187,6 +189,7 @@ def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
     out = ProcurementDetailOut.model_validate(row)
     out.customer_id = row.customer_id
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
+    out.is_active = effective_is_active(row.is_active, row.deadline)
     return out
 
 
@@ -206,7 +209,7 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
         "fit_score": row.fit_score,
         "score_method": row.score_method,
         "embedding_similarity": row.embedding_similarity,
-        "is_active": row.is_active,
+        "is_active": effective_is_active(row.is_active, row.deadline),
     }
 
 
