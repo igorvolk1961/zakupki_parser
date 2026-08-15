@@ -57,15 +57,13 @@ sort:
 filters: []
 search:
   enabled: true
-  # Слова в searchToken объединяются союзом «или» (OR в одном запросе), а не
-  # перебором по-одному. Многословные фразы — в кавычках (keywords_quote_phrases).
-  # Слова и коды ОКПД2 обрабатываются раздельно (OR, дедуп по номеру).
-  keywords_one_at_a_time: false
-  keywords_separator: " или "
-  keywords_quote_phrases: true
+  # ВНИМАНИЕ: searchToken на 223 ищет по ПОДСТРОКЕ, а «или» — литеральное слово,
+  # а не оператор: `X или Y` матчит «или эквивалент» (серверы/ИБП) и даёт мусор.
+  # Поэтому слова перебираются по-одному (keywords_one_at_a_time) и объединяются
+  # дедупом. Слова и коды ОКПД2 обрабатываются раздельно (OR, дедуп по номеру).
+  keywords_one_at_a_time: true
   criteria_map:
-    # Слова -> searchToken (сырое значение; многословные фразы в кавычках,
-    # объединяются союзом «или»).
+    # Слова -> searchToken (по одному слову за раз).
     keywords: { query_param: "searchToken" }
     # ОКПД2 -> okpd2 как JSON-массив объектов {key: код} (без названий).
     okpd2:    { raw_json: "okpd2" }
