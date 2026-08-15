@@ -652,7 +652,11 @@ $("#db-fit-up").addEventListener("click", () => stepDbFit(0.1));
 $("#db-fit-dn").addEventListener("click", () => stepDbFit(-0.1));
 $("#db-export").addEventListener("click", async () => {
   $("#parser-status").textContent = "выгрузка CSV…";
-  const r = await fetch("/api/procurements/export", { method: "POST" });
+  const r = await fetch("/api/procurements/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ min_fit_score: parseFloat($("#proc-min-fit").value) }),
+  });
   if (!r.ok) { $("#parser-status").textContent = "не удалось выгрузить CSV"; return; }
   const body = await r.json();
   $("#parser-status").textContent = `CSV выгружен на сервер: ${body.path} (закупок: ${body.count})`;

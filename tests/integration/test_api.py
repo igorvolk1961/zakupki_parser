@@ -425,12 +425,52 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
 def test_export_csv_writes_to_export_dir(
     api_client: tuple[TestClient, Path], inserted_id: int, tmp_path: Path
 ) -> None:
+    """CSV выгружает только активные релевантные закупки (fit_score >= порога)."""
     client, _ = api_client
     export_dir = tmp_path / "export"
     state = cast(Any, client.app).state.parser
     state.cfg.ops.export_dir = str(export_dir)
 
-    resp = client.post("/api/procurements/export")
+    async def _seed_relevant() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "EXPORT-REL",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Релевантная активная",
+                    "customer": "Заказчик ООО",
+                    "fit_score": 0.8,
+                    "score_method": "external",
+                }
+            )
+            assert await repo.upsert(
+                {
+                    "number": "EXPORT-IRR",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Нерелевантная",
+                    "fit_score": 0.2,
+                    "score_method": "external",
+                }
+            )
+            assert await repo.upsert(
+                {
+                    "number": "EXPORT-INACTIVE",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Неактивная",
+                    "is_active": False,
+                }
+            )
+            rows, _ = await repo.list_procurements(number="EXPORT-REL")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    relevant_id = asyncio.run(_seed_relevant())
+
+    resp = client.post("/api/procurements/export", json={"min_fit_score": 0.4})
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "exported"
@@ -439,7 +479,13 @@ def test_export_csv_writes_to_export_dir(
     target = export_dir / "procurements.csv"
     assert target.exists()
     content = target.read_text(encoding="utf-8-sig")
-    # Заголовок + запись из inserted_id.
+    # Заголовок + активная релевантная запись.
     assert "number,source_platform" in content
-    assert "API-1" in content
+    assert "EXPORT-REL" in content
     assert "Заказчик ООО" in content
+    # Нерелевантная (fit_score < 0.4) и неактивная закупки в выгрузку не попадают.
+    assert "EXPORT-IRR" not in content
+    assert "EXPORT-INACTIVE" not in content
+
+    # Подтверждаем, что релевантная запись существует в БД.
+    assert client.get(f"/api/procurements/{relevant_id}").status_code == 200

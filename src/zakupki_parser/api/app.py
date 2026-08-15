@@ -104,6 +104,12 @@ class ClearIrrelevantIn(BaseModel):
     min_fit_score: float = 0.4
 
 
+class ExportIn(BaseModel):
+    """Выгрузка CSV: порог релевантности (fit_score), как в фильтре таблицы."""
+
+    min_fit_score: float = 0.4
+
+
 class HealthOut(BaseModel):
     status: str
     db: bool
@@ -318,13 +324,18 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     ]
 
     @app.post("/api/procurements/export", include_in_schema=False)
-    async def export_procurements() -> dict[str, Any]:
-        """Выгружает закупки из БД в CSV на сервере (каталог export_dir).
+    async def export_procurements(body: ExportIn | None = None) -> dict[str, Any]:
+        """Выгружает активные релевантные закупки из БД в CSV (каталог export_dir).
+
+        В выгрузку попадают ТОЛЬКО активные (по статусу и сроку актуальности) и
+        релевантные (прошедшие внешний скоринг с fit_score >= порога) закупки —
+        как фильтр «Только релевантные» в таблице закупок. Порог по умолчанию 0.4.
 
         Файл пишется в ``config_service.yaml -> export_dir`` (создаётся при
         необходимости). Операция read-only — безопасна при работающем парсере.
         """
-        rows, _ = await _repo().list_procurements(limit=10**9)
+        threshold = body.min_fit_score if body is not None else 0.4
+        rows, _ = await _repo().list_procurements(active=True, min_fit_score=threshold, limit=10**9)
 
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, extrasaction="ignore")
