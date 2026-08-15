@@ -108,11 +108,10 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             and str(number) in self._known_numbers
         )
 
-    async def _process_container(self, page: Page, container: Locator) -> bool:
+    async def _process_container(self, page: Page, container: Locator) -> tuple[bool, Any]:
         """Обрабатывает один контейнер записи о закупке.
 
-        Возвращает True, если запись пропущена как уже сохранённая в БД (повтор),
-        иначе — False.
+        Возвращает (пропущена ли запись как уже сохранённая в БД, номер закупки).
         """
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
@@ -122,16 +121,16 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # не открываем (upsert не обновляет известные записи, поведение не меняется).
         if self._is_known(number):
             logger.info("Закупка %s уже в БД, детали не обрабатываем", number)
-            return True
+            return True, number
 
         # 2) ссылка на детальную страницу
         detail_link_loc = container.locator(self._platform.list_config.detail_link)
         if await detail_link_loc.count() == 0:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
-            return False
+            return False, number
         detail_url = await detail_link_loc.first.get_attribute("href")
         if not detail_url:
-            return False
+            return False, number
 
         # stop-условия по данным из деталей проверяются после извлечения деталей.
         # 3) переход на детальную страницу — в отдельной вкладке, чтобы не терять
@@ -235,7 +234,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record):
-            return False
+            return False, number
 
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
         #    (имя и URL скачивания с ЭТП). Все файлы, включая ТЗ, — в files_json.
@@ -282,7 +281,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         procurement_id,
                         exc,
                     )
-        return False
+        return False, number
 
     # -- основной цикл ------------------------------------------------------
     async def run(self, page: Page) -> None:
@@ -423,6 +422,12 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # 0/None — ограничение отключено.
         max_pages = self._cfg.parser.max_list_pages or 0
         pages_done = 0
+        # Дополнительная защита от повтора содержимого: площадки, которые за
+        # пределами последней страницы возвращают её содержимое повторно (вместо
+        # пустой страницы), приводят к бесконечной пагинации с одинаковыми
+        # записями. Если набор номеров страницы уже встречался в этом обходе —
+        # пагинацию прекращаем (работает и для relevance-сортировки).
+        seen_page_sigs: set[frozenset[Any]] = set()
 
         while True:
             pages_done += 1
@@ -437,6 +442,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             reached_cutoff = False
             page_total = 0
             page_known = 0
+            page_numbers: list[Any] = []
             async for container in iter_container_records(page, self._platform, self._delayer):
                 page_total += 1
                 # Выход по порогу даты публикации (только если порог задан). Обрабатываем
@@ -462,13 +468,32 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         )
                         reached_cutoff = True
                         break
-                if await self._process_container(page, container):
+                known, number = await self._process_container(page, container)
+                if number is not None and number != "":
+                    page_numbers.append(number)
+                if known:
                     page_known += 1
 
             # Доcтигли порога дат — завершаем весь проход (не переходим на
             # следующую страницу) и сбрасываем CB.
             if reached_cutoff:
                 break
+
+            # Защита от повтора содержимого: тот же набор номеров уже встречался
+            # на предыдущей странице этого обхода — площадка зациклила пагинацию
+            # (возвращает последнюю страницу повторно). Работает независимо от
+            # сортировки (в т.ч. relevance), в отличие от проверки ниже.
+            if page_numbers:
+                page_sig = frozenset(page_numbers)
+                if page_sig in seen_page_sigs:
+                    logger.info(
+                        "Площадка %s: страница повторяет предыдущую (%d записей) — "
+                        "пагинацию прекращаем",
+                        self._platform_id,
+                        len(page_numbers),
+                    )
+                    break
+                seen_page_sigs.add(page_sig)
 
             # Ранняя остановка пагинации: вся страница состоит из уже известных закупок.
             # Некоторые площадки (например, lot-online) за пределами последней страницы
