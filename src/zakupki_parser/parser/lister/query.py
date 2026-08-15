@@ -280,11 +280,12 @@ def build_query(
 
     parts: list[str] = []
     for key, template in search.query_params.items():
-        value = template
-        value = value.replace("{filter_json}", filter_json_str)
-        value = value.replace("{state_json}", state_json_str)
-        # Статические значения (в т.ч. кириллица/пробелы) URL-кодируются целиком.
-        parts.append(f"{key}={urllib.parse.quote(value, safe='')}")
+        param_values = template if isinstance(template, list) else [template]
+        for value in param_values:
+            value = value.replace("{filter_json}", filter_json_str)
+            value = value.replace("{state_json}", state_json_str)
+            # Статические значения (в т.ч. кириллица/пробелы) URL-кодируются целиком.
+            parts.append(f"{key}={urllib.parse.quote(value, safe='')}")
     for name, value in extra_params.items():
         parts.append(f"{name}={urllib.parse.quote(value, safe='')}")
     for name, value in flat_params:

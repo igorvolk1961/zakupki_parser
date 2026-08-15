@@ -325,6 +325,10 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # (есть маппинг критерия keywords): иначе перебор слов дал бы одинаковые обходы
         # (например etpgpb, где procedure[name] не фильтрует).
         keywords_mapped = bool(search and "keywords" in (search.criteria_map or {}))
+        # Отдельный обход по кодам ОКПД2 имеет смысл, только если площадка реально
+        # фильтрует по кодам (есть маппинг okpd2): иначе коды-only обход вернул бы весь
+        # список (например roseltorg, где okpd2 не подключён).
+        okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
         one_at_a_time = bool(
             search and search.keywords_one_at_a_time and keywords and keywords_mapped
         )
@@ -345,12 +349,12 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             for word in keywords:
                 criteria = base.model_copy(update={"keywords": [word], "okpd_codes": []})
                 await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
-            if base.okpd_codes:
+            if base.okpd_codes and okpd_mapped:
                 criteria = base.model_copy(update={"keywords": []})
                 await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
         else:
             base = self._cfg.service.search_criteria
-            if base.keywords and base.okpd_codes:
+            if base.keywords and base.okpd_codes and okpd_mapped:
                 # Расширение (OR): слова (без кодов) + коды (без слов) — объединение.
                 logger.info(
                     "Площадка %s: слова и коды ищутся независимо — словами %s, кодами %s",

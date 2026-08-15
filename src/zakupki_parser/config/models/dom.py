@@ -280,10 +280,11 @@ class SearchFilterConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True)
-    query_params: dict[str, str] = Field(
+    query_params: dict[str, str | list[str]] = Field(
         default_factory=dict,
         description=(
-            "имя параметра запроса -> шаблон значения; плейсхолдеры {filter_json}, {state_json}"
+            "имя параметра запроса -> шаблон значения; плейсхолдеры {filter_json}, {state_json}. "
+            "Значение может быть списком — тогда параметр повторяется (status[]=2&status[]=3)"
         ),
     )
     filter_json: dict[str, Any] = Field(

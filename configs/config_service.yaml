@@ -8,7 +8,7 @@ sites:
 - platform_id: roseltorg_44fz
   enabled: false
 - platform_id: roseltorg_com
-  enabled: false
+  enabled: true
 - platform_id: fabrikant
   enabled: false
 - platform_id: b2b_center
@@ -16,9 +16,9 @@ sites:
 - platform_id: etpgpb
   enabled: false
 - platform_id: lot_online_44
-  enabled: true
+  enabled: false
 - platform_id: lot_online_223
-  enabled: true
+  enabled: false
 default_cutoff_days: 1000
 search_criteria:
   okpd_codes:

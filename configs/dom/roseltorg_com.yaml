@@ -1,26 +1,66 @@
 # Росэлторг — 223-ФЗ/коммерческие (roseltorg.ru). Платформа_id = имя файла.
-# Drupal+React, результаты рендерятся сервером, фильтры в URL. Сортировка по
-# релевантности анонсирована -> by_relevance=true (без стоп-порога по дате).
-# ВНИМАНИЕ: селекторы list_config/detail — ПЛЕЙСХОЛДЕРЫ (TODO: verify), снимаются
-# через `zp capture-fixture` (площадка в config_service.yaml enabled: false).
+# Drupal+React, результаты рендерятся сервером, фильтры в URL.
+# ВАЖНО:
+#  - блокирует headless-shell и rate-limit'ит по IP (WAF, «URL blocked», Attack ID):
+#    требуется ПОЛНЫЙ Chromium (browser.chromium_executable_path / env
+#    ZAKUPKI_CHROMIUM_EXECUTABLE) и вежливые задержки (delayer).
+#  - поиск — /procedures/search, параметры query_field (слова, пробел = OR),
+#    okpd2[] (код), status[] (2,3,4), page (пагинация).
+#  - ОКПД2 на деталях client-rendered, в публичном DOM нет.
+# Ограничения: страница rate-limit'ится при частых запросах; page_size/контейнер
+# снимались по /search/com и нуждаются в повторной проверке на /procedures/search.
 name: "Росэлторг (223-ФЗ/коммерческие)"
 url: "https://www.roseltorg.ru"
-list_path: "/search/com"
+list_path: "/procedures/search"
 list_config:
-  container: "div"   # TODO: verify
+  # Контейнер карточки процедуры в выдаче поиска.
+  container: "div.search-results__item"
+  # Ссылка на детальную страницу (/procedure/<номер>/<лот>).
   detail_link: "a[href*='/procedure/']"
+  # Пагинация — по query-параметру page (см. URL поиска roseltorg).
+  page_param: "page"
+  page_size: 10   # TODO: verify на /procedures/search
   next_page: ""
-  variables: []
+  # Сортировка по релевантности -> стоп-порог по дате не применяется.
+  publication_date: "publication_date"
+  variables:
+    # number — «COM14082600147 (Лот 1)» -> номер процедуры.
+    - { name: "number",           selector: "div.search-results__lot a.search-results__link", handler: "regex", handler_arg: "(COM\\d+)", default: "" }
+    # subject — наименование процедуры (ссылка на описание).
+    - { name: "subject",          selector: "a.search-results__link--description", handler: "strip", default: "" }
+    # law — «Коммерческие закупки и закупки по 223-ФЗ» -> 223-ФЗ.
+    - { name: "law",              selector: "div.search-results__section p.search-results__tooltip", handler: "law", default: null }
+    # customer — организатор (ссылка на страницу компании).
+    - { name: "customer",         selector: "div.search-results__customer a[href*='/companies/']", handler: "strip", default: "" }
+    # nmck — «2 201 656,36 ₽».
+    - { name: "nmck",             selector: "div.search-results__sum p.desktop", handler: "money", default: null }
+    # deadline — «Окончание приема заявок» -> «16.09.2026 в 09:00».
+    - { name: "deadline",         selector: "div.search-results__timing time.search-results__time", handler: "datetime", default: null }
+    # status — бейдж статуса («Прием заявок», без «N дн.» до конца приёма).
+    - { name: "status",           selector: "div.search-results__status", handler: "regex", handler_arg: "([А-Яа-яЁё][А-Яа-яЁё ]+)", default: "" }
 detail:
-  variables: []
+  # ОКПД2 — только в JSON-LD (schema.org, additionalProperty «Код ОКПД»), не в видимом
+  # DOM. Извлекается из script[type='application/ld+json'].
+  variables:
+    - { name: "okpd2_code", selector: "script[type='application/ld+json']", handler: "regex", handler_arg: "\"name\": \"Код ОКПД\",\\s*\"value\": \"([^\"]+)\"", default: null }
   files: []
 sort:
+  order: publication_date_desc
   by_relevance: true
+  dropdown: null
+  option_text: null
 search:
   enabled: true
+  # Слова в query_field объединяются ПРОБЕЛОМ (нативный OR площадки, как на mos.ru) —
+  # «или»/кавычки не нужны, поэтому keywords_one_at_a_time=false.
+  keywords_one_at_a_time: false
   query_params:
     sale: "1"
     currency: "all"
-    "status[]": "0"
+    "status[]": ["2", "3", "4"]
   criteria_map:
-    keywords: { query_param: "text" }   # TODO: verify
+    # Слова -> query_field (пробел = OR).
+    keywords: { query_param: "query_field" }
+    # ОКПД2 -> okpd2[] (повторяемые параметры с пустыми скобками, PHP-стиль;
+    # префиксный матчинг кода — например okpd2[]=62.02).
+    okpd2:    { raw_array_flat: "okpd2[]" }

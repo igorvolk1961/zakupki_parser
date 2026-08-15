@@ -14,6 +14,7 @@ _DATE_FORMATS = (
     "%d.%m.%Y",
     "%d.%m.%Y %H:%M",
     "%d.%m.%Y %H:%M:%S",
+    "%d.%m.%Y в %H:%M",
     "%Y-%m-%d",
     "%Y-%m-%dT%H:%M:%S",
 )
