@@ -10,6 +10,8 @@ import asyncio
 import logging
 import uuid
 
+import httpx
+
 from scoring_service.scoring import build_scorer
 from scoring_service.settings import Settings
 from scoring_service.transport.parser_api import ParserApiClient
@@ -63,6 +65,33 @@ class ScoringWorker:
                     "embedding_similarity": result.embedding_similarity,
                 }
             )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code >= 500:
+                logger.warning(
+                    "Парсер ответил HTTP %s для закупки %s — задача возвращена в очередь",
+                    exc.response.status_code,
+                    procurement_id,
+                )
+                await self._queue.enqueue(procurement_id, priority)
+                await asyncio.sleep(self._settings.parser_retry_backoff_seconds)
+            else:
+                logger.warning(
+                    "Парсер не нашёл закупку %s (HTTP %s) — задача снята с очереди",
+                    procurement_id,
+                    exc.response.status_code,
+                )
+        except httpx.TransportError as exc:
+            # Парсер временно недоступен (ещё не запущен/перезапускается):
+            # возвращаем задачу в очередь и пробуем снова позже, чтобы закупка
+            # не потерялась. Задача уже снята с ZSET при pop_job, поэтому здесь
+            # явный requeue с прежним приоритетом.
+            logger.warning(
+                "Парсер недоступен для закупки %s — задача возвращена в очередь: %s",
+                procurement_id,
+                exc,
+            )
+            await self._queue.enqueue(procurement_id, priority)
+            await asyncio.sleep(self._settings.parser_retry_backoff_seconds)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Scoring failed for %s: %s", procurement_id, exc)
         finally:
