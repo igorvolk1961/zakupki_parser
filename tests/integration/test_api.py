@@ -94,6 +94,89 @@ def test_db_clear_when_idle(api_client: tuple[TestClient, Path]) -> None:
     assert client.get("/api/procurements").json()["total"] == 0
 
 
+def test_db_clear_inactive(api_client: tuple[TestClient, Path]) -> None:
+    """POST /api/db/clear-inactive удаляет только неактивные закупки."""
+    client, _ = api_client
+
+    async def _seed() -> tuple[int, int]:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert(
+                {
+                    "number": "CIN-1",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Неактивна",
+                    "is_active": False,
+                }
+            )
+            await repo.upsert(
+                {
+                    "number": "CIN-2",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Активна",
+                }
+            )
+            rows, _ = await repo.list_procurements(number="CIN-")
+            ids = {p.number: p.id for p in rows}
+            return ids["CIN-1"], ids["CIN-2"]
+        finally:
+            await db.dispose()
+
+    inactive_id, active_id = asyncio.run(_seed())
+
+    resp = client.post("/api/db/clear-inactive")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] >= 1
+
+    assert client.get(f"/api/procurements/{inactive_id}").status_code == 404
+    assert client.get(f"/api/procurements/{active_id}").status_code == 200
+
+
+def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
+    """POST /api/db/clear-irrelevant удаляет закупки с fit_score < порога (по умолчанию 0.4)."""
+    client, _ = api_client
+
+    async def _seed() -> tuple[int, int]:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert(
+                {
+                    "number": "CIR-1",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Релевантная",
+                    "fit_score": 0.8,
+                    "score_method": "external",
+                }
+            )
+            await repo.upsert(
+                {
+                    "number": "CIR-2",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Нерелевантная",
+                    "fit_score": 0.2,
+                    "score_method": "external",
+                }
+            )
+            rows, _ = await repo.list_procurements(number="CIR-")
+            ids = {p.number: p.id for p in rows}
+            return ids["CIR-1"], ids["CIR-2"]
+        finally:
+            await db.dispose()
+
+    relevant_id, irrelevant_id = asyncio.run(_seed())
+
+    resp = client.post("/api/db/clear-irrelevant", json={"min_fit_score": 0.4})
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] >= 1
+
+    assert client.get(f"/api/procurements/{relevant_id}").status_code == 200
+    assert client.get(f"/api/procurements/{irrelevant_id}").status_code == 404
+
+
 def test_websocket_receives_broadcast(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     with client.websocket_connect("/ws") as ws:

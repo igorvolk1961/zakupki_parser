@@ -98,6 +98,12 @@ class RatingUpdate(BaseModel):
     rating: float
 
 
+class ClearIrrelevantIn(BaseModel):
+    """Удаление нерелевантных закупок: порог релевантности (fit_score)."""
+
+    min_fit_score: float = 0.4
+
+
 class HealthOut(BaseModel):
     status: str
     db: bool
@@ -460,6 +466,36 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         deleted = await _repo().clear_all()
         logger.info("БД очищена из web-демо: %s", deleted)
+        await _broadcast(state)
+        return {"status": "cleared", "deleted": deleted}
+
+    @app.post("/api/db/clear-inactive", include_in_schema=False)
+    async def clear_inactive() -> dict[str, Any]:
+        """Удаляет неактивные закупки (is_active=false или истёкший срок актуальности).
+
+        Клиентская операция: активность учитывает текущую дату, как в фильтре
+        ``active``. Доступно только при остановленном парсере.
+        """
+        if state.parser_task is not None and not state.parser_task.done():
+            raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
+        deleted = await _repo().delete_inactive()
+        logger.info("Удалены неактивные закупки из web-демо: %s", deleted)
+        await _broadcast(state)
+        return {"status": "cleared", "deleted": deleted}
+
+    @app.post("/api/db/clear-irrelevant", include_in_schema=False)
+    async def clear_irrelevant(body: ClearIrrelevantIn | None = None) -> dict[str, Any]:
+        """Удаляет нерелевантные закупки среди обработанных сервисом скоринга.
+
+        Учитываются только записи с score_method=external и fit_score < порога.
+        Записи без внешнего скоринга не затрагиваются. Доступно только при
+        остановленном парсере.
+        """
+        if state.parser_task is not None and not state.parser_task.done():
+            raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
+        threshold = body.min_fit_score if body is not None else 0.4
+        deleted = await _repo().delete_irrelevant(threshold)
+        logger.info("Удалены нерелевантные закупки из web-демо: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 

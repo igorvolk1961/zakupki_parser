@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -356,3 +357,48 @@ class ProcurementRepository:
             await session.commit()
         logger.info("БД очищена: %s закупок, %s заказчиков", procs, cust)
         return {"procurements": int(procs), "customers": int(cust)}
+
+    async def delete_inactive(self, now: datetime | None = None) -> int:
+        """Удаляет неактивные закупки (is_active=false или истёкший срок актуальности).
+
+        Клиентская операция: активность учитывает текущую дату, как в фильтре
+        ``active`` в ``list_procurements``. Заказчики не затрагиваются.
+        """
+        now = now or datetime.now(UTC)
+        stmt = delete(Procurement).where(
+            or_(
+                Procurement.is_active.is_(False),
+                and_(
+                    Procurement.deadline.is_not(None),
+                    Procurement.deadline < now,
+                ),
+            )
+        )
+        async with self._db.session() as session:
+            result = cast("CursorResult[Any]", await session.execute(stmt))
+            await session.commit()
+        deleted = int(result.rowcount or 0)
+        logger.info("Удалено неактивных закупок: %s", deleted)
+        return deleted
+
+    async def delete_irrelevant(self, min_fit_score: float) -> int:
+        """Удаляет нерелевантные закупки среди обработанных сервисом скоринга.
+
+        Учитываются ТОЛЬКО записи, прошедшие внешний скоринг (score_method=external):
+        релевантна закупка с fit_score >= порога, нерелевантна — с fit_score < порога
+        (или NULL). Записи без внешнего скоринга (default/deadline_expired) не
+        затрагиваются. Заказчики не затрагиваются.
+        """
+        stmt = delete(Procurement).where(
+            Procurement.score_method == SCORE_METHOD_EXTERNAL,
+            or_(
+                Procurement.fit_score.is_(None),
+                Procurement.fit_score < min_fit_score,
+            ),
+        )
+        async with self._db.session() as session:
+            result = cast("CursorResult[Any]", await session.execute(stmt))
+            await session.commit()
+        deleted = int(result.rowcount or 0)
+        logger.info("Удалено нерелевантных закупок (fit_score < %s): %s", min_fit_score, deleted)
+        return deleted
