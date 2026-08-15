@@ -26,8 +26,9 @@ async def extract_from_scope(scope: Page | Locator, variables: list[DomVariable]
     """Извлекает значения ``variables`` в контексте ``scope``.
 
     Для каждой переменной выбирается элемент по ``selector`` и опциональному
-    ``index`` (N-й совпавший элемент, вместо первого). При отсутствии элемента
-    используется ``default``.
+    ``index`` (N-й совпавший элемент, вместо первого). При ``multiple=true``
+    собирается значение из ВСЕХ совпавших элементов (склейка через ``separator``).
+    При отсутствии элемента используется ``default``.
     """
     result: dict[str, Any] = {}
     for var in variables:
@@ -35,14 +36,26 @@ async def extract_from_scope(scope: Page | Locator, variables: list[DomVariable]
         count = await locators.count()
         value: Any = var.default
         if count > 0:
-            idx = var.index if var.index is not None else 0
-            if idx >= count:
-                idx = 0
-            try:
-                raw = await _element_value(locators.nth(idx), var)
-                value = apply_handler(var.handler, raw, var.handler_arg)
-            except Exception:  # noqa: BLE001
-                logger.debug("Не удалось извлечь '%s' (%s)", var.name, var.selector)
-                value = var.default
+            if var.multiple:
+                parts: list[str] = []
+                for i in range(count):
+                    try:
+                        raw = await _element_value(locators.nth(i), var)
+                        processed = apply_handler(var.handler, raw, var.handler_arg)
+                    except Exception:  # noqa: BLE001
+                        processed = None
+                    if processed is not None and str(processed) != "":
+                        parts.append(str(processed))
+                value = var.separator.join(parts) or var.default
+            else:
+                idx = var.index if var.index is not None else 0
+                if idx >= count:
+                    idx = 0
+                try:
+                    raw = await _element_value(locators.nth(idx), var)
+                    value = apply_handler(var.handler, raw, var.handler_arg)
+                except Exception:  # noqa: BLE001
+                    logger.debug("Не удалось извлечь '%s' (%s)", var.name, var.selector)
+                    value = var.default
         result[var.name] = value
     return result

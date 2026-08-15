@@ -41,9 +41,10 @@ list_config:
     - { name: "publication_date", selector: "xpath=//div[.='Дата публикации']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
     - { name: "deadline",         selector: "xpath=//div[.='Дата окончания приема заявок']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
 detail:
-  # TODO: детальная страница грузится асинхронно (внутренний API) — поля ОКПД2/файлы
-  # требуют доработки (см. docs/platforms.md).
-  variables: []
+  # ОКПД2 отображается серверно строкой «ОКПД2: 62.02.2 Услуги…» — извлекаем код и название.
+  variables:
+    - { name: "okpd2_code", selector: "xpath=//span[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::span[contains(@class,'color-text-01')]", handler: "regex", handler_arg: "^\\s*(\\d{2}(?:\\.[\\d]+)*)", multiple: true, separator: ",", default: null }
+    - { name: "okpd2_name", selector: "xpath=//span[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::span[contains(@class,'color-text-01')]", handler: "regex", handler_arg: "^\\d{2}(?:\\.[\\d]+)*\\s+(.+)", multiple: true, separator: " | ", default: "" }
   files: []
 # Сортировка по релевантности (фильтр по дате/словам в URL не отражается) —
 # стоп-порог по дате не применяется.
@@ -52,8 +53,19 @@ sort:
   by_relevance: true
   dropdown: null
   option_text: null
-# Фильтры (DOM-шаги) и URL-фильтр не реализованы: поиск по словам/ОКПД2 на 223
-# не отражается в URL; обходится полный список (TODO).
+# Фильтры (DOM-шаги) не используются — поиск отражается в URL (search).
 filters: []
 search:
-  enabled: false
+  enabled: true
+  # Слова в searchToken объединяются союзом «или» (OR в одном запросе), а не
+  # перебором по-одному. Многословные фразы — в кавычках (keywords_quote_phrases).
+  # Слова и коды ОКПД2 обрабатываются раздельно (OR, дедуп по номеру).
+  keywords_one_at_a_time: false
+  keywords_separator: " или "
+  keywords_quote_phrases: true
+  criteria_map:
+    # Слова -> searchToken (сырое значение; многословные фразы в кавычках,
+    # объединяются союзом «или»).
+    keywords: { query_param: "searchToken" }
+    # ОКПД2 -> okpd2 как JSON-массив объектов {key: код} (без названий).
+    okpd2:    { raw_json: "okpd2" }

@@ -25,11 +25,12 @@ search_criteria:
   - '62.02'
   keywords:
   - искусственный интеллект
-  - ии
   - автоматизация
   fz44: true
   fz223: true
   active_only: false
+  # Слова и коды ОКПД2 всегда обрабатываются раздельно (OR): поиск по словам без
+  # кодов + поиск по кодам без слов, результаты объединяются (дедуп по номеру).
 stop_conditions:
   enabled: true
   deadline_not_expired: false

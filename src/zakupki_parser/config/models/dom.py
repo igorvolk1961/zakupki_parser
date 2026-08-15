@@ -28,6 +28,18 @@ class DomVariable(BaseModel):
     handler_arg: str | None = Field(
         default=None, description="аргумент для обработчика (например, regex-паттерн)"
     )
+    multiple: bool = Field(
+        default=False,
+        description=(
+            "собрать значение из ВСЕХ элементов, совпавших с селектором, склеив их "
+            "через ``separator`` (вместо одного элемента по ``index``/первого). "
+            "Нужно для полей с несколькими значениями (например, несколько кодов ОКПД2)"
+        ),
+    )
+    separator: str = Field(
+        default=", ",
+        description="разделитель для значений, когда ``multiple=true``",
+    )
     default: Any = None
 
 
@@ -114,6 +126,14 @@ class DomDetailConfig(BaseModel):
     """Селекторы страницы детальной информации."""
 
     variables: list[DomVariable] = Field(default_factory=list)
+    wait_selector: str | None = Field(
+        default=None,
+        description=(
+            "селектор элемента, появления которого дождаться на детальной странице "
+            "перед извлечением переменных (для async SPA, где данные грузятся "
+            "клиентом после загрузки оболочки)"
+        ),
+    )
     files: list[FileSpec] = Field(
         default_factory=list, description="элементы ссылок на скачиваемые файлы"
     )
@@ -230,6 +250,21 @@ class CriteriaMapping(BaseModel):
             "индексная форма там игнорируется)"
         ),
     )
+    raw_json: str | None = Field(
+        default=None,
+        description=(
+            "имя query-параметра, значение которого — JSON-массив объектов "
+            '`[{"key": <код>}]` по кодам критерия okpd2. Используется для lot-online 223 '
+            '(okpd2=[{"key":"62.02"}], названия не нужны)'
+        ),
+    )
+    json_value: bool = Field(
+        default=False,
+        description=(
+            "JSON-кодировать значение перед подстановкой в query_param (например, "
+            'searchToken="фраза" — строка в кавычках, с экранированием)'
+        ),
+    )
 
 
 class SearchFilterConfig(BaseModel):
@@ -291,15 +326,21 @@ class SearchFilterConfig(BaseModel):
             "пробелом в одно значение (AND на площадке)."
         ),
     )
-    keywords_codes: Literal["and", "or"] = Field(
-        default="and",
+    keywords_separator: str = Field(
+        default=" ",
         description=(
-            "как ключевые слова сочетаются с кодами ОКПД2 в одном поиске:\n"
-            "  - `and` (сужение): слова применяются ВНУТРИ выбора по кодам (AND) — "
-            "для площадок, где по кодам много выдачи и её нужно сузить;\n"
-            "  - `or` (расширение): слова и коды ищутся независимо и результаты "
-            "объединяются (OR, дедуп по номеру) — для площадок, где по кодам мало "
-            "выдачи и слова не должны её отсекать."
+            "как склеить несколько слов search_criteria.keywords в одно значение поиска "
+            "(используется при keywords_one_at_a_time=false). Для площадок с союзом «или» "
+            "(lot-online, b2b-center) — ' или ', чтобы слова искались по «ИЛИ» в одном "
+            "запросе, а не по-одному"
+        ),
+    )
+    keywords_quote_phrases: bool = Field(
+        default=False,
+        description=(
+            "заключать многословные ключевые фразы в двойные кавычки (например, "
+            "'\"искусственный интеллект\" или автоматизация'). Нужно для площадок, где "
+            "фраза из нескольких слов должна совпадать точно (lot-online)"
         ),
     )
 

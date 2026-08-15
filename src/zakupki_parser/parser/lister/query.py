@@ -228,17 +228,32 @@ def build_query(
                 for i, value in enumerate(okpd_ids):
                     extra_params[f"{mapping.raw_array}[{i}]"] = value
             continue
+        if key == "okpd2" and mapping.raw_json:
+            # Площадка принимает ОКПД2 одним JSON-массивом объектов {key: код}
+            # (например, lot-online 223: okpd2=[{"key":"62.02"}]).
+            codes = criteria.okpd_codes
+            if codes:
+                extra_params[mapping.raw_json] = json.dumps(
+                    [{"key": code} for code in codes], ensure_ascii=False
+                )
+            continue
         if key == "keywords":
             kws = criteria.keywords
             if not kws:
                 continue
-            # Слова склеиваются пробелом (одно значение поиска).
-            joined = " ".join(kws)
+            # Слова склеиваются через keywords_separator в одно значение поиска
+            # (по умолчанию пробел; для площадок с союзом «или» — ' или ', чтобы
+            # слова искались по «ИЛИ» в одном запросе). Многословные фразы можно
+            # заключать в кавычки (keywords_quote_phrases).
+            if search.keywords_quote_phrases:
+                kws = [f'"{w}"' if " " in w.strip() else w for w in kws]
+            joined = search.keywords_separator.join(kws)
             if mapping.json_path:
                 # mos.ru: nameLike = {"value": "<слова>", "contains": true}.
                 _set_json_path(filter_json, mapping.json_path, {"value": joined, "contains": True})
             if mapping.query_param:
-                extra_params[mapping.query_param] = joined
+                value = json.dumps(joined, ensure_ascii=False) if mapping.json_value else joined
+                extra_params[mapping.query_param] = value
             continue
         if key == "active_only":
             # Выбор «все/только активные»: только активные подставляет stateIdIn.

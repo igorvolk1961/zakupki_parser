@@ -86,10 +86,6 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
         # (relevance-режим): детальные страницы известных закупок не открываем.
         self._known_numbers: set[str] | None = None
-        # Сочетание слов с кодами ОКПД2: True — независимый OR (расширение, по кодам
-        # мало выдачи); False — AND (слова сужают выбор по кодам). Задаётся в конфиге
-        # площадки (search.keywords_codes).
-        self._codes_expand = bool(platform.search and platform.search.keywords_codes == "or")
 
     async def _resolve_customer_inn(self, page: Page, customer_link: str | None) -> str | None:
         """ИНН заказчика с кешированием по ссылке на организацию.
@@ -112,8 +108,12 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             and str(number) in self._known_numbers
         )
 
-    async def _process_container(self, page: Page, container: Locator) -> None:
-        """Обрабатывает один контейнер записи о закупке."""
+    async def _process_container(self, page: Page, container: Locator) -> bool:
+        """Обрабатывает один контейнер записи о закупке.
+
+        Возвращает True, если запись пропущена как уже сохранённая в БД (повтор),
+        иначе — False.
+        """
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
         number = list_vars.get("number")
@@ -122,16 +122,16 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # не открываем (upsert не обновляет известные записи, поведение не меняется).
         if self._is_known(number):
             logger.info("Закупка %s уже в БД, детали не обрабатываем", number)
-            return
+            return True
 
         # 2) ссылка на детальную страницу
         detail_link_loc = container.locator(self._platform.list_config.detail_link)
         if await detail_link_loc.count() == 0:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
-            return
+            return False
         detail_url = await detail_link_loc.first.get_attribute("href")
         if not detail_url:
-            return
+            return False
 
         # stop-условия по данным из деталей проверяются после извлечения деталей.
         # 3) переход на детальную страницу — в отдельной вкладке, чтобы не терять
@@ -234,7 +234,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record):
-            return
+            return False
 
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
         #    (имя и URL скачивания с ЭТП). Все файлы, включая ТЗ, — в files_json.
@@ -281,6 +281,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         procurement_id,
                         exc,
                     )
+        return False
 
     # -- основной цикл ------------------------------------------------------
     async def run(self, page: Page) -> None:
@@ -329,10 +330,11 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         )
 
         if one_at_a_time:
-            # Площадка объединяет слова по «И» (AND), OR-оператора нет (B2B-Center):
-            # перебираем слова по одному, результаты объединяются (дедуп по номеру
-            # закупки через self._known_numbers, пополняемый при сохранении).
-            # Сочетание с кодами — по search.keywords_codes (см. ниже).
+            # Площадка объединяет слова по «И» (AND), OR-оператора нет (B2B-Center,
+            # fabrikant): перебираем слова по одному, результаты объединяются (дедуп по
+            # номеру закупки через self._known_numbers, пополняемый при сохранении).
+            # Коды ОКПД2 всегда обрабатываются отдельно (keywords_codes удалён —
+            # слова и коды ищутся независимо, OR).
             logger.info(
                 "Площадка %s: поиск по словам по одному (AND на площадке) — %d слов, коды: %s",
                 self._platform_id,
@@ -341,19 +343,17 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             )
             base = self._cfg.service.search_criteria
             for word in keywords:
-                criteria = base.model_copy(update={"keywords": [word]})
-                if self._codes_expand:
-                    criteria = criteria.model_copy(update={"okpd_codes": []})
+                criteria = base.model_copy(update={"keywords": [word], "okpd_codes": []})
                 await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
-            if self._codes_expand and base.okpd_codes:
+            if base.okpd_codes:
                 criteria = base.model_copy(update={"keywords": []})
                 await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
         else:
             base = self._cfg.service.search_criteria
-            if self._codes_expand and base.okpd_codes:
-                # Расширение: слова (без кодов) + коды (без слов) — объединение.
+            if base.keywords and base.okpd_codes:
+                # Расширение (OR): слова (без кодов) + коды (без слов) — объединение.
                 logger.info(
-                    "Площадка %s: коды и слова ищутся независимо (or) — словами %s, кодами %s",
+                    "Площадка %s: слова и коды ищутся независимо — словами %s, кодами %s",
                     self._platform_id,
                     base.keywords,
                     base.okpd_codes,
@@ -430,7 +430,10 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 break
 
             reached_cutoff = False
+            page_total = 0
+            page_known = 0
             async for container in iter_container_records(page, self._platform, self._delayer):
+                page_total += 1
                 # Выход по порогу даты публикации (только если порог задан). Обрабатываем
                 # записи с датой >= дня порога и останавливаемся при записи со строго
                 # более ранним днём.
@@ -454,11 +457,35 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         )
                         reached_cutoff = True
                         break
-                await self._process_container(page, container)
+                if await self._process_container(page, container):
+                    page_known += 1
 
             # Доcтигли порога дат — завершаем весь проход (не переходим на
             # следующую страницу) и сбрасываем CB.
             if reached_cutoff:
+                break
+
+            # Ранняя остановка пагинации: вся страница состоит из уже известных закупок.
+            # Некоторые площадки (например, lot-online) за пределами последней страницы
+            # возвращают её содержимое повторно вместо пустой страницы, поэтому каждая
+            # следующая страница была бы одинаковой и не давала бы новых закупок.
+            # Актуально только когда известен набор сохранённых номеров (БД доступна) и
+            # список отсортирован по дате (не по релевантности): при дата-сортировке порядок
+            # страниц монотонный, и страница из одних известных закупок означает, что дальше
+            # новых нет. Для релевантности ранняя остановка не применяется, чтобы не
+            # пропустить новые закупки на поздних страницах.
+            if (
+                not by_relevance
+                and self._known_numbers is not None
+                and page_total > 0
+                and page_known == page_total
+            ):
+                logger.info(
+                    "Площадка %s: вся страница уже в БД (%d) — новых закупок не будет, "
+                    "пагинацию прекращаем",
+                    self._platform_id,
+                    page_total,
+                )
                 break
 
             # переход на следующую страницу

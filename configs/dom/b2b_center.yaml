@@ -47,11 +47,10 @@ search:
     order_by: "1"
     order_dir: "0"
   criteria_map:
-    # ВАЖНО: на B2B-Center слова в f_keyword объединяются по «И» (AND) — в предмете
-    # должны встретиться ВСЕ слова, в отличие от mos.ru (nameLike, «любое из»/OR).
-    # Площадка не даёт OR-оператора (синтаксис: смаз*, *пожар*, "фраза", !исключение),
-    # поэтому включён keywords_one_at_a_time: слова из search_criteria.keywords
-    # перебираются по одному (отдельный поиск на слово), результаты объединяются.
+    # Слова в f_keyword объединяются союзом «или» (OR в одном запросе) — проверено.
+    # Многословные фразы — в кавычках (keywords_quote_phrases).
     keywords: { query_param: "f_keyword" }
-  # Поиск по словам по одному за раз (AND-семантика площадки вместо «любое из»).
-  keywords_one_at_a_time: true
+  # Слова по «ИЛИ» одним запросом (союз «или»), а не перебором по-одному.
+  keywords_one_at_a_time: false
+  keywords_separator: " или "
+  keywords_quote_phrases: true

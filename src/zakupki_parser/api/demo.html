@@ -124,7 +124,6 @@
       <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
       <button class="ghost" id="db-clear" disabled>Очистить БД</button>
       <button class="ghost" id="db-export">Выгрузить CSV на сервер</button>
-      <select id="platform"><option value="">Все площадки</option></select>
       <span id="parser-status" class="muted">проверка…</span>
     </div>
   </div>
@@ -406,7 +405,7 @@ async function loadPlatforms() {
   // Площадки, по которым уже есть сохранённые закупки.
   const paged = await api("procurements", { limit: 100 });
   paged.items.forEach((r) => set.add(r.source_platform));
-  ["#platform", "#proc-platform"].forEach((id) => {
+  ["#proc-platform"].forEach((id) => {
     const sel = document.querySelector(id);
     const cur = sel.value;
     sel.innerHTML = '<option value="">Все площадки</option>';
@@ -454,7 +453,6 @@ function stepFit(d) {
 }
 $("#fit-up").addEventListener("click", () => stepFit(0.1));
 $("#fit-dn").addEventListener("click", () => stepFit(-0.1));
-$("#platform").addEventListener("change", loadProc);
 $("#proc-platform").addEventListener("change", loadProc);
 $("#proc-active").addEventListener("change", loadProc);
 $("#tab-proc").addEventListener("click", () => {

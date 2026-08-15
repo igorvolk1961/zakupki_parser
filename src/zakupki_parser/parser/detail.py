@@ -44,6 +44,19 @@ async def open_detail(page: Page, detail_url: str, platform: PlatformDom) -> Non
     )
     # networkidle на этой SPA не наступает, ждём фиксированно.
     await page.wait_for_timeout(3000)
+    # Для async SPA ждём появления ключевого элемента (например, поля ОКПД2),
+    # иначе данные могут ещё не отрисоваться клиентом.
+    if platform.detail.wait_selector:
+        locator = page.locator(platform.detail.wait_selector)
+        try:
+            await locator.first.wait_for(state="attached", timeout=30000)
+            await page.wait_for_timeout(500)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Не дождались появления %s на детальной странице %s",
+                platform.detail.wait_selector,
+                detail_url,
+            )
 
 
 async def extract_detail_vars(page: Page, platform: PlatformDom) -> dict[str, Any]:

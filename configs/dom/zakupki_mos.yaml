@@ -123,10 +123,14 @@ search:
     okpd2:         { json_path: "needSpecificFilter.okpdPaths" }
     nmck_min:      { json_path: "priceFrom" }
     nmck_max:      { json_path: "priceTo" }
-    # Ключевые слова -> nameLike (одно значение, слова через пробел).
+    # Ключевые слова -> nameLike (одно значение, слова через пробел). Площадка
+    # сама объединяет слова по «ИЛИ» (contains=true), поэтому keywords_one_at_a_time
+    # выключен: один поиск вместо перебора по-слову.
     keywords:      { json_path: "nameLike" }
     # active_only -> состояние закупок (stateIdIn); ID — в state_ids ниже.
     active_only:   { json_path: "auctionSpecificFilter.stateIdIn" }
+  # Слова объединяются по «ИЛИ» самой площадкой (nameLike) — отдельный поиск не нужен.
+  keywords_one_at_a_time: false
   # ID состояний для active_only: только активные = Active + OffersSigned.
   state_ids:
     active: [19000002, 19000008]

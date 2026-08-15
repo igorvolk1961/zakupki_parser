@@ -29,18 +29,20 @@ list_config:
     # Организатор — блок под заголовком «Организатор».
     - { name: "customer",         selector: ".card-div__placerTitle + div", handler: "strip", default: "" }
 detail:
-  # TODO: детальная страница грузится асинхронно (SPA) — поля ОКПД2/файлы/детали
-  # требуют доработки (возможно, отдельная страница позиций или ожидание рендера).
-  variables: []
+  # Детальная страница — Angular SPA: ОКПД2 отрисовывается клиентом после загрузки
+  # оболочки. Ждём появления поля «ОКПД2» (wait_selector), затем извлекаем все коды.
+  wait_selector: "xpath=//label[contains(.,'ОКПД2')]"
+  variables:
+    # Кодов ОКПД2 может быть несколько — каждый в отдельном блоке «ОКПД2:» как
+    # «КОД: Наименование». Собираем все (multiple) и склеиваем запятой.
+    - { name: "okpd2_code", selector: "xpath=//app-label[.//label[contains(.,'ОКПД2')]]/following-sibling::div[contains(@class,'form-control-static')]/p", handler: "regex", handler_arg: "^\\s*(\\d{2}(?:\\.[\\d]+)*)", multiple: true, separator: ",", default: null }
+    - { name: "okpd2_name", selector: "xpath=//app-label[.//label[contains(.,'ОКПД2')]]/following-sibling::div[contains(@class,'form-control-static')]/p", handler: "regex", handler_arg: "^\\d{2}(?:\\.[\\d]+)*:\\s*(.+)", multiple: true, separator: " | ", default: "" }
   files: []
 search:
   enabled: true
   # Слова ищутся по «ИЛИ»: парсер открывает отдельный поиск на каждое слово
   # (keywords_one_at_a_time) и объединяет результаты (дедуп по номеру).
   keywords_one_at_a_time: true
-  # Расширение: слова и коды ищутся независимо (OR), чтобы слова не сужали
-  # поиск по кодам.
-  keywords_codes: "or"
   query_params:
     limit: "10"
     sort: "1"
