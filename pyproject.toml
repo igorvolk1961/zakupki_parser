@@ -59,10 +59,13 @@ known-first-party = ["zakupki_parser", "scoring_service", "scoring_transport"]
 
 [tool.mypy]
 python_version = "3.12"
+# Парсер — Linux-only (pgrep, /tmp/playwright); иначе на Windows typeshed
+# не содержит signal.SIGKILL и т.п.
+platform = "linux"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src/zakupki_parser", "tests"]
-exclude = ["tests/fixtures"]
+exclude = ["tests/fixtures", "src/scoring_service", "src/scoring_transport"]
 warn_unused_configs = true
 mypy_path = "src"
 
