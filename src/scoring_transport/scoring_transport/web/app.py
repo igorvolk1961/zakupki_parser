@@ -16,9 +16,9 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from scoring_common.parser_api import ParserApiClient
 from scoring_transport.broker.redis_queue import TransportQueue
 from scoring_transport.consumers.results import ResultsConsumer
-from scoring_transport.parser_api import ParserApiClient
 from scoring_transport.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,10 @@ class ScoringJobRequest(BaseModel):
     priority: float | None = Field(
         default=None,
         description="априорный приоритет (дефолтный score); если пуст — возьмётся из карточки",
+    )
+    stage: str = Field(
+        default="fit",
+        description="стадия каскада скоринга: fit | pwin | margin",
     )
 
 
@@ -109,10 +113,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
         priority = body.priority if body.priority is not None else settings.priority_default
-        await queue.enqueue(body.procurement_id, priority)
+        await queue.enqueue(body.procurement_id, priority, stage=body.stage)
         logger.info(
-            "Задача на скоринг закупки %s поставлена (priority=%.2f)",
+            "Задача на скоринг закупки %s поставлена (stage=%s, priority=%.2f)",
             body.procurement_id,
+            body.stage,
             priority,
         )
         return ScoringJobOut(

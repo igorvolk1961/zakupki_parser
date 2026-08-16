@@ -4,12 +4,16 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1
 
-WORKDIR /app
+# Build context — ../src (содержит scoring_service и scoring_common).
+WORKDIR /app/scoring_service
 
-COPY pyproject.toml uv.lock ./
+COPY scoring_common ../scoring_common
+COPY scoring_service/pyproject.toml scoring_service/uv.lock ./
 RUN uv sync --frozen --no-dev
 
-COPY . .
+COPY scoring_service/ .
+
+ENV PYTHONPATH=/app/scoring_common
 
 EXPOSE 8100
 

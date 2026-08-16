@@ -82,6 +82,8 @@ class Procurement(Base):
     files_json: Mapped[list[Any] | None] = mapped_column(JSONB)
     score: Mapped[float | None] = mapped_column(Float)
     fit_score: Mapped[float | None] = mapped_column(Float)
+    p_win: Mapped[float | None] = mapped_column(Float)
+    margin: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str | None] = mapped_column(String(64))
     # Ветка векторной близости (Giga Embedder): косинусная близость 0..1 текста
     # компетенций и описания закупки. None, если ветка выключена/не настроена/сбой.

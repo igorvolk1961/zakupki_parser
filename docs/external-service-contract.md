@@ -51,13 +51,35 @@
 
 ## 3. Скоринг (внешний сервис)
 
+### 3.0 Каскад скоринга Fit → P(win) → Margin
+
+Внешний скоринг состоит из трёх независимых стадий, соединённых очередями Redis:
+
+1. **Fit** (`scoring_service`) — LLM-пайплайн, возвращает `fit_score` (0..1).
+2. **P(win)** (`pwin_service`) — если `fit_score >= pwin_fit_threshold`, закупка
+   ставится в очередь `pwin:jobs`; сервис считает `P(win) = base_pwin × k_smp ×
+   k_license × k_large × k_procedure × k_ai` и возвращает `p_win`.
+3. **Margin** (`margin_service`) — если накопленный `score` (`fit_score × p_win`)
+   `>= margin_threshold`, закупка ставится в очередь `margin:jobs`; сервис считает
+   маржу (`НМЦК × margin_rate`) и возвращает `margin`.
+
+Три множителя хранятся в БД **отдельными полями** (`fit_score`, `p_win`, `margin`);
+`score` — накопленное произведение (после финальной стадии = `fit × p_win × margin`).
+
+**Оркестрация — парсером**: обработчик `POST /api/procurements/{id}/score` после
+записи результата стадии сравнивает его с порогом (`pwin_fit_threshold` /
+`margin_threshold` из `config_score.yaml`) и через транспорт ставит задачу следующей
+стадии (параметр `stage` в `POST /api/scoring/jobs`).
+
 ### 3.1 Постановка задачи на скоринг (конвейер, ADR-7)
-Внешний скоринг выполняется асинхронным конвейером `scoring_transport` + `scoring_service`
-+ Redis:
+
+Внешний скоринг выполняется асинхронным конвейером `scoring_transport` + сервисы
+стадий + Redis:
 1. Парсер после сохранения новой закупки передаёт задание в **транспорт**:
-   `POST /api/scoring/jobs {procurement_id, priority=default_score}`.
-2. Транспорт ставит задание в Redis-очередь по приоритету; `scoring_service` обрабатывает
-   его и публикует результат; транспорт возвращает его в парсер через `POST /score`
+   `POST /api/scoring/jobs {procurement_id, priority=default_score, stage="fit"}`.
+2. Транспорт ставит задание в Redis-очередь соответствующей стадии
+   (`scoring:jobs`/`pwin:jobs`/`margin:jobs`); сервис стадии обрабатывает его и
+   публикует результат; транспорт возвращает его в парсер через `POST /score`
    (см. п. 3.2).
 
 > Прежние способы прямого вызова внешнего сервиса парсером (`external_call_mode:
@@ -70,12 +92,20 @@
 POST /api/procurements/{id}/score
 Content-Type: application/json
 
-{ "score": 123.5, "score_method": "external" }
+{
+  "score": 0.35,
+  "score_method": "margin",
+  "fit_score": 0.7,
+  "p_win": 0.5,
+  "margin": 200.0
+}
 ```
 Ответ: `200` с обновлённой карточкой. `404` — закупка не найдена.
 
-Значения `score_method`: `default` | `external` | `calculating` | `deadline_expired`
+Значения `score_method`: `default` | `fit` | `pwin` | `margin` | `deadline_expired`
 (последний выставляется парсером при просроченном сроке подачи, `score=0`).
+`fit`/`pwin`/`margin` — стадии внешнего каскада скоринга; переход между стадиями
+выполняет парсер по порогам `config_score.yaml`.
 
 ---
 

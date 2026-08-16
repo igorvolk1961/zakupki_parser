@@ -23,8 +23,6 @@ from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
 from scoring_service.modules import embedding as embedding_module
-from scoring_service.modules import margin as margin_module
-from scoring_service.modules import p_win as p_win_module
 from scoring_service.pipeline.description import (
     extend_description_from_tz,
     extract_description,
@@ -47,8 +45,6 @@ class _PipelineResult:
     fit: FitResult
     judge: JudgeResult
     final_fit: float
-    pwin: float
-    marg: float
     fit_norm: float
     requires_tz_review: bool
     requires_tz_body: bool
@@ -94,8 +90,6 @@ class Scorer:
             "llm_structured_method": settings.llm_structured_method,
             "num_refine_rounds": settings.num_refine_rounds,
             "normalize_fit_for_score": settings.normalize_fit_for_score,
-            "p_win": settings.p_win,
-            "margin_rate": settings.margin_rate,
             "giga_enabled": settings.giga_enabled,
             "giga_configured": settings.giga_configured,
             "giga_model": settings.giga_embeddings_model,
@@ -182,8 +176,6 @@ class Scorer:
             requires_tz_review=False,
             requires_tz_body=True,
             fit_multiplier=score,
-            p_win=p_win_module.p_win(record, self._settings),
-            margin=margin_module.margin(record, self._settings),
             score=score,
         )
 
@@ -387,8 +379,6 @@ class Scorer:
             )
 
         final_fit = judge.final_fit_score
-        pwin = p_win_module.p_win(record, self._settings)
-        marg = margin_module.margin(record, self._settings)
         # Приводим Fit (0-10) к шкале парсера (0-1), чтобы Score не был в ~10 раз больше
         # дефолтного. Выключается флагом normalize_fit_for_score.
         fit_norm = (
@@ -402,8 +392,6 @@ class Scorer:
             fit=fit,
             judge=judge,
             final_fit=final_fit,
-            pwin=pwin,
-            marg=marg,
             fit_norm=fit_norm,
             # Флаг остаётся, если уточнение не запрошено или не состоялось
             # (ТЗ не найден / текст пуст) — скор не уточнён. При успешном
@@ -428,7 +416,7 @@ class Scorer:
         if embed_sim is not None and self._settings.giga_embedding_alpha > 0:
             alpha = self._settings.giga_embedding_alpha
             base = (1 - alpha) * base + alpha * embed_sim
-        score = round(base * result.pwin * result.marg, self._settings.score_round_digits)
+        score = round(base, self._settings.score_round_digits)
 
         return ScoringOutput(
             procurement_id=procurement_id,
@@ -439,8 +427,6 @@ class Scorer:
             requires_tz_review=result.requires_tz_review,
             requires_tz_body=result.requires_tz_body,
             fit_multiplier=result.fit_norm,
-            p_win=result.pwin,
-            margin=result.marg,
             score=score,
             embedding_similarity=embed_sim,
         )

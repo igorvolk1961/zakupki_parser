@@ -14,7 +14,9 @@ class _UnreachableParser:
     """Имитация недоступного парсера (парсер ещё не запущен)."""
 
     async def get_procurement(self, procurement_id: int) -> dict:
-        raise httpx.ConnectError("All connection attempts failed", request=httpx.Request("GET", "http://x"))
+        raise httpx.ConnectError(
+            "All connection attempts failed", request=httpx.Request("GET", "http://x")
+        )
 
 
 class _InternalErrorParser:

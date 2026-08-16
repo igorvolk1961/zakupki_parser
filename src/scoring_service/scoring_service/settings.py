@@ -15,37 +15,16 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-import yaml
 from pydantic import AliasChoices, Field
-from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
 
-
-class YamlConfigSource(PydanticBaseSettingsSource):
-    """Источник настроек из YAML-файла (ниже по приоритету, чем env/.env)."""
-
-    def __init__(self, settings_cls: type[BaseSettings], path: Path) -> None:
-        super().__init__(settings_cls)
-        self._path = path
-
-    def _load(self) -> dict[str, Any]:
-        if not self._path.is_file():
-            return {}
-        raw = yaml.safe_load(self._path.read_text(encoding="utf-8"))
-        return raw if isinstance(raw, dict) else {}
-
-    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
-        data = self._load()
-        return data.get(field_name), field_name, False
-
-    def __call__(self) -> dict[str, Any]:
-        return self._load()
+from scoring_common.config import YamlConfigSource
 
 
 class Settings(BaseSettings):
@@ -90,10 +69,6 @@ class Settings(BaseSettings):
 
     # Компетенции поставщика
     competencies_file: Path = Path("data/competencies.md")
-
-    # Стубы P(win)/Margin (дефолтный подход парсера)
-    p_win: float = 1.0
-    margin_rate: float = 1.0
 
     # Пайплайн
     num_refine_rounds: int = 1

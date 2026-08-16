@@ -8,14 +8,14 @@ import time
 import fakeredis.aioredis as fakeredis_aioredis
 import pytest
 
+from scoring_common.queue import StageQueue
 from scoring_service.settings import Settings
-from scoring_service.transport.redis_queue import ScoringQueue
 
 
 @pytest.fixture
 async def queue():
     server = fakeredis_aioredis.FakeServer()
-    q = ScoringQueue(Settings(processing_ttl_seconds=1, processing_recovery_priority=7.0))
+    q = StageQueue(Settings(processing_ttl_seconds=1, processing_recovery_priority=7.0))
     q._client = fakeredis_aioredis.FakeRedis(server=server, decode_responses=True)
     yield q
     await q._client.aclose()

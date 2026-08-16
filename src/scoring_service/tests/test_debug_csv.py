@@ -76,9 +76,7 @@ def test_render_table_and_report(tmp_path: Path) -> None:
         final_fit_score=8.0,
         requires_tz_review=False,
         fit_multiplier=0.8,
-        p_win=1.0,
-        margin=150.0,
-        score=120.0,
+        score=0.8,
     )
     results = [(178, out)]
 
@@ -93,4 +91,4 @@ def test_render_table_and_report(tmp_path: Path) -> None:
 
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert payload[0]["procurement_id"] == 178
-    assert payload[0]["score"] == 120.0
+    assert payload[0]["score"] == 0.8

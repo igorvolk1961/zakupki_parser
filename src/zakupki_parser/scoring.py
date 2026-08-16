@@ -108,10 +108,15 @@ class ScoringTransportClient:
         procurement_id: int,
         priority: float,
         transport: httpx.AsyncBaseTransport | None = None,
+        stage: str = "fit",
     ) -> None:
-        """Поставить задание на скоринг: POST /api/scoring/jobs."""
+        """Поставить задание на скоринг: POST /api/scoring/jobs.
+
+        ``stage`` — стадия каскада (fit/pwin/margin); транспорт направляет задание
+        в соответствующую Redis-очередь.
+        """
         url = f"{self._base}/api/scoring/jobs"
-        payload = {"procurement_id": procurement_id, "priority": priority}
+        payload = {"procurement_id": procurement_id, "priority": priority, "stage": stage}
         async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()

@@ -1,8 +1,10 @@
-"""Гарантирует импортируемость пакета scoring_transport из тестов."""
+"""Гарантирует импортируемость пакетов scoring_transport и scoring_common из тестов."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT.parent / "scoring_common"))

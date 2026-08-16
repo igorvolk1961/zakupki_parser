@@ -2,6 +2,7 @@
 
 Цикл: ``ZPOPMAX scoring:jobs`` (наибольший приоритет первым) → получить карточку
 из парсера через REST → прогнать пайплайн → ``LPUSH scoring:results``.
+Очередь и клиент парсера — общие (scoring_common).
 """
 
 from __future__ import annotations
@@ -12,10 +13,10 @@ import uuid
 
 import httpx
 
+from scoring_common.parser_api import ParserApiClient
+from scoring_common.queue import StageQueue
 from scoring_service.scoring import build_scorer
 from scoring_service.settings import Settings
-from scoring_service.transport.parser_api import ParserApiClient
-from scoring_service.transport.redis_queue import ScoringQueue
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class ScoringWorker:
         # объединяются в одну LangFuse-сессию (одни гиперпараметры/промпты).
         self._run_id = uuid.uuid4().hex
         self._scorer = build_scorer(settings)
-        self._queue = ScoringQueue(settings)
+        self._queue = StageQueue(settings)
         self._parser = ParserApiClient(settings.parser_api_url)
 
     async def run_forever(self) -> None:
@@ -59,9 +60,7 @@ class ScoringWorker:
                     "procurement_id": procurement_id,
                     "score": result.score,
                     "fit_score": result.fit_multiplier,
-                    "p_win": result.p_win,
-                    "margin": result.margin,
-                    "score_method": "external",
+                    "score_method": "fit",
                     "embedding_similarity": result.embedding_similarity,
                 }
             )

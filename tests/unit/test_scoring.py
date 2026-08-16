@@ -160,3 +160,19 @@ async def test_transport_client_posts_job() -> None:
     assert captured["url"] == b"http://localhost:8200/api/scoring/jobs"
     assert b'"procurement_id":42' in captured["json"]
     assert b'"priority":900.0' in captured["json"]
+    assert b'"stage":"fit"' in captured["json"]
+
+
+@pytest.mark.asyncio
+async def test_transport_client_posts_job_stage() -> None:
+    captured: dict[str, bytes] = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured["json"] = request.content
+        return httpx.Response(202, json={"status": "enqueued"})
+
+    transport = httpx.MockTransport(_handler)
+    client = ScoringTransportClient("http://localhost:8200")
+    await client.enqueue(42, 0.7, transport=transport, stage="pwin")
+
+    assert b'"stage":"pwin"' in captured["json"]

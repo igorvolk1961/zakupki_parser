@@ -8,8 +8,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from scoring_common.parser_api import ParserApiClient
 from scoring_transport.broker.redis_queue import TransportQueue
-from scoring_transport.parser_api import ParserApiClient
 from scoring_transport.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -51,9 +51,11 @@ class ResultsConsumer:
             await self._parser.post_score(
                 int(procurement_id),
                 float(score),
-                payload.get("score_method", "external"),
+                payload.get("score_method", "fit"),
                 fit_score=payload.get("fit_score"),
                 embedding_similarity=payload.get("embedding_similarity"),
+                p_win=payload.get("p_win"),
+                margin=payload.get("margin"),
                 retry_max=self._settings.retry_max,
                 retry_backoff=self._settings.retry_backoff_seconds,
             )

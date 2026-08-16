@@ -106,7 +106,7 @@ class _FakeJudge:
 
 
 def _scorer(fit: _FakeFit, judge: _FakeJudge) -> Scorer:
-    return Scorer(fit, judge, Settings(p_win=1.0, margin_rate=1.0, score_use_stub=False))  # type: ignore[arg-type]
+    return Scorer(fit, judge, Settings(score_use_stub=False))  # type: ignore[arg-type]
 
 
 def test_score_accept_path() -> None:
@@ -114,29 +114,26 @@ def test_score_accept_path() -> None:
     judge = _FakeJudge([_judge("accept", 8.0)])
     out = _scorer(fit, judge).score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
     assert out.final_fit_score == 8.0
-    assert out.score == 80.0  # fit 8/10 × p_win 1.0 × margin 100
-    assert out.p_win == 1.0
-    assert out.margin == 100.0
+    assert out.score == 0.8  # fit 8/10, стадия Fit возвращает только множитель
+    assert out.fit_multiplier == 0.8
     assert fit.calls == 1
     assert judge.calls == 1
 
 
 def test_score_normalizes_fit_by_10() -> None:
-    """Fit из модели (0–10) делится на 10 перед умножением на p_win и margin."""
+    """Fit из модели (0–10) делится на 10 — score = множитель Fit."""
     fit = _FakeFit([6.0])
     judge = _FakeJudge([_judge("accept", 6.0)])
     scorer = Scorer(
         fit,
         judge,
-        Settings(p_win=0.5, margin_rate=1.0, score_use_stub=False),
+        Settings(score_use_stub=False),
     )  # type: ignore[arg-type]
     out = scorer.score({"subject": "x", "nmck": 400.0}, "comp")
-    # fit_norm = 6/10 = 0.6; score = 0.6 × 0.5 × 400 = 120.0
+    # fit_norm = 6/10 = 0.6; score = 0.6
     assert out.final_fit_score == 6.0
     assert out.fit_multiplier == 0.6
-    assert out.p_win == 0.5
-    assert out.margin == 400.0
-    assert out.score == 120.0
+    assert out.score == 0.6
 
 
 def test_score_reject_refines_once() -> None:
@@ -144,14 +141,14 @@ def test_score_reject_refines_once() -> None:
     judge = _FakeJudge([_judge("reject", 6.0, critics="завышено"), _judge("accept", 7.0)])
     out = _scorer(fit, judge).score({"subject": "x", "nmck": 50.0}, "comp")
     assert out.final_fit_score == 7.0
-    assert out.score == 35.0
+    assert out.score == 0.7
     assert fit.calls == 2
     assert judge.calls == 2
 
 
-def test_score_zero_nmck() -> None:
+def test_score_zero_fit() -> None:
     fit = _FakeFit([9.0])
-    judge = _FakeJudge([_judge("accept", 9.0)])
+    judge = _FakeJudge([_judge("accept", 0.0)])
     out = _scorer(fit, judge).score({"subject": "x", "nmck": 0}, "comp")
     assert out.score == 0.0
 
@@ -162,10 +159,10 @@ def test_score_no_normalization_uses_raw_fit() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(p_win=1.0, margin_rate=1.0, normalize_fit_for_score=False, score_use_stub=False),
+        Settings(normalize_fit_for_score=False, score_use_stub=False),
     )
     out = scorer.score({"subject": "x", "nmck": 100.0}, "comp")
-    assert out.score == 800.0
+    assert out.score == 8.0
 
 
 def test_score_keeps_judge_final_over_fit() -> None:
@@ -173,7 +170,7 @@ def test_score_keeps_judge_final_over_fit() -> None:
     judge = _FakeJudge([_judge("reject", 9.0, critics="занижено"), _judge("accept", 9.0)])
     out = _scorer(fit, judge).score({"subject": "x", "nmck": 10.0}, "comp")
     assert out.final_fit_score == 9.0
-    assert out.score == 9.0
+    assert out.score == 0.9
     assert fit.calls == 2
 
 
@@ -199,11 +196,10 @@ def test_score_propagates_requires_tz_review() -> None:
 
 
 def test_stub_returns_existing_score_without_chains() -> None:
-    scorer = Scorer(None, None, Settings(score_use_stub=True, p_win=1.0, margin_rate=1.0))
+    scorer = Scorer(None, None, Settings(score_use_stub=True))
     out = scorer.score({"subject": "x", "nmck": 5000.0, "score": 123.45}, "comp")
     assert out.score == 123.45
     assert out.judge.verdict == "accept"
-    assert out.margin == 5000.0
 
 
 def test_stub_defaults_zero_score_when_missing() -> None:
@@ -240,9 +236,7 @@ def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
 
     fit = _RecordingFit(8.0)
     judge = _FakeJudge([_judge("accept", 8.0)])
-    scorer = Scorer(
-        fit, judge, Settings(p_win=0.5, margin_rate=0.2, llm_model="gpt-test", score_use_stub=False)
-    )  # type: ignore[arg-type]
+    scorer = Scorer(fit, judge, Settings(llm_model="gpt-test", score_use_stub=False))  # type: ignore[arg-type]
     scorer.score({"subject": "x", "nmck": 10.0}, "comp", procurement_id=42, run_id="run-1")
 
     assert fit.calls
@@ -252,7 +246,6 @@ def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
     assert metadata["procurement_id"] == 42
     assert metadata["run_id"] == "run-1"
     assert metadata["llm_model"] == "gpt-test"
-    assert metadata["p_win"] == 0.5
 
 
 def test_score_falls_back_to_procurement_session_without_run_id() -> None:
@@ -531,7 +524,7 @@ def test_score_embedding_disabled_returns_none() -> None:
     judge = _FakeJudge([_judge("accept", 8.0)])
     out = _scorer(fit, judge).score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
     assert out.embedding_similarity is None
-    assert out.score == 80.0
+    assert out.score == 0.8
 
 
 def test_score_embedding_missing_credentials_no_crash() -> None:
@@ -556,7 +549,7 @@ def test_score_embedding_missing_credentials_no_crash() -> None:
     assert scorer._base_metadata["embedding_skipped"] == "missing giga credentials"
     out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
     assert out.embedding_similarity is None
-    assert out.score == 80.0
+    assert out.score == 0.8
 
 
 def test_score_embedding_branch_runs_and_sets_similarity() -> None:
@@ -568,8 +561,6 @@ def test_score_embedding_branch_runs_and_sets_similarity() -> None:
         fit,
         judge,
         Settings(
-            p_win=1.0,
-            margin_rate=1.0,
             score_use_stub=False,
             giga_enabled=True,
             giga_client_id="cid",
@@ -581,8 +572,8 @@ def test_score_embedding_branch_runs_and_sets_similarity() -> None:
     out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
     assert embedder.calls == 1
     assert out.embedding_similarity == 0.6
-    # fit_norm = 8/10 = 0.8; base = 0.5*0.8 + 0.5*0.6 = 0.7; score = 0.7*1*100 = 70.0
-    assert out.score == 70.0
+    # fit_norm = 8/10 = 0.8; base = 0.5*0.8 + 0.5*0.6 = 0.7; score = 0.7
+    assert out.score == 0.7
 
 
 def test_score_embedding_branch_sets_similarity_but_alpha_zero_keeps_score() -> None:
@@ -602,4 +593,4 @@ def test_score_embedding_branch_sets_similarity_but_alpha_zero_keeps_score() -> 
     )  # type: ignore[arg-type]
     out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
     assert out.embedding_similarity == 0.3
-    assert out.score == 80.0
+    assert out.score == 0.8

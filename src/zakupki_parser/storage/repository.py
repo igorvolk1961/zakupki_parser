@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
-from zakupki_parser.config.models import SCORE_METHOD_EXTERNAL
+from zakupki_parser.config.models import SCORE_METHOD_FIT, SCORE_METHOD_STAGES
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import Customer, Database, Procurement
 
@@ -126,9 +126,10 @@ class ProcurementRepository:
                 )
         if min_fit_score is not None:
             conditions.append(Procurement.fit_score >= min_fit_score)
-            # Учитываем только фит-скор, полученный сервисом скоринга: дефолтный
-            # (эвристика до обработки) и deadline_expired не являются «релевантными».
-            conditions.append(Procurement.score_method == SCORE_METHOD_EXTERNAL)
+            # Учитываем только скор, полученный стадиями внешнего каскада скоринга
+            # (fit/pwin/margin): дефолтный (эвристика до обработки) и deadline_expired
+            # не являются «релевантными».
+            conditions.append(Procurement.score_method.in_(SCORE_METHOD_STAGES))
 
         stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
         if customer:
@@ -217,6 +218,8 @@ class ProcurementRepository:
             files_json=data.get("files_json"),
             score=_round_score(data.get("score")),
             fit_score=_round_score(data.get("fit_score")),
+            p_win=_round_score(data.get("p_win")),
+            margin=_round_score(data.get("margin")),
             score_method=data.get("score_method"),
             is_active=bool(data.get("is_active", True)),
             detail_json=data.get("detail_json"),
@@ -282,8 +285,10 @@ class ProcurementRepository:
         procurement_id: int,
         score: float,
         fit_score: float | None = None,
-        method: str = "external",
+        method: str = SCORE_METHOD_FIT,
         embedding_similarity: float | None = None,
+        p_win: float | None = None,
+        margin: float | None = None,
     ) -> None:
         async with self._db.session() as session:
             obj = await session.get(Procurement, procurement_id)
@@ -291,6 +296,8 @@ class ProcurementRepository:
                 rounded = _round_score(score)
                 obj.score = rounded
                 obj.fit_score = _round_score(fit_score) if fit_score is not None else None
+                obj.p_win = _round_score(p_win) if p_win is not None else None
+                obj.margin = _round_score(margin) if margin is not None else None
                 obj.score_method = method
                 obj.embedding_similarity = (
                     round(float(embedding_similarity), 4)
@@ -299,10 +306,12 @@ class ProcurementRepository:
                 )
                 await session.commit()
                 logger.info(
-                    "Обновлён score заявки %s: %s (fit %s, метод %s)",
+                    "Обновлён score заявки %s: %s (fit %s, p_win %s, margin %s, метод %s)",
                     procurement_id,
                     rounded,
                     obj.fit_score,
+                    obj.p_win,
+                    obj.margin,
                     method,
                 )
 
@@ -382,15 +391,15 @@ class ProcurementRepository:
         return deleted
 
     async def delete_irrelevant(self, min_fit_score: float) -> int:
-        """Удаляет нерелевантные закупки среди обработанных сервисом скоринга.
+        """Удаляет нерелевантные закупки среди обработанных внешним каскадом скоринга.
 
-        Учитываются ТОЛЬКО записи, прошедшие внешний скоринг (score_method=external):
-        релевантна закупка с fit_score >= порога, нерелевантна — с fit_score < порога
-        (или NULL). Записи без внешнего скоринга (default/deadline_expired) не
-        затрагиваются. Заказчики не затрагиваются.
+        Учитываются ТОЛЬКО записи, прошедшие внешний скоринг (score_method — одна
+        из стадий каскада fit/pwin/margin): релевантна закупка с fit_score >= порога,
+        нерелевантна — с fit_score < порога (или NULL). Записи без внешнего скоринга
+        (default/deadline_expired) не затрагиваются. Заказчики не затрагиваются.
         """
         stmt = delete(Procurement).where(
-            Procurement.score_method == SCORE_METHOD_EXTERNAL,
+            Procurement.score_method.in_(SCORE_METHOD_STAGES),
             or_(
                 Procurement.fit_score.is_(None),
                 Procurement.fit_score < min_fit_score,

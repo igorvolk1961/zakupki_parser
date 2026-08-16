@@ -13,10 +13,15 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="TRANSPORT_", env_file=".env", extra="ignore")
 
-    # Redis-очередь (та же, что у scoring_service)
+    # Redis-очередь (та же, что у scoring_service/pwin/margin сервисов)
     redis_url: str = "redis://localhost:6379/0"
     jobs_key: str = "scoring:jobs"
     results_key: str = "scoring:results"
+    # Очереди каскада скоринга (стадии P(win)/Margin).
+    pwin_jobs_key: str = "pwin:jobs"
+    pwin_results_key: str = "pwin:results"
+    margin_jobs_key: str = "margin:jobs"
+    margin_results_key: str = "margin:results"
     result_timeout_seconds: float = 5.0
 
     # Парсер закупок (REST)

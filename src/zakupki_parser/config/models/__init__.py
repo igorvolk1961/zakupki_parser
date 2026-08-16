@@ -33,6 +33,7 @@ from zakupki_parser.config.models.ops import (
     MaxConfig,
     NotificationsConfig,
     OpsConfig,
+    Subscriber,
     TelegramConfig,
     WebhookConfig,
 )
@@ -45,7 +46,10 @@ from zakupki_parser.config.models.parser import (
 from zakupki_parser.config.models.score import (
     SCORE_METHOD_DEADLINE_EXPIRED,
     SCORE_METHOD_DEFAULT,
-    SCORE_METHOD_EXTERNAL,
+    SCORE_METHOD_FIT,
+    SCORE_METHOD_MARGIN,
+    SCORE_METHOD_PWIN,
+    SCORE_METHOD_STAGES,
     ScoreConfig,
 )
 from zakupki_parser.config.models.service import (
@@ -78,7 +82,10 @@ __all__ = [
     "RetryConfig",
     "SCORE_METHOD_DEADLINE_EXPIRED",
     "SCORE_METHOD_DEFAULT",
-    "SCORE_METHOD_EXTERNAL",
+    "SCORE_METHOD_FIT",
+    "SCORE_METHOD_MARGIN",
+    "SCORE_METHOD_PWIN",
+    "SCORE_METHOD_STAGES",
     "ScoreConfig",
     "SearchCriteria",
     "SearchFilterConfig",
@@ -86,6 +93,7 @@ __all__ = [
     "SiteServiceEntry",
     "SortConfig",
     "StopConditions",
+    "Subscriber",
     "TelegramConfig",
     "WebhookConfig",
 ]

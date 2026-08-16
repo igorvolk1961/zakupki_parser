@@ -38,13 +38,14 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["scoring_transport"]
+known-first-party = ["scoring_transport", "scoring_common"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 files = ["."]
 exclude = ["tests"]
+mypy_path = [".", "../scoring_common"]
 
 [[tool.mypy.overrides]]
 module = ["redis.*", "fastapi.*", "uvicorn.*"]

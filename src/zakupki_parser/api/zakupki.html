@@ -256,9 +256,11 @@ const fmtDate = (v) => v ? new Date(v).toLocaleString("ru-RU") : "–";
 const fmtDT = (v) => v ? new Date(v).toLocaleString("ru-RU", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "–";
 // Только дата (для таблицы закупок).
 const fmtDateOnly = (v) => v ? new Date(v).toLocaleDateString("ru-RU") : "–";
-// Фит-скор считается только после обработки сервисом скоринга (score_method=external);
-// до этого (дефолтный/просроченный) возвращаем null → показываем прочерк.
-const realFit = (row) => (row.score_method === "external" ? row.fit_score : null);
+// Фит-скор считается только после обработки стадиями внешнего каскада скоринга
+// (score_method=fit/pwin/margin); до этого (дефолтный/просроченный) возвращаем
+// null → показываем прочерк.
+const realFit = (row) =>
+  ["fit", "pwin", "margin"].includes(row.score_method) ? row.fit_score : null;
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));

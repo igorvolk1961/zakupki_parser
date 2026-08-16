@@ -223,8 +223,8 @@ services:
 
   scoring-service:
     build:
-      context: ../src/scoring_service
-      dockerfile: Dockerfile
+      context: ../src
+      dockerfile: scoring_service/Dockerfile
     depends_on:
       redis:
         condition: service_healthy
@@ -245,8 +245,8 @@ services:
 
   scoring-transport:
     build:
-      context: ../src/scoring_transport
-      dockerfile: Dockerfile
+      context: ../src
+      dockerfile: scoring_transport/Dockerfile
     depends_on:
       redis:
         condition: service_healthy
@@ -255,6 +255,30 @@ services:
       TRANSPORT_PARSER_API_URL: http://api:8000
     ports:
       - "8200:8200"
+    restart: unless-stopped
+
+  pwin-service:
+    build:
+      context: ../src
+      dockerfile: pwin_service/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      PWIN_REDIS_URL: redis://redis:6379/0
+      PWIN_PARSER_API_URL: http://api:8000
+    restart: unless-stopped
+
+  margin-service:
+    build:
+      context: ../src
+      dockerfile: margin_service/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      MARGIN_REDIS_URL: redis://redis:6379/0
+      MARGIN_PARSER_API_URL: http://api:8000
     restart: unless-stopped
 
   parser:

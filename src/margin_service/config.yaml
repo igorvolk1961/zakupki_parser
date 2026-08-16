@@ -1,0 +1,25 @@
+# Конфигурация сервиса Margin (margin_service).
+#
+# Значения можно переопределить переменными окружения `MARGIN_*`
+# (например, `MARGIN_MARGIN_RATE=0.2`). Приоритет:
+# аргументы > env `MARGIN_*` > `.env` > этот YAML > значения по умолчанию.
+# Путь к файлу можно изменить env `MARGIN_CONFIG_FILE`.
+
+# Парсер закупок (REST, без прямого доступа к БД)
+parser_api_url: "http://localhost:8000"
+
+# Redis-очередь (та же, что у scoring_transport)
+redis_url: "redis://localhost:6379/0"
+jobs_key: "margin:jobs"
+results_key: "margin:results"
+processing_key: "margin:processing"
+processing_meta_key: "margin:processing_meta"
+processing_ttl_seconds: 600
+processing_recovery_priority: 0.0
+queue_poll_seconds: 2.0
+
+# Норма прибыли: Margin = НМЦК × margin_rate
+margin_rate: 1.0
+
+# Пайплайн
+score_round_digits: 2

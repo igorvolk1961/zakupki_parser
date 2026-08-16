@@ -27,6 +27,25 @@ p_win: 1.0
 # 1.0 — margin = НМЦК; 1.2 — +20% к НМЦК.
 margin_rate: 1.0
 
+# Каскад скоринга Fit -> P(win) -> Margin (ADR-7). Парсер оркестрирует переходы:
+# - после стадии Fit (score_method=fit), если fit_score >= pwin_fit_threshold,
+#   закупка ставится в очередь pwin:jobs (сервис pwin_service);
+# - после стадии P(win) (score_method=pwin), если накопленный score
+#   (fit_score × p_win) >= margin_threshold, закупка ставится в очередь margin:jobs
+#   (сервис margin_service). Уведомление подписчиков — на терминальной стадии.
+#
+# Три множителя хранятся отдельными полями: fit_score, p_win, margin;
+# score — накопленное произведение (после margin = fit × p_win × margin).
+pwin_fit_threshold: 0.5
+margin_threshold: 0.6
+
+# Стадии каскада включаются ТОЛЬКО после развёртывания соответствующих сервисов
+# (pwin_service/margin_service): пока pwin_enabled=false, парсер не ставит задачи
+# в pwin:jobs/margin:jobs и уведомляет подписчиков уже на стадии fit (безопасный
+# ролл-аут — фит-результаты не теряются).
+pwin_enabled: true
+margin_enabled: true
+
 # Адрес scoring_transport для авто-пуша задания на внешний скоринг (ADR-7).
 # После сохранения закупки парсер отправляет POST /api/scoring/jobs с дефолтным скором.
 # Если не задан — внешний скоринг не запускается, закупка остаётся с дефолтным score.

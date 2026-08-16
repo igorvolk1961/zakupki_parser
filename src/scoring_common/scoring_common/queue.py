@@ -1,26 +1,36 @@
-"""Redis-очередь скоринга (sorted set по приоритету).
+"""Параметризованная Redis-очередь стадии каскада скоринга.
 
-- ``scoring:jobs`` (ZSET): member = ``proc:{id}``, score = priority (дефолтный score).
-  Потребление — ``ZPOPMAX``: сначала закупки с наибольшим дефолтным score.
-- ``scoring:results`` (LIST): результаты скоринга (JSON), ``LPUSH`` producer / ``BRPOP`` consumer.
-- ``scoring:processing`` (ZSET): аренда в обработке с TTL для восстановления после сбоя.
+Обобщение ``ScoringQueue`` (scoring_service) и ``TransportQueue`` (scoring_transport):
+ключи (задачи/результаты/аренда) берутся из настроек сервиса, поэтому один класс
+используется в ``pwin_service`` и ``margin_service``.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import redis.asyncio as aioredis
 
-from scoring_service.settings import Settings
+
+class StageQueueSettings(Protocol):
+    """Минимальный набор настроек очереди (утиная типизация)."""
+
+    redis_url: str
+    jobs_key: str
+    results_key: str
+    processing_key: str
+    processing_meta_key: str
+    processing_ttl_seconds: int
+    processing_recovery_priority: float
+    queue_poll_seconds: float
 
 
-class ScoringQueue:
-    """Очередь задач и результатов на Redis."""
+class StageQueue:
+    """Очередь задач и результатов одной стадии на Redis (ZSET + LIST)."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: StageQueueSettings) -> None:
         self._settings = settings
         self._client: aioredis.Redis | None = None
 
@@ -35,7 +45,7 @@ class ScoringQueue:
         return f"proc:{procurement_id}"
 
     async def enqueue(self, procurement_id: int, priority: float) -> None:
-        """Постановка задачи с приоритетом = дефолтным score."""
+        """Постановка задачи с приоритетом = накопленным значением."""
         assert self._client is not None
         await self._client.zadd(self._settings.jobs_key, {self._member(procurement_id): priority})
 
@@ -69,9 +79,8 @@ class ScoringQueue:
         """Вернуть «зависшие» задачи (аренда истекла) обратно в очередь.
 
         Redis не гарантирует доставку: если воркер упал после pop_job, задача остаётся
-        в processing-наборе. Здесь просроченные члены снова ставятся в scoring:jobs с
-        сохранённым приоритетом (из processing_meta), чтобы закупка не потерялась
-        (скоринг идемпотентен через POST /score).
+        в processing-наборе. Здесь просроченные члены снова ставятся в jobs-очередь с
+        сохранённым приоритетом (из processing_meta), чтобы закупка не потерялась.
         """
         assert self._client is not None
         cutoff = time.time() - self._settings.processing_ttl_seconds
@@ -90,7 +99,7 @@ class ScoringQueue:
             await self._client.hdel(self._settings.processing_meta_key, member)
 
     async def publish_result(self, payload: dict[str, Any]) -> None:
-        """Опубликовать результат в LIST scoring:results."""
+        """Опубликовать результат в LIST results_key."""
         assert self._client is not None
         await self._client.lpush(
             self._settings.results_key, json.dumps(payload, ensure_ascii=False)

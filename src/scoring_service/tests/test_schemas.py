@@ -100,9 +100,7 @@ def test_scoring_output() -> None:
         final_fit_score=8.0,
         requires_tz_review=True,
         fit_multiplier=0.8,
-        p_win=1.0,
-        margin=100.0,
-        score=800.0,
+        score=0.8,
     )
-    assert out.score == 800.0
+    assert out.score == 0.8
     assert out.requires_tz_review is True

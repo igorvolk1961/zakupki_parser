@@ -1,4 +1,4 @@
-"""Клиент REST API парсера закупок (только через REST, без БД парсера)."""
+"""Клиент REST API парсера закупок (данные — только через REST, без БД парсера)."""
 
 from __future__ import annotations
 
@@ -31,9 +31,11 @@ class ParserApiClient:
         self,
         procurement_id: int,
         score: float,
-        score_method: str = "external",
+        score_method: str = "fit",
         fit_score: float | None = None,
         embedding_similarity: float | None = None,
+        p_win: float | None = None,
+        margin: float | None = None,
         retry_max: int = 3,
         retry_backoff: float = 2.0,
     ) -> dict[str, Any]:
@@ -44,6 +46,10 @@ class ParserApiClient:
             payload["fit_score"] = fit_score
         if embedding_similarity is not None:
             payload["embedding_similarity"] = embedding_similarity
+        if p_win is not None:
+            payload["p_win"] = p_win
+        if margin is not None:
+            payload["margin"] = margin
         last_exc: Exception | None = None
         for attempt in range(retry_max):
             try:

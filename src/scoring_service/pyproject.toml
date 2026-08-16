@@ -46,13 +46,14 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["scoring_service"]
+known-first-party = ["scoring_service", "scoring_common"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 files = ["."]
 exclude = ["tests"]
+mypy_path = [".", "../scoring_common"]
 
 [[tool.mypy.overrides]]
 module = ["redis.*", "langchain.*", "langchain_openai.*", "langfuse.*", "fastapi.*", "uvicorn.*", "yaml.*"]

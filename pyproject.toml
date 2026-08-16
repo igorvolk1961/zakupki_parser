@@ -55,7 +55,7 @@ ignore = [
 [tool.ruff.lint.isort]
 # Все пакеты проекта (в т.ч. подпроекты) считаем first-party — единая сортировка
 # импортов независимо от версии ruff.
-known-first-party = ["zakupki_parser", "scoring_service", "scoring_transport"]
+known-first-party = ["zakupki_parser", "scoring_service", "scoring_transport", "scoring_common", "pwin_service", "margin_service"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -65,7 +65,7 @@ platform = "linux"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src/zakupki_parser", "tests"]
-exclude = ["tests/fixtures", "src/scoring_service", "src/scoring_transport"]
+exclude = ["tests/fixtures", "src/scoring_service", "src/scoring_transport", "src/scoring_common", "src/pwin_service", "src/margin_service"]
 warn_unused_configs = true
 mypy_path = "src"
 

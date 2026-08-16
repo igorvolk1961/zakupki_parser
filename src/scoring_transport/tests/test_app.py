@@ -24,7 +24,7 @@ class _FakeParser:
 class _FakeQueue:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self.enqueued: list[tuple[int, float]] = []
+        self.enqueued: list[tuple[int, float, str]] = []
         self._client = None
 
     async def connect(self) -> None:
@@ -34,8 +34,8 @@ class _FakeQueue:
         if self._client is not None:
             await self._client.aclose()
 
-    async def enqueue(self, procurement_id: int, priority: float) -> None:
-        self.enqueued.append((procurement_id, priority))
+    async def enqueue(self, procurement_id: int, priority: float, stage: str = "fit") -> None:
+        self.enqueued.append((procurement_id, priority, stage))
 
     async def pop_result(self, timeout: float | None = None) -> dict[str, Any] | None:
         await asyncio.sleep(0.005)
@@ -59,14 +59,23 @@ def test_ingest_without_priority_uses_priority_default() -> None:
     body = resp.json()
     assert body["status"] == "enqueued"
     assert body["priority"] == 0.0
-    assert queue.enqueued == [(42, 0.0)]
+    assert queue.enqueued == [(42, 0.0, "fit")]
 
 
 def test_ingest_explicit_priority_wins() -> None:
     client, queue = _make_app()
     resp = client.post("/api/scoring/jobs", json={"procurement_id": 42, "priority": 999.0})
     assert resp.status_code == 202
-    assert queue.enqueued == [(42, 999.0)]
+    assert queue.enqueued == [(42, 999.0, "fit")]
+
+
+def test_ingest_stage_pwin() -> None:
+    client, queue = _make_app()
+    resp = client.post(
+        "/api/scoring/jobs", json={"procurement_id": 42, "priority": 0.7, "stage": "pwin"}
+    )
+    assert resp.status_code == 202
+    assert queue.enqueued == [(42, 0.7, "pwin")]
 
 
 def test_health() -> None:

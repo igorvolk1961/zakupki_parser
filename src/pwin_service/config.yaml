@@ -1,0 +1,49 @@
+# Конфигурация сервиса P(win) (pwin_service).
+#
+# Значения можно переопределить переменными окружения `PWIN_*`
+# (например, `PWIN_BASE_PWIN=0.4`). Приоритет:
+# аргументы > env `PWIN_*` > `.env` > этот YAML > значения по умолчанию.
+# Путь к файлу можно изменить env `PWIN_CONFIG_FILE`.
+
+# Парсер закупок (REST, без прямого доступа к БД)
+parser_api_url: "http://localhost:8000"
+
+# Redis-очередь (та же, что у scoring_transport)
+redis_url: "redis://localhost:6379/0"
+jobs_key: "pwin:jobs"
+results_key: "pwin:results"
+processing_key: "pwin:processing"
+processing_meta_key: "pwin:processing_meta"
+processing_ttl_seconds: 600
+processing_recovery_priority: 0.0
+queue_poll_seconds: 2.0
+
+# Коэффициенты модели P(win) = base_pwin × k_smp × k_license × k_large × k_procedure × k_ai
+# (калибровка из docs/references/Модель P(win) для IT-закупок России...pdf)
+base_pwin: 0.4
+k_smp: 1.5
+k_license_present: 3.0
+k_license_absent: 0.1
+k_large_threshold: 50000000.0
+k_large: 0.6
+k_procedure_auction: 1.3
+k_procedure_contest: 1.0
+k_procedure_quotation: 0.8
+k_ai: 1.8
+max_pwin_cap: 0.95
+
+# Маркеры ИИ-закупки в subject/okpd2 (регистронезависимый поиск подстроки)
+ai_markers:
+  - "искусственный интеллект"
+  - "нейросет"
+  - "машинное обучение"
+  - "llm"
+  - "большая языковая модель"
+  - "ии-"
+  - " ai "
+  - "ии "
+  - "ии,"
+  - "гпт"
+
+# Пайплайн
+score_round_digits: 4

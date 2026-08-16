@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 21
+      author: zakupki-parser
+      comment: "Каскад скоринга Fit->P(win)->Margin: отдельные поля множителей p_win/margin; external -> fit"
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE procurements ADD COLUMN p_win DOUBLE PRECISION;
+              ALTER TABLE procurements ADD COLUMN margin DOUBLE PRECISION;
+              UPDATE procurements SET score_method = 'fit' WHERE score_method = 'external';

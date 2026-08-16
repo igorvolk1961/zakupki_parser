@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import yaml
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -19,8 +19,14 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import text as sql_text
 
 from zakupki_parser.config.loader import load_config
-from zakupki_parser.config.models import AppConfig, ServiceConfig
+from zakupki_parser.config.models import (
+    SCORE_METHOD_FIT,
+    SCORE_METHOD_PWIN,
+    AppConfig,
+    ServiceConfig,
+)
 from zakupki_parser.notify import Notifier
+from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.db import Database, Procurement
 from zakupki_parser.storage.repository import ProcurementRepository, effective_is_active
 
@@ -55,6 +61,8 @@ class ProcurementOut(BaseModel):
     files_json: list[dict[str, Any]] | None = None
     score: float | None = None
     fit_score: float | None = None
+    p_win: float | None = None
+    margin: float | None = None
     score_method: str | None = None
     embedding_similarity: float | None = None
     is_active: bool = True
@@ -120,7 +128,9 @@ class ScoreUpdate(BaseModel):
 
     score: float
     fit_score: float | None = None
-    score_method: str = "external"
+    p_win: float | None = None
+    margin: float | None = None
+    score_method: str = SCORE_METHOD_FIT
     embedding_similarity: float | None = None
 
 
@@ -149,6 +159,8 @@ class AppState:
         # используется в POST /score.
         self.notifier: Notifier | None = None
         self.notify_min_fit_score: float = 0.0
+        # Транспорт каскада скоринга: постановка задач следующих стадий (P(win)/Margin).
+        self.score_transport: ScoringTransportClient | None = None
 
 
 async def _broadcast(state: AppState, message: str = "data-changed") -> None:
@@ -182,9 +194,42 @@ async def _run_parser(state: AppState) -> None:
         state.parser_task = None
 
 
+async def _enqueue_next_stage(
+    state: AppState, procurement_id: int, stage: str, priority: float
+) -> bool:
+    """Поставить задачу следующей стадии каскада через транспорт (best-effort).
+
+    Возвращает True, если транспорт настроен и постановка выполнена. Постановка
+    идемпотентна: повторная доставка результата той же стадии не дублирует задачу
+    (ZADD по одному члену очереди). Ошибки постановки не роняют обработчик — они
+    обрабатываются как «каскад не продолжился» (fallback-уведомление в set_score).
+    """
+    if state.score_transport is None:
+        logger.warning(
+            "Транспорт не настроен: следующая стадия %s для закупки %s не поставлена",
+            stage,
+            procurement_id,
+        )
+        return False
+    try:
+        await state.score_transport.enqueue(procurement_id, priority, stage=stage)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Не удалось поставить задание стадии %s для закупки %s: %s",
+            stage,
+            procurement_id,
+            exc,
+        )
+        return False
+
+
 def _create_state(configs_dir: str) -> AppState:
     cfg = load_config(configs_dir)
-    return AppState(cfg, configs_dir)
+    state = AppState(cfg, configs_dir)
+    if cfg.score.scoring_transport_url:
+        state.score_transport = ScoringTransportClient(cfg.score.scoring_transport_url)
+    return state
 
 
 def _procurement_out(row: Procurement) -> ProcurementOut:
@@ -219,10 +264,70 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
         "deadline": row.deadline,
         "score": row.score,
         "fit_score": row.fit_score,
+        "p_win": row.p_win,
+        "margin": row.margin,
         "score_method": row.score_method,
         "embedding_similarity": row.embedding_similarity,
         "is_active": effective_is_active(row.is_active, row.deadline),
     }
+
+
+class ScoreStageRow(Protocol):
+    """Поля записи закупки, используемые оркестрацией каскада скоринга."""
+
+    score_method: str | None
+    fit_score: float | None
+    score: float | None
+
+
+class ScoreCascadeCfg(Protocol):
+    """Поля конфига (AppConfig), используемые оркестрацией каскада."""
+
+    score: Any
+
+
+def _next_stage_score(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> tuple[str, float] | None:
+    """Следующая стадия каскада Fit -> P(win) -> Margin для записи.
+
+    Возвращает ``(stage, priority)``, если результат текущей стадии проходит порог
+    следующей И следующая стадия включена (``pwin_enabled``/``margin_enabled``);
+    иначе ``None`` (каскад остановлен, стадия терминальная).
+
+    - ``fit`` → ``pwin``, если ``fit_score >= pwin_fit_threshold``;
+    - ``pwin`` → ``margin``, если накопленный ``score`` (fit × p_win) >= ``margin_threshold``;
+    - ``margin`` — финальная стадия, следующей нет.
+    """
+    method = row.score_method
+    if method == SCORE_METHOD_FIT and row.fit_score is not None:
+        if cfg.score.pwin_enabled and row.fit_score >= cfg.score.pwin_fit_threshold:
+            return "pwin", float(row.fit_score)
+        return None
+    if method == SCORE_METHOD_PWIN and row.score is not None:
+        if cfg.score.margin_enabled and row.score >= cfg.score.margin_threshold:
+            return "margin", float(row.score)
+        return None
+    return None
+
+
+def _is_terminal_stage(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> bool:
+    """Терминальная ли стадия (уведомление подписчиков отправляем только на ней).
+
+    Каскад завершён, если:
+    - результат fit ниже порога pwin (или стадия pwin не включена);
+    - результат pwin ниже порога margin (или стадия margin не включена);
+    - стадия margin завершена.
+    """
+    method = row.score_method
+    if method == SCORE_METHOD_FIT:
+        return not cfg.score.pwin_enabled or (
+            row.fit_score is None or row.fit_score < cfg.score.pwin_fit_threshold
+        )
+    if method == SCORE_METHOD_PWIN:
+        return not cfg.score.margin_enabled or (
+            row.score is None or row.score < cfg.score.margin_threshold
+        )
+    return True
+    return True
 
 
 def create_app(configs_dir: str = "configs") -> FastAPI:
@@ -319,6 +424,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         "advance",
         "score",
         "fit_score",
+        "p_win",
+        "margin",
         "score_method",
         "is_active",
     ]
@@ -373,10 +480,16 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     async def set_score(procurement_id: int, body: ScoreUpdate) -> ProcurementDetailOut:
         """Обновление score внешним сервисом по его инициативе.
 
-        После обновления score уведомляет подписчиков, если
-        fit_score >= notify_min_fit_score (отложенное пороговое уведомление, ADR-7).
+        Каскад скоринга Fit -> P(win) -> Margin: после записи результата стадии,
+        если он проходит порог следующей (и стадия включена), закупка ставится в
+        очередь следующей стадии через транспорт (идемпотентно). Уведомляет
+        подписчиков, когда каскад завершён (терминальная стадия) ИЛИ следующая
+        стадия не может быть поставлена (транспорт недоступен/не настроен) —
+        чтобы фит-результаты не терялись при ролл-ауте, если fit_score >=
+        notify_min_fit_score (ADR-7).
         """
-        if await _repo().get_by_id(procurement_id) is None:
+        existing = await _repo().get_by_id(procurement_id)
+        if existing is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _repo().update_score(
             procurement_id,
@@ -384,15 +497,32 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             body.fit_score,
             body.score_method,
             embedding_similarity=body.embedding_similarity,
+            p_win=body.p_win,
+            margin=body.margin,
         )
         await _broadcast(state)
         row = await _repo().get_by_id(procurement_id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
+
+        # Следующая стадия каскада. Постановка идемпотентна (ZADD), поэтому
+        # повторная доставка результата той же стадии (ADR-7 retry) безопасна.
+        next_stage = _next_stage_score(row, state.cfg)
+        transitioned = False
+        if next_stage is not None:
+            stage, priority = next_stage
+            transitioned = await _enqueue_next_stage(state, procurement_id, stage, priority)
+
+        # Уведомление: только когда результат этой стадии изменён (не повторная
+        # доставка той же стадии) и либо каскад завершён, либо следующая стадия
+        # не смогла быть поставлена (fallback, чтобы не терять фит-результаты).
+        stage_changed = existing.score_method != row.score_method
         if (
-            state.notifier is not None
+            stage_changed
+            and state.notifier is not None
             and row.fit_score is not None
             and row.fit_score >= state.notify_min_fit_score
+            and (_is_terminal_stage(row, state.cfg) or not transitioned)
         ):
             await state.notifier.notify(_row_to_record(row))
         return _procurement_detail_out(row)

@@ -117,8 +117,6 @@ class ScoringOutput(BaseModel):
             "Множитель Fit 0..1 (final_fit_score / max_fit_score при normalize_fit_for_score)"
         )
     )
-    p_win: float
-    margin: float
     score: float
     # Ветка векторной близости (Giga Embedder). None, если ветка выключена/не
     # настроен ключ доступа/произошёл сбой (best-effort).
