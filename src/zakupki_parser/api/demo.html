@@ -54,8 +54,10 @@
   .sort-toggle { display:block; flex:0 0 auto; font-size:13px; color: var(--muted, #888); padding:8px 12px; }
   .proc-table { flex:1 1 auto; min-height:0; overflow:auto; }
   .sort-toggle select { margin-left:6px; }
-  #proc-min-fit::-webkit-outer-spin-button, #proc-min-fit::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
-  #proc-min-fit { -moz-appearance:textfield; }
+  #proc-min-fit::-webkit-outer-spin-button, #proc-min-fit::-webkit-inner-spin-button,
+  #db-min-fit::-webkit-outer-spin-button, #db-min-fit::-webkit-inner-spin-button,
+  #export-min-fit::-webkit-outer-spin-button, #export-min-fit::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  #proc-min-fit, #db-min-fit, #export-min-fit { -moz-appearance:textfield; }
   .step { display:inline-flex; align-items:stretch; vertical-align:middle; }
   .step input { width:32px; text-align:right; padding:1px 2px; border:1px solid var(--line); border-radius:6px 0 0 6px; background:var(--panel2); color:var(--text); }
   .step-btn { display:inline-flex; flex-direction:column; }
@@ -204,22 +206,43 @@
     <span class="close" onclick="closeDbModal()">×</span>
     <h2>Очистка БД</h2>
     <p class="muted" style="margin-top:0;">Что удалить из базы данных?</p>
-    <div class="toolbar" style="flex-direction:column; align-items:stretch; margin-bottom:0;">
-      <button class="ghost" id="db-clear-cancel">Отменить</button>
-      <button class="danger" id="db-clear-all">Удалить все записи (закупки и заказчики)</button>
-      <button class="ghost" id="db-clear-inactive">Удалить все неактивные закупки</button>
-      <span style="display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <button class="ghost" id="db-clear-irrelevant">Удалить нерелевантные закупки</button>
-        <label style="white-space:nowrap; color:var(--text);">fit-score &lt;
-          <span class="step" id="db-min-fit-step">
-            <input type="number" id="db-min-fit" value="0.4" min="0" max="0.9" step="0.1">
-            <span class="step-btn">
-              <button type="button" id="db-fit-up" title="+0.1">▲</button>
-              <button type="button" id="db-fit-dn" title="-0.1">▼</button>
-            </span>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="radio" name="db-clear-mode" value="all" checked> Удалить все записи (закупки и заказчики)</label>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="radio" name="db-clear-mode" value="inactive"> Удалить все неактивные закупки</label>
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap;"><input type="radio" name="db-clear-mode" value="irrelevant"> Удалить нерелевантные закупки
+        <span class="step" id="db-min-fit-step">
+          <input type="number" id="db-min-fit" value="0.4" min="0" max="0.9" step="0.1">
+          <span class="step-btn">
+            <button type="button" id="db-fit-up" title="+0.1">▲</button>
+            <button type="button" id="db-fit-dn" title="-0.1">▼</button>
           </span>
-        </label>
+        </span>
+      </label>
+    </div>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="db-clear-cancel">Отменить</button>
+      <button class="danger" id="db-clear-confirm">Удалить</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="export-modal-bg">
+  <div class="modal" id="export-modal">
+    <span class="close" onclick="closeExportModal()">×</span>
+    <h2>Выгрузка CSV на сервер</h2>
+    <p class="muted" style="margin-top:0;">В выгрузку попадут только активные и релевантные закупки (fit-score ≥ порога).</p>
+    <div style="display:flex; align-items:center; gap:8px; color:var(--text); white-space:nowrap;">fit-score ≥
+      <span class="step" id="export-min-fit-step">
+        <input type="number" id="export-min-fit" value="0.4" min="0" max="0.9" step="0.1">
+        <span class="step-btn">
+          <button type="button" id="export-fit-up" title="+0.1">▲</button>
+          <button type="button" id="export-fit-dn" title="-0.1">▼</button>
+        </span>
       </span>
+    </div>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="export-cancel">Отменить</button>
+      <button class="primary" id="export-confirm">Выгрузить</button>
     </div>
   </div>
 </div>
@@ -616,7 +639,7 @@ $("#db-clear").addEventListener("click", () => {
 
 function closeDbModal() { $("#db-modal-bg").classList.remove("open"); }
 $("#db-modal-bg").addEventListener("click", (e) => { if (e.target.id === "db-modal-bg") closeDbModal(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDbModal(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDbModal(); closeExportModal(); } });
 
 async function dbClearRequest(url, body) {
   closeDbModal();
@@ -636,11 +659,12 @@ async function dbClearRequest(url, body) {
   $("#parser-status").textContent = "БД очищена" + (cnt !== "" ? ` (удалено: ${cnt})` : "");
 }
 $("#db-clear-cancel").addEventListener("click", closeDbModal);
-$("#db-clear-all").addEventListener("click", () => dbClearRequest("/api/db/clear"));
-$("#db-clear-inactive").addEventListener("click", () => dbClearRequest("/api/db/clear-inactive"));
-$("#db-clear-irrelevant").addEventListener("click", () =>
-  dbClearRequest("/api/db/clear-irrelevant", { min_fit_score: parseFloat($("#db-min-fit").value) })
-);
+$("#db-clear-confirm").addEventListener("click", () => {
+  const mode = document.querySelector('input[name="db-clear-mode"]:checked').value;
+  if (mode === "all") dbClearRequest("/api/db/clear");
+  else if (mode === "inactive") dbClearRequest("/api/db/clear-inactive");
+  else dbClearRequest("/api/db/clear-irrelevant", { min_fit_score: parseFloat($("#db-min-fit").value) });
+});
 function stepDbFit(d) {
   const input = $("#db-min-fit");
   let v = parseFloat(input.value);
@@ -650,12 +674,30 @@ function stepDbFit(d) {
 }
 $("#db-fit-up").addEventListener("click", () => stepDbFit(0.1));
 $("#db-fit-dn").addEventListener("click", () => stepDbFit(-0.1));
-$("#db-export").addEventListener("click", async () => {
+function closeExportModal() { $("#export-modal-bg").classList.remove("open"); }
+$("#db-export").addEventListener("click", () => {
+  // Порог в диалоге — как в фильтре таблицы закупок.
+  $("#export-min-fit").value = $("#proc-min-fit").value;
+  $("#export-modal-bg").classList.add("open");
+});
+$("#export-modal-bg").addEventListener("click", (e) => { if (e.target.id === "export-modal-bg") closeExportModal(); });
+$("#export-cancel").addEventListener("click", closeExportModal);
+function stepExportFit(d) {
+  const input = $("#export-min-fit");
+  let v = parseFloat(input.value);
+  if (isNaN(v)) v = 0.4;
+  v = Math.min(0.9, Math.max(0, Math.round((v + d) * 10) / 10));
+  input.value = v;
+}
+$("#export-fit-up").addEventListener("click", () => stepExportFit(0.1));
+$("#export-fit-dn").addEventListener("click", () => stepExportFit(-0.1));
+$("#export-confirm").addEventListener("click", async () => {
+  closeExportModal();
   $("#parser-status").textContent = "выгрузка CSV…";
   const r = await fetch("/api/procurements/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ min_fit_score: parseFloat($("#proc-min-fit").value) }),
+    body: JSON.stringify({ min_fit_score: parseFloat($("#export-min-fit").value) }),
   });
   if (!r.ok) { $("#parser-status").textContent = "не удалось выгрузить CSV"; return; }
   const body = await r.json();
