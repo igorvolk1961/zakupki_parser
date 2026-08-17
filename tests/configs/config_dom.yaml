@@ -187,6 +187,7 @@ platforms:
         recordsPerPage: "_50"
         showLotsInfoHidden: "false"
         sortBy: "UPDATE_DATE"
+        fz44: "on"
         currencyIdGeneral: "-1"
         okpd2IdsWithNested: "on"
       filter_json: {}
@@ -199,10 +200,6 @@ platforms:
         # Срок подачи заявок (applSubmissionCloseDateFrom) = сегодня — отсекает
         # просроченные заявки (дедлайн обязателен).
         deadline_from: { query_param: "applSubmissionCloseDateFrom" }
-        # Законы: fz44/fz223 включаются параметром fz44=on/fz223=on (критерии
-        # из config_service.yaml -> search_criteria).
-        fz44:          { query_param: "fz44" }
-        fz223:         { query_param: "fz223" }
         # okpd2IdsWithNested=on (в query_params) включает дочерние узлы — перечислять
         # всё поддерево не нужно, достаточно собственных id выбранных кодов.
         okpd2:

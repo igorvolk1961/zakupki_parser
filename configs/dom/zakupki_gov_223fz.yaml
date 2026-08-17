@@ -54,7 +54,7 @@ organization:
   inn_from_org_page: true
   inn_page_selector: null
 
-# URL-фильтр расширенного поиска ЕИС, только 223-ФЗ (fz223=on; fz44 не мапится).
+# URL-фильтр расширенного поиска ЕИС, только 223-ФЗ (fz223=on статично).
 search:
   enabled: true
   query_params:
@@ -65,6 +65,7 @@ search:
     recordsPerPage: "_50"
     showLotsInfoHidden: "false"
     sortBy: "UPDATE_DATE"
+    fz223: "on"
     currencyIdGeneral: "-1"
     okpd2IdsWithNested: "on"
   filter_json: {}
@@ -73,7 +74,6 @@ search:
     publish_date:  { query_param: "publishDateFrom" }
     update_date:   { query_param: "updateDateFrom" }
     deadline_from: { query_param: "applSubmissionCloseDateFrom" }
-    fz223:         { query_param: "fz223" }
     # Ключевые слова -> свободный текстовый поиск ЕИС (searchString).
     keywords:      { query_param: "searchString" }
     okpd2:

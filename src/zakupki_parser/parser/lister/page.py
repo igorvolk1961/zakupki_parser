@@ -41,7 +41,10 @@ async def open_list_page(
 
 
 async def setup_sort_and_filters(
-    page: Page, platform: PlatformDom, delayer: Delayer | None = None
+    page: Page,
+    platform: PlatformDom,
+    delayer: Delayer | None = None,
+    by_relevance: bool | None = None,
 ) -> None:
     """Устанавливает сортировку и применяет фильтры из конфигурации площадки.
 
@@ -50,11 +53,15 @@ async def setup_sort_and_filters(
 
     Обычный порядок сортировки фиксирован (``publication_date_desc``) — на нём
     основана стоп-логика по дате последней записи площадки. Если площадка
-    сортирует по релевантности (``sort.by_relevance=true``), клик по дропдауну
-    даты не выполняется — сортировку задаёт URL (sortField=relevance).
+    сортирует по релевантности (``sort.by_relevance=true`` или глобальный режим
+    ``sort_by_date_only`` выключен и передан ``by_relevance=true``), клик по
+    дропдауну даты не выполняется — сортировку задаёт URL (sortField=relevance).
     """
     sort = platform.sort
-    if sort and not sort.by_relevance and sort.dropdown and sort.option_text:
+    effective_relevance = (
+        sort.by_relevance if (sort and by_relevance is None) else bool(by_relevance)
+    )
+    if sort and not effective_relevance and sort.dropdown and sort.option_text:
         logger.info("Сортировка: %s (порядок фиксирован %s)", sort.option_text, sort.order)
         dropdown = page.locator(sort.dropdown)
         # SPA рендерит панель сортировки с задержкой — ждём появления.
@@ -73,7 +80,7 @@ async def setup_sort_and_filters(
         else:
             await page.keyboard.press("Escape")
             logger.warning("Пункт сортировки '%s' не найден", sort.option_text)
-    elif sort and sort.by_relevance:
+    elif sort and effective_relevance:
         logger.info("Сортировка по релевантности (задаётся URL sortField=relevance)")
 
     if platform.filters:

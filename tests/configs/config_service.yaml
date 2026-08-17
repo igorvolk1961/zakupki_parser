@@ -13,8 +13,6 @@ search_criteria:
   nmck_min: null
   nmck_max: null
   active_only: false
-  fz44: true
-  fz223: true
 stop_conditions:
   enabled: true
   deadline_not_expired: true

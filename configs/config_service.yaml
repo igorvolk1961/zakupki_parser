@@ -19,15 +19,20 @@ sites:
   enabled: true
 - platform_id: lot_online_223
   enabled: true
-default_cutoff_days: 1000
+# Сортировать ВСЕ площадки по дате (по дате обновления, если площадка её
+# поддерживает, иначе по дате публикации); стоп-порог применяется всегда:
+# MAX(<дата>) по площадке из БД, либо now - default_cutoff_days, если записей нет.
+# false — сортировка площадок, допускающих релевантность, управляется их
+# индивидуальным параметром sort.by_relevance.
+sort_by_date_only: true
+default_cutoff_days: 30
 search_criteria:
   okpd_codes:
   - '62.02'
   keywords:
   - искусственный интеллект
+  - ИИ
   - автоматизация
-  fz44: true
-  fz223: true
   active_only: true
 stop_conditions:
   enabled: true

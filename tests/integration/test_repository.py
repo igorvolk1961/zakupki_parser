@@ -206,7 +206,7 @@ async def test_last_processed_date(db: Database) -> None:
             "number": "ABC-4",
             "platform_id": "zakupki_mos",
             "subject": "x",
-            "update_date": datetime(2026, 8, 4, 0, 0, tzinfo=timezone(timedelta(hours=3))),
+            "publication_date": datetime(2026, 8, 4, 0, 0, tzinfo=timezone(timedelta(hours=3))),
         }
     )
     now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
@@ -215,6 +215,30 @@ async def test_last_processed_date(db: Database) -> None:
 
     unknown = await repo.last_processed_date("nope", now, default_cutoff_days=7)
     assert unknown == now - timedelta(days=7)
+
+
+@pytest.mark.asyncio
+async def test_last_processed_date_update_field(db: Database) -> None:
+    repo = ProcurementRepository(db)
+    await repo.upsert(
+        {
+            "number": "ABC-7",
+            "platform_id": "zakupki_gov",
+            "subject": "x",
+            "update_date": datetime(2026, 8, 2, 0, 0, tzinfo=timezone(timedelta(hours=3))),
+        }
+    )
+    now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+    cutoff = await repo.last_processed_date(
+        "zakupki_gov", now, default_cutoff_days=7, field="update_date"
+    )
+    assert cutoff == datetime(2026, 8, 1, 21, 0, tzinfo=UTC)
+
+    # publication_date не заполнена -> фолбэк на default_cutoff_days.
+    fallback = await repo.last_processed_date(
+        "zakupki_gov", now, default_cutoff_days=7, field="publication_date"
+    )
+    assert fallback == now - timedelta(days=7)
 
 
 @pytest.mark.asyncio

@@ -55,15 +55,21 @@ class ProcurementRepository:
         self._db = db
 
     async def last_processed_date(
-        self, platform_id: str, now: datetime, default_cutoff_days: int
+        self,
+        platform_id: str,
+        now: datetime,
+        default_cutoff_days: int,
+        *,
+        field: str = "publication_date",
     ) -> datetime:
-        """Дата последней обработанной записи площадки (MAX(update_date)).
+        """Дата последней обработанной записи площадки (MAX(<field>)).
 
-        Если для площадки ещё нет ни одной записи — ``now - default_cutoff_days``.
+        ``field`` — ``publication_date`` (по умолчанию) или ``update_date``
+        (для площадок, поддерживающих дату обновления). Если для площадки ещё
+        нет ни одной записи — ``now - default_cutoff_days``.
         """
-        stmt = select(func.max(Procurement.update_date)).where(
-            Procurement.platform_id == platform_id
-        )
+        column = Procurement.update_date if field == "update_date" else Procurement.publication_date
+        stmt = select(func.max(column)).where(Procurement.platform_id == platform_id)
         async with self._db.session() as session:
             max_date = (await session.execute(stmt)).scalar_one_or_none()
         if max_date is None:

@@ -34,7 +34,7 @@ def test_check_config_summary(app_config: AppConfig) -> None:
     assert "ключевые слова" in out
     assert "состояние=" in out
     assert "Порог дат (дней):" in out
-    assert "релевантности" in out
+    assert "режим:" in out
 
     # Скоринг.
     assert "P(win):" in out

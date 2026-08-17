@@ -308,7 +308,11 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         if not self._site_cb.allow_request():
             raise CircuitOpenError("Сайт недоступен (circuit open)")
 
-        by_relevance = bool(self._platform.sort and self._platform.sort.by_relevance)
+        # Глобальный режим sort_by_date_only: все площадки сортируются по дате.
+        # Иначе — релевантность задаётся индивидуально (sort.by_relevance площадки).
+        by_relevance = (not self._cfg.service.sort_by_date_only) and bool(
+            self._platform.sort and self._platform.sort.by_relevance
+        )
         if by_relevance:
             # Сортировка по релевантности: по дате НЕ отсекаем, обходим до конца пагинации.
             cutoff = None
@@ -320,10 +324,18 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             # БД недоступна (repository=None) — порог взять неоткуда, кроме default_cutoff_days.
             cutoff = self._now - timedelta(days=self._cfg.service.default_cutoff_days)
         else:
-            # По умолчанию порог берётся из даты последней обработанной записи БД;
-            # default_cutoff_days применяется только когда в БД ещё нет записей.
+            # Поле даты стоп-порога: update_date, если площадка его поддерживает
+            # (переменная update_date в карточке списка), иначе publication_date.
+            date_field = (
+                "update_date"
+                if any(v.name == "update_date" for v in self._platform.list_config.variables)
+                else "publication_date"
+            )
             cutoff = await self._repository.last_processed_date(
-                self._platform_id, self._now, self._cfg.service.default_cutoff_days
+                self._platform_id,
+                self._now,
+                self._cfg.service.default_cutoff_days,
+                field=date_field,
             )
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
@@ -413,7 +425,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             circuit=self._site_cb,
             label="Открытие списка",
         )
-        await setup_sort_and_filters(page, self._platform)
+        await setup_sort_and_filters(page, self._platform, by_relevance=by_relevance)
         await self._delayer.sleep()
 
         # Ранний пропуск прохода (relevance-режим, без клиентского пост-фильтра):

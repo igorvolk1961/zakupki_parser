@@ -223,8 +223,8 @@ class CriteriaMapping(BaseModel):
         ``priceFrom``, ``publishDateFrom``).
     Можно указать оба сразу (например, критерий попадает и в JSON, и в параметр).
     Ключ словаря criteria_map — один из известных критериев: ``publish_date``,
-    ``update_date``, ``deadline_from``, ``okpd2``, ``fz44``, ``fz223``,
-    ``nmck_min``, ``nmck_max``, ``keywords``.
+    ``update_date``, ``deadline_from``, ``okpd2``, ``nmck_min``, ``nmck_max``,
+    ``keywords``.
     """
 
     json_path: str | None = Field(
@@ -315,7 +315,7 @@ class SearchFilterConfig(BaseModel):
         default_factory=dict,
         description=(
             "обобщённый критерий (publish_date|update_date|deadline_from|okpd2|"
-            "fz44|fz223|nmck_min|nmck_max|keywords|active_only) -> привязка к "
+            "nmck_min|nmck_max|keywords|active_only) -> привязка к "
             "запросу площадки (JSON-путь и/или query-параметр)"
         ),
     )

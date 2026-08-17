@@ -146,13 +146,11 @@ def _print_summary(cfg: AppConfig) -> None:
     print(
         f"  Критерии поиска: ОКПД2={okpd}; "
         f"НМЦК {sc.nmck_min or '–'}…{sc.nmck_max or '–'}; "
-        f"44-ФЗ={_yn(sc.fz44)}; 223-ФЗ={_yn(sc.fz223)}; ключевые слова={kw}; "
+        f"ключевые слова={kw}; "
         f"состояние={'только активные' if sc.active_only else 'все'}"
     )
-    print(
-        f"  Порог дат (дней): {cfg.service.default_cutoff_days}"
-        f" (применяется только если площадка НЕ сортирует по релевантности)"
-    )
+    mode = "все площадки по дате" if cfg.service.sort_by_date_only else "по конфигурации площадок"
+    print(f"  Порог дат (дней): {cfg.service.default_cutoff_days} (режим: {mode})")
     sc_cond = cfg.service.stop_conditions
     min_days = sc_cond.min_deadline_days if sc_cond.min_deadline_days is not None else "–"
     print(

@@ -53,7 +53,7 @@ organization:
   inn_from_org_page: true
   inn_page_selector: null
 
-# URL-фильтр расширенного поиска ЕИС, только 44-ФЗ (fz44=on; fz223 не мапится).
+# URL-фильтр расширенного поиска ЕИС, только 44-ФЗ (fz44=on статично).
 search:
   enabled: true
   query_params:
@@ -64,6 +64,7 @@ search:
     recordsPerPage: "_50"
     showLotsInfoHidden: "false"
     sortBy: "UPDATE_DATE"
+    fz44: "on"
     currencyIdGeneral: "-1"
     okpd2IdsWithNested: "on"
   filter_json: {}
@@ -76,7 +77,6 @@ search:
     # Срок подачи заявок (applSubmissionCloseDateFrom) = сегодня — отсекает
     # просроченные заявки (дедлайн обязателен).
     deadline_from: { query_param: "applSubmissionCloseDateFrom" }
-    fz44:          { query_param: "fz44" }
     # Ключевые слова -> свободный текстовый поиск ЕИС (searchString).
     keywords:      { query_param: "searchString" }
     # okpd2IdsWithNested=on (в query_params) включает дочерние узлы — перечислять

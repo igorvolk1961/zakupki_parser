@@ -84,14 +84,6 @@ class SearchCriteria(_BaseConfig):
             "пустой список — фильтр не применяется"
         ),
     )
-    fz44: bool = Field(
-        default=True,
-        description="включать закупки по 44-ФЗ (применяется на ЕИС: fz44=on)",
-    )
-    fz223: bool = Field(
-        default=True,
-        description="включать закупки по 223-ФЗ (применяется на ЕИС: fz223=on)",
-    )
     active_only: bool = Field(
         default=False,
         description=(
@@ -107,6 +99,15 @@ class ServiceConfig(_BaseConfig):
     sites: list[SiteServiceEntry] = Field(default_factory=list)
     default_cutoff_days: int = Field(
         default=7, ge=0, description="порог 'дата последней обработанной записи' в днях"
+    )
+    sort_by_date_only: bool = Field(
+        default=False,
+        description=(
+            "сортировать все площадки по дате (по дате обновления, если площадка её "
+            "поддерживает, иначе по дате публикации); стоп-порог по дате применяется "
+            "всегда. false — сортировка площадок, допускающих релевантность, "
+            "управляется их индивидуальным параметром sort.by_relevance"
+        ),
     )
     search_criteria: SearchCriteria = Field(
         default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
