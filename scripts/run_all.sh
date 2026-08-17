@@ -175,6 +175,21 @@ if [[ "${SKIP_LANGFUSE:-0}" != "1" ]]; then
     ( cd "$ROOT_DIR" && COMPOSE_PROFILES=langfuse \
         docker compose -f docker/docker-compose.yml up -d langfuse-web ) || \
         echo "Внимание: LangFuse не поднялся — проверьте docker/.env." >&2
+    # Compose ждёт только healthcheck зависимостей; langfuse-db может долго
+    # восстанавливаться после нештатной остановки — дожидаемся реальной готовности UI.
+    echo "Ожидание готовности LangFuse..."
+    ready=0
+    for i in $(seq 1 60); do
+        if curl -sf -m 2 "http://localhost:3000/api/public/health" >/dev/null 2>&1; then
+            echo "LangFuse готов."
+            ready=1
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$ready" != 1 ]]; then
+        echo "Внимание: LangFuse не ответил на /api/public/health за 2 мин — проверьте лог langfuse-web." >&2
+    fi
     echo "LangFuse UI: http://localhost:3000"
 else
     echo "LangFuse пропущен (SKIP_LANGFUSE=1)."
