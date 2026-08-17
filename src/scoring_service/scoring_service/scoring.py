@@ -78,6 +78,10 @@ class Scorer:
         # Причина пропуска ветки (например, отсутствие ключа доступа) — пишется в
         # метаданные LangFuse-трейса, чтобы не было тихого «пропуска без следа».
         self._embedding_skip_reason = embedding_skip_reason
+        # Кэш эмбеддинга компетенций: компетенции одинаковы для всех закупок
+        # прогона, поэтому вектор считаем один раз и переиспользуем (ключ — текст
+        # компетенций). Заполняется веткой векторной близости.
+        self._competencies_embedding_cache: dict[str, list[float]] = {}
         # Уточнение по ТЗ работает только при tz_review_enabled=true (флаг имеет
         # приоритет над явно переданным reviewer — для тестов).
         self._tz_reviewer = (
@@ -280,7 +284,9 @@ class Scorer:
         if embedder is None:
             return None
         branch = RunnableLambda(
-            lambda _: embedding_module.embedding_similarity(embedder, competencies, description),
+            lambda _: embedding_module.embedding_similarity(
+                embedder, competencies, description, self._competencies_embedding_cache
+            ),
             name="embedding_similarity",
         )
         span_config = cast(

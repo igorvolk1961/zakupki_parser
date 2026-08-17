@@ -599,6 +599,75 @@ def test_score_embedding_branch_sets_similarity_but_alpha_zero_keeps_score() -> 
     assert out.score == 0.8
 
 
+class _TextSensitiveEmbedder:
+    """Эмбеддер с векторами, зависящими от текста (для проверки кэша).
+
+    Компетенции дают [1, 0], любой другой текст — [0, 1]; запоминает все тексты,
+    которые эмбеддились, чтобы проверить, что компетенции считались один раз.
+    """
+
+    def __init__(self) -> None:
+        self.embedded_texts: list[str] = []
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.embedded_texts.extend(texts)
+        return [[1.0, 0.0] if text == "компетенции" else [0.0, 1.0] for text in texts]
+
+
+def test_score_embedding_competencies_embedded_once() -> None:
+    """Вектор компетенций кэшируется: повторные закупки эмбеддят только описание."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0), _judge("accept", 8.0)])
+    embedder = _TextSensitiveEmbedder()
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(
+            score_use_stub=False,
+            giga_enabled=True,
+            giga_client_id="cid",
+            giga_client_secret="secret",
+            embedding_filter_threshold=0.0,
+        ),
+        embedder=embedder,  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+    out1 = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+    out2 = scorer.score({"subject": "Техподдержка", "nmck": 50.0}, "компетенции")
+
+    # Компетенции эмбеддятся ровно один раз, описания — по разу на закупку.
+    assert embedder.embedded_texts.count("компетенции") == 1
+    assert len(embedder.embedded_texts) == 3
+    assert embedder.embedded_texts[1:] == [out1.description, out2.description]
+    # cosine([1,0], [0,1]) = 0 — оба прогона корректно вычислили близость.
+    assert out1.embedding_similarity == 0.0
+    assert out2.embedding_similarity == 0.0
+
+
+def test_score_embedding_different_competencies_embedded_separately() -> None:
+    """Разный текст компетенций — отдельный эмбеддинг (кэш ключуется по тексту)."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0), _judge("accept", 8.0)])
+    embedder = _TextSensitiveEmbedder()
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(
+            score_use_stub=False,
+            giga_enabled=True,
+            giga_client_id="cid",
+            giga_client_secret="secret",
+            embedding_filter_threshold=0.0,
+        ),
+        embedder=embedder,  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+    scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции A")
+    scorer.score({"subject": "Техподдержка", "nmck": 50.0}, "компетенции B")
+
+    assert embedder.embedded_texts.count("компетенции A") == 1
+    assert embedder.embedded_texts.count("компетенции B") == 1
+    assert len(embedder.embedded_texts) == 4
+
+
 def _embedding_scorer(
     fit: object,
     judge: object,
