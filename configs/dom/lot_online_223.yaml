@@ -17,7 +17,7 @@ list_config:
   # Пагинация — кнопка «Следующая страница»; на последней странице она disabled
   # (:not([disabled]) → конец пагинации).
   next_page: "button[title='Следующая страница']:not([disabled])"
-  # Имя переменной с датой публикации (стоп-порог; by_relevance=true — не применяется).
+  # Имя переменной с датой публикации (стоп-порог; дефолтная сортировка — по дате).
   publication_date: "publication_date"
   # Активность — по сроку приёма заявок (deadline).
   # active_statuses: null
@@ -46,11 +46,13 @@ detail:
     - { name: "okpd2_code", selector: "xpath=//span[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::span[contains(@class,'color-text-01')]", handler: "regex", handler_arg: "^\\s*(\\d{2}(?:\\.[\\d]+)*)", multiple: true, separator: ",", default: null }
     - { name: "okpd2_name", selector: "xpath=//span[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::span[contains(@class,'color-text-01')]", handler: "regex", handler_arg: "^\\d{2}(?:\\.[\\d]+)*\\s+(.+)", multiple: true, separator: " | ", default: "" }
   files: []
-# Сортировка по релевантности (фильтр по дате/словам в URL не отражается) —
-# стоп-порог по дате не применяется.
+# Сортировка по умолчанию — «По дате публикации» (дропдаун tui-select; опция
+# «По релевантности» есть, но НЕ выбрана по умолчанию, проверил 2026-08-17).
+# Парсер дропдаун не кликает (dropdown=null), поэтому выдача идёт по дате ->
+# by_relevance=false: стоп-порог по дате применяется.
 sort:
   order: publication_date_desc
-  by_relevance: true
+  by_relevance: false
   dropdown: null
   option_text: null
 # Фильтры (DOM-шаги) не используются — поиск отражается в URL (search).

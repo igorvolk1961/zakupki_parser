@@ -30,8 +30,8 @@
 | etpgpb | Vue SPA | `procedure[stage][0]`+`procedure[okpd][N]`+`sort`+`per`+`page` | ✅ `procedure[okpd][0]=62.02` (raw, префиксный матчинг) | ❌ (`procedure[name]` не фильтрует) | дата `by_published_desc` | да |
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
 | roseltorg_223fz | Drupal+React | `query_field`/`okpd2[]`/`status[]`/`page` | ✅ (JSON-LD деталей) | ✅ `query_field` (пробел=OR) | релевантность | нет |
-| fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | релевантность | нет |
-| lot_online_223 | Angular SPA (Taiga) | — (в URL не отражается) | ❌ (детали, SPA-API) | ❌ (не в URL) | релевантность | нет |
+| fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | дата `date_publication desc` | да |
+| lot_online_223 | Angular SPA (Taiga) | — (в URL не отражается) | ❌ (детали, SPA-API) | ❌ (не в URL) | дата публикации (дефолт) | да |
 
 ## Замечания
 
@@ -96,6 +96,10 @@
   резолвятся через `code_to_id` в `configs/codes/fabrikant_okpd2_tree.json`), `page_number` (10/стр).
   Поэтому используется URL-механизм `search` (как на zakupki.mos.ru). Список — вкладка
   `/procedure/search/purchases` (закупки; корневой `/search` включает «Мониторинг цен»).
+- **Сортировка — по дате публикации** (`sort_order=date_publication&sort_direction=desc`,
+  дефолт площадки; проверил 2026-08-17). Релевантности в списке сортировки НЕТ — только
+  «Дате публикации», «Дате окончания приёма заявок», «Начальной цене». Поэтому
+  `sort.by_relevance=false` и стоп-порог по дате применяется.
 - **Гетерогенность типов закупок**: детальные страницы коммерческих типов (`v2/trades/procedure/`,
   `trades/atom/PriceRequest|ProposalRequest|PriceMonitoring`) имеют иную разметку (без
   `field-label`/`field-text`) — извлечение nmck/customer/inn/status полноценно только для 44-ФЗ.
@@ -115,7 +119,9 @@
 - 44-ФЗ: пагинация по URL `page` (10/стр), сортировка по дате -> стоп-порог. В списке есть
   `nmck`, статус, заказчик, даты.
 - 223-ФЗ: пагинация кликом по кнопке tui-pagination «Следующая страница» (`:not([disabled])`
-  отсекает последнюю страницу), сортировка по релевантности (стоп-порог не применяется).
+  отсекает последнюю страницу), дефолтная сортировка — «По дате публикации» (проверил
+  2026-08-17: опция «По релевантности» в дропдауне есть, но выбрана по умолчанию дата,
+  парсер её не меняет) -> стоп-порог по дате применяется.
   В списке есть даты публикации/окончания приёма заявок (заметка «нет дат» устарела).
 - Фильтры по словам/ОКПД2 не отражаются в URL (обе) — коллекция идёт по полному списку.
 - Детальные страницы (ОКПД2/файлы/цена) — через внутренний API, см. «TODO по деталям (SPA)».

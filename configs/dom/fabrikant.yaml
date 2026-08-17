@@ -75,11 +75,13 @@ organization:
   inn_from_org_page: false
   inn_page_selector: null
 
-# Сортировка по релевантности по умолчанию: стоп-порог по дате не применяется
-# (обходим все страницы до конца пагинации; результаты сужены query-фильтром).
+# Сортировка по дате публикации по умолчанию (sort_order=date_publication,
+# sort_direction=desc; проверил 2026-08-17: в дропдауне только «Дате публикации»,
+# «Дате окончания приёма заявок», «Начальной цене» — релевантности НЕТ).
+# by_relevance=false -> стоп-порог по дате применяется.
 sort:
   order: publication_date_desc
-  by_relevance: true
+  by_relevance: false
   dropdown: null
   option_text: null
 
