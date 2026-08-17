@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from zakupki_parser.parser.cutoff import is_older_than_cutoff
+from zakupki_parser.parser.cutoff import MSK, is_older_than_cutoff
 from zakupki_parser.parser.json_utils import json_safe
 
 
@@ -52,6 +52,24 @@ def test_datetime_input() -> None:
     assert is_older_than_cutoff(datetime(2026, 8, 5, 23, 0, tzinfo=UTC), cutoff) is True
     assert is_older_than_cutoff(datetime(2026, 8, 6, 9, 0, tzinfo=UTC), cutoff) is False
     assert is_older_than_cutoff(None, cutoff) is None
+
+
+def test_cutoff_utc_record_msk_same_day_not_older() -> None:
+    # Порог — момент начала суток 17.08 по МСК, в БД хранится как UTC:
+    # 2026-08-16 21:00+00:00 == 2026-08-17 00:00+03:00. Запись того же дня в
+    # МСК (даже если это полночь, совпадающая с порогом) — НЕ старее порога.
+    cutoff = datetime(2026, 8, 16, 21, 0, tzinfo=UTC)
+    record = datetime(2026, 8, 17, 0, 0, tzinfo=MSK)
+    assert is_older_than_cutoff(record, cutoff) is False
+
+
+def test_cutoff_utc_previous_msk_day_is_older() -> None:
+    # Запись предыдущего дня по МСК (2026-08-16 00:00+03:00) — старее порога:
+    # граница дня считается в площадочном поясе, а не в UTC (иначе день порога
+    # был бы 16.08, и эта запись считалась бы «не старее» — сдвиг на сутки).
+    cutoff = datetime(2026, 8, 16, 21, 0, tzinfo=UTC)
+    record = datetime(2026, 8, 16, 0, 0, tzinfo=MSK)
+    assert is_older_than_cutoff(record, cutoff) is True
 
 
 def test_json_safe_datetime() -> None:
