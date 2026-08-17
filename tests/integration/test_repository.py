@@ -72,6 +72,98 @@ async def test_upsert_no_duplicate(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_upsert_procedure_type_resolved(db: Database) -> None:
+    """purchase_type резолвится в справочник procedure_types и отдаётся по связи."""
+    repo = ProcurementRepository(db)
+    await repo.upsert(
+        {
+            "number": "PT-1",
+            "source_platform": "zakupki_mos",
+            "subject": "x",
+            "purchase_type": "Электронный аукцион",
+        }
+    )
+    # Тот же тип (разный регистр/пробелы) не дублируется в справочнике.
+    await repo.upsert(
+        {
+            "number": "PT-2",
+            "source_platform": "zakupki_mos",
+            "subject": "y",
+            "purchase_type": "  электронный   аукцион ",
+        }
+    )
+    rows, _ = await repo.list_procurements()
+    types = {(p.number, p.procedure_type_rel.name if p.procedure_type_rel else None) for p in rows}
+    assert types == {("PT-1", "Электронный аукцион"), ("PT-2", "Электронный аукцион")}
+    # Без типа — процедура сохраняется, procedure_type_id = NULL.
+    await repo.upsert({"number": "PT-3", "source_platform": "zakupki_mos", "subject": "z"})
+    rows, _ = await repo.list_procurements()
+    pt3 = next(p for p in rows if p.number == "PT-3")
+    assert pt3.procedure_type_id is None
+
+
+@pytest.mark.asyncio
+async def test_upsert_procedure_type_mapping_used(db: Database) -> None:
+    """Маппинг «родное значение площадки -> канон» имеет приоритет над сырым именем."""
+    from sqlalchemy import select as sa_select
+
+    from zakupki_parser.storage.db import ProcedureType, ProcedureTypeMapping
+
+    repo = ProcurementRepository(db)
+    # Предзагруженный канон + маппинг (как засевает миграция 1.20).
+    async with db.session() as session:
+        canon = ProcedureType(name="Запрос котировок", normalized_name="запрос котировок")
+        session.add(canon)
+        await session.flush()
+        session.add(
+            ProcedureTypeMapping(
+                platform_id="roseltorg_44fz",
+                native_name="Электронный запрос котировок",
+                normalized_name="электронный запрос котировок",
+                procedure_type_id=canon.id,
+            )
+        )
+        await session.commit()
+
+    # Родное значение roseltorg мапится в канонический «Запрос котировок».
+    await repo.upsert(
+        {
+            "number": "M-1",
+            "source_platform": "roseltorg_44fz",
+            "subject": "x",
+            "purchase_type": "Электронный запрос котировок",
+        }
+    )
+    rows, _ = await repo.list_procurements()
+    m1 = next(p for p in rows if p.number == "M-1")
+    assert m1.procedure_type_rel is not None
+    assert m1.procedure_type_rel.name == "Запрос котировок"
+
+    # Немалленный тип — fallback: создаётся «сырой» тип (is_canonical=false).
+    await repo.upsert(
+        {
+            "number": "M-2",
+            "source_platform": "etpgpb",
+            "subject": "y",
+            "purchase_type": "Неизвестный способ",
+        }
+    )
+    async with db.session() as session:
+        raw = (
+            await session.execute(
+                sa_select(ProcedureType).where(
+                    ProcedureType.normalized_name == "неизвестный способ"
+                )
+            )
+        ).scalar_one()
+        assert raw.is_canonical is False
+    rows, _ = await repo.list_procurements()
+    m2 = next(p for p in rows if p.number == "M-2")
+    assert m2.procedure_type_rel is not None
+    assert m2.procedure_type_rel.name == "Неизвестный способ"
+
+
+@pytest.mark.asyncio
 async def test_exists_false_for_unknown(db: Database) -> None:
     repo = ProcurementRepository(db)
     assert await repo.exists("NOPE", "zakupki_mos") is False
@@ -238,7 +330,7 @@ async def test_delete_irrelevant(db: Database) -> None:
             "source_platform": "zakupki_mos",
             "subject": "x",
             "fit_score": 0.8,
-            "score_method": "external",
+            "score_method": "fit",
         }
     )
     # Внешний скоринг, fit_score ниже порога — нерелевантна, удаляется.
@@ -248,7 +340,7 @@ async def test_delete_irrelevant(db: Database) -> None:
             "source_platform": "zakupki_mos",
             "subject": "y",
             "fit_score": 0.2,
-            "score_method": "external",
+            "score_method": "fit",
         }
     )
     # Дефолтный скоринг (внешний не проходил) — НЕ учитывается, остаётся.

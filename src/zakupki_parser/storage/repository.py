@@ -15,7 +15,13 @@ from sqlalchemy.sql.elements import ColumnElement
 
 from zakupki_parser.config.models import SCORE_METHOD_FIT, SCORE_METHOD_STAGES
 from zakupki_parser.storage.customers import normalize_name
-from zakupki_parser.storage.db import Customer, Database, Procurement
+from zakupki_parser.storage.db import (
+    Customer,
+    Database,
+    ProcedureType,
+    ProcedureTypeMapping,
+    Procurement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +74,10 @@ class ProcurementRepository:
         stmt = (
             select(Procurement)
             .where(Procurement.id == procurement_id)
-            .options(selectinload(Procurement.customer_rel))
+            .options(
+                selectinload(Procurement.customer_rel),
+                selectinload(Procurement.procedure_type_rel),
+            )
         )
         async with self._db.session() as session:
             result = await session.execute(stmt)
@@ -137,7 +146,10 @@ class ProcurementRepository:
             # не являются «релевантными».
             conditions.append(Procurement.score_method.in_(SCORE_METHOD_STAGES))
 
-        stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
+        stmt = select(Procurement).options(
+            selectinload(Procurement.customer_rel),
+            selectinload(Procurement.procedure_type_rel),
+        )
         if customer:
             stmt = stmt.join(Customer, Procurement.customer_id == Customer.id)
         if sort == "fit_score":
@@ -245,6 +257,9 @@ class ProcurementRepository:
             record.customer_id = await self._resolve_customer_id(
                 session, data.get("customer"), data.get("inn")
             )
+            record.procedure_type_id = await self._resolve_procedure_type_id(
+                session, source_platform, data.get("purchase_type")
+            )
             session.add(record)
             await session.commit()
         # Отдаём id записи в исходный dict — нужен для постановки задания на внешний
@@ -296,6 +311,68 @@ class ProcurementRepository:
             await session.execute(select(Customer).where(Customer.normalized_name == normalized))
         ).scalar_one()
         return cust.id
+
+    async def _resolve_procedure_type_id(
+        self, session: AsyncSession, platform_id: str, name: str | None
+    ) -> int | None:
+        """Резолвит тип процедуры в канонический ``procedure_types.id``.
+
+        Порядок (гибрид «предзагруженный справочник + fallback»):
+        1. маппинг площадки ``procedure_type_mappings`` (platform_id + нормализованное
+           родное значение) -> канонический тип;
+        2. существующий тип в справочнике с таким же нормализованным именем;
+        3. find-or-create (новый «сырой» тип с ``is_canonical=false`` — для значений,
+           для которых маппинг ещё не составлен).
+
+        Возвращает ``procedure_types.id`` или None (пустое значение).
+        Конкурентные вставки снимаются ``ON CONFLICT``, как для заказчиков (ADR-4).
+        """
+        normalized = normalize_name(name)
+        if not normalized:
+            return None
+
+        mapping = (
+            await session.execute(
+                select(ProcedureTypeMapping)
+                .where(
+                    ProcedureTypeMapping.platform_id == platform_id,
+                    ProcedureTypeMapping.normalized_name == normalized,
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if mapping is not None:
+            return mapping.procedure_type_id
+
+        existing = (
+            await session.execute(
+                select(ProcedureType).where(ProcedureType.normalized_name == normalized)
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing.id
+
+        stmt = (
+            pg_insert(ProcedureType)
+            .values(name=name or normalized, normalized_name=normalized)
+            .on_conflict_do_nothing(index_elements=["normalized_name"])
+            .returning(ProcedureType.id)
+        )
+        pid = (await session.execute(stmt)).scalar_one_or_none()
+        if pid is not None:
+            logger.info(
+                "Новый тип процедуры «%s» на площадке %s: нужен маппинг в procedure_type_mappings",
+                name,
+                platform_id,
+            )
+            return pid
+        # Конфликт: другой процесс уже создал тип — берём существующий.
+        obj = (
+            await session.execute(
+                select(ProcedureType).where(ProcedureType.normalized_name == normalized)
+            )
+        ).scalar_one()
+        return obj.id
 
     async def update_score(
         self,

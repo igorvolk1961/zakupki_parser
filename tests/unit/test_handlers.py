@@ -13,6 +13,7 @@ from zakupki_parser.parser.handlers import (
     handler_law,
     handler_money,
     handler_pub_date,
+    handler_purchase_type,
     handler_regex,
     handler_regex_datetime,
     handler_ru_date,
@@ -151,3 +152,16 @@ def test_law_from_full_block() -> None:
     assert handler_law(block) == "44-ФЗ"
     # B2B-карточка без федерального закона → None
     assert handler_law("ЕЭТП B2B с 06.08.2026 до 11.08.2026 15:30 (МСК)") is None
+
+
+def test_purchase_type() -> None:
+    # ЕИС: «44-ФЗ\nЭлектронный аукцион» из шапки карточки
+    assert handler_purchase_type("44-ФЗ\nЭлектронный аукцион") == "Электронный аукцион"
+    assert handler_purchase_type("223-ФЗ\nИной способ") == "Иной способ"
+    # lot-online: «44-ФЗ / Электронный аукцион»
+    assert handler_purchase_type("44-ФЗ / Электронный аукцион") == "Электронный аукцион"
+    # без префикса закона — остаётся как есть
+    assert handler_purchase_type("Запрос предложений") == "Запрос предложений"
+    assert handler_purchase_type("  Закупка по потребностям  ") == "Закупка по потребностям"
+    assert handler_purchase_type(None) is None
+    assert handler_purchase_type("44-ФЗ") is None

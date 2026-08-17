@@ -15,12 +15,32 @@ erDiagram
         timestamptz updated_at "server_default now(), onupdate"
     }
 
+    PROCEDURE_TYPES {
+        bigint id PK "автоинкремент"
+        text name "наименование типа процедуры"
+        text normalized_name "нормализованное имя (дедупликация), UNIQUE"
+        boolean is_canonical "true — канон из предзагруженного справочника; false — «сырое» значение площадки"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    PROCEDURE_TYPE_MAPPINGS {
+        bigint id PK "автоинкремент"
+        varchar(128) platform_id "ключ площадки"
+        text native_name "родное значение на площадке (purchase_type)"
+        text normalized_name "нормализованное родное значение, UNIQUE(platform_id, normalized_name)"
+        bigint procedure_type_id FK "канонический тип (procedure_types.id, CASCADE)"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
     PROCUREMENTS {
         bigint id PK "автоинкремент"
         varchar(64) number "реестровый номер заявки"
         varchar(128) source_platform "ключ площадки"
         varchar(1024) url "ссылка на закупку"
         bigint customer_id FK "ссылка на заказчика (customers.id, SET NULL)"
+        bigint procedure_type_id FK "ссылка на тип процедуры (procedure_types.id, SET NULL)"
         varchar(16) law "закон: 44-ФЗ / 223-ФЗ"
         text subject "предмет закупки"
         double nmck "начальная макс. цена контракта"
@@ -36,7 +56,7 @@ erDiagram
         jsonb files_json "файлы: [{name, url скачивания с ЭТП}]"
         double score "скоринг Fit × P(win) × Margin"
         double fit_score "множитель Fit (default 0..1 по ОКПД2; external 0..1 нормализованный)"
-        varchar(64) score_method "default | external | deadline_expired"
+        varchar(64) score_method "default | fit | pwin | margin"
         double embedding_similarity "косинусная близость 0..1 (Giga Embedder); NULL если ветка выключена"
         boolean is_active "активна ли закупка (false: завершённая/отменённая и т.п.)"
         jsonb detail_json "полный набор переменных карточки"
@@ -45,12 +65,25 @@ erDiagram
     }
 
     PROCUREMENTS }o--|| CUSTOMERS : "customer_id (FK, SET NULL)"
+    PROCUREMENTS }o--|| PROCEDURE_TYPES : "procedure_type_id (FK, SET NULL)"
+    PROCEDURE_TYPE_MAPPINGS }o--|| PROCEDURE_TYPES : "procedure_type_id (FK, CASCADE)"
 ```
 
 ## Замечания
-- **Две таблицы**: `procurements` и справочник `customers` (ADR-4). Заказчик
-  нормализован: вместо денормализованной колонки `customer` — FK `customer_id`
-  (при удалении заказчика — `SET NULL`).
+- **Четыре таблицы**: `procurements`, справочники `customers` (ADR-4),
+  `procedure_types` и `procedure_type_mappings`. Заказчик нормализован: вместо
+  денормализованной колонки `customer` — FK `customer_id` (при удалении заказчика —
+  `SET NULL`). Тип процедуры (`purchase_type` из карточки списка) нормализован в
+  `procedure_types` (миграция 1.20).
+- **Типы процедур — гибрид «предзагруженный справочник + fallback»**:
+  - `procedure_types` — канонический справочник (способы 44-ФЗ/223-ФЗ, засеян из
+    дропдауна «Тип процедуры» fabrikant и способов ЕИС) + «сырые» значения площадок
+    без маппинга (`is_canonical=false`);
+  - `procedure_type_mappings` — предзагруженное соответствие
+    «площадка + родное значение (native_name) -> канонический тип» (например
+    «Электронный запрос котировок» roseltorg -> «Запрос котировок»);
+  - резолв при сохранении закупки: маппинг -> тип по имени -> find-or-create
+    (новый тип логируется: «нужен маппинг»).
 - **Справочник заказчиков** `customers`: `name`, `normalized_name` (ключ дедупликации,
   UNIQUE `uq_customers_normalized_name`), `inn`, `rating` (заполняется через API
   внешним сервисом).
@@ -60,9 +93,10 @@ erDiagram
 - **Защита от дубликатов**: уникальный констрейнт `uq_procurement_number_platform`
   на `(number, source_platform)`.
 - **Индексы**: `ix_procurements_created_at` по `created_at`,
-  `ix_procurements_customer_id` по `customer_id`.
-- `score_method`: `default | external | deadline_expired` (значение `calculating`
-  удалено вместе с воркером внешнего скоринга, ADR-7).
+  `ix_procurements_customer_id` по `customer_id`,
+  `ix_procurements_procedure_type_id` по `procedure_type_id`,
+  `ix_procedure_type_mappings_platform` по `platform_id`.
+- `score_method`: `default | fit | pwin | margin` (каскад Fit → P(win) → Margin, ADR-7).
 - `fit_score` (миграция 1.15): множитель Fit — дефолтный (0..1 из `fit_table` по ОКПД2)
   или нормализованный внешний (0..1). `embedding_similarity` (миграция 1.16) —
   косинусная близость ветки Giga Embedder. `is_active` (миграция 1.14) — активна ли

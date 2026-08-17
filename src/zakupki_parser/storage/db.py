@@ -52,6 +52,59 @@ class Customer(Base):
     procurements: Mapped[list[Procurement]] = relationship(back_populates="customer_rel")
 
 
+class ProcedureType(Base):
+    """Справочник типов процедур (покупок).
+
+    ``is_canonical=true`` — канонический тип из предзагруженного справочника
+    (способы 44-ФЗ/223-ФЗ); ``false`` — «сырое» значение площадки без маппинга
+    (накоплено find-or-create при отсутствии строки в ``ProcedureTypeMapping``).
+    """
+
+    __tablename__ = "procedure_types"
+    __table_args__ = (
+        UniqueConstraint("normalized_name", name="uq_procedure_types_normalized_name"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
+    is_canonical: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    procurements: Mapped[list[Procurement]] = relationship(back_populates="procedure_type_rel")
+
+
+class ProcedureTypeMapping(Base):
+    """Соответствие «площадка + родное значение» -> канонический тип процедуры.
+
+    Предзагруженный справочник: по нему ``purchase_type`` площадки резолвится в
+    канонический ``procedure_types.id`` (например «Электронный запрос котировок»
+    roseltorg -> «Запрос котировок»).
+    """
+
+    __tablename__ = "procedure_type_mappings"
+    __table_args__ = (
+        UniqueConstraint("platform_id", "normalized_name", name="uq_procedure_type_mapping"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    platform_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    native_name: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(Text, nullable=False)
+    procedure_type_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("procedure_types.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Procurement(Base):
     """Запись о закупке."""
 
@@ -66,6 +119,9 @@ class Procurement(Base):
     url: Mapped[str | None] = mapped_column(String(1024))
     customer_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("customers.id", ondelete="SET NULL")
+    )
+    procedure_type_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("procedure_types.id", ondelete="SET NULL")
     )
     law: Mapped[str | None] = mapped_column(String(16))
     subject: Mapped[str | None] = mapped_column(Text)
@@ -98,6 +154,7 @@ class Procurement(Base):
     )
 
     customer_rel: Mapped[Customer | None] = relationship(back_populates="procurements")
+    procedure_type_rel: Mapped[ProcedureType | None] = relationship(back_populates="procurements")
 
 
 class Database:

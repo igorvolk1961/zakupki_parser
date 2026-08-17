@@ -19,6 +19,8 @@ list_config:
   variables:
     # Номер: «Запрос предложений № 4558864 …» из текста ссылки на тендер.
     - { name: "number",           selector: "a.search-results-title", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
+    # purchase_type — тип процедуры до «№» в заголовке («Запрос предложений», «Аукцион»…).
+    - { name: "purchase_type",    selector: "a.search-results-title", handler: "regex", handler_arg: "^(.+?)\\s*№", default: "" }
     # Предмет — блок описания под заголовком карточки (вложен внутрь <a> заголовка).
     - { name: "subject",          selector: ".search-results-title-desc", handler: "strip", default: "" }
     # Организатор — ссылка на карточку фирмы.

@@ -16,6 +16,8 @@ list_config:
   variables:
     - { name: "number",          selector: "a[href*='common-info.html']", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
     - { name: "law",             selector: "div.registry-entry__header-top__title", handler: "law", default: null }
+    # purchase_type — способ закупки из шапки («223-ФЗ Иной способ»).
+    - { name: "purchase_type",   selector: "div.registry-entry__header-top__title", handler: "purchase_type", default: "" }
     - { name: "subject",         selector: "div.registry-entry__body-value", handler: "strip", default: "" }
     - { name: "status",          selector: "div.registry-entry__header-mid__title", handler: "strip", default: "" }
     # Заказчик 223-ФЗ — organization/view223/info.html

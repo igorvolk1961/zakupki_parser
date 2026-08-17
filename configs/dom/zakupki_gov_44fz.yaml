@@ -15,6 +15,8 @@ list_config:
   variables:
     - { name: "number",          selector: "a[href*='common-info.html']", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
     - { name: "law",             selector: "div.registry-entry__header-top__title", handler: "law", default: null }
+    # purchase_type — «Способ определения поставщика» из шапки («44-ФЗ Электронный аукцион»).
+    - { name: "purchase_type",   selector: "div.registry-entry__header-top__title", handler: "purchase_type", default: "" }
     - { name: "subject",         selector: "div.registry-entry__body-value", handler: "strip", default: "" }
     - { name: "status",          selector: "div.registry-entry__header-mid__title", handler: "strip", default: "" }
     - { name: "customer",        selector: "a[href*='organization/view']", handler: "strip", default: "" }

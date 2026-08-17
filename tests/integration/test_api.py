@@ -150,7 +150,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
                     "source_platform": "zakupki_mos",
                     "subject": "Релевантная",
                     "fit_score": 0.8,
-                    "score_method": "external",
+                    "score_method": "fit",
                 }
             )
             await repo.upsert(
@@ -159,7 +159,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
                     "source_platform": "zakupki_mos",
                     "subject": "Нерелевантная",
                     "fit_score": 0.2,
-                    "score_method": "external",
+                    "score_method": "fit",
                 }
             )
             rows, _ = await repo.list_procurements(number="CIR-")
@@ -236,7 +236,7 @@ def test_list_filter_min_fit_score(api_client: tuple[TestClient, Path], inserted
     # Задаём закупке фит-скор (выше порога по умолчанию 0.4).
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 123.5, "fit_score": 0.85, "score_method": "external"},
+        json={"score": 123.5, "fit_score": 0.85, "score_method": "fit"},
     )
     assert resp.status_code == 200
 
@@ -389,13 +389,13 @@ def test_set_score_by_external_service(
     client, _ = api_client
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 123.5, "fit_score": 0.85, "score_method": "external"},
+        json={"score": 123.5, "fit_score": 0.85, "score_method": "fit"},
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["score"] == 123.5
     assert body["fit_score"] == 0.85
-    assert body["score_method"] == "external"
+    assert body["score_method"] == "fit"
 
     detail = client.get(f"/api/procurements/{inserted_id}").json()
     assert detail["score"] == 123.5
@@ -419,7 +419,7 @@ def test_set_score_notifies_above_threshold(
     # Ниже порога — score обновляется, уведомления нет.
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 50.0, "fit_score": 0.3, "score_method": "external"},
+        json={"score": 50.0, "fit_score": 0.3, "score_method": "default"},
     )
     assert resp.status_code == 200
     assert calls == []
@@ -427,7 +427,7 @@ def test_set_score_notifies_above_threshold(
     # Выше порога (по fit_score) — уведомление с обновлённой карточкой.
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 150.0, "fit_score": 0.9, "score_method": "external"},
+        json={"score": 150.0, "fit_score": 0.9, "score_method": "fit"},
     )
     assert resp.status_code == 200
     assert len(calls) == 1
@@ -539,7 +539,7 @@ def test_export_csv_writes_to_export_dir(
                     "subject": "Релевантная активная",
                     "customer": "Заказчик ООО",
                     "fit_score": 0.8,
-                    "score_method": "external",
+                    "score_method": "fit",
                 }
             )
             assert await repo.upsert(
@@ -548,7 +548,7 @@ def test_export_csv_writes_to_export_dir(
                     "source_platform": "zakupki_mos",
                     "subject": "Нерелевантная",
                     "fit_score": 0.2,
-                    "score_method": "external",
+                    "score_method": "fit",
                 }
             )
             assert await repo.upsert(

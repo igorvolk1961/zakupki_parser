@@ -148,6 +148,15 @@ def test_roseltorg_search_status_all() -> None:
         assert active_only.raw_array_flat == "status[]"
 
 
+def test_all_platforms_have_purchase_type() -> None:
+    """Каждая площадка извлекает тип процедуры (purchase_type) из карточки списка."""
+    data = _load_dom_configs(REPO_ROOT / "configs")
+    platforms = DomConfig.model_validate(data).platforms
+    for platform_id, platform in platforms.items():
+        names = [v.name for v in platform.list_config.variables]
+        assert "purchase_type" in names, f"{platform_id}: не задана переменная purchase_type"
+
+
 def test_telegram_token_injected_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ZAKUPKI_TELEGRAM_TOKEN", "123:ABC")
     cfg = load_config(CONFIGS_DIR)

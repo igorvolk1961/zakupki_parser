@@ -39,6 +39,8 @@ list_config:
     - { name: "deadline",         selector: "div.search-results__timing time.search-results__time", handler: "datetime", default: null }
     # status — бейдж статуса («Прием заявок», без «N дн.» до конца приёма).
     - { name: "status",           selector: "div.search-results__status", handler: "regex", handler_arg: "([А-Яа-яЁё][А-Яа-яЁё ]+)", default: "" }
+    # purchase_type — тип процедуры («Электронный запрос котировок»).
+    - { name: "purchase_type",    selector: "div.search-results__type", handler: "strip", default: "" }
 detail:
   # ОКПД2 — только в JSON-LD (schema.org, additionalProperty «Код ОКПД»), не в видимом
   # DOM. Извлекается из script[type='application/ld+json'].

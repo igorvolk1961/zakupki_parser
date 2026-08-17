@@ -17,6 +17,8 @@ list_config:
     - { name: "number",           selector: "a.__link_purchase-number", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
     # Закон/способ — «44-ФЗ / Электронный аукцион».
     - { name: "law",              selector: ".card-div__procedureType", handler: "law", default: null }
+    # purchase_type — способ («Электронный аукцион») из того же блока.
+    - { name: "purchase_type",    selector: ".card-div__procedureType", handler: "purchase_type", default: "" }
     # Предмет — блок описания.
     - { name: "subject",          selector: ".__purchaseObjectInfo p", handler: "strip", default: "" }
     # Статус — «Прием заявок» (жирный span в блоке статуса).

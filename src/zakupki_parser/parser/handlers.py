@@ -199,6 +199,24 @@ def handler_law(value: Any) -> str | None:
     return m.group(0) if m else None
 
 
+_LAW_PREFIX_RE = re.compile(r"^\s*(?:44-ФЗ|223-ФЗ)\s*(?:/|–|—|-)?\s*")
+
+
+def handler_purchase_type(value: Any) -> str | None:
+    """Тип процедуры из текста карточки.
+
+    Убирает префикс закона («44-ФЗ / Электронный аукцион» -> «Электронный
+    аукцион», «44-ФЗ\\nЭлектронный аукцион» -> «Электронный аукцион») и
+    схлопывает пробелы/переносы строк. Если остаётся пусто — None.
+    """
+    if value is None:
+        return None
+    text = " ".join(str(value).split())
+    text = _LAW_PREFIX_RE.sub("", text)
+    text = text.strip(" /–—|")
+    return text or None
+
+
 def handler_regex(value: Any, arg: str | None = None) -> str | None:
     """Извлекает первую группу regex-паттерна (``arg``)."""
     if value is None or not arg:
@@ -255,6 +273,7 @@ HANDLERS: dict[str, Any] = {
     "pub_date": handler_pub_date,
     "deadline": handler_deadline,
     "law": handler_law,
+    "purchase_type": handler_purchase_type,
     "regex": handler_regex,
     "security": handler_security,
     "security_unit": handler_security_unit,

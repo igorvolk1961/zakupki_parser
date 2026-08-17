@@ -47,6 +47,8 @@ class ProcurementOut(BaseModel):
     url: str | None = None
     customer_id: int | None = None
     customer: str | None = None
+    procedure_type_id: int | None = None
+    procedure_type: str | None = None
     law: str | None = None
     subject: str | None = None
     nmck: float | None = None
@@ -237,6 +239,8 @@ def _procurement_out(row: Procurement) -> ProcurementOut:
     out = ProcurementOut.model_validate(row)
     out.customer_id = row.customer_id
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
+    out.procedure_type_id = row.procedure_type_id
+    out.procedure_type = row.procedure_type_rel.name if row.procedure_type_rel is not None else None
     # Клиентская сторона: активность учитывает текущую дату (срок актуальности).
     out.is_active = effective_is_active(row.is_active, row.deadline)
     return out
@@ -246,6 +250,8 @@ def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
     out = ProcurementDetailOut.model_validate(row)
     out.customer_id = row.customer_id
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
+    out.procedure_type_id = row.procedure_type_id
+    out.procedure_type = row.procedure_type_rel.name if row.procedure_type_rel is not None else None
     out.is_active = effective_is_active(row.is_active, row.deadline)
     return out
 
@@ -257,6 +263,9 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
         "source_platform": row.source_platform,
         "url": row.url,
         "customer": row.customer_rel.name if row.customer_rel is not None else None,
+        "procedure_type": (
+            row.procedure_type_rel.name if row.procedure_type_rel is not None else None
+        ),
         "law": row.law,
         "subject": row.subject,
         "nmck": row.nmck,
@@ -412,6 +421,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         "source_platform",
         "url",
         "customer",
+        "procedure_type",
         "law",
         "subject",
         "nmck",

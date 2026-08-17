@@ -297,6 +297,7 @@ function card(row) {
     <div class="num">${row.number}</div>
     <div class="subj">${escapeHtml(row.subject || "—")}</div>
     <div class="row"><span>Заказчик</span><b>${escapeHtml(row.customer || "—")}</b></div>
+    <div class="row"><span>Тип процедуры</span><b>${escapeHtml(row.procedure_type || "—")}</b></div>
     <div class="row"><span>НМЦК</span><b>${fmtMoney(row.nmck)}</b></div>
     <div class="row"><span>Срок подачи</span><b>${fmtDate(row.deadline)}</b></div>
     <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
@@ -439,6 +440,7 @@ async function openDetail(id) {
     <table>
       ${f("Предмет", escapeHtml(row.subject || "—"))}
       ${f("Заказчик", escapeHtml(row.customer || "—") + " <span class='muted'>(id " + (row.customer_id ?? "—") + ")</span>")}
+      ${f("Тип процедуры", escapeHtml(row.procedure_type || "—"))}
       ${f("Закон", escapeHtml(row.law || "—"))}
       ${f("НМЦК", fmtMoney(row.nmck))}
       ${f("Опубликовано", fmtDate(row.publication_date))}
