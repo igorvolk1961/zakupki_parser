@@ -121,7 +121,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # Оптимизация повторного прохода: закупка уже в БД — детальную страницу
         # не открываем (upsert не обновляет известные записи, поведение не меняется).
         if self._is_known(number):
-            logger.info("Закупка %s уже в БД, детали не обрабатываем", number)
+            logger.info("Закупка %s уже в БД — пропуск", number)
             return True, number
 
         # 2) ссылка на детальную страницу
