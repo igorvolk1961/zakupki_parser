@@ -33,7 +33,6 @@ from zakupki_parser.config.models.ops import (
     MaxConfig,
     NotificationsConfig,
     OpsConfig,
-    Subscriber,
     TelegramConfig,
     WebhookConfig,
 )
@@ -93,7 +92,6 @@ __all__ = [
     "SiteServiceEntry",
     "SortConfig",
     "StopConditions",
-    "Subscriber",
     "TelegramConfig",
     "WebhookConfig",
 ]
