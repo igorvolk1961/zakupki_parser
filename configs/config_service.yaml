@@ -1,14 +1,14 @@
 sites:
 - platform_id: zakupki_mos
-  enabled: false
+  enabled: true
 - platform_id: zakupki_gov_44fz
-  enabled: false
+  enabled: true
 - platform_id: zakupki_gov_223fz
-  enabled: false
+  enabled: true
 - platform_id: roseltorg_44fz
-  enabled: false
+  enabled: true
 - platform_id: roseltorg_223fz
-  enabled: false
+  enabled: true
 - platform_id: fabrikant
   enabled: true
 - platform_id: b2b_center
@@ -28,8 +28,8 @@ search_criteria:
   - автоматизация
   fz44: true
   fz223: true
-  active_only: false
+  active_only: true
 stop_conditions:
   enabled: true
-  deadline_not_expired: false
-  min_deadline_days: 3
+  deadline_not_expired: true
+  min_deadline_days: 0

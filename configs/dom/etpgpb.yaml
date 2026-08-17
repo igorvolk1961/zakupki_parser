@@ -48,7 +48,6 @@ search:
   query_params:
     per: "20"
     sort: "by_published_desc"
-    "procedure[stage][0]": "accepting"
   # Текстовый поиск procedure[name] НЕ фильтрует выдачу (проверено 2026-08-14),
   # поэтому keywords не подставляются (нет в criteria_map).
   criteria_map:
@@ -56,3 +55,9 @@ search:
     # Сервер матчит код по ПРЕФИКСУ: вложенные коды включаются автоматически,
     # дерево okpd_tree_file не нужно (проверено 2026-08-14).
     okpd2: { raw_array: "procedure[okpd]" }
+    # active_only -> этап процедуры procedure[stage][0]=accepting (этап «Подача
+    # заявок»; дефолт сайта при открытии /procedures/ без параметра — тот же,
+    # проверено 2026-08-17). «Все» невыразимо: сайт всегда редиректит на accepting.
+    active_only: { raw_array: "procedure[stage]" }
+  state_ids:
+    active: ["accepting"]

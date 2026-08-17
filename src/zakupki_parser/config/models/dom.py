@@ -319,12 +319,17 @@ class SearchFilterConfig(BaseModel):
             "запросу площадки (JSON-путь и/или query-параметр)"
         ),
     )
-    state_ids: dict[str, list[int]] | None = Field(
+    state_ids: dict[str, list[int | str]] | None = Field(
         default=None,
         description=(
             "внутренние ID состояний закупок площадки для фильтра active_only "
-            "(например {'active': [19000002, 19000008]}). Путь, куда подставить, "
-            "задаётся в criteria_map для ключа active_only"
+            "(например {'active': [19000002, 19000008], 'all': [0, 1, 2]}). "
+            "'active' — состояния активных закупок (подставляется при "
+            "search_criteria.active_only=true); 'all' — полный набор состояний "
+            "(подставляется при active_only=false, если задан; если не задан — "
+            "параметр не ставится, площадка возвращает выдачу по умолчанию). "
+            "Путь/параметр, куда подставить, задаётся в criteria_map для ключа "
+            "active_only (json_path, query_param или raw_array_flat)"
         ),
     )
     keywords_one_at_a_time: bool = Field(

@@ -47,7 +47,6 @@ search:
     limit: "10"
     sort: "1"
     sortDirection: "ASC"
-    status: "accept"
   criteria_map:
     # Слова -> параметр keywords (site принимает и одинарную, и двойную кодировку;
     # движок выдаёт одинарную — работает).
@@ -55,3 +54,10 @@ search:
     # ОКПД2 -> повторяемый okpd2=код (без индекса; индексную форму okpd2[0] сайт
     # игнорирует). Коды передаются как есть, сервер матчит по префиксу.
     okpd2:    { raw_array_flat: "okpd2" }
+    # active_only -> статус закупки status (повторяемый). Активные = accept
+    # (Прием заявок) + commission (Работа комиссии) + contract (Заключение
+    # контракта) — дефолт UI сайта (проверено 2026-08-17). «Все» — параметр
+    # не ставится (сервер отдаёт весь реестр).
+    active_only: { raw_array_flat: "status" }
+  state_ids:
+    active: ["accept", "commission", "contract"]

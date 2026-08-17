@@ -256,16 +256,31 @@ def build_query(
                 extra_params[mapping.query_param] = value
             continue
         if key == "active_only":
-            # Выбор «все/только активные»: только активные подставляет stateIdIn.
-            if not criteria.active_only:
+            # Выбор «все/только активные»: только активные подставляет состояния из
+            # state_ids.active. При «все» подставляется state_ids.all (если задан),
+            # иначе параметр не ставится — площадка отдаёт выдачу по умолчанию.
+            # Мульти-параметры (mapping.query_params, например ЕИС af=on&ca=on):
+            # при active_only=true ставятся все заданные параметры, иначе — ничего
+            # (площадка отдаёт все этапы закупки).
+            if mapping.query_params:
+                if criteria.active_only:
+                    for param, value in mapping.query_params.items():
+                        extra_params[param] = value
                 continue
-            ids = (search.state_ids or {}).get("active")
+            state_ids = search.state_ids or {}
+            ids = state_ids.get("active") if criteria.active_only else state_ids.get("all")
             if not ids:
                 continue
             if mapping.json_path:
                 _set_json_path(filter_json, mapping.json_path, ids)
             if mapping.query_param:
                 extra_params[mapping.query_param] = _value_to_str(ids)
+            if mapping.raw_array:
+                for i, state in enumerate(ids):
+                    extra_params[f"{mapping.raw_array}[{i}]"] = str(state)
+            if mapping.raw_array_flat:
+                for state in ids:
+                    flat_params.append((mapping.raw_array_flat, str(state)))
             continue
         value = _criteria_value(key, criteria, cutoff, search)
         if value is None or (isinstance(value, list) and not value):

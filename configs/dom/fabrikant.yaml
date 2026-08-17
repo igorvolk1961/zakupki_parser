@@ -105,6 +105,14 @@ search:
   criteria_map:
     keywords: { query_param: "query" }
     okpd2:    { raw_array: "okpd2" }
+    # active_only -> статус процедуры statuses[] (проверено на живом сайте
+    # 2026-08-17: 1=Прием заявок, 2=Работа комиссии, 4=Завершённые, 5=Ожидает
+    # приёма заявок, 6=Отменённые; 3 — legacy). Активные = 1+5 (дефолт поиска
+    # fabrikant и есть только активные).
+    active_only: { raw_array_flat: "statuses[]" }
+  state_ids:
+    all: [1, 2, 3, 4, 5, 6]
+    active: [1, 5]
   # Маппинг «код ОКПД2 -> внутренний id fabrikant» (см. configs/codes/fabrikant_okpd2_tree.json).
   # ВНИМАНИЕ: маппинг частичный (62, 62.01–62.09); полный сбор — TODO (fetch-tree).
   okpd_tree_file: "configs/codes/fabrikant_okpd2_tree.json"

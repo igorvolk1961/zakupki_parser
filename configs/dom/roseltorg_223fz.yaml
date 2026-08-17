@@ -64,12 +64,15 @@ search:
   query_params:
     sale: "1"
     currency: "all"
-    # Все статусы процедур (0-5): статусные фильтры 2,3,4 пропускали релевантные
-    # закупки в других состояниях (например, «Работа комиссии», завершённые).
-    "status[]": ["5", "0", "1", "2", "3", "4"]
   criteria_map:
     # Слова -> query_field (пробел = OR).
     keywords: { query_param: "query_field" }
     # ОКПД2 -> okpd2[] (повторяемые параметры с пустыми скобками, PHP-стиль;
     # префиксный матчинг кода — например okpd2[]=62.02).
     okpd2:    { raw_array_flat: "okpd2[]" }
+    # active_only -> статусы процедур status[] (см. roseltorg_44fz: значения и
+    # «активные» проверены на живом сайте).
+    active_only: { raw_array_flat: "status[]" }
+  state_ids:
+    all: [5, 0, 1, 2, 3, 4]
+    active: [5, 0, 1]

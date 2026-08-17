@@ -131,9 +131,13 @@ search:
     active_only:   { json_path: "auctionSpecificFilter.stateIdIn" }
   # Слова объединяются по «ИЛИ» самой площадкой (nameLike) — отдельный поиск не нужен.
   keywords_one_at_a_time: false
-  # ID состояний для active_only: только активные = Active + OffersSigned.
+  # ID состояний для active_only (проверено на живом сайте 2026-08-17 через UI
+  # фильтра «Статус»: Активные/Завершенные/Все закупки):
+  #   active = [19000002] — «Активные» (приём предложений);
+  #   all    = 5 состояний — «Все закупки» (дефолт реестра).
   state_ids:
-    active: [19000002, 19000008]
+    all: [19000002, 19000005, 19000003, 19000004, 19000008]
+    active: [19000002]
   date_great_equal_format: "%d.%m.%Y 00:00:00"
   # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. configs/codes/mos_okpd2_tree.json)
   okpd_tree_file: "configs/codes/mos_okpd2_tree.json"

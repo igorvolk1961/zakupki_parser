@@ -79,6 +79,13 @@ search:
         okpd2Ids: "{okpd2_ids}"
     nmck_min:      { query_param: "priceFromGeneral" }
     nmck_max:      { query_param: "priceToGeneral" }
+    # active_only -> «Этап закупки» ЕИС: af (Подача заявок) + ca (Работа комиссии) —
+    # активные; при «все» параметры этапа не ставятся (ЕИС отдаёт все этапы;
+    # проверено на живом сайте 2026-08-17).
+    active_only:
+      query_params:
+        af: "on"
+        ca: "on"
   date_great_equal_format: "%d.%m.%Y"
   # Маппинг «код ОКПД2 -> id ЕИС» (полное поддерево 62/63, см. gov.html)
   okpd_tree_file: "configs/codes/gov_okpd2_tree.json"

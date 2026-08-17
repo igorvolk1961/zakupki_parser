@@ -111,6 +111,78 @@ def test_active_only_sets_state_id_in() -> None:
     assert filt["auctionSpecificFilter"]["stateIdIn"] == [19000002, 19000008]
 
 
+def test_active_only_raw_array_flat_repeated_params() -> None:
+    """active_only -> raw_array_flat: статусы повторяющимися параметрами (roseltorg status[])."""
+    search = SearchFilterConfig(
+        query_params={},
+        criteria_map={"active_only": CriteriaMapping(raw_array_flat="status[]")},
+        state_ids={"all": [5, 0, 1, 2, 3, 4], "active": [0, 1]},
+    )
+    q_all = build_query(search, None, SearchCriteria())
+    assert "status[]=5" in q_all
+    assert "status[]=0" in q_all
+    assert "status[]=4" in q_all
+    assert q_all.count("status[]=") == 6
+    q_active = build_query(search, None, SearchCriteria(active_only=True))
+    assert "status[]=0" in q_active
+    assert "status[]=1" in q_active
+    assert "status[]=5" not in q_active
+    assert q_active.count("status[]=") == 2
+
+
+def test_active_only_all_omitted_when_no_all_ids() -> None:
+    """state_ids.all не задан -> при active_only=False параметр не ставится вовсе."""
+    search = SearchFilterConfig(
+        query_params={},
+        criteria_map={"active_only": CriteriaMapping(query_param="status")},
+        state_ids={"active": ["accept"]},
+    )
+    assert "status=" not in build_query(search, None, SearchCriteria())
+    q_active = build_query(search, None, SearchCriteria(active_only=True))
+    assert dict(urllib.parse.parse_qsl(q_active))["status"] == "accept"
+
+
+def test_active_only_state_all_query_param() -> None:
+    """active_only -> query_param + state_ids.all (b2b show=all / show=actual)."""
+    search = SearchFilterConfig(
+        query_params={},
+        criteria_map={"active_only": CriteriaMapping(query_param="show")},
+        state_ids={"all": ["all"], "active": ["actual"]},
+    )
+    q_all = build_query(search, None, SearchCriteria())
+    assert dict(urllib.parse.parse_qsl(q_all))["show"] == "all"
+    q_active = build_query(search, None, SearchCriteria(active_only=True))
+    assert dict(urllib.parse.parse_qsl(q_active))["show"] == "actual"
+
+
+def test_active_only_query_params_multiple() -> None:
+    """active_only -> query_params (ЕИС af=on&ca=on): при active_only ставятся все."""
+    search = SearchFilterConfig(
+        query_params={},
+        criteria_map={"active_only": CriteriaMapping(query_params={"af": "on", "ca": "on"})},
+    )
+    q_active = build_query(search, None, SearchCriteria(active_only=True))
+    params = dict(urllib.parse.parse_qsl(q_active))
+    assert params["af"] == "on"
+    assert params["ca"] == "on"
+    # «все» — параметры этапа не ставятся (площадка отдаёт все этапы)
+    assert "af" not in build_query(search, None, SearchCriteria())
+    assert "ca" not in build_query(search, None, SearchCriteria())
+
+
+def test_active_only_raw_array_indexed() -> None:
+    """active_only -> raw_array (etpgpb procedure[stage][N]=accepting)."""
+    search = SearchFilterConfig(
+        query_params={},
+        criteria_map={"active_only": CriteriaMapping(raw_array="procedure[stage]")},
+        state_ids={"active": ["accepting"]},
+    )
+    q_active = build_query(search, None, SearchCriteria(active_only=True))
+    params = dict(urllib.parse.parse_qsl(q_active))
+    assert params["procedure[stage][0]"] == "accepting"
+    assert "procedure[stage][0]" not in build_query(search, None, SearchCriteria())
+
+
 def test_query_param_criteria_flat_params() -> None:
     # ЕИС-стиль: критерий -> плоский query-параметр. Не заданный — пропускается.
     eis = SearchFilterConfig(

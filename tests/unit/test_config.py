@@ -132,14 +132,20 @@ def test_roseltorg_44fz_config_complete() -> None:
 
 
 def test_roseltorg_search_status_all() -> None:
-    """Поиск roseltorg покрывает все статусы (0-5), а не только 2,3,4."""
+    """Поиск roseltorg покрывает все статусы (0-5) через state_ids.all (active_only)."""
     data = _load_dom_configs(REPO_ROOT / "configs")
     platforms = DomConfig.model_validate(data).platforms
     for platform_id in ("roseltorg_223fz", "roseltorg_44fz"):
         platform = platforms[platform_id]
         assert platform.search is not None
-        statuses = platform.search.query_params["status[]"]
-        assert statuses == ["5", "0", "1", "2", "3", "4"], platform_id
+        # Статусы больше не статичные: all/active заданы в state_ids для active_only.
+        assert "status[]" not in platform.search.query_params
+        assert platform.search.state_ids == {
+            "all": [5, 0, 1, 2, 3, 4],
+            "active": [5, 0, 1],
+        }, platform_id
+        active_only = platform.search.criteria_map["active_only"]
+        assert active_only.raw_array_flat == "status[]"
 
 
 def test_telegram_token_injected_from_env(monkeypatch: pytest.MonkeyPatch) -> None:

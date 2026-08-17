@@ -71,6 +71,15 @@
    B2B-Center (`f_keyword=`).
    URL-параметры могут быть вложенными array-параметрами (напр. ЭТП ГПБ
    `procedure[stage][0]=accepting`) — имена ключей в конфиге задаются как есть.
+
+   **Фильтр по состояниям** (`search_criteria.active_only`): серверная фильтрация
+   закупок по состоянию. Привязка к запросу площадки — в `criteria_map` ключа
+   `active_only` (`configs/dom/<platform_id>.yaml -> search`), значения состояний —
+   в `search.state_ids`: `active` (при `active_only=true`) и `all` (при `false`, если
+   задан; иначе параметр не ставится). Цели: `json_path` (mos: `stateIdIn`),
+   `query_param` (b2b: `show=actual`), `query_params` (ЕИС: `af=on&ca=on`),
+   `raw_array` (ЭТП ГПБ: `procedure[stage][0]`), `raw_array_flat` (roseltorg/fabrikant:
+   `status[]`/`statuses[]`, lot_online_44: `status`).
 4. **Бесконечный цикл по страницам** фильтрованного поиска. Пагинация — либо кликом
    по DOM-селектору `next_page`, либо через query-параметр страницы
    (`list_config.page_param`, напр. `page`): движок инкрементирует параметр в URL и

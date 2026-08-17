@@ -39,17 +39,22 @@ detail:
 search:
   enabled: true
   # Статические параметры формы поиска: searching (обязательный маркер поиска),
-  # trade=all (закупки+продажи), show=all (актуальные+архив), сортировка по дате.
+  # trade=all (закупки+продажи), сортировка по дате. Параметр show (актуальные/
+  # архив) управляется active_only: all — актуальные+архив, actual — только
+  # актуальные (проверено на живом сайте 2026-08-17).
   query_params:
     searching: "1"
     trade: "all"
-    show: "all"
     order_by: "1"
     order_dir: "0"
   criteria_map:
     # Слова в f_keyword объединяются союзом «или» (OR в одном запросе) — проверено.
     # Многословные фразы — в кавычках (keywords_quote_phrases).
     keywords: { query_param: "f_keyword" }
+    active_only: { query_param: "show" }
+  state_ids:
+    all: ["all"]
+    active: ["actual"]
   # Слова по «ИЛИ» одним запросом (союз «или»), а не перебором по-одному.
   keywords_one_at_a_time: false
   keywords_separator: " или "

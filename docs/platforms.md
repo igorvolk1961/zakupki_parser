@@ -1,6 +1,6 @@
 # Сводка по торговым площадкам
 
-Обновлено: 2026-08-14. Конфиги площадок — в `configs/dom/<platform_id>.yaml`
+Обновлено: 2026-08-17. Конфиги площадок — в `configs/dom/<platform_id>.yaml`
 (по файлу на площадку). Включение/выключение — `configs/config_service.yaml -> sites`.
 
 ## Статус верификации селекторов
@@ -31,7 +31,30 @@
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
 | roseltorg_223fz | Drupal+React | `query_field`/`okpd2[]`/`status[]`/`page` | ✅ (JSON-LD деталей) | ✅ `query_field` (пробел=OR) | релевантность | нет |
 | fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | дата `date_publication desc` | да |
-| lot_online_223 | Angular SPA (Taiga) | — (в URL не отражается) | ❌ (детали, SPA-API) | ❌ (не в URL) | дата публикации (дефолт) | да |
+| lot_online_223 | Angular SPA (Taiga) | `status` (JSON `[{label,value}]`); `searchToken`/`okpd2` в URL | ❌ (детали, SPA-API) | ✅ `status` (JSON) | дата публикации (дефолт) | да |
+
+## Серверная фильтрация по состояниям (`search_criteria.active_only`)
+
+Реализована на ВСЕХ площадках (проверено на живых сайтах 2026-08-17). Значения
+`state_ids` (`active`/`all`) и цель `criteria_map["active_only"]` по площадкам:
+
+| platform_id | Цель | `state_ids.active` | `state_ids.all` | Примечание |
+|---|---|---|---|---|
+| zakupki_mos | `auctionSpecificFilter.stateIdIn` (json_path) | `[19000002]` (Активные) | 5 состояний (Все закупки) | значения сняты с UI-фильтра «Статус» |
+| zakupki_gov_44fz | `af=on&ca=on` (query_params) | — | — | «Этап закупки»: Подача заявок + Работа комиссии; «все» — без параметров |
+| zakupki_gov_223fz | `af=on&ca=on` (query_params) | — | — | как 44-ФЗ |
+| roseltorg_44fz | `status[]` (raw_array_flat) | `[5, 0, 1]` | `[5, 0, 1, 2, 3, 4]` | 5=Ожидание приема, 0=Прием заявок, 1=Работа комиссии; 2=Отменена, 3=Приостановлена, 4=Завершена |
+| roseltorg_223fz | `status[]` (raw_array_flat) | `[5, 0, 1]` | `[5, 0, 1, 2, 3, 4]` | как 44-ФЗ |
+| fabrikant | `statuses[]` (raw_array_flat) | `[1, 5]` | `[1, 2, 3, 4, 5, 6]` | 1=Прием заявок, 5=Ожидает приёма; 4=Завершённые, 6=Отменённые; дефолт поиска = только активные |
+| b2b_center | `show` (query_param) | `actual` | `all` | show=actual — только актуальные (неистёкшие) |
+| etpgpb | `procedure[stage]` (raw_array) | `accepting` | — | «все» невыразимо: сайт редиректит на accepting (дефолт = активные) |
+| lot_online_44 | `status` (raw_array_flat) | `[accept, commission, contract]` | — | «все» — без параметра (весь реестр); активные = дефолт UI |
+| lot_online_223 | `status` (query_params, JSON) | `DEMANDS_STARTED` | — | JSON-формат `[{label,value}]` сайта; дефолт поиска = только «Прием заявок» |
+
+Итог: `active_only=true` на всех площадках отсекает завершённые/отменённые закупки
+серверно. Там, где «все» невыразимо (etpgpb, lot_online_223), площадка и так отдаёт
+только активные. Дополнительно `stop_conditions.deadline_not_expired` отсекает
+заявки с истёкшим сроком приёма.
 
 ## Замечания
 
@@ -123,7 +146,10 @@
   2026-08-17: опция «По релевантности» в дропдауне есть, но выбрана по умолчанию дата,
   парсер её не меняет) -> стоп-порог по дате применяется.
   В списке есть даты публикации/окончания приёма заявок (заметка «нет дат» устарела).
-- Фильтры по словам/ОКПД2 не отражаются в URL (обе) — коллекция идёт по полному списку.
+- Фильтры по словам/ОКПД2 не отражаются в URL (44-ФЗ — частично: keywords/okpd2 в URL;
+  223-ФЗ — в URL отражаются searchToken/okpd2/status) — коллекция в основном идёт по
+  полному списку. Статус на 223-ФЗ фильтрует через JSON-параметр `status`
+  (`[{"label":...,"value":...}]`, формат самого сайта).
 - Детальные страницы (ОКПД2/файлы/цена) — через внутренний API, см. «TODO по деталям (SPA)».
 
 ### Прочее
