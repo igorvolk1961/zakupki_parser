@@ -83,6 +83,7 @@ class ProcurementRepository:
         customer: str | None = None,
         active: bool | None = None,
         min_fit_score: float | None = None,
+        sort: str | None = None,
         limit: int = 20,
         offset: int = 0,
         now: datetime | None = None,
@@ -92,6 +93,11 @@ class ProcurementRepository:
         ``active`` учитывает текущую дату на стороне клиента: закупка активна,
         если активна по статусу (is_active) И срок актуальности не истёк
         (deadline отсутствует или не раньше ``now``).
+
+        ``sort`` — whitelist-сортировка: ``fit_score`` (по релевантности,
+        убывание, NULL-скор в конце) или ``publication_date`` (по дате
+        публикации, убывание, NULL в конце). Прочие значения игнорируются —
+        используется порядок по id (как в БД).
         """
         conditions: list[ColumnElement[bool]] = []
         if number:
@@ -134,7 +140,18 @@ class ProcurementRepository:
         stmt = select(Procurement).options(selectinload(Procurement.customer_rel))
         if customer:
             stmt = stmt.join(Customer, Procurement.customer_id == Customer.id)
-        stmt = stmt.where(*conditions).order_by(Procurement.id.asc())
+        if sort == "fit_score":
+            stmt = stmt.where(*conditions).order_by(
+                Procurement.fit_score.desc().nullslast(),
+                Procurement.id.asc(),
+            )
+        elif sort == "publication_date":
+            stmt = stmt.where(*conditions).order_by(
+                Procurement.publication_date.desc().nullslast(),
+                Procurement.id.asc(),
+            )
+        else:
+            stmt = stmt.where(*conditions).order_by(Procurement.id.asc())
         count_stmt = select(func.count(Procurement.id)).where(*conditions)
         if customer:
             count_stmt = count_stmt.select_from(Procurement).join(

@@ -54,6 +54,9 @@
   .sort-toggle { display:block; flex:0 0 auto; font-size:13px; color: var(--muted, #888); padding:8px 12px; }
   .proc-table { flex:1 1 auto; min-height:0; overflow:auto; }
   .sort-toggle select { margin-left:6px; }
+  .pager { display:flex; align-items:center; gap:14px; justify-content:center; padding:10px 12px;
+           border-top:1px solid var(--line); font-size:13px; }
+  .pager .page-info { color: var(--muted); white-space:nowrap; }
   #proc-min-fit::-webkit-outer-spin-button, #proc-min-fit::-webkit-inner-spin-button,
   #db-min-fit::-webkit-outer-spin-button, #db-min-fit::-webkit-inner-spin-button,
   #export-min-fit::-webkit-outer-spin-button, #export-min-fit::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
@@ -145,6 +148,7 @@
           <select id="proc-sort">
             <option value="">Как в БД</option>
             <option value="publication_date">По дате публикации</option>
+            <option value="fit_score">По релевантности (fit-score)</option>
           </select>
           <label style="margin-left:12px;">Площадка:
             <select id="proc-platform"><option value="">Все площадки</option></select>
@@ -175,6 +179,11 @@
             <tbody id="proc-rows"></tbody>
           </table>
           <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
+        </div>
+        <div class="pager" id="proc-pager" style="display:none;">
+          <button class="ghost" id="proc-prev">← Назад</button>
+          <span class="page-info" id="proc-page-info"></span>
+          <button class="ghost" id="proc-next">Вперёд →</button>
         </div>
       </div>
       <div class="proc-detail" id="proc-detail">
@@ -275,6 +284,9 @@ async function api(path, params) {
 
 let allItems = [];
 let selected = new Set();
+const PROC_PAGE_SIZE = 100;
+let procPage = 1;
+let procTotal = 0;
 
 function updateMinFit() {
   $("#min-fit-wrap").style.display = $("#proc-relevant").checked ? "inline" : "none";
@@ -306,15 +318,10 @@ function procRow(row) {
   </tr>`;
 }
 
-// Сортировка таблицы — ТОЛЬКО для отображения (копия массива). Порядок записей
-// в БД (allItems) при этом НЕ меняется. Переключатель: "как в БД" или
-// "по дате публикации".
+// Сортировка выполняется на бэкенде (параметр sort API) — клиент отображает
+// страницу как пришла, постранично (offset = страница × размер страницы).
 function displayItems() {
-  const items = allItems.slice();
-  if ($("#proc-sort").value === "publication_date") {
-    items.sort((x, y) => new Date(y.publication_date || 0) - new Date(x.publication_date || 0));
-  }
-  return items;
+  return allItems;
 }
 
 function selectedItems() {
@@ -352,32 +359,71 @@ function sigOfProc(data) {
   return data.total + ":" + data.items.map((r) => r.id + "@" + (r.update_date || "")).join(",");
 }
 
+function clampPage() {
+  const pages = Math.max(1, Math.ceil(procTotal / PROC_PAGE_SIZE));
+  if (procPage > pages) procPage = pages;
+}
+
+function renderPager() {
+  const pages = Math.max(1, Math.ceil(procTotal / PROC_PAGE_SIZE));
+  const pager = $("#proc-pager");
+  pager.style.display = procTotal ? "flex" : "none";
+  $("#proc-page-info").textContent = `Страница ${procPage} из ${pages} · всего ${procTotal}`;
+  $("#proc-prev").disabled = procPage <= 1;
+  $("#proc-next").disabled = procPage >= pages;
+}
+
+function goProcPage(page) {
+  page = Math.min(Math.max(1, page), Math.max(1, Math.ceil(procTotal / PROC_PAGE_SIZE)));
+  if (page === procPage) return;
+  procPage = page;
+  loadProc();
+}
+
 async function loadProc() {
-  const params = { limit: 100 };
+  clampPage();
+  const params = { limit: PROC_PAGE_SIZE, offset: (procPage - 1) * PROC_PAGE_SIZE };
+  if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
   if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
   if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
   const data = await api("procurements", params);
+  procTotal = data.total;
+  const pages = Math.max(1, Math.ceil(procTotal / PROC_PAGE_SIZE));
+  if (procPage > pages) {
+    procPage = pages;
+    return loadProc();
+  }
   allItems = data.items;
   lastProcSig = sigOfProc(data);
   $("#cnt-proc").textContent = data.total;
   renderProc();
+  renderPager();
 }
 
 // Авто-обновление: перерисовываем список только если данные в БД изменились.
 async function pollProc() {
   try {
-    const params = { limit: 100 };
+    clampPage();
+    const params = { limit: PROC_PAGE_SIZE, offset: (procPage - 1) * PROC_PAGE_SIZE };
+    if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
     if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
     if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
     if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
     const data = await api("procurements", params);
+    const pages = Math.max(1, Math.ceil(data.total / PROC_PAGE_SIZE));
+    if (procPage > pages) {
+      procPage = pages;
+      return loadProc();
+    }
     const sig = sigOfProc(data);
     if (sig !== lastProcSig) {
       lastProcSig = sig;
       allItems = data.items;
+      procTotal = data.total;
       $("#cnt-proc").textContent = data.total;
       renderProc();
+      renderPager();
     }
   } catch (err) { /* временные сбои игнорируем — попробуем на следующем тике */ }
 }
@@ -488,25 +534,29 @@ $("#proc-detail").addEventListener("click", (e) => {
 });
 $("#modal-bg").addEventListener("click", (e) => { if (e.target.id === "modal-bg") closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
-$("#proc-sort").addEventListener("change", renderProc);
+$("#proc-sort").addEventListener("change", () => { procPage = 1; loadProc(); });
+$("#proc-prev").addEventListener("click", () => goProcPage(procPage - 1));
+$("#proc-next").addEventListener("click", () => goProcPage(procPage + 1));
 $("#proc-relevant").addEventListener("change", () => {
   localStorage.setItem("zp_relevant", $("#proc-relevant").checked ? "1" : "0");
   updateMinFit();
+  procPage = 1;
   loadProc();
 });
-$("#proc-min-fit").addEventListener("change", loadProc);
+$("#proc-min-fit").addEventListener("change", () => { procPage = 1; loadProc(); });
 function stepFit(d) {
   const input = $("#proc-min-fit");
   let v = parseFloat(input.value);
   if (isNaN(v)) v = 0.4;
   v = Math.min(0.9, Math.max(0, Math.round((v + d) * 10) / 10));
   input.value = v;
+  procPage = 1;
   loadProc();
 }
 $("#fit-up").addEventListener("click", () => stepFit(0.1));
 $("#fit-dn").addEventListener("click", () => stepFit(-0.1));
-$("#proc-platform").addEventListener("change", loadProc);
-$("#proc-active").addEventListener("change", loadProc);
+$("#proc-platform").addEventListener("change", () => { procPage = 1; loadProc(); });
+$("#proc-active").addEventListener("change", () => { procPage = 1; loadProc(); });
 $("#tab-proc").addEventListener("click", () => {
   $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
   $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";

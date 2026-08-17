@@ -6,6 +6,7 @@ import asyncio
 import os
 import shutil
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -285,6 +286,101 @@ def test_list_filter_min_fit_score_ignores_default_scored(
     # Но присутствует в обычном списке (без фильтра).
     all_procs = client.get("/api/procurements", params={"number": "API-DEFAULT"}).json()
     assert any(item["id"] == default_id for item in all_procs["items"])
+
+
+def test_list_sort_fit_score(api_client: tuple[TestClient, Path]) -> None:
+    """GET /api/procurements?sort=fit_score сортирует по релевантности (NULL в конце)."""
+    client, _ = api_client
+
+    async def _seed() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert(
+                {
+                    "number": "SORT-MID",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Средний",
+                    "fit_score": 0.5,
+                    "score_method": "fit",
+                }
+            )
+            await repo.upsert(
+                {
+                    "number": "SORT-NONE",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Без скоринга",
+                }
+            )
+            await repo.upsert(
+                {
+                    "number": "SORT-HIGH",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Высокий",
+                    "fit_score": 0.9,
+                    "score_method": "fit",
+                }
+            )
+        finally:
+            await db.dispose()
+
+    asyncio.run(_seed())
+
+    body = client.get(
+        "/api/procurements",
+        params={"number": "SORT", "sort": "fit_score", "limit": 100},
+    ).json()
+    fits = [item["fit_score"] for item in body["items"]]
+    assert fits == sorted(fits, key=lambda v: v if v is not None else -1, reverse=True)
+    assert body["items"][-1]["fit_score"] is None
+
+
+def test_list_sort_publication_date(api_client: tuple[TestClient, Path]) -> None:
+    """GET /api/procurements?sort=publication_date сортирует по убыванию даты (NULL в конце)."""
+    client, _ = api_client
+
+    async def _seed() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert(
+                {
+                    "number": "SORTDATE-OLD",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Старая",
+                    "publication_date": datetime(2026, 1, 1, tzinfo=UTC),
+                }
+            )
+            await repo.upsert(
+                {
+                    "number": "SORTDATE-NEW",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Новая",
+                    "publication_date": datetime(2026, 6, 1, tzinfo=UTC),
+                }
+            )
+            await repo.upsert(
+                {
+                    "number": "SORTDATE-NONE",
+                    "source_platform": "zakupki_mos",
+                    "subject": "Без даты",
+                }
+            )
+        finally:
+            await db.dispose()
+
+    asyncio.run(_seed())
+
+    body = client.get(
+        "/api/procurements",
+        params={"number": "SORTDATE", "sort": "publication_date", "limit": 100},
+    ).json()
+    dates = [item["publication_date"] for item in body["items"]]
+    assert dates[0] == "2026-06-01T00:00:00Z"
+    assert dates[1] == "2026-01-01T00:00:00Z"
+    assert dates[-1] is None
 
 
 def test_set_score_by_external_service(

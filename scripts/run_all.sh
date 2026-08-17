@@ -180,16 +180,23 @@ else
     echo "LangFuse пропущен (SKIP_LANGFUSE=1)."
 fi
 
+# Общие компоненты каскада (scoring_common) — локально не установлены как пакет,
+# поэтому добавляем их в PYTHONPATH (как это делают Dockerfile подпроектов).
+COMMON_PATH="$ROOT_DIR/src/scoring_common"
+SCORING_PYTHONPATH="$COMMON_PATH${PYTHONPATH:+:$PYTHONPATH}"
+
 # --- scoring_service (воркер, заглушка) ------------------------------------
 echo "Запуск scoring_service (воркер, заглушка)..."
-( cd "$ROOT_DIR/src/scoring_service" && SCORE_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
+( cd "$ROOT_DIR/src/scoring_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
+    SCORE_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
     uv run python -m scoring_service worker ) &
 BGPIDS+=($!)
 
 # --- scoring_transport ------------------------------------------------------
 echo "Запуск scoring_transport на :$PORT_TRANSPORT..."
 ( cd "$ROOT_DIR/src/scoring_transport" \
-    && TRANSPORT_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
+    && PYTHONPATH="$SCORING_PYTHONPATH" \
+    TRANSPORT_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
     uv run python -m scoring_transport serve --host 127.0.0.1 --port "$PORT_TRANSPORT" ) &
 BGPIDS+=($!)
 

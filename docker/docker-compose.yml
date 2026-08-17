@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: zakupki
+      POSTGRES_DB: zakupki_dev
     ports:
       - "5432:5432"
     volumes:
@@ -21,7 +21,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      LIQUIBASE_COMMAND_URL: jdbc:postgresql://db:5432/zakupki
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://db:5432/zakupki_dev
       LIQUIBASE_COMMAND_USERNAME: postgres
       LIQUIBASE_COMMAND_PASSWORD: postgres
       LIQUIBASE_COMMAND_CHANGELOG_FILE: db.changelog-master.yaml
@@ -292,7 +292,7 @@ services:
       - ../.env
     environment:
       ZAKUPKI_CONFIGS: /app/configs
-      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki
+      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
     volumes:
@@ -310,7 +310,7 @@ services:
       - ../.env
     environment:
       ZAKUPKI_CONFIGS: /app/configs
-      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki
+      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
     ports:

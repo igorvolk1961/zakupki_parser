@@ -388,6 +388,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         customer: str | None = None,
         active: bool | None = None,
         min_fit_score: float | None = None,
+        sort: str | None = Query(default=None),
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> ProcurementListOut:
@@ -398,6 +399,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             customer=customer,
             active=active,
             min_fit_score=min_fit_score,
+            sort=sort,
             limit=limit,
             offset=offset,
         )
