@@ -30,6 +30,9 @@ documents/
 # Runtime state (PID-файл фонового стека run_all.sh)
 .run_all.pids
 
+# Database backups
+backups/
+
 # IDE
 .idea/
 .vscode/
