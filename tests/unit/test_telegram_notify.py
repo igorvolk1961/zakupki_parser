@@ -25,7 +25,7 @@ from zakupki_parser.notify import (
 
 _RECORD: dict[str, Any] = {
     "number": "12345",
-    "source_platform": "zakupki_mos",
+    "platform_id": "zakupki_mos",
     "subject": 'Разработка ПО <и> "автоматизация" &',
     "customer": "Заказчик",
     "law": "223-ФЗ",

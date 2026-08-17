@@ -2,6 +2,9 @@
 
 Обновлено: 2026-08-17. Конфиги площадок — в `configs/dom/<platform_id>.yaml`
 (по файлу на площадку). Включение/выключение — `configs/config_service.yaml -> sites`.
+Ключ площадки (`platform_id`) един во всех конфигах и БД (`procurements.platform_id`,
+`procedure_type_mappings.platform_id`); официальное имя и главная страница — в
+справочнике `platforms` (миграция 1.21, сид из этих конфигов).
 
 ## Статус верификации селекторов
 

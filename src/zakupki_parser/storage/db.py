@@ -105,17 +105,38 @@ class ProcedureTypeMapping(Base):
     )
 
 
+class Platform(Base):
+    """Справочник платформ: ключ, официальное наименование, главная страница.
+
+    ``platform_id`` — натуральный ключ, совпадает с ``configs/dom/<platform_id>.yaml``
+    и ``procurements.platform_id``. Справочник для отображения/join'ов по ключу
+    (FK на procurements не ставится: ключ стабильный, а набор платформ — конфиг).
+    """
+
+    __tablename__ = "platforms"
+    __table_args__ = (UniqueConstraint("platform_id", name="uq_platforms_platform_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    platform_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class Procurement(Base):
     """Запись о закупке."""
 
     __tablename__ = "procurements"
     __table_args__ = (
-        UniqueConstraint("number", "source_platform", name="uq_procurement_number_platform"),
+        UniqueConstraint("number", "platform_id", name="uq_procurement_number_platform"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     number: Mapped[str] = mapped_column(String(64), nullable=False)
-    source_platform: Mapped[str] = mapped_column(String(128), nullable=False)
+    platform_id: Mapped[str] = mapped_column(String(128), nullable=False)
     url: Mapped[str | None] = mapped_column(String(1024))
     customer_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("customers.id", ondelete="SET NULL")
@@ -155,6 +176,10 @@ class Procurement(Base):
 
     customer_rel: Mapped[Customer | None] = relationship(back_populates="procurements")
     procedure_type_rel: Mapped[ProcedureType | None] = relationship(back_populates="procurements")
+    platform_rel: Mapped[Platform | None] = relationship(
+        primaryjoin="Procurement.platform_id == foreign(Platform.platform_id)",
+        viewonly=True,
+    )
 
 
 class Database:

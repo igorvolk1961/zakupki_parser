@@ -52,7 +52,7 @@ async def inserted_id(api_client: tuple[TestClient, Path]) -> AsyncIterator[int]
     await repo.upsert(
         {
             "number": "API-1",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "Тест API",
             "customer": "Заказчик ООО",
             "okpd2_codes": "62.01",
@@ -107,7 +107,7 @@ def test_db_clear_inactive(api_client: tuple[TestClient, Path]) -> None:
             await repo.upsert(
                 {
                     "number": "CIN-1",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Неактивна",
                     "is_active": False,
                 }
@@ -115,7 +115,7 @@ def test_db_clear_inactive(api_client: tuple[TestClient, Path]) -> None:
             await repo.upsert(
                 {
                     "number": "CIN-2",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Активна",
                 }
             )
@@ -147,7 +147,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
             await repo.upsert(
                 {
                     "number": "CIR-1",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Релевантная",
                     "fit_score": 0.8,
                     "score_method": "fit",
@@ -156,7 +156,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
             await repo.upsert(
                 {
                     "number": "CIR-2",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Нерелевантная",
                     "fit_score": 0.2,
                     "score_method": "fit",
@@ -266,7 +266,7 @@ def test_list_filter_min_fit_score_ignores_default_scored(
             assert await repo.upsert(
                 {
                     "number": "API-DEFAULT",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Дефолтный скор",
                     "customer": "Заказчик ООО",
                     "fit_score": 0.9,
@@ -300,7 +300,7 @@ def test_list_sort_fit_score(api_client: tuple[TestClient, Path]) -> None:
             await repo.upsert(
                 {
                     "number": "SORT-MID",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Средний",
                     "fit_score": 0.5,
                     "score_method": "fit",
@@ -309,14 +309,14 @@ def test_list_sort_fit_score(api_client: tuple[TestClient, Path]) -> None:
             await repo.upsert(
                 {
                     "number": "SORT-NONE",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Без скоринга",
                 }
             )
             await repo.upsert(
                 {
                     "number": "SORT-HIGH",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Высокий",
                     "fit_score": 0.9,
                     "score_method": "fit",
@@ -348,7 +348,7 @@ def test_list_sort_publication_date(api_client: tuple[TestClient, Path]) -> None
             await repo.upsert(
                 {
                     "number": "SORTDATE-OLD",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Старая",
                     "publication_date": datetime(2026, 1, 1, tzinfo=UTC),
                 }
@@ -356,7 +356,7 @@ def test_list_sort_publication_date(api_client: tuple[TestClient, Path]) -> None
             await repo.upsert(
                 {
                     "number": "SORTDATE-NEW",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Новая",
                     "publication_date": datetime(2026, 6, 1, tzinfo=UTC),
                 }
@@ -364,7 +364,7 @@ def test_list_sort_publication_date(api_client: tuple[TestClient, Path]) -> None
             await repo.upsert(
                 {
                     "number": "SORTDATE-NONE",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Без даты",
                 }
             )
@@ -535,7 +535,7 @@ def test_export_csv_writes_to_export_dir(
             assert await repo.upsert(
                 {
                     "number": "EXPORT-REL",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Релевантная активная",
                     "customer": "Заказчик ООО",
                     "fit_score": 0.8,
@@ -545,7 +545,7 @@ def test_export_csv_writes_to_export_dir(
             assert await repo.upsert(
                 {
                     "number": "EXPORT-IRR",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Нерелевантная",
                     "fit_score": 0.2,
                     "score_method": "fit",
@@ -554,7 +554,7 @@ def test_export_csv_writes_to_export_dir(
             assert await repo.upsert(
                 {
                     "number": "EXPORT-INACTIVE",
-                    "source_platform": "zakupki_mos",
+                    "platform_id": "zakupki_mos",
                     "subject": "Неактивная",
                     "is_active": False,
                 }
@@ -576,7 +576,7 @@ def test_export_csv_writes_to_export_dir(
     assert target.exists()
     content = target.read_text(encoding="utf-8-sig")
     # Заголовок + активная релевантная запись.
-    assert "number,source_platform" in content
+    assert "number,platform_id" in content
     assert "EXPORT-REL" in content
     assert "Заказчик ООО" in content
     # Нерелевантная (fit_score < 0.4) и неактивная закупки в выгрузку не попадают.

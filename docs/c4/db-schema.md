@@ -15,6 +15,15 @@ erDiagram
         timestamptz updated_at "server_default now(), onupdate"
     }
 
+    PLATFORMS {
+        bigint id PK "автоинкремент"
+        varchar(128) platform_id "ключ платформы, UNIQUE (совпадает с configs/dom/<platform_id>.yaml)"
+        text name "официальное наименование площадки"
+        text url "главная страница площадки"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
     PROCEDURE_TYPES {
         bigint id PK "автоинкремент"
         text name "наименование типа процедуры"
@@ -26,7 +35,7 @@ erDiagram
 
     PROCEDURE_TYPE_MAPPINGS {
         bigint id PK "автоинкремент"
-        varchar(128) platform_id "ключ площадки"
+        varchar(128) platform_id "ключ площадки (platforms.platform_id)"
         text native_name "родное значение на площадке (purchase_type)"
         text normalized_name "нормализованное родное значение, UNIQUE(platform_id, normalized_name)"
         bigint procedure_type_id FK "канонический тип (procedure_types.id, CASCADE)"
@@ -37,7 +46,7 @@ erDiagram
     PROCUREMENTS {
         bigint id PK "автоинкремент"
         varchar(64) number "реестровый номер заявки"
-        varchar(128) source_platform "ключ площадки"
+        varchar(128) platform_id "ключ платформы-источника (platforms.platform_id)"
         varchar(1024) url "ссылка на закупку"
         bigint customer_id FK "ссылка на заказчика (customers.id, SET NULL)"
         bigint procedure_type_id FK "ссылка на тип процедуры (procedure_types.id, SET NULL)"
@@ -67,14 +76,22 @@ erDiagram
     PROCUREMENTS }o--|| CUSTOMERS : "customer_id (FK, SET NULL)"
     PROCUREMENTS }o--|| PROCEDURE_TYPES : "procedure_type_id (FK, SET NULL)"
     PROCEDURE_TYPE_MAPPINGS }o--|| PROCEDURE_TYPES : "procedure_type_id (FK, CASCADE)"
+    PROCUREMENTS }o--o| PLATFORMS : "platform_id (по ключу)"
+    PROCEDURE_TYPE_MAPPINGS }o--o| PLATFORMS : "platform_id (по ключу)"
 ```
 
 ## Замечания
-- **Четыре таблицы**: `procurements`, справочники `customers` (ADR-4),
-  `procedure_types` и `procedure_type_mappings`. Заказчик нормализован: вместо
-  денормализованной колонки `customer` — FK `customer_id` (при удалении заказчика —
-  `SET NULL`). Тип процедуры (`purchase_type` из карточки списка) нормализован в
-  `procedure_types` (миграция 1.20).
+- **Пять таблиц**: `procurements`, справочники `customers` (ADR-4),
+  `procedure_types`, `procedure_type_mappings` и `platforms`. Заказчик нормализован:
+  вместо денормализованной колонки `customer` — FK `customer_id` (при удалении
+  заказчика — `SET NULL`). Тип процедуры (`purchase_type` из карточки списка)
+  нормализован в `procedure_types` (миграция 1.20).
+- **Платформы** (миграция 1.21): справочник `platforms` (натуральный ключ
+  `platform_id`, официальное имя, главная страница; сид из `configs/dom/*.yaml`).
+  Колонка `procurements.source_platform` переименована в `platform_id` — единое
+  именование ключа платформы во всех таблицах и конфигах. FK на `procurements`
+  намеренно нет: ключ стабильный, набор платформ задаётся конфигом; join по ключу
+  (официальное имя/URL отдаются через API как `platform_name`/`platform_url`).
 - **Типы процедур — гибрид «предзагруженный справочник + fallback»**:
   - `procedure_types` — канонический справочник (способы 44-ФЗ/223-ФЗ, засеян из
     дропдауна «Тип процедуры» fabrikant и способов ЕИС) + «сырые» значения площадок
@@ -91,11 +108,12 @@ erDiagram
   из БД (`MAX(update_date)` по площадке), а при отсутствии записей — из
   `default_cutoff_days` в `config_service.yaml`.
 - **Защита от дубликатов**: уникальный констрейнт `uq_procurement_number_platform`
-  на `(number, source_platform)`.
+  на `(number, platform_id)`.
 - **Индексы**: `ix_procurements_created_at` по `created_at`,
   `ix_procurements_customer_id` по `customer_id`,
   `ix_procurements_procedure_type_id` по `procedure_type_id`,
-  `ix_procedure_type_mappings_platform` по `platform_id`.
+  `ix_procedure_type_mappings_platform` по `platform_id`,
+  `ix_platforms_platform_id` по `platform_id`.
 - `score_method`: `default | fit | pwin | margin` (каскад Fit → P(win) → Margin, ADR-7).
 - `fit_score` (миграция 1.15): множитель Fit — дефолтный (0..1 из `fit_table` по ОКПД2)
   или нормализованный внешний (0..1). `embedding_similarity` (миграция 1.16) —
@@ -110,14 +128,14 @@ erDiagram
 - Проверка дубликата перед вставкой:
   ```sql
   SELECT id FROM procurements
-  WHERE number = $1 AND source_platform = $2;
+  WHERE number = $1 AND platform_id = $2;
   ```
 - Дата последней обработанной записи по площадке (порог):
   ```sql
-  SELECT MAX(update_date) FROM procurements WHERE source_platform = $1;
+  SELECT MAX(update_date) FROM procurements WHERE platform_id = $1;
   ```
 - Одинарная/множественная вставка исключает повтор:
   ```sql
   INSERT INTO procurements (...) VALUES (...)
-  ON CONFLICT (number, source_platform) DO NOTHING;
+  ON CONFLICT (number, platform_id) DO NOTHING;
   ```

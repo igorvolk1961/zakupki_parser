@@ -62,7 +62,7 @@ class ProcurementRepository:
         Если для площадки ещё нет ни одной записи — ``now - default_cutoff_days``.
         """
         stmt = select(func.max(Procurement.update_date)).where(
-            Procurement.source_platform == platform_id
+            Procurement.platform_id == platform_id
         )
         async with self._db.session() as session:
             max_date = (await session.execute(stmt)).scalar_one_or_none()
@@ -77,6 +77,7 @@ class ProcurementRepository:
             .options(
                 selectinload(Procurement.customer_rel),
                 selectinload(Procurement.procedure_type_rel),
+                selectinload(Procurement.platform_rel),
             )
         )
         async with self._db.session() as session:
@@ -87,7 +88,7 @@ class ProcurementRepository:
         self,
         *,
         number: str | None = None,
-        source_platform: str | None = None,
+        platform_id: str | None = None,
         okpd2: str | None = None,
         customer: str | None = None,
         active: bool | None = None,
@@ -111,8 +112,8 @@ class ProcurementRepository:
         conditions: list[ColumnElement[bool]] = []
         if number:
             conditions.append(Procurement.number.ilike(f"%{number}%"))
-        if source_platform:
-            conditions.append(Procurement.source_platform == source_platform)
+        if platform_id:
+            conditions.append(Procurement.platform_id == platform_id)
         if okpd2:
             conditions.append(Procurement.okpd2_codes.ilike(f"%{okpd2}%"))
         if customer:
@@ -149,6 +150,7 @@ class ProcurementRepository:
         stmt = select(Procurement).options(
             selectinload(Procurement.customer_rel),
             selectinload(Procurement.procedure_type_rel),
+            selectinload(Procurement.platform_rel),
         )
         if customer:
             stmt = stmt.join(Customer, Procurement.customer_id == Customer.id)
@@ -176,11 +178,11 @@ class ProcurementRepository:
             total = (await session.execute(count_stmt)).scalar_one()
         return rows, total
 
-    async def exists(self, number: str, source_platform: str) -> bool:
+    async def exists(self, number: str, platform_id: str) -> bool:
         """Проверяет наличие заявки с указанным номером на площадке."""
         stmt = select(Procurement.id).where(
             Procurement.number == number,
-            Procurement.source_platform == source_platform,
+            Procurement.platform_id == platform_id,
         )
         async with self._db.session() as session:
             result = await session.execute(stmt)
@@ -192,7 +194,7 @@ class ProcurementRepository:
         Используется оркестратором, чтобы не открывать детальные страницы уже
         сохранённых закупок при повторных проходах (relevance-режим).
         """
-        stmt = select(Procurement.number).where(Procurement.source_platform == platform_id)
+        stmt = select(Procurement.number).where(Procurement.platform_id == platform_id)
         async with self._db.session() as session:
             result = await session.execute(stmt)
             return {row[0] for row in result.all()}
@@ -205,7 +207,7 @@ class ProcurementRepository:
         """
         stmt = select(func.count(Procurement.id))
         if platform_id is not None:
-            stmt = stmt.where(Procurement.source_platform == platform_id)
+            stmt = stmt.where(Procurement.platform_id == platform_id)
         async with self._db.session() as session:
             return int((await session.execute(stmt)).scalar_one())
 
@@ -213,24 +215,24 @@ class ProcurementRepository:
         """Записывает заявку.
 
         Возвращает True, если запись была добавлена; False, если такая заявка
-        (number + source_platform) уже существует (повторная запись исключена).
+        (number + platform_id) уже существует (повторная запись исключена).
 
         Реализация: сначала явная проверка существования, затем INSERT. Второй
         уровень защиты — уникальный констрейнт в БД (``uq_procurement_number_platform``).
         """
         number = data.get("number")
-        source_platform = data.get("source_platform")
-        if not number or not source_platform:
-            logger.warning("Пропуск записи: нет number/source_platform")
+        platform_id = data.get("platform_id")
+        if not number or not platform_id:
+            logger.warning("Пропуск записи: нет number/platform_id")
             return False
 
-        if await self.exists(number, source_platform):
-            logger.info("Дубликат: заявка %s (%s) уже сохранена", number, source_platform)
+        if await self.exists(number, platform_id):
+            logger.info("Дубликат: заявка %s (%s) уже сохранена", number, platform_id)
             return False
 
         record = Procurement(
             number=str(number),
-            source_platform=source_platform,
+            platform_id=platform_id,
             url=data.get("url"),
             law=data.get("law"),
             subject=data.get("subject"),
@@ -258,14 +260,14 @@ class ProcurementRepository:
                 session, data.get("customer"), data.get("inn")
             )
             record.procedure_type_id = await self._resolve_procedure_type_id(
-                session, source_platform, data.get("purchase_type")
+                session, platform_id, data.get("purchase_type")
             )
             session.add(record)
             await session.commit()
         # Отдаём id записи в исходный dict — нужен для постановки задания на внешний
         # скоринг (POST /api/scoring/jobs, ADR-7).
         data["id"] = record.id
-        logger.info("Сохранена заявка %s (%s)", number, source_platform)
+        logger.info("Сохранена заявка %s (%s)", number, platform_id)
         return True
 
     async def _resolve_customer_id(

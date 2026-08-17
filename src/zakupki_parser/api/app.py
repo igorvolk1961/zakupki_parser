@@ -43,7 +43,9 @@ class ProcurementOut(BaseModel):
 
     id: int
     number: str
-    source_platform: str
+    platform_id: str
+    platform_name: str | None = None
+    platform_url: str | None = None
     url: str | None = None
     customer_id: int | None = None
     customer: str | None = None
@@ -241,6 +243,9 @@ def _procurement_out(row: Procurement) -> ProcurementOut:
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
     out.procedure_type_id = row.procedure_type_id
     out.procedure_type = row.procedure_type_rel.name if row.procedure_type_rel is not None else None
+    out.platform_id = row.platform_id
+    out.platform_name = row.platform_rel.name if row.platform_rel is not None else None
+    out.platform_url = row.platform_rel.url if row.platform_rel is not None else None
     # Клиентская сторона: активность учитывает текущую дату (срок актуальности).
     out.is_active = effective_is_active(row.is_active, row.deadline)
     return out
@@ -252,6 +257,9 @@ def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
     out.procedure_type_id = row.procedure_type_id
     out.procedure_type = row.procedure_type_rel.name if row.procedure_type_rel is not None else None
+    out.platform_id = row.platform_id
+    out.platform_name = row.platform_rel.name if row.platform_rel is not None else None
+    out.platform_url = row.platform_rel.url if row.platform_rel is not None else None
     out.is_active = effective_is_active(row.is_active, row.deadline)
     return out
 
@@ -260,7 +268,7 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
     """Карточка закупки как dict для уведомлений (поля, понятные Notifier)."""
     return {
         "number": row.number,
-        "source_platform": row.source_platform,
+        "platform_id": row.platform_id,
         "url": row.url,
         "customer": row.customer_rel.name if row.customer_rel is not None else None,
         "procedure_type": (
@@ -392,7 +400,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     @app.get("/api/procurements", response_model=ProcurementListOut)
     async def list_procurements(
         number: str | None = None,
-        source_platform: str | None = None,
+        platform_id: str | None = None,
         okpd2: str | None = None,
         customer: str | None = None,
         active: bool | None = None,
@@ -403,7 +411,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     ) -> ProcurementListOut:
         rows, total = await _repo().list_procurements(
             number=number,
-            source_platform=source_platform,
+            platform_id=platform_id,
             okpd2=okpd2,
             customer=customer,
             active=active,
@@ -418,7 +426,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     CSV_COLUMNS = [
         "id",
         "number",
-        "source_platform",
+        "platform_id",
         "url",
         "customer",
         "procedure_type",

@@ -48,7 +48,7 @@ async def test_upsert_creates_customer_and_links(db: Database) -> None:
     await repo.upsert(
         {
             "number": "C-1",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "customer": "ООО Ромашка",
             "inn": "3903007130",
             "subject": "x",
@@ -71,12 +71,8 @@ async def test_upsert_creates_customer_and_links(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_same_normalized_name_reuses_customer(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert(
-        {"number": "C-2", "source_platform": "zakupki_mos", "customer": "ООО Ромашка"}
-    )
-    await repo.upsert(
-        {"number": "C-3", "source_platform": "zakupki_mos", "customer": "ООО   Ромашка "}
-    )
+    await repo.upsert({"number": "C-2", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
+    await repo.upsert({"number": "C-3", "platform_id": "zakupki_mos", "customer": "ООО   Ромашка "})
     assert await _customer_count(db) == 1
     async with db.session() as session:
         result = await session.execute(
@@ -90,13 +86,11 @@ async def test_same_normalized_name_reuses_customer(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_inn_backfilled_on_existing_customer(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert(
-        {"number": "C-4", "source_platform": "zakupki_mos", "customer": "ООО Ромашка"}
-    )
+    await repo.upsert({"number": "C-4", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
     await repo.upsert(
         {
             "number": "C-5",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "customer": "ООО Ромашка",
             "inn": "3903007130",
         }
@@ -112,7 +106,7 @@ async def test_inn_backfilled_on_existing_customer(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_empty_customer_name_leaves_customer_id_null(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert({"number": "C-6", "source_platform": "zakupki_mos", "customer": ""})
+    await repo.upsert({"number": "C-6", "platform_id": "zakupki_mos", "customer": ""})
     assert await _customer_count(db) == 0
     async with db.session() as session:
         result = await session.execute(
@@ -124,23 +118,17 @@ async def test_empty_customer_name_leaves_customer_id_null(db: Database) -> None
 @pytest.mark.asyncio
 async def test_two_distinct_names_two_customers(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert(
-        {"number": "C-7", "source_platform": "zakupki_mos", "customer": "ООО Ромашка"}
-    )
-    await repo.upsert(
-        {"number": "C-8", "source_platform": "zakupki_mos", "customer": "АО ТехноЛогика"}
-    )
+    await repo.upsert({"number": "C-7", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
+    await repo.upsert({"number": "C-8", "platform_id": "zakupki_mos", "customer": "АО ТехноЛогика"})
     assert await _customer_count(db) == 2
 
 
 @pytest.mark.asyncio
 async def test_list_procurements_filter_by_customer(db: Database) -> None:
     repo = ProcurementRepository(db)
+    await repo.upsert({"number": "C-9", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
     await repo.upsert(
-        {"number": "C-9", "source_platform": "zakupki_mos", "customer": "ООО Ромашка"}
-    )
-    await repo.upsert(
-        {"number": "C-10", "source_platform": "zakupki_mos", "customer": "АО ТехноЛогика"}
+        {"number": "C-10", "platform_id": "zakupki_mos", "customer": "АО ТехноЛогика"}
     )
     rows, total = await repo.list_procurements(customer="ромашка")
     assert total == 1
@@ -153,9 +141,7 @@ async def test_list_procurements_filter_by_customer(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_rating_set_and_read(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert(
-        {"number": "C-11", "source_platform": "zakupki_mos", "customer": "ООО Ромашка"}
-    )
+    await repo.upsert({"number": "C-11", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
     cust = await repo.list_customers(name="Ромашка")
     cid = cust[0][0].id
     assert await repo.set_customer_rating(cid, 0.85) is True
@@ -167,11 +153,9 @@ async def test_rating_set_and_read(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_clear_all(db: Database) -> None:
     repo = ProcurementRepository(db)
+    await repo.upsert({"number": "CL-1", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
     await repo.upsert(
-        {"number": "CL-1", "source_platform": "zakupki_mos", "customer": "ООО Ромашка"}
-    )
-    await repo.upsert(
-        {"number": "CL-2", "source_platform": "zakupki_mos", "customer": "АО ТехноЛогика"}
+        {"number": "CL-2", "platform_id": "zakupki_mos", "customer": "АО ТехноЛогика"}
     )
     deleted = await repo.clear_all()
     assert deleted["procurements"] == 2
@@ -193,7 +177,7 @@ async def test_backfill_from_legacy_customer_column(db: Database) -> None:
         await conn.execute(text("ALTER TABLE procurements ADD COLUMN customer text"))
         await conn.execute(
             text(
-                "INSERT INTO procurements (number, source_platform, customer, subject) "
+                "INSERT INTO procurements (number, platform_id, customer, subject) "
                 "VALUES (:n1, 'zakupki_mos', :c1, 'a'), (:n2, 'zakupki_mos', :c2, 'b')"
             ),
             {"n1": "L-1", "c1": "ООО Ромашка", "n2": "L-2", "c2": "ООО   Ромашка "},

@@ -301,7 +301,7 @@ function card(row) {
     <div class="row"><span>НМЦК</span><b>${fmtMoney(row.nmck)}</b></div>
     <div class="row"><span>Срок подачи</span><b>${fmtDate(row.deadline)}</b></div>
     <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
-    <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.source_platform)}</span>
+    <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.platform_name || row.platform_id)}</span>
       <span class="pill score">score ${row.score ?? "—"}</span>
       <span class="pill score">fit ${realFit(row) ?? "—"}</span>
       <span class="pill score">sim ${row.embedding_similarity ?? "—"}</span></div>
@@ -312,7 +312,7 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}">
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
-    <td><span class="pill">${escapeHtml(row.source_platform)}</span></td>
+    <td><span class="pill">${escapeHtml(row.platform_id)}</span></td>
     <td><span class="pill score">${realFit(row) ?? "—"}</span></td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
     <td>${fmtDateOnly(row.publication_date)}</td>
@@ -385,7 +385,7 @@ async function loadProc() {
   clampPage();
   const params = { limit: PROC_PAGE_SIZE, offset: (procPage - 1) * PROC_PAGE_SIZE };
   if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
-  if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
+  if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
   if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
   const data = await api("procurements", params);
@@ -408,7 +408,7 @@ async function pollProc() {
     clampPage();
     const params = { limit: PROC_PAGE_SIZE, offset: (procPage - 1) * PROC_PAGE_SIZE };
     if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
-    if ($("#proc-platform").value) params.source_platform = $("#proc-platform").value;
+    if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
     if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
     if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
     const data = await api("procurements", params);
@@ -440,6 +440,7 @@ async function openDetail(id) {
     <table>
       ${f("Предмет", escapeHtml(row.subject || "—"))}
       ${f("Заказчик", escapeHtml(row.customer || "—") + " <span class='muted'>(id " + (row.customer_id ?? "—") + ")</span>")}
+      ${f("Площадка", escapeHtml(row.platform_name || row.platform_id) + " <span class='muted'>(" + escapeHtml(row.platform_id) + ")</span>")}
       ${f("Тип процедуры", escapeHtml(row.procedure_type || "—"))}
       ${f("Закон", escapeHtml(row.law || "—"))}
       ${f("НМЦК", fmtMoney(row.nmck))}
@@ -504,7 +505,7 @@ async function loadPlatforms() {
   } catch (err) { /* конфиг недоступен — полагаемся на БД */ }
   // Площадки, по которым уже есть сохранённые закупки.
   const paged = await api("procurements", { limit: 100 });
-  paged.items.forEach((r) => set.add(r.source_platform));
+  paged.items.forEach((r) => set.add(r.platform_id));
   ["#proc-platform"].forEach((id) => {
     const sel = document.querySelector(id);
     const cur = sel.value;

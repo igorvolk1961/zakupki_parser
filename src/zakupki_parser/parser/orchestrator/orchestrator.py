@@ -241,7 +241,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             if detail_url.startswith("http")
             else self._platform.url.rstrip("/") + detail_url
         )
-        record["source_platform"] = self._platform_id
+        record["platform_id"] = self._platform_id
 
         # ИНН заказчика (универсальный механизм, ADR-4). При сбое — None (nullable).
         record["inn"] = await self._resolve_customer_inn(page, customer_link)

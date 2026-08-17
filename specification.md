@@ -176,7 +176,7 @@
   таблицы `procurements` и `customers`.
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
-- `procurements` (колонки): `id`, `number`, `source_platform`, `url`, `customer_id`
+- `procurements` (колонки): `id`, `number`, `platform_id`, `url`, `customer_id`
   (FK → `customers.id`), `law`, `subject`, `nmck`, `publication_date`, `update_date`,
   `deadline`, `execution_term`, `security_amount`+`security_amount_unit`, `advance`,
    `okpd2_codes`, `kpgz_codes`, `files_json`,
@@ -295,7 +295,7 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `GET /health` — статус: ok, доступность БД;
 - `GET /` — web-демо (просмотр закупок/заказчиков, запуск/остановка парсера,
   редактирование аналитического конфига);
-- `GET /api/procurements` — список с фильтрами (`number`, `source_platform`,
+- `GET /api/procurements` — список с фильтрами (`number`, `platform_id`,
   `okpd2`, `customer`, `active`, `min_fit_score`) и пагинацией (`limit`, `offset`);
 - `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
 - `POST /api/procurements/{id}/score` — возврат результата скоринга от транспорта:

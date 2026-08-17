@@ -46,7 +46,7 @@ async def test_upsert_creates(db: Database) -> None:
     ok = await repo.upsert(
         {
             "number": "ABC-1",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "Тест",
             "url": "https://example.com/need/1",
             "deadline": deadline,
@@ -62,7 +62,7 @@ async def test_upsert_no_duplicate(db: Database) -> None:
     repo = ProcurementRepository(db)
     record = {
         "number": "ABC-2",
-        "source_platform": "zakupki_mos",
+        "platform_id": "zakupki_mos",
         "subject": "Тест 2",
     }
     first = await repo.upsert(record)
@@ -78,7 +78,7 @@ async def test_upsert_procedure_type_resolved(db: Database) -> None:
     await repo.upsert(
         {
             "number": "PT-1",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "x",
             "purchase_type": "Электронный аукцион",
         }
@@ -87,7 +87,7 @@ async def test_upsert_procedure_type_resolved(db: Database) -> None:
     await repo.upsert(
         {
             "number": "PT-2",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "y",
             "purchase_type": "  электронный   аукцион ",
         }
@@ -96,7 +96,7 @@ async def test_upsert_procedure_type_resolved(db: Database) -> None:
     types = {(p.number, p.procedure_type_rel.name if p.procedure_type_rel else None) for p in rows}
     assert types == {("PT-1", "Электронный аукцион"), ("PT-2", "Электронный аукцион")}
     # Без типа — процедура сохраняется, procedure_type_id = NULL.
-    await repo.upsert({"number": "PT-3", "source_platform": "zakupki_mos", "subject": "z"})
+    await repo.upsert({"number": "PT-3", "platform_id": "zakupki_mos", "subject": "z"})
     rows, _ = await repo.list_procurements()
     pt3 = next(p for p in rows if p.number == "PT-3")
     assert pt3.procedure_type_id is None
@@ -129,7 +129,7 @@ async def test_upsert_procedure_type_mapping_used(db: Database) -> None:
     await repo.upsert(
         {
             "number": "M-1",
-            "source_platform": "roseltorg_44fz",
+            "platform_id": "roseltorg_44fz",
             "subject": "x",
             "purchase_type": "Электронный запрос котировок",
         }
@@ -143,7 +143,7 @@ async def test_upsert_procedure_type_mapping_used(db: Database) -> None:
     await repo.upsert(
         {
             "number": "M-2",
-            "source_platform": "etpgpb",
+            "platform_id": "etpgpb",
             "subject": "y",
             "purchase_type": "Неизвестный способ",
         }
@@ -172,18 +172,18 @@ async def test_exists_false_for_unknown(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_known_numbers(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert({"number": "KN-1", "source_platform": "zakupki_mos", "subject": "x"})
-    await repo.upsert({"number": "KN-2", "source_platform": "zakupki_mos", "subject": "y"})
-    await repo.upsert({"number": "OTHER-1", "source_platform": "fabrikant", "subject": "z"})
+    await repo.upsert({"number": "KN-1", "platform_id": "zakupki_mos", "subject": "x"})
+    await repo.upsert({"number": "KN-2", "platform_id": "zakupki_mos", "subject": "y"})
+    await repo.upsert({"number": "OTHER-1", "platform_id": "fabrikant", "subject": "z"})
     assert await repo.known_numbers("zakupki_mos") == {"KN-1", "KN-2"}
 
 
 @pytest.mark.asyncio
 async def test_count(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert({"number": "C-1", "source_platform": "zakupki_mos", "subject": "x"})
-    await repo.upsert({"number": "C-2", "source_platform": "zakupki_mos", "subject": "y"})
-    await repo.upsert({"number": "C-3", "source_platform": "fabrikant", "subject": "z"})
+    await repo.upsert({"number": "C-1", "platform_id": "zakupki_mos", "subject": "x"})
+    await repo.upsert({"number": "C-2", "platform_id": "zakupki_mos", "subject": "y"})
+    await repo.upsert({"number": "C-3", "platform_id": "fabrikant", "subject": "z"})
     assert await repo.count("zakupki_mos") == 2
     assert await repo.count() == 3
 
@@ -191,7 +191,7 @@ async def test_count(db: Database) -> None:
 @pytest.mark.asyncio
 async def test_count_one(db: Database) -> None:
     repo = ProcurementRepository(db)
-    await repo.upsert({"number": "ABC-3", "source_platform": "zakupki_mos", "subject": "x"})
+    await repo.upsert({"number": "ABC-3", "platform_id": "zakupki_mos", "subject": "x"})
     async with db.session() as session:
         result = await session.execute(text("SELECT count(*) FROM procurements"))
         count = result.scalar_one()
@@ -204,7 +204,7 @@ async def test_last_processed_date(db: Database) -> None:
     await repo.upsert(
         {
             "number": "ABC-4",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "x",
             "update_date": datetime(2026, 8, 4, 0, 0, tzinfo=timezone(timedelta(hours=3))),
         }
@@ -221,12 +221,12 @@ async def test_last_processed_date(db: Database) -> None:
 async def test_is_active_default_and_upsert(db: Database) -> None:
     repo = ProcurementRepository(db)
     # Без явного is_active — по умолчанию активна.
-    await repo.upsert({"number": "ABC-5", "source_platform": "zakupki_mos", "subject": "x"})
+    await repo.upsert({"number": "ABC-5", "platform_id": "zakupki_mos", "subject": "x"})
     # Явная неактивная закупка.
     await repo.upsert(
         {
             "number": "ABC-6",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "y",
             "is_active": False,
         }
@@ -252,7 +252,7 @@ async def test_list_active_considers_deadline(db: Database) -> None:
     await repo.upsert(
         {
             "number": "DL-1",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "x",
             "is_active": True,
             "deadline": datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
@@ -262,7 +262,7 @@ async def test_list_active_considers_deadline(db: Database) -> None:
     await repo.upsert(
         {
             "number": "DL-2",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "y",
             "is_active": True,
             "deadline": datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
@@ -272,7 +272,7 @@ async def test_list_active_considers_deadline(db: Database) -> None:
     await repo.upsert(
         {
             "number": "DL-3",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "z",
             "is_active": False,
             "deadline": datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
@@ -285,19 +285,47 @@ async def test_list_active_considers_deadline(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_procurement_platform_rel_resolved(db: Database) -> None:
+    """Справочник platforms: официальное имя/URL резолвятся по ключу platform_id."""
+    from zakupki_parser.storage.db import Platform
+
+    repo = ProcurementRepository(db)
+    async with db.session() as session:
+        session.add(
+            Platform(
+                platform_id="zakupki_mos",
+                name="Портал поставщиков Москвы",
+                url="https://zakupki.mos.ru",
+            )
+        )
+        await session.commit()
+    await repo.upsert({"number": "PL-1", "platform_id": "zakupki_mos", "subject": "x"})
+    rows, _ = await repo.list_procurements()
+    row = await repo.get_by_id(rows[0].id)
+    assert row is not None
+    assert row.platform_rel is not None
+    assert row.platform_rel.name == "Портал поставщиков Москвы"
+    assert row.platform_rel.url == "https://zakupki.mos.ru"
+    # Неизвестная платформа — имя не резолвится (клиент показывает ключ).
+    await repo.upsert({"number": "PL-2", "platform_id": "no_such", "subject": "y"})
+    rows2, _ = await repo.list_procurements(number="PL-2")
+    assert rows2[0].platform_rel is None
+
+
+@pytest.mark.asyncio
 async def test_delete_inactive(db: Database) -> None:
     """delete_inactive удаляет закупки с неактивным статусом или истёкшим сроком."""
     repo = ProcurementRepository(db)
     now = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
     # Неактивна по статусу (is_active=false в БД).
     await repo.upsert(
-        {"number": "DI-1", "source_platform": "zakupki_mos", "subject": "x", "is_active": False}
+        {"number": "DI-1", "platform_id": "zakupki_mos", "subject": "x", "is_active": False}
     )
     # Активна по статусу, но срок истёк — клиент считает неактивной.
     await repo.upsert(
         {
             "number": "DI-2",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "y",
             "is_active": True,
             "deadline": datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
@@ -307,7 +335,7 @@ async def test_delete_inactive(db: Database) -> None:
     await repo.upsert(
         {
             "number": "DI-3",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "z",
             "is_active": True,
             "deadline": datetime(2026, 8, 20, 12, 0, tzinfo=UTC),
@@ -327,7 +355,7 @@ async def test_delete_irrelevant(db: Database) -> None:
     await repo.upsert(
         {
             "number": "RI-1",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "x",
             "fit_score": 0.8,
             "score_method": "fit",
@@ -337,7 +365,7 @@ async def test_delete_irrelevant(db: Database) -> None:
     await repo.upsert(
         {
             "number": "RI-2",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "y",
             "fit_score": 0.2,
             "score_method": "fit",
@@ -347,7 +375,7 @@ async def test_delete_irrelevant(db: Database) -> None:
     await repo.upsert(
         {
             "number": "RI-3",
-            "source_platform": "zakupki_mos",
+            "platform_id": "zakupki_mos",
             "subject": "z",
             "fit_score": 0.1,
             "score_method": "default",

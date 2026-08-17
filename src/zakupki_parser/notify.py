@@ -59,7 +59,7 @@ def render_telegram_message(record: dict[str, Any]) -> str:
     """
     fields: list[tuple[str, Any]] = [
         ("№", "number"),
-        ("Площадка", "source_platform"),
+        ("Площадка", "platform_id"),
         ("Предмет", "subject"),
         ("Заказчик", "customer"),
         ("Закон", "law"),
@@ -197,7 +197,7 @@ class Notifier:
             logger.info(
                 "уведомления отключены; пропущена заявка %s (%s)",
                 record.get("number"),
-                record.get("source_platform"),
+                record.get("platform_id"),
             )
             return
         for backend in self._backends:
@@ -207,6 +207,6 @@ class Notifier:
                 logger.warning(
                     "Не удалось отправить уведомление о заявке %s (%s): %s",
                     record.get("number"),
-                    record.get("source_platform"),
+                    record.get("platform_id"),
                     exc,
                 )

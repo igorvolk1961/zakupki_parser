@@ -19,7 +19,7 @@
 ## 2. Что парсер предоставляет внешнему сервису
 
 ### 2.1 Данные закупки
-- `GET /api/procurements` — список с фильтрами (`number`, `source_platform`, `okpd2`,
+- `GET /api/procurements` — список с фильтрами (`number`, `platform_id`, `okpd2`,
   `customer`) и пагинацией (`limit`, `offset`);
 - `GET /api/procurements/{id}` — карточка закупки, включая `detail_json`
   (полный снимок переменных) и `files_json`.
