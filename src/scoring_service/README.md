@@ -11,10 +11,12 @@
 ```
 card + competencies
   ├─ extract description   (subject + detail_json; при requires_tz_review — текст ТЗ)
+  ├─ (опц.) embedding branch: косинусная близость Giga Embedder
+  │     └─ если близость < embedding_filter_threshold — pre-filter: fit_score=0,
+  │        score_method=vector, LLM НЕ выполняется
   ├─ fit-chain:  reasoning + fit_score (0–10)   [few-shot + negative-example]
   ├─ (опц.) tz_review: уточнение по тексту ТЗ, повторный fit/judge
   ├─ judge-chain: critics / verdict / final_fit_score
-  ├─ (опц.) embedding branch: косинусная близость Giga Embedder, смешивание через alpha
   └─ Score = final_fit_score × P(win) × Margin
 ```
 Вход в асинхронном режиме — Redis ZSET `scoring:jobs` (приоритет = дефолтный score,
@@ -41,11 +43,17 @@ card + competencies
 `modules/giga_embedder.py`: `GigaTokenProvider` (OAuth 2.0 `client_credentials`, обязательный
 заголовок `RqUID`, автообновление токена) и `GigaEmbedder` (модель `EmbeddingsGigaR`, окно
 4096 токенов; длинные тексты режутся на чанки и усредняются). Ветка считает косинусную
-близость эмбеддингов текста компетенций и описания закупки в отдельном потоке параллельно
-с LLM-пайплайном. Влияние на score — через `giga_embedding_alpha` (`SCORE_GIGA_EMBEDDING_ALPHA`,
-0.0 = только диагностика); результат пишется в БД парсера как `embedding_similarity` и в
-метаданные LangFuse-трейса. Без ключа доступа ветка не выполняется (факт пропуска
-фиксируется, падения нет).
+близость эмбеддингов текста компетенций и описания закупки **до** LLM-пайплайна. Влияние на
+score — через `giga_embedding_alpha` (`SCORE_GIGA_EMBEDDING_ALPHA`, 0.0 = только диагностика);
+результат пишется в БД парсера как `embedding_similarity` и в метаданные LangFuse-трейса.
+Без ключа доступа ветка не выполняется (факт пропуска фиксируется, падения нет).
+
+### Предварительная фильтрация по векторной близости
+Если `embedding_similarity < embedding_filter_threshold`
+(`SCORE_EMBEDDING_FILTER_THRESHOLD`, по умолчанию `0.66`), закупка отсекается **без вызова
+LLM**: возвращается `fit_score=0`, `score=0` и `score_method=vector` (фиксируется в БД парсера).
+Порог `<= 0` отключает фильтрацию. Результат фильтрации терминален для каскада скоринга —
+переходы Fit → P(win) → Margin не запускаются.
 
 ## LangFuse
 `llm_factory.langfuse_handler` строит `langfuse.CallbackHandler` из env. Каждый вызов
@@ -125,6 +133,7 @@ env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 | `SCORE_NUM_REFINE_ROUNDS` | число итераций refine при `verdict=reject` |
 | `SCORE_USE_STUB` | заглушка: возвращать score, уже присутствующий в данных закупки, без LLM-пайплайна (по умолчанию `false`) |
 | `SCORE_NORMALIZE_FIT_FOR_SCORE` | приводить Fit (0–10) к шкале 0–1 при расчёте Score (по умолчанию `true`) |
+| `SCORE_EMBEDDING_FILTER_THRESHOLD` | порог предварительной фильтрации по векторной близости (по умолчанию `0.66`; `<= 0` — фильтрация выключена) |
 | `SCORE_AUTH_TOKEN` | опциональный Bearer-токен для `POST /score` (пусто = открыто) |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | LangFuse |
 

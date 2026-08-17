@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     # использует самоподписанный сертификат — для локальной разработки можно
     # выключить (false). По умолчанию проверка включена (безопасно).
     giga_verify_ssl: bool = True
+    # Порог предварительной фильтрации по векторной близости (0..1): если
+    # embedding_similarity < порога, LLM-пайплайн не выполняется, возвращается
+    # fit_score=0 и score_method=vector. Значение <= 0 отключает фильтрацию.
+    embedding_filter_threshold: float = 0.66
 
     @property
     def giga_configured(self) -> bool:

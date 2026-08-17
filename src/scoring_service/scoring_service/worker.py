@@ -60,7 +60,7 @@ class ScoringWorker:
                     "procurement_id": procurement_id,
                     "score": result.score,
                     "fit_score": result.fit_multiplier,
-                    "score_method": "fit",
+                    "score_method": result.score_method,
                     "embedding_similarity": result.embedding_similarity,
                 }
             )

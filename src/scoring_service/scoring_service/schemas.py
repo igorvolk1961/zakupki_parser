@@ -118,6 +118,10 @@ class ScoringOutput(BaseModel):
         )
     )
     score: float
+    # Способ скоринга для результата (пишется в БД парсера): "fit" — обычный
+    # LLM-пайплайн; "vector" — предварительная фильтрация по векторной близости
+    # (LLM не выполнялся, fit_score=0).
+    score_method: str = "fit"
     # Ветка векторной близости (Giga Embedder). None, если ветка выключена/не
     # настроен ключ доступа/произошёл сбой (best-effort).
     embedding_similarity: float | None = None

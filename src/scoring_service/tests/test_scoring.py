@@ -566,6 +566,8 @@ def test_score_embedding_branch_runs_and_sets_similarity() -> None:
             giga_client_id="cid",
             giga_client_secret="secret",
             giga_embedding_alpha=0.5,
+            # Фильтрация выключена: ниже порога ветка не должна отсекать закупку.
+            embedding_filter_threshold=0.0,
         ),
         embedder=embedder,  # type: ignore[arg-type]
     )  # type: ignore[arg-type]
@@ -588,9 +590,114 @@ def test_score_embedding_branch_sets_similarity_but_alpha_zero_keeps_score() -> 
             giga_enabled=True,
             giga_client_id="c",
             giga_client_secret="s",
+            embedding_filter_threshold=0.0,
         ),
         embedder=_FakeEmbedder(similarity=0.3),  # type: ignore[arg-type]
     )  # type: ignore[arg-type]
     out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
     assert out.embedding_similarity == 0.3
     assert out.score == 0.8
+
+
+def _embedding_scorer(
+    fit: object,
+    judge: object,
+    similarity: float,
+    threshold: float,
+) -> Scorer:
+    return Scorer(
+        fit,
+        judge,
+        Settings(
+            score_use_stub=False,
+            giga_enabled=True,
+            giga_client_id="cid",
+            giga_client_secret="secret",
+            embedding_filter_threshold=threshold,
+        ),
+        embedder=_FakeEmbedder(similarity=similarity),  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+
+
+def test_score_embedding_prefilter_below_threshold_skips_llm() -> None:
+    """Близость ниже порога: LLM не запускается, fit_score=0, score_method=vector."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = _embedding_scorer(fit, judge, similarity=0.5, threshold=0.66)
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+
+    assert fit.calls == 0
+    assert judge.calls == 0
+    assert out.score == 0.0
+    assert out.fit_multiplier == 0.0
+    assert out.final_fit_score == 0.0
+    assert out.score_method == "vector"
+    assert out.embedding_similarity == 0.5
+    assert out.requires_tz_review is False
+
+
+def test_score_embedding_prefilter_at_threshold_runs_llm() -> None:
+    """Близость равна порогу: отсечения нет, LLM-пайплайн выполняется."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = _embedding_scorer(fit, judge, similarity=0.66, threshold=0.66)
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+
+    assert fit.calls == 1
+    assert judge.calls == 1
+    assert out.score_method == "fit"
+    assert out.embedding_similarity == 0.66
+
+
+def test_score_embedding_prefilter_above_threshold_runs_llm() -> None:
+    """Близость выше порога: LLM-пайплайн выполняется, score_method=fit."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = _embedding_scorer(fit, judge, similarity=0.8, threshold=0.66)
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+
+    assert fit.calls == 1
+    assert judge.calls == 1
+    assert out.score == 0.8
+    assert out.score_method == "fit"
+    assert out.embedding_similarity == 0.8
+
+
+def test_score_embedding_prefilter_disabled_threshold_zero() -> None:
+    """Порог <= 0 отключает фильтрацию: низкая близость не отсекает закупку."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = _embedding_scorer(fit, judge, similarity=0.1, threshold=0.0)
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+
+    assert fit.calls == 1
+    assert out.score == 0.8
+    assert out.score_method == "fit"
+
+
+def test_score_embedding_prefilter_branch_failure_runs_llm() -> None:
+    """Сбой ветки эмбеддингов: фильтрация не применяется, LLM-пайплайн выполняется."""
+
+    class _FailingEmbedder:
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            raise RuntimeError("embedding API down")
+
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = Scorer(
+        fit,
+        judge,
+        Settings(
+            score_use_stub=False,
+            giga_enabled=True,
+            giga_client_id="cid",
+            giga_client_secret="secret",
+        ),
+        embedder=_FailingEmbedder(),  # type: ignore[arg-type]
+    )  # type: ignore[arg-type]
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+
+    assert fit.calls == 1
+    assert out.embedding_similarity is None
+    assert out.score == 0.8
+    assert out.score_method == "fit"

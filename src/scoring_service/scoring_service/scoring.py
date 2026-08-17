@@ -2,11 +2,14 @@
 
 Поток:
 1. извлечь описание закупки из карточки (``pipeline.description``);
-2. fit-цепочка: reasoning + fit_score (0..10);
-3. judge-цепочка: critics / verdict / final_fit_score;
-4. если verdict == reject — до ``num_refine_rounds`` повторный fit с учётом critics,
+2. (опц.) ветка векторной близости ДО LLM: если близость ниже порога
+   ``embedding_filter_threshold`` — предварительная фильтрация (LLM не
+   запускается, возвращается fit_score=0 и score_method=vector);
+3. fit-цепочка: reasoning + fit_score (0..10);
+4. judge-цепочка: critics / verdict / final_fit_score;
+5. если verdict == reject — до ``num_refine_rounds`` повторный fit с учётом critics,
    затем повторный judge;
-5. Score = final_fit_score × P(win) × Margin.
+6. Score = final_fit_score × P(win) × Margin.
 
 Если включён флаг ``score_use_stub`` — LLM-пайплайн не запускается: возвращается
 score, уже присутствующий в данных закупки (см. ``build_scorer``).
@@ -94,6 +97,7 @@ class Scorer:
             "giga_configured": settings.giga_configured,
             "giga_model": settings.giga_embeddings_model,
             "giga_embedding_alpha": settings.giga_embedding_alpha,
+            "embedding_filter_threshold": settings.embedding_filter_threshold,
         }
         if settings.giga_enabled and not settings.giga_configured:
             self._base_metadata["embedding_skipped"] = "missing giga credentials"
@@ -240,56 +244,106 @@ class Scorer:
         parent_config = config or root_config
         description = extract_description(record)
 
+        embed_sim: float | None = None
         if self._embedder is not None:
-            # Параллельная ветка векторной близости: эмбеддинги не зависят от
-            # fit/judge, поэтому выполняются в отдельном потоке параллельно с
-            # LLM-пайплайном. Ветка логируется в LangFuse как дочерний спан.
-            branch = RunnableLambda(
-                lambda _: embedding_module.embedding_similarity(
-                    self._embedder, competencies, description
-                ),
-                name="embedding_similarity",
-            )
-            span_config = cast(
-                RunnableConfig,
-                {
-                    **parent_config,
-                    "metadata": {
-                        **(parent_config.get("metadata") or {}),
-                        "branch": "embedding",
-                        "model": self._settings.giga_embeddings_model,
-                        "alpha": self._settings.giga_embedding_alpha,
-                    },
-                },
-            )
-
-            def _run_branch() -> float:
-                return branch.invoke(None, config=span_config)
-
-            embed_sim: float | None = None
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                fut = pool.submit(_run_branch)
-                try:
-                    result = self._run_pipeline(
-                        record,
-                        competencies,
-                        description,
-                        session_id,
-                        trace_meta,
-                        parent_config,
-                    )
-                finally:
-                    try:
-                        embed_sim = fut.result(timeout=self._settings.giga_timeout_seconds)
-                    except Exception:  # noqa: BLE001 - best-effort, не роняет скоринг
-                        logger.exception("embedding branch failed for %s", procurement_id)
-                        embed_sim = None
-            return self._build_output(result, embed_sim, procurement_id)
+            # Ветка векторной близости выполняется ДО LLM-пайплайна: результат
+            # используется для предварительной фильтрации закупок (если близость
+            # ниже порога embedding_filter_threshold — LLM не запускается).
+            embed_sim = self._run_embedding_branch(competencies, description, parent_config)
+            if (
+                embed_sim is not None
+                and self._settings.embedding_filter_threshold > 0
+                and embed_sim < self._settings.embedding_filter_threshold
+            ):
+                logger.info(
+                    "Procurement %s: embedding similarity %.4f ниже порога %.4f — "
+                    "LLM-пайплайн пропущен",
+                    procurement_id,
+                    embed_sim,
+                    self._settings.embedding_filter_threshold,
+                )
+                return self._filtered_output(description, embed_sim, procurement_id)
 
         result = self._run_pipeline(
             record, competencies, description, session_id, trace_meta, parent_config
         )
-        return self._build_output(result, None, procurement_id)
+        return self._build_output(result, embed_sim, procurement_id)
+
+    def _run_embedding_branch(
+        self,
+        competencies: str,
+        description: str,
+        parent_config: RunnableConfig,
+    ) -> float | None:
+        """Ветка векторной близости (best-effort): None при сбое, не роняет скоринг."""
+        embedder = self._embedder
+        if embedder is None:
+            return None
+        branch = RunnableLambda(
+            lambda _: embedding_module.embedding_similarity(embedder, competencies, description),
+            name="embedding_similarity",
+        )
+        span_config = cast(
+            RunnableConfig,
+            {
+                **parent_config,
+                "metadata": {
+                    **(parent_config.get("metadata") or {}),
+                    "branch": "embedding",
+                    "model": self._settings.giga_embeddings_model,
+                    "alpha": self._settings.giga_embedding_alpha,
+                },
+            },
+        )
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                fut = pool.submit(branch.invoke, None, config=span_config)
+                return fut.result(timeout=self._settings.giga_timeout_seconds)
+        except Exception:  # noqa: BLE001 - best-effort, не роняет скоринг
+            logger.exception("embedding branch failed")
+            return None
+
+    def _filtered_output(
+        self,
+        description: str,
+        embed_sim: float,
+        procurement_id: int | None,
+    ) -> ScoringOutput:
+        """Результат предварительной фильтрации: LLM не выполнялся, fit_score=0."""
+        reasoning = ReasoningSteps(
+            procurement_essence="",
+            competencies_essence="",
+            relevant_competencies="",
+            term_overlap_mismatch_check="",
+            synonym_semantic_bridge="",
+            uncovered_scope="",
+            tz_review_necessity="",
+            fit_score_rationale="pre-filtered by embedding similarity",
+        )
+        fit = FitResult(
+            reasoning=reasoning,
+            fit_score=0.0,
+            requires_tz_review=False,
+            requires_tz_body=False,
+        )
+        judge = JudgeResult(
+            critics="Предварительная фильтрация: векторная близость ниже порога",
+            verdict="accept",
+            final_fit_score=0.0,
+        )
+        return ScoringOutput(
+            procurement_id=procurement_id,
+            description=description,
+            fit=fit,
+            judge=judge,
+            final_fit_score=0.0,
+            requires_tz_review=False,
+            requires_tz_body=False,
+            fit_multiplier=0.0,
+            score=0.0,
+            score_method="vector",
+            embedding_similarity=embed_sim,
+        )
 
     def _run_pipeline(
         self,

@@ -102,10 +102,12 @@ Content-Type: application/json
 ```
 Ответ: `200` с обновлённой карточкой. `404` — закупка не найдена.
 
-Значения `score_method`: `default` | `fit` | `pwin` | `margin` | `deadline_expired`
-(последний выставляется парсером при просроченном сроке подачи, `score=0`).
+Значения `score_method`: `default` | `fit` | `pwin` | `margin` | `deadline_expired` | `vector`
+(`deadline_expired` выставляется парсером при просроченном сроке подачи, `score=0`).
 `fit`/`pwin`/`margin` — стадии внешнего каскада скоринга; переход между стадиями
-выполняет парсер по порогам `config_score.yaml`.
+выполняет парсер по порогам `config_score.yaml`. `vector` — предварительная
+фильтрация сервиса скоринга по векторной близости (близость ниже порога
+`embedding_filter_threshold`): LLM не выполнялся, `score=0` и `fit_score=0`.
 
 ---
 
