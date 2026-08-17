@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from zakupki_parser.config.loader import _load_dom_configs, load_config
-from zakupki_parser.config.models import AppConfig, NotificationsConfig, ServiceConfig, SortConfig
+from zakupki_parser.config.models import (
+    AppConfig,
+    DomConfig,
+    DomListConfig,
+    NotificationsConfig,
+    ServiceConfig,
+    SortConfig,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIGS_DIR = REPO_ROOT / "tests" / "configs"
@@ -68,6 +76,70 @@ def test_sort_order_other_value_rejected() -> None:
 
 def test_sort_default_order() -> None:
     assert SortConfig().order == "publication_date_desc"
+
+
+def test_dom_list_config_number_from_url_default_none() -> None:
+    """Поле number_from_url_regex опционально (по умолчанию None)."""
+    lc = DomListConfig(container="div.card", detail_link="a[href*='/procedure/']", next_page="")
+    assert lc.number_from_url_regex is None
+
+
+def test_roseltorg_number_from_url_regex() -> None:
+    """Запасное извлечение номера из URL деталей (roseltorg /procedure/<номер>/<лот>)."""
+    data = _load_dom_configs(REPO_ROOT / "configs")
+    platform = DomConfig.model_validate(data).platforms["roseltorg_223fz"]
+    pattern = platform.list_config.number_from_url_regex
+    assert pattern == "/procedure/([^/]+)"
+    m = re.search(pattern, "https://www.roseltorg.ru/procedure/COM14082600147/1")
+    assert m is not None
+    assert m.group(1) == "COM14082600147"
+
+
+def test_roseltorg_number_card_regex_both_formats() -> None:
+    """Номер из карточки: старый формат (COM…) и новый (только цифры, без COM)."""
+    data = _load_dom_configs(REPO_ROOT / "configs")
+    platforms = DomConfig.model_validate(data).platforms
+    for platform_id in ("roseltorg_223fz", "roseltorg_44fz"):
+        platform = platforms[platform_id]
+        number_var = next(v for v in platform.list_config.variables if v.name == "number")
+        arg = number_var.handler_arg
+        assert arg == r"(COM\d{10,}|\d{10,})", platform_id
+        # 223-ФЗ/коммерческие: 11 цифр и COM-префикс; 44-ФЗ: 19 цифр.
+        m1 = re.search(arg, "32616082276\n(Лот 1)")
+        assert m1 is not None
+        assert m1.group(1) == "32616082276"
+        m2 = re.search(arg, "COM14082600147 (Лот 1)")
+        assert m2 is not None
+        assert m2.group(1) == "COM14082600147"
+        m3 = re.search(arg, "0373200022226001723\n(Лот 1)")
+        assert m3 is not None
+        assert m3.group(1) == "0373200022226001723"
+
+
+def test_roseltorg_44fz_config_complete() -> None:
+    """roseltorg_44fz — рабочий конфиг: поиск через /procedures/search + place=44fz."""
+    data = _load_dom_configs(REPO_ROOT / "configs")
+    platform = DomConfig.model_validate(data).platforms["roseltorg_44fz"]
+    assert platform.list_config.container == "div.search-results__item"
+    assert platform.list_config.variables, "переменные списка не заданы"
+    assert platform.list_config.number_from_url_regex == "/procedure/([^/]+)"
+    # /search/44fz — лендинг без фильтрации; поиск идёт через /procedures/search с place=44fz.
+    assert platform.list_path == "/procedures/search"
+    assert platform.search is not None
+    assert platform.search.query_params.get("place") == "44fz"
+    assert platform.search.criteria_map["keywords"].query_param == "query_field"
+    assert platform.search.criteria_map["okpd2"].raw_array_flat == "okpd2[]"
+
+
+def test_roseltorg_search_status_all() -> None:
+    """Поиск roseltorg покрывает все статусы (0-5), а не только 2,3,4."""
+    data = _load_dom_configs(REPO_ROOT / "configs")
+    platforms = DomConfig.model_validate(data).platforms
+    for platform_id in ("roseltorg_223fz", "roseltorg_44fz"):
+        platform = platforms[platform_id]
+        assert platform.search is not None
+        statuses = platform.search.query_params["status[]"]
+        assert statuses == ["5", "0", "1", "2", "3", "4"], platform_id
 
 
 def test_telegram_token_injected_from_env(monkeypatch: pytest.MonkeyPatch) -> None:

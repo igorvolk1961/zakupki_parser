@@ -94,6 +94,16 @@ class DomListConfig(BaseModel):
             "None — активность не определяется, is_active=true."
         ),
     )
+    number_from_url_regex: str | None = Field(
+        default=None,
+        description=(
+            "запасной источник номера закупки: regex, извлекающий номер из URL детальной "
+            "страницы (первая группа или всё совпадение). Применяется, когда номер не "
+            "извлёкся из карточки списка (селектор/паттерн не совпали), иначе запись "
+            "отбрасывается в repository.upsert как не имеющая номера. Например, для "
+            "roseltorg '/procedure/([^/]+)' из /procedure/COM14082600147/1. None — не применять."
+        ),
+    )
 
 
 class FileSpec(BaseModel):

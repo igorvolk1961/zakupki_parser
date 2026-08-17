@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -131,6 +132,24 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         detail_url = await detail_link_loc.first.get_attribute("href")
         if not detail_url:
             return False, number
+
+        # Номер не извлёкся из карточки (селектор/паттерн не совпали) — достаём его из
+        # URL детальной страницы (например, /procedure/COM14082600147/1 на roseltorg).
+        # Иначе запись будет отброшена в repository.upsert как «нет number».
+        url_re = self._platform.list_config.number_from_url_regex
+        if not number and url_re:
+            m = re.search(url_re, detail_url)
+            if m:
+                number = m.group(1) if m.lastindex else m.group(0)
+                list_vars["number"] = number
+                logger.info("Номер закупки извлечён из URL деталей: %s", number)
+            else:
+                logger.warning(
+                    "Номер не извлечён ни из карточки, ни из URL %s (regex %s) — "
+                    "запись будет пропущена",
+                    detail_url,
+                    url_re,
+                )
 
         # stop-условия по данным из деталей проверяются после извлечения деталей.
         # 3) переход на детальную страницу — в отдельной вкладке, чтобы не терять
