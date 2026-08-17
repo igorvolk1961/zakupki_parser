@@ -31,7 +31,6 @@ class StopConditions(_BaseConfig):
     и не уведомляется). Набор расширяется добавлением новых флагов.
     """
 
-    enabled: bool = Field(default=True, description="главный переключатель условий")
     deadline_not_expired: bool = Field(
         default=True,
         description=(

@@ -28,8 +28,6 @@ class StopMixin:
         Возвращает True, если заявку следует ПРОПУСТИТЬ (обработка прекращается).
         """
         sc = self._cfg.service.stop_conditions
-        if not sc.enabled:
-            return False
         if sc.deadline_not_expired:
             deadline = record.get("deadline")
             if not isinstance(deadline, datetime):

@@ -35,6 +35,5 @@ search_criteria:
   - автоматизация
   active_only: true
 stop_conditions:
-  enabled: true
   deadline_not_expired: true
   min_deadline_days: 0

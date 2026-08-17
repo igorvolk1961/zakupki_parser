@@ -14,6 +14,5 @@ search_criteria:
   nmck_max: null
   active_only: false
 stop_conditions:
-  enabled: true
   deadline_not_expired: true
   min_deadline_days: null

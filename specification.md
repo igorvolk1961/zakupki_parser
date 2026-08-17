@@ -158,7 +158,6 @@
 добавлением новых флагов.
 
 Текущие флаги:
-- `enabled` — главный переключатель набора;
 - `deadline_not_expired` — не обрабатывать заявку, если срок приёма заявок
   (переменная `deadline` из `configs/dom/<platform_id>.yaml`) истёк к текущей дате;
 - `min_deadline_days` — (применяется только если `deadline_not_expired=true`) не

@@ -154,8 +154,8 @@ def _print_summary(cfg: AppConfig) -> None:
     sc_cond = cfg.service.stop_conditions
     min_days = sc_cond.min_deadline_days if sc_cond.min_deadline_days is not None else "–"
     print(
-        f"  Stop-условия: {_yn(sc_cond.enabled)}"
-        f" (deadline истёк: {_yn(sc_cond.deadline_not_expired)}; мин. дней до срока: {min_days})"
+        f"  Stop-условия: deadline истёк: {_yn(sc_cond.deadline_not_expired)}; "
+        f"мин. дней до срока: {min_days}"
     )
     print(
         f"  Circuit breaker: порог сбоев {cfg.ops.circuit_breaker_failure_threshold}, "
