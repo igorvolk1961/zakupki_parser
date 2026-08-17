@@ -265,11 +265,21 @@ const fmtDate = (v) => v ? new Date(v).toLocaleString("ru-RU") : "–";
 const fmtDT = (v) => v ? new Date(v).toLocaleString("ru-RU", { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" }) : "–";
 // Только дата (для таблицы закупок).
 const fmtDateOnly = (v) => v ? new Date(v).toLocaleDateString("ru-RU") : "–";
-// Фит-скор считается только после обработки стадиями внешнего каскада скоринга
-// (score_method=fit/pwin/margin); до этого (дефолтный/просроченный) возвращаем
-// null → показываем прочерк.
+// Фит-скор считается только после обработки внешним скорингом
+// (score_method=fit/pwin/margin/vector); до этого (дефолтный/просроченный)
+// возвращаем null → показываем прочерк. vector — предварительная фильтрация
+// по векторной близости: LLM не выполнялся, fit_score=0 (ADR-8).
 const realFit = (row) =>
-  ["fit", "pwin", "margin"].includes(row.score_method) ? row.fit_score : null;
+  ["fit", "pwin", "margin", "vector"].includes(row.score_method) ? row.fit_score : null;
+
+// Значение fit-скора с пометкой метода скоринга (кроме обычной стадии fit):
+// «0 (vector)» — отсечка по векторной близости, «0.5 (pwin)» — стадия каскада.
+function fitCell(row) {
+  const v = realFit(row);
+  if (v == null) return "—";
+  const method = row.score_method && row.score_method !== "fit" ? escapeHtml(row.score_method) : "";
+  return method ? `${v} <span class="muted" style="font-size:11px">(${method})</span>` : String(v);
+}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -303,7 +313,7 @@ function card(row) {
     <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
     <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.platform_name || row.platform_id)}</span>
       <span class="pill score">score ${row.score ?? "—"}</span>
-      <span class="pill score">fit ${realFit(row) ?? "—"}</span>
+      <span class="pill score">fit ${fitCell(row)}</span>
       <span class="pill score">sim ${row.embedding_similarity ?? "—"}</span></div>
   </div>`;
 }
@@ -313,7 +323,7 @@ function procRow(row) {
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
     <td><span class="pill">${escapeHtml(row.platform_id)}</span></td>
-    <td><span class="pill score">${realFit(row) ?? "—"}</span></td>
+    <td><span class="pill score">${fitCell(row)}</span></td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
     <td>${fmtDateOnly(row.publication_date)}</td>
   </tr>`;
@@ -451,7 +461,7 @@ async function openDetail(id) {
       ${f("Обеспечение", fmtMoney(row.security_amount) + (row.security_amount_unit ? " " + escapeHtml(row.security_amount_unit) : ""))}
       ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
       ${f("Score", (row.score ?? "—") + " (" + escapeHtml(row.score_method || "") + ")")}
-      ${f("Fit-скор", realFit(row) ?? "—")}
+      ${f("Fit-скор", fitCell(row))}
       ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
       ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
       ${f("Файлы", files)}

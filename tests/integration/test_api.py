@@ -139,7 +139,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
     """POST /api/db/clear-irrelevant удаляет закупки с fit_score < порога (по умолчанию 0.4)."""
     client, _ = api_client
 
-    async def _seed() -> tuple[int, int]:
+    async def _seed() -> tuple[int, int, int]:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
@@ -162,13 +162,23 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
                     "score_method": "fit",
                 }
             )
+            # Отсечка по векторной близости (ADR-8): fit_score=0 — нерелевантна.
+            await repo.upsert(
+                {
+                    "number": "CIR-3",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Векторная отсечка",
+                    "fit_score": 0.0,
+                    "score_method": "vector",
+                }
+            )
             rows, _ = await repo.list_procurements(number="CIR-")
             ids = {p.number: p.id for p in rows}
-            return ids["CIR-1"], ids["CIR-2"]
+            return ids["CIR-1"], ids["CIR-2"], ids["CIR-3"]
         finally:
             await db.dispose()
 
-    relevant_id, irrelevant_id = asyncio.run(_seed())
+    relevant_id, irrelevant_id, vector_id = asyncio.run(_seed())
 
     resp = client.post("/api/db/clear-irrelevant", json={"min_fit_score": 0.4})
     assert resp.status_code == 200
@@ -176,6 +186,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
 
     assert client.get(f"/api/procurements/{relevant_id}").status_code == 200
     assert client.get(f"/api/procurements/{irrelevant_id}").status_code == 404
+    assert client.get(f"/api/procurements/{vector_id}").status_code == 404
 
 
 def test_websocket_receives_broadcast(api_client: tuple[TestClient, Path]) -> None:
@@ -286,6 +297,63 @@ def test_list_filter_min_fit_score_ignores_default_scored(
     # Но присутствует в обычном списке (без фильтра).
     all_procs = client.get("/api/procurements", params={"number": "API-DEFAULT"}).json()
     assert any(item["id"] == default_id for item in all_procs["items"])
+
+
+def test_vector_filtered_record_visible_with_fit_score(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Отсечка по векторной близости (score_method=vector) видна в API: fit_score=0.
+
+    В «Только релевантные» (порог > 0) такая закупка не попадает, но в обычном
+    списке возвращается с fit_score=0 и score_method=vector (ADR-8) — то есть
+    отсечённая закупка отличима от ещё не обработанной.
+    """
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "API-VECTOR",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Векторная отсечка",
+                    "customer": "Заказчик ООО",
+                }
+            )
+            rows, _ = await repo.list_procurements(number="API-VECTOR")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    vector_id = asyncio.run(_seed())
+
+    # Результат сервиса скоринга приходит через POST /score (ADR-7): vector —
+    # предварительная фильтрация по векторной близости, LLM не выполнялся.
+    resp = client.post(
+        f"/api/procurements/{vector_id}/score",
+        json={
+            "score": 0.0,
+            "fit_score": 0.0,
+            "score_method": "vector",
+            "embedding_similarity": 0.62,
+        },
+    )
+    assert resp.status_code == 200
+
+    # В обычном списке — с fit_score=0 и score_method=vector.
+    all_procs = client.get("/api/procurements", params={"number": "API-VECTOR"}).json()
+    item = next(item for item in all_procs["items"] if item["id"] == vector_id)
+    assert item["fit_score"] == 0.0
+    assert item["score"] == 0.0
+    assert item["score_method"] == "vector"
+    assert item["embedding_similarity"] == 0.62
+
+    # В «Только релевантные» (порог 0.4) не попадает: fit_score=0 < порога.
+    relevant = client.get("/api/procurements", params={"min_fit_score": 0.4}).json()
+    assert all(item["id"] != vector_id for item in relevant["items"])
 
 
 def test_list_sort_fit_score(api_client: tuple[TestClient, Path]) -> None:
@@ -416,10 +484,11 @@ def test_set_score_notifies_above_threshold(
     state.notifier = _FakeNotifier()
     state.notify_min_fit_score = 0.5
 
-    # Ниже порога — score обновляется, уведомления нет.
+    # Ниже порога — score обновляется, уведомления нет (vector — терминальная
+    # отсечка по векторной близости, ADR-8).
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 50.0, "fit_score": 0.3, "score_method": "default"},
+        json={"score": 50.0, "fit_score": 0.3, "score_method": "vector"},
     )
     assert resp.status_code == 200
     assert calls == []
@@ -438,6 +507,26 @@ def test_set_score_notifies_above_threshold(
 def test_set_score_404(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     assert client.post("/api/procurements/999999/score", json={"score": 1.0}).status_code == 404
+
+
+def test_set_score_rejects_unknown_method(
+    api_client: tuple[TestClient, Path], inserted_id: int
+) -> None:
+    """POST /score с неизвестным score_method отклоняется (422), а не пишется в БД.
+
+    Приёмный эндпоинт принимает только известные результаты внешнего скоринга
+    (fit/pwin/margin/vector, ADR-7/ADR-8): неизвестный метод — признак рассинхрона
+    конвейера, его не нужно молча сохранять.
+    """
+    client, _ = api_client
+    resp = client.post(
+        f"/api/procurements/{inserted_id}/score",
+        json={"score": 50.0, "fit_score": 0.3, "score_method": "unknown-stage"},
+    )
+    assert resp.status_code == 422
+
+    detail = client.get(f"/api/procurements/{inserted_id}").json()
+    assert detail["score_method"] != "unknown-stage"
 
 
 def test_procurement_has_customer_id_and_name(

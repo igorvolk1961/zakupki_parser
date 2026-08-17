@@ -405,7 +405,28 @@ async def test_delete_irrelevant(db: Database) -> None:
             "score_method": "default",
         }
     )
+    # Отсечка по векторной близости (ADR-8): внешний скоринг, fit_score ниже
+    # порога (обычно 0) — нерелевантна, удаляется.
+    await repo.upsert(
+        {
+            "number": "RI-4",
+            "platform_id": "zakupki_mos",
+            "subject": "w",
+            "fit_score": 0.0,
+            "score_method": "vector",
+        }
+    )
+    # Отсечка по векторной близости, но fit_score выше порога — остаётся.
+    await repo.upsert(
+        {
+            "number": "RI-5",
+            "platform_id": "zakupki_mos",
+            "subject": "v",
+            "fit_score": 0.7,
+            "score_method": "vector",
+        }
+    )
     deleted = await repo.delete_irrelevant(min_fit_score=0.4)
-    assert deleted == 1
+    assert deleted == 2
     rows, _ = await repo.list_procurements()
-    assert {p.number for p in rows} == {"RI-1", "RI-3"}
+    assert {p.number for p in rows} == {"RI-1", "RI-3", "RI-5"}

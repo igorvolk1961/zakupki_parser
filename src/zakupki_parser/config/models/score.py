@@ -8,11 +8,21 @@ SCORE_METHOD_DEFAULT = "default"
 SCORE_METHOD_FIT = "fit"
 SCORE_METHOD_PWIN = "pwin"
 SCORE_METHOD_MARGIN = "margin"
+SCORE_METHOD_VECTOR = "vector"
 SCORE_METHOD_DEADLINE_EXPIRED = "deadline_expired"
 
-# Стадии внешнего каскада скоринга (Fit -> P(win) -> Margin). Значение
-# score_method записи, прошедшей внешний скоринг, — одна из этих стадий.
-SCORE_METHOD_STAGES = (SCORE_METHOD_FIT, SCORE_METHOD_PWIN, SCORE_METHOD_MARGIN)
+# Стадии внешнего каскада скоринга (Fit -> P(win) -> Margin) плюс терминальная
+# предварительная фильтрация по векторной близости (vector): значение
+# score_method записи, обработанной внешним сервисом скоринга, — одна из этих
+# констант. vector — не стадия каскада (переходы Fit -> P(win) -> Margin для неё
+# не запускаются), но результат внешней обработки: учитывается в фильтре
+# релевантности и при удалении нерелевантных записей (ADR-8).
+SCORE_METHOD_STAGES = (
+    SCORE_METHOD_FIT,
+    SCORE_METHOD_PWIN,
+    SCORE_METHOD_MARGIN,
+    SCORE_METHOD_VECTOR,
+)
 
 
 class ScoreConfig(BaseModel):

@@ -15,13 +15,14 @@ from typing import Any, Protocol
 import yaml
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from sqlalchemy import text as sql_text
 
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import (
     SCORE_METHOD_FIT,
     SCORE_METHOD_PWIN,
+    SCORE_METHOD_STAGES,
     AppConfig,
     ServiceConfig,
 )
@@ -136,6 +137,20 @@ class ScoreUpdate(BaseModel):
     margin: float | None = None
     score_method: str = SCORE_METHOD_FIT
     embedding_similarity: float | None = None
+
+    @field_validator("score_method")
+    @classmethod
+    def _score_method_known(cls, value: str) -> str:
+        """Принимаем только известные результаты внешнего скоринга (ADR-7/ADR-8).
+
+        Неизвестный метод (например, будущая стадия каскада, о которой парсер ещё
+        не знает) раньше молча сохранялся в БД и «терялся» для фильтров и таблицы —
+        теперь такой запрос отклоняется с 422.
+        """
+        if value not in SCORE_METHOD_STAGES:
+            allowed = ", ".join(SCORE_METHOD_STAGES)
+            raise ValueError(f"score_method должен быть одним из: {allowed}")
+        return value
 
 
 # --------------------------------------------------------------------------- #
