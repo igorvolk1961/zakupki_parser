@@ -351,7 +351,26 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
 
         retry_cfg = self._cfg.parser.retry
         search = self._platform.search
-        keywords = self._cfg.service.search_criteria.keywords
+        base = self._cfg.service.search_criteria
+        # Площадка может игнорировать короткие поисковые запросы (например fabrikant:
+        # слова короче 3 символов не фильтруют и возвращают весь список закупок).
+        # min_keyword_len задан в search-конфиге площадки — слова короче порога
+        # отбрасываем, чтобы не открывать заведомо всеобъемлющий поиск.
+        min_keyword_len = search.min_keyword_len if search else None
+        if min_keyword_len:
+            dropped = [w for w in base.keywords if len(w) < min_keyword_len]
+            if dropped:
+                logger.warning(
+                    "Площадка %s: отброшены ключевые слова короче %d символов "
+                    "(поиск площадки их игнорирует): %s",
+                    self._platform_id,
+                    min_keyword_len,
+                    dropped,
+                )
+                base = base.model_copy(
+                    update={"keywords": [w for w in base.keywords if len(w) >= min_keyword_len]}
+                )
+        keywords = base.keywords
         # Слова по «ИЛИ» — только если площадка реально использует keywords
         # (есть маппинг критерия keywords): иначе перебор слов дал бы одинаковые обходы
         # (например etpgpb, где procedure[name] не фильтрует).
@@ -374,9 +393,8 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 "Площадка %s: поиск по словам по одному (AND на площадке) — %d слов, коды: %s",
                 self._platform_id,
                 len(keywords),
-                self._cfg.service.search_criteria.okpd_codes,
+                base.okpd_codes,
             )
-            base = self._cfg.service.search_criteria
             for word in keywords:
                 criteria = base.model_copy(update={"keywords": [word], "okpd_codes": []})
                 await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
@@ -384,7 +402,6 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 criteria = base.model_copy(update={"keywords": []})
                 await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
         else:
-            base = self._cfg.service.search_criteria
             if base.keywords and base.okpd_codes and okpd_mapped:
                 # Расширение (OR): слова (без кодов) + коды (без слов) — объединение.
                 logger.info(
@@ -404,9 +421,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     page, cutoff, base.model_copy(update={"keywords": []}), by_relevance, retry_cfg
                 )
             else:
-                await self._crawl(
-                    page, cutoff, self._cfg.service.search_criteria, by_relevance, retry_cfg
-                )
+                await self._crawl(page, cutoff, base, by_relevance, retry_cfg)
 
         self._site_cb.record_success()
 
