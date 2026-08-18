@@ -37,13 +37,8 @@ def files_page_url(detail_url: str, files_page: str) -> str:
 
 async def open_detail(page: Page, detail_url: str, platform: PlatformDom) -> None:
     """Переходит на детальную страницу закупки."""
-    target_url = detail_url
-    if platform.detail.path_replace_from and platform.detail.path_replace_to:
-        target_url = detail_url.replace(
-            platform.detail.path_replace_from, platform.detail.path_replace_to
-        )
     await page.goto(
-        _absolute(platform.url, target_url),
+        _absolute(platform.url, detail_url),
         wait_until="domcontentloaded",
         timeout=60000,
     )

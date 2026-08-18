@@ -136,6 +136,15 @@ class DomDetailConfig(BaseModel):
     """Селекторы страницы детальной информации."""
 
     variables: list[DomVariable] = Field(default_factory=list)
+    api_format: str | None = Field(
+        default=None,
+        description=(
+            "формат извлечения деталей через открытый API площадки вместо DOM: "
+            "lot_online | etpgpb | mos. None — детали извлекаются из DOM-страницы. "
+            "Парсер получает поля из JSON-ответа API (okpd2/заказчик/ИНН/файлы), "
+            "детальная страница не открывается"
+        ),
+    )
     wait_selector: str | None = Field(
         default=None,
         description=(
@@ -144,14 +153,6 @@ class DomDetailConfig(BaseModel):
             "клиентом после загрузки оболочки)"
         ),
     )
-    path_replace_from: str | None = Field(
-        default=None,
-        description=(
-            "подстрока детального URL, заменяемая перед переходом на страницу "
-            "(например, common → lot, когда поле есть только на странице лотов)"
-        ),
-    )
-    path_replace_to: str | None = Field(default=None, description="замена для path_replace_from")
     files: list[FileSpec] = Field(
         default_factory=list, description="элементы ссылок на скачиваемые файлы"
     )
@@ -220,6 +221,27 @@ class SortConfig(BaseModel):
     )
 
 
+class FilterMapping(BaseModel):
+    """Привязка критерия к bracket-фильтру реестрового API.
+
+    Формат запроса (например, реестр lot-online ``/etp_back/procedure/list``):
+
+        filter[<key>][condition]=<condition>
+        filter[<key>][property]=<property>
+        filter[<key>][value][N]=<значение>
+
+    ``value_prefix`` — префикс значения (например, ``_`` для ОКПД2 в sphinx-индексе
+    lot-online: ``filter[okpd2][value]=_62.02.2``).
+    """
+
+    key: str = Field(description="ключ фильтра (например status, okpd2, '*')")
+    property: str = Field(description="свойство фильтра (например status, okpd2, '*')")
+    condition: str = Field(description="условие (например match, in, eq)")
+    value_prefix: str | None = Field(
+        default=None, description="префикс каждого значения (например '_' для ОКПД2)"
+    )
+
+
 class CriteriaMapping(BaseModel):
     """Привязка одного ОБОБЩЁННОГО критерия поиска к конкретному запросу площадки.
 
@@ -228,13 +250,18 @@ class CriteriaMapping(BaseModel):
       - ``json_path`` — точечный путь внутри ``filter_json`` (напр.
         ``needSpecificFilter.okpdPaths``, ``priceFrom``);
       - ``query_param`` — имя плоского query-параметра (напр. ``searchString``,
-        ``priceFrom``, ``publishDateFrom``).
+        ``priceFrom``, ``publishDateFrom``);
+      - ``filter`` — bracket-фильтр реестрового API (см. ``FilterMapping``).
     Можно указать оба сразу (например, критерий попадает и в JSON, и в параметр).
     Ключ словаря criteria_map — один из известных критериев: ``publish_date``,
     ``update_date``, ``deadline_from``, ``okpd2``, ``nmck_min``, ``nmck_max``,
     ``keywords``.
     """
 
+    filter: FilterMapping | None = Field(
+        default=None,
+        description="bracket-фильтр API вида filter[<key>][...] (реестр lot-online)",
+    )
     json_path: str | None = Field(
         default=None, description="точечный путь внутри filter_json для значения"
     )
@@ -268,14 +295,6 @@ class CriteriaMapping(BaseModel):
             "индексная форма там игнорируется)"
         ),
     )
-    raw_json: str | None = Field(
-        default=None,
-        description=(
-            "имя query-параметра, значение которого — JSON-массив объектов "
-            '`[{"key": <код>}]` по кодам критерия okpd2. Используется для lot-online 223 '
-            '(okpd2=[{"key":"62.02"}], названия не нужны)'
-        ),
-    )
     json_value: bool = Field(
         default=False,
         description=(
@@ -306,6 +325,35 @@ class SearchFilterConfig(BaseModel):
             "list_path. Query строится так же (query_params + criteria_map), фильтрацию выполняет "
             "сервер (etpgpb: SPA-страница рендерит базовый список, фильтрует только API). "
             "Ответ — JSON {data: [{id, attributes}]}."
+        ),
+    )
+    api_items_key: str | None = Field(
+        default=None,
+        description=(
+            "ключ массива записей внутри ответа API списка: None — массив в data "
+            "(etpgpb), иначе data[api_items_key] (например lot-online: data.items; "
+            "data.count — общее число результатов)"
+        ),
+    )
+    api_item_format: Literal["etpgpb", "lot_online", "mos", "tender_223"] = Field(
+        default="etpgpb",
+        description="формат item'а списка для парсинга в карточку записи",
+    )
+    api_offset_step: int | None = Field(
+        default=None,
+        description=(
+            "шаг постраничной выдачи API списка (offset): None — page-пагинация "
+            "шагом 1 (etpgpb); задан — offset += api_offset_step на каждой странице "
+            "(lot-online: offset=0,10,20 при limit=10)"
+        ),
+    )
+    api_offset_param: str | None = Field(
+        default=None,
+        description=(
+            "имя плейсхолдера offset в шаблонах query_params (например skip для "
+            "mos.ru, где пагинация take/skip внутри параметра queryDto). При задан "
+            "URL перестраивается с новым offset на каждой странице (вместо "
+            "инкремента плоского параметра)"
         ),
     )
     query_params: dict[str, str | list[str]] = Field(

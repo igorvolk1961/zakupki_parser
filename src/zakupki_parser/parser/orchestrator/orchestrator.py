@@ -26,6 +26,7 @@ from zakupki_parser.parser.detail import (
     files_page_url,
     open_detail,
 )
+from zakupki_parser.parser.detail_api import fetch_api_details
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
@@ -170,95 +171,111 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         detail_url: str | None,
         number: Any,
         keywords: list[str] | None = None,
+        api_fields: dict[str, Any] | None = None,
     ) -> tuple[bool, Any]:
         """Общая обработка записи из списка (DOM или API): детали, stop, скоринг, запись.
 
         ``list_vars`` — переменные карточки списка (list_config.variables), ``detail_url`` —
-        ссылка на детальную страницу, ``number`` — номер закупки. Возвращает
+        ссылка на детальную страницу, ``number`` — номер закупки, ``api_fields`` —
+        доп. поля для извлечения деталей через API (``detail.api_format``). Возвращает
         (пропущена ли запись как уже сохранённая в БД, номер закупки).
         """
         if not detail_url:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
             return False, number
         # stop-условия по данным из деталей проверяются после извлечения деталей.
-        # 3) переход на детальную страницу — в отдельной вкладке, чтобы не терять
-        #    страницу списка (итерация по контейнерам и пагинация продолжаются).
-        #    «Возврат к списку» (п.10 ТЗ) — закрытие этой вкладки.
-        detail_page: Page
-        close_detail = False
+        # 3) детали: либо через открытый API площадки (детальная страница не
+        #    открывается), либо переход на детальную страницу в отдельной вкладке,
+        #    чтобы не терять страницу списка (итерация по контейнерам и пагинация
+        #    продолжаются). «Возврат к списку» (п.10 ТЗ) — закрытие этой вкладки.
         files: list[dict[str, str]] = []
         customer_link: str | None = None
-        if self._new_page is not None:
-            detail_page = await self._new_page()
-            close_detail = True
-        else:
-            detail_page = page
+        api_inn: str | None = None
+        detail_page: Page | None = None
+        close_detail = False
         try:
             retry_cfg = self._cfg.parser.retry
-            await run_with_retry(
-                lambda: open_detail(detail_page, detail_url, self._platform),
-                retry=retry_cfg,
-                circuit=self._site_cb,
-                label=f"Детали {number}",
-            )
-            detail_vars = await extract_detail_vars(detail_page, self._platform)
-            customer_link = await capture_customer_link(detail_page, self._platform)
-            # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход
-            # по ссылке с детальной страницы и извлечение дополнительных переменных.
-            for spec in self._platform.detail.additional_pages:
-                try:
-                    link = detail_page.locator(spec.link_selector).first
-                    if await link.count() == 0:
-                        continue
-                    href = await link.get_attribute("href")
-                    if not href:
-                        continue
-                    page_url = (
-                        href if href.startswith("http") else self._platform.url.rstrip("/") + href
-                    )
-
-                    async def _open_additional(_url: str = page_url) -> None:
-                        await detail_page.goto(_url, wait_until="domcontentloaded", timeout=45000)
-                        await detail_page.wait_for_timeout(3000)
-
-                    await run_with_retry(
-                        _open_additional,
-                        retry=retry_cfg,
-                        circuit=self._site_cb,
-                        label=f"Доп. страница {number}",
-                    )
-                    extra = await extract_from_scope(detail_page, spec.variables)
-                    # Не затираем значение основной страницы, если на доп. странице
-                    # поле отсутствует (extract_from_scope вернул default=None).
-                    detail_vars.update({k: v for k, v in extra.items() if v is not None})
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("Доп. страница деталей не обработана: %s", exc)
-            # Файлы: если задана отдельная страница файлов (напр. ЕИС documents.html) —
-            # переходим на неё (URL = детальный URL с заменой имени html-файла).
-            # У 223-ФЗ путь документов иной — переход может не найтись, это не критично.
-            files_page = self._platform.detail.files_page
-            if files_page:
-                try:
-
-                    async def _open_files() -> None:
-                        await detail_page.goto(
-                            files_page_url(detail_url, files_page),
-                            wait_until="domcontentloaded",
-                            timeout=45000,
+            if self._platform.detail.api_format:
+                detail_vars, files, api_inn = await run_with_retry(
+                    partial(fetch_api_details, page, self._platform, list_vars, api_fields),
+                    retry=retry_cfg,
+                    circuit=self._site_cb,
+                    label=f"Детали {number}",
+                )
+            else:
+                if self._new_page is not None:
+                    detail_page = await self._new_page()
+                    close_detail = True
+                else:
+                    detail_page = page
+                await run_with_retry(
+                    lambda: open_detail(detail_page, detail_url, self._platform),
+                    retry=retry_cfg,
+                    circuit=self._site_cb,
+                    label=f"Детали {number}",
+                )
+                detail_vars = await extract_detail_vars(detail_page, self._platform)
+                customer_link = await capture_customer_link(detail_page, self._platform)
+                # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход
+                # по ссылке с детальной страницы и извлечение дополнительных переменных.
+                for spec in self._platform.detail.additional_pages:
+                    try:
+                        link = detail_page.locator(spec.link_selector).first
+                        if await link.count() == 0:
+                            continue
+                        href = await link.get_attribute("href")
+                        if not href:
+                            continue
+                        page_url = (
+                            href
+                            if href.startswith("http")
+                            else self._platform.url.rstrip("/") + href
                         )
-                        await detail_page.wait_for_timeout(3000)
 
-                    await run_with_retry(
-                        _open_files,
-                        retry=retry_cfg,
-                        circuit=self._site_cb,
-                        label=f"Файлы {number}",
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
-            files = await detail_files(detail_page, self._platform)
+                        async def _open_additional(_url: str = page_url) -> None:
+                            await detail_page.goto(
+                                _url, wait_until="domcontentloaded", timeout=45000
+                            )
+                            await detail_page.wait_for_timeout(3000)
+
+                        await run_with_retry(
+                            _open_additional,
+                            retry=retry_cfg,
+                            circuit=self._site_cb,
+                            label=f"Доп. страница {number}",
+                        )
+                        extra = await extract_from_scope(detail_page, spec.variables)
+                        # Не затираем значение основной страницы, если на доп. странице
+                        # поле отсутствует (extract_from_scope вернул default=None).
+                        detail_vars.update({k: v for k, v in extra.items() if v is not None})
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Доп. страница деталей не обработана: %s", exc)
+                # Файлы: если задана отдельная страница файлов (напр. ЕИС documents.html) —
+                # переходим на неё (URL = детальный URL с заменой имени html-файла).
+                # У 223-ФЗ путь документов иной — переход может не найтись, это не критично.
+                files_page = self._platform.detail.files_page
+                if files_page:
+                    try:
+
+                        async def _open_files() -> None:
+                            await detail_page.goto(
+                                files_page_url(detail_url, files_page),
+                                wait_until="domcontentloaded",
+                                timeout=45000,
+                            )
+                            await detail_page.wait_for_timeout(3000)
+
+                        await run_with_retry(
+                            _open_files,
+                            retry=retry_cfg,
+                            circuit=self._site_cb,
+                            label=f"Файлы {number}",
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
+                files = await detail_files(detail_page, self._platform)
         finally:
-            if close_detail:
+            if close_detail and detail_page is not None:
                 await detail_page.close()
 
         record: dict[str, Any] = {**list_vars}
@@ -273,7 +290,12 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         record["platform_id"] = self._platform_id
 
         # ИНН заказчика (универсальный механизм, ADR-4). При сбое — None (nullable).
-        record["inn"] = await self._resolve_customer_inn(page, customer_link)
+        # Через API (detail.api_format) ИНН приходит прямо в ответе — DOM не нужен.
+        # Если ИНН отдаёт уже API списка (например mos.ru) — сохраняем его как есть.
+        if api_inn:
+            record["inn"] = api_inn
+        elif customer_link:
+            record["inn"] = await self._resolve_customer_inn(page, customer_link)
 
         # Активна ли закупка (is_active): не активна, если задан неактивный статус
         # (не входит в active_statuses). Проверка срока актуальности (deadline)
@@ -634,9 +656,12 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         выдачи маленькие — обходим до конца пагинации.
         """
         lc = self._platform.list_config
+        search = self._platform.search
+        assert search is not None, "API-обход требует search-конфига площадки"
         page_size = lc.page_size
         has_keywords = bool(criteria.keywords)
-        url = build_api_list_url(self._platform, criteria)
+        url = build_api_list_url(self._platform, criteria, offset=0)
+        page_index = 0
         # Жёсткий потолок числа страниц (защита от вечного цикла).
         max_pages = self._cfg.parser.max_list_pages or 0
         pages_done = 0
@@ -653,7 +678,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 break
 
             items = await run_with_retry(
-                partial(fetch_api_items, page, url),
+                partial(fetch_api_items, page, url, search.api_items_key),
                 retry=retry_cfg,
                 circuit=self._site_cb,
                 label="API список",
@@ -668,8 +693,16 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             page_numbers: list[Any] = []
             for item in items:
                 page_total += 1
-                list_vars = parse_api_item(item)
+                list_vars = parse_api_item(item, search.api_item_format)
                 number = list_vars.get("number")
+                # Оптимизация повторного прохода: закупка уже в БД — детальную
+                # страницу не открываем (как в DOM-обходе _process_container).
+                if self._is_known(number):
+                    logger.info("Закупка %s уже в БД — пропуск", number)
+                    page_known += 1
+                    if number is not None and number != "":
+                        page_numbers.append(number)
+                    continue
                 # Стоп-порог по дате (только не keyword-обходы: там relevance-сортировка).
                 if (
                     not has_keywords
@@ -684,6 +717,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     reached_cutoff = True
                     break
                 detail_path = list_vars.pop("detail_path", None)
+                # Поля для извлечения деталей через API (детальная страница не
+                # открывается): id площадки и т.п., не попадают в запись.
+                api_fields = list_vars.pop("_api", None) or None
                 detail_url = None
                 if detail_path:
                     detail_url = (
@@ -692,7 +728,12 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         else self._platform.url.rstrip("/") + detail_path
                     )
                 known, number = await self._process_list_record(
-                    page, list_vars, detail_url, number, keywords=criteria.keywords
+                    page,
+                    list_vars,
+                    detail_url,
+                    number,
+                    keywords=criteria.keywords,
+                    api_fields=api_fields,
                 )
                 if number is not None and number != "":
                     page_numbers.append(number)
@@ -739,6 +780,15 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 )
                 break
 
-            page_param = lc.page_param or "page"
-            url = _increment_url_page(url, page_param)
+            # Пагинация: либо перестройка URL с новым offset (api_offset_param —
+            # take/skip внутри JSON-параметра, mos.ru), либо инкремент плоского
+            # параметра (page/offset) в текущем URL.
+            page_index += 1
+            if search.api_offset_param:
+                step = search.api_offset_step or 1
+                url = build_api_list_url(self._platform, criteria, offset=page_index * step)
+            else:
+                page_param = lc.page_param or "page"
+                step = search.api_offset_step or 1
+                url = _increment_url_page(url, page_param, step=step)
             await self._delayer.sleep()

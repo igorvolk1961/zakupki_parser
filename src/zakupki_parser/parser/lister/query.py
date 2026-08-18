@@ -16,7 +16,12 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from zakupki_parser.config.models import PlatformDom, SearchCriteria, SearchFilterConfig
+from zakupki_parser.config.models import (
+    CriteriaMapping,
+    PlatformDom,
+    SearchCriteria,
+    SearchFilterConfig,
+)
 from zakupki_parser.okpd import load_okpd_tree, resolve_codes_to_paths
 
 logger = logging.getLogger(__name__)
@@ -181,17 +186,77 @@ def _criteria_value(
     return None
 
 
+def _filter_dsl_values(
+    key: str,
+    mapping: CriteriaMapping,
+    criteria: SearchCriteria,
+    cutoff: datetime | None,
+    search: SearchFilterConfig,
+) -> list[str]:
+    """Значения критерия для bracket-фильтра API (``mapping.filter``).
+
+    Пустой список — критерий не задан (в запрос не попадает).
+    """
+    if key == "keywords":
+        kws = criteria.keywords
+        if not kws:
+            return []
+        if search.keywords_quote_phrases:
+            kws = [f'"{w}"' if " " in w.strip() else w for w in kws]
+        return [search.keywords_separator.join(kws)]
+    if key == "okpd2":
+        codes = criteria.okpd_codes
+        if not codes:
+            return []
+        fm = mapping.filter
+        assert fm is not None
+        prefix = fm.value_prefix or ""
+        return [f"{prefix}{code}" for code in codes]
+    if key == "active_only":
+        ids = (search.state_ids or {}).get("active" if criteria.active_only else "all")
+        return [str(v) for v in ids] if ids else []
+    value = _criteria_value(key, criteria, cutoff, search)
+    if value is None or (isinstance(value, list) and not value):
+        return []
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [str(value)]
+
+
+def _filter_dsl_params(mapping: CriteriaMapping, values: list[str]) -> list[tuple[str, str]]:
+    """Bracket-параметры фильтра: filter[<key>][condition|property|value...].
+
+    Одно значение — ``filter[<key>][value]=<v>``, несколько — индексированные
+    ``filter[<key>][value][N]=<v>`` (как шлёт фронтенд lot-online).
+    """
+    f = mapping.filter
+    assert f is not None
+    params: list[tuple[str, str]] = [
+        (f"filter[{f.key}][condition]", f.condition),
+        (f"filter[{f.key}][property]", f.property),
+    ]
+    if len(values) == 1:
+        params.append((f"filter[{f.key}][value]", values[0]))
+    else:
+        for i, value in enumerate(values):
+            params.append((f"filter[{f.key}][value][{i}]", value))
+    return params
+
+
 def build_query(
     search: SearchFilterConfig,
     cutoff: datetime | None,
     criteria: SearchCriteria | None = None,
+    offset: int = 0,
 ) -> str:
     """Строит строку запроса по конфигурации ``search``.
 
     Обобщённые критерии из ``config_service.yaml -> search_criteria`` подставляются
     в запрос через ``search.criteria_map`` (см. ``_criteria_value``): каждый критерий
     уходит либо в ``filter_json`` (по JSON-пути), либо в плоский query-параметр,
-    либо в оба места. Не заданные критерии в запрос не попадают.
+    либо в оба места. Не заданные критерии в запрос не попадают. ``offset`` —
+    значение плейсхолдера ``{offset}`` в шаблонах ``query_params`` (пагинация
+    take/skip, например mos.ru).
     """
     criteria = criteria or SearchCriteria()
     filter_json = copy.deepcopy(search.filter_json)
@@ -202,6 +267,14 @@ def build_query(
     # которые игнорируют индексную форму (например, lot-online okpd2=).
     flat_params: list[tuple[str, str]] = []
     for key, mapping in (search.criteria_map or {}).items():
+        if mapping.filter:
+            # Bracket-фильтр реестрового API (например lot-online):
+            # filter[<key>][condition]=...&filter[<key>][property]=...&filter[<key>][value...]=...
+            dsl_values = _filter_dsl_values(key, mapping, criteria, cutoff, search)
+            if dsl_values:
+                for name, value in _filter_dsl_params(mapping, dsl_values):
+                    flat_params.append((name, value))
+            continue
         if key == "okpd2" and mapping.query_params:
             values = _resolve_okpd2_eis(criteria.okpd_codes, search.okpd_tree_file)
             if values:
@@ -229,15 +302,6 @@ def build_query(
             else:
                 for i, value in enumerate(okpd_ids):
                     extra_params[f"{mapping.raw_array}[{i}]"] = value
-            continue
-        if key == "okpd2" and mapping.raw_json:
-            # Площадка принимает ОКПД2 одним JSON-массивом объектов {key: код}
-            # (например, lot-online 223: okpd2=[{"key":"62.02"}]).
-            codes = criteria.okpd_codes
-            if codes:
-                extra_params[mapping.raw_json] = json.dumps(
-                    [{"key": code} for code in codes], ensure_ascii=False
-                )
             continue
         if key == "keywords":
             kws = criteria.keywords
@@ -296,11 +360,15 @@ def build_query(
     state_json_str = json.dumps(state_json, ensure_ascii=False, separators=(",", ":"))
 
     parts: list[str] = []
+    # Плейсхолдер offset в шаблонах query_params: по умолчанию {offset}, либо
+    # имя параметра пагинации (api_offset_param, например {skip} у mos.ru).
+    offset_placeholder = "{" + (search.api_offset_param or "offset") + "}"
     for key, template in search.query_params.items():
         param_values = template if isinstance(template, list) else [template]
         for value in param_values:
             value = value.replace("{filter_json}", filter_json_str)
             value = value.replace("{state_json}", state_json_str)
+            value = value.replace(offset_placeholder, str(offset))
             # Площадка, чей текстовый поиск работает только с сортировкой по релевантности
             # (etpgpb: search фильтрует только с sort=by_relevance) — при наличии ключевых
             # слов статический sort подменяется на search.keywords_sort.

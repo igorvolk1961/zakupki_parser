@@ -1,6 +1,8 @@
 # Портал поставщиков Москвы (zakupki.mos.ru). Платформа_id = имя файла.
-# Целевой раздел — Реестр закупок (/purchase/list). Классы styled-components
-# хешированные (sc-…) и могут меняться при деплое — правки выполняются только здесь.
+# Целевой раздел — Реестр закупок (/purchase/list). С 2026-08-18 список и детали
+# читаются из открытого JSON API (без браузера): реестр Query API
+# (old.zakupki.mos.ru/api/Cssp/Purchase/Query), детали + файлы — /newapi/api/Need/Get
+# и FileStorage/Download. Карточка реестра сразу отдаёт ИНН заказчика.
 name: "Портал поставщиков Москвы"
 url: "https://zakupki.mos.ru"
 list_path: "/purchase/list"
@@ -55,89 +57,55 @@ list_config:
     - { name: "deadline",        selector: "xpath=//span[contains(., 'МСК')]/ancestor::div[2]", handler: "deadline", default: null }
 
 detail:
-  # Кнопка раскрытия полного списка документов: видимая часть списка файлов может
-  # быть неполной, остальные ссылки (в т.ч. ТЗ) появляются после клика.
-  # Селектор требует верификации на живой странице (text-селектор, классы sc-… хешируются).
-  files_expand: "button:has-text('Смотреть все документы'), a:has-text('Смотреть все документы')"
-  variables:
-    # status на детальной странице — ПОЛНЫЙ текст (без CSS-многоточия EllipsedSpan,
-    # которым обрезается статус на карточке списка), например «Прием предложений завершен».
-    # Перекрывает обрезанный список->статус, чтобы is_active считался корректно.
-    - { name: "status",        selector: "#state-indicator", handler: "strip", default: "" }
-    - { name: "customer",    selector: "div:has(> label:text-is('Заказчик')) > div", handler: "strip", default: "" }
-    - { name: "nmck",        selector: "div:has(> label:text-is('Начальная цена')) > div", handler: "money", default: null }
-    - { name: "okpd2_name",  selector: "div:has(> label:text-is('Наименование ОКПД2')) > div", handler: "strip", default: "" }
-    - { name: "okpd2_code",  selector: "div:has(> label:text-is('Код ОКПД2')) > div", handler: "strip", default: "" }
-  files:
-    # Ссылки на скачиваемые файлы: имя — текст ссылки, url скачивания с ЭТП — href
-    - { selector: "a[href*='FileStorage/Download']", name_attribute: null, url_attribute: "href" }
-
-# Извлечение ИНН заказчика (ADR-4). На mos.ru ИНН — на странице организации
-# (/companyProfile/customer/{id}), куда ведёт ссылка на имя заказчика.
-organization:
-  customer_link_selector: "div:has(> label:text-is('Заказчик')) a"
-  inn_from_link_regex: null
-  inn_from_org_page: true
-  inn_page_selector: null
-
-# --- Сортировка списка закупок ---
-# mos.ru поддерживает сортировку по релевантности (sortField=relevance в URL),
-# поэтому by_relevance=true: сортируем по релевантности и НЕ отсекаем по дате.
-sort:
-  order: publication_date_desc
-  by_relevance: true
-  # Дропдаун сортировки — БЕЗ css-хеша: якорь — текущий выбранный пункт (текст).
-  # Для mos.ru сейчас НЕ используется (by_relevance=true, сортировку задаёт URL),
-  # селектор оставлен корректным для общего механизма setup_sort_and_filters.
-  dropdown: "div.ui.dropdown:has-text('По релевантности')"
-  option_text: "По дате публикации"
-
-# --- Фильтры (DOM-шаги). Пока не заполнены — точные селекторы панели
-#     фильтров Реестра закупок требуют верификации (см. TODO). ---
-filters: []
+  # Детали (ОКПД2/позиции/файлы) — из открытого API; детальная страница не открывается.
+  api_format: "mos"
+  variables: []
+  files: []
 
 # --- URL-фильтр списка закупок (механизм для этой площадки). ---
-# Маппинг полностью из конфига: имена параметров, структуры JSON, формат даты.
-# Плейсхолдеры: {filter_json}, {state_json}, {publish_date_great_equal}.
+# Список читается из JSON API реестра (Query API на old.zakupki.mos.ru, абсолютный
+# api_endpoint). Фильтр — JSON-параметр queryDto (take/skip — пагинация, offset
+# подставляется плейсхолдером {skip}; см. api_offset_param).
 search:
   enabled: true
+  api_endpoint: "https://old.zakupki.mos.ru/api/Cssp/Purchase/Query"
+  # Записи реестра — в data.items (data.count — общее число результатов).
+  api_items_key: "items"
+  # Формат item'а — реестр mos.ru (needId, заказчик с ИНН прямо в карточке).
+  api_item_format: "mos"
+  # Пагинация — take/skip внутри queryDto: skip растёт на размер страницы.
+  api_offset_param: "skip"
+  api_offset_step: 10
   query_params:
-    page: "1"
-    perPage: "10"
-    sortField: "relevance"
-    sortDesc: "true"
-    filter: "{filter_json}"
-    state: "{state_json}"
+    queryDto: '{"filter":{filter_json},"order":[{"field":"publishDate","desc":true}],"withCount":true,"take":"10","skip":{skip}}'
   # Статичная часть параметра filter. Обобщённые критерии (config_service.yaml
   # -> search_criteria) подставляются через criteria_map ниже.
   filter_json:
     typeIn:
       values: [2]
     needSpecificFilter: {}
-  state_json:
-    currentTab: 2
   # Привязка обобщённых критериев к структуре запроса площадки. Коды ОКПД2
   # резолвятся в пути через okpd_tree_file.
   criteria_map:
     publish_date:  { json_path: "publishDateGreatEqual" }
     okpd2:         { json_path: "needSpecificFilter.okpdPaths" }
-    nmck_min:      { json_path: "priceFrom" }
-    nmck_max:      { json_path: "priceTo" }
+    # Query API понимает startPriceGreatEqual/LessEqual; priceFrom/priceTo игнорирует
+    # (проверено 2026-08-18).
+    nmck_min:      { json_path: "startPriceGreatEqual" }
+    nmck_max:      { json_path: "startPriceLessEqual" }
     # Ключевые слова -> nameLike (одно значение, слова через пробел). Площадка
     # сама объединяет слова по «ИЛИ» (contains=true), поэтому keywords_one_at_a_time
     # выключен: один поиск вместо перебора по-слову.
     keywords:      { json_path: "nameLike" }
     # active_only -> состояние закупок (stateIdIn); ID — в state_ids ниже.
-    active_only:   { json_path: "auctionSpecificFilter.stateIdIn" }
+    active_only:   { json_path: "needSpecificFilter.stateIdIn" }
   # Слова объединяются по «ИЛИ» самой площадкой (nameLike) — отдельный поиск не нужен.
   keywords_one_at_a_time: false
-  # ID состояний для active_only (проверено на живом сайте 2026-08-17 через UI
-  # фильтра «Статус»: Активные/Завершенные/Все закупки):
-  #   active = [19000002] — «Активные» (приём предложений);
-  #   all    = 5 состояний — «Все закупки» (дефолт реестра).
+  # ID состояний для active_only. Активные — 20000002 «Прием предложений» (дефолт
+  # реестра; проверено 2026-08-18 — прежние 19000002…19000008 устарели и дают 0).
+  # «Все» — параметр не ставится (сервер отдаёт весь реестр).
   state_ids:
-    all: [19000002, 19000005, 19000003, 19000004, 19000008]
-    active: [19000002]
+    active: [20000002]
   date_great_equal_format: "%d.%m.%Y 00:00:00"
   # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. configs/codes/mos_okpd2_tree.json)
   okpd_tree_file: "configs/codes/mos_okpd2_tree.json"

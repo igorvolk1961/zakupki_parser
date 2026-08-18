@@ -25,7 +25,7 @@
 
 | Площадка | Тип рендера | URL-фильтр `search` | ОКПД2 | Ключевые слова | Сортировка | Стоп-порог по дате |
 |---|---|---|---|---|---|---|
-| zakupki_mos | SPA (styled) | JSON `filter`/`state` | ✅ `okpdPaths` (дерево) | ✅ `nameLike` | релевантность | нет (`by_relevance=true`) |
+| zakupki_mos | SPA (styled) | **API** Query (`old.zakupki.mos.ru/api/Cssp/Purchase/Query`, queryDto: take/skip) | ✅ `okpdPaths` (дерево) | ✅ `nameLike` | дата `publishDate desc` | да |
 | zakupki_gov_44fz | сервер | query-параметры | ✅ `okpd2Ids`+`okpd2IdsWithNested` | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | zakupki_gov_223fz | сервер | query-параметры | ✅ (через lot-list) | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | b2b_center | сервер | `f_keyword=`+`searching`/`trade`/`show`+`order_by`/`order_dir` | ❌ анонимно нет (после регистрации) | ✅ `f_keyword=` (богатый синтаксис; слова по «И») | дата | да |
@@ -34,7 +34,7 @@
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
 | roseltorg_223fz | Drupal+React | `query_field`/`okpd2[]`/`status[]`/`page` | ✅ (JSON-LD деталей) | ✅ `query_field` (пробел=OR) | релевантность | нет |
 | fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | дата `date_publication desc` | да |
-| lot_online_223 | Angular SPA (Taiga) | `status` (JSON `[{label,value}]`); `searchToken`/`okpd2` в URL | ❌ (детали, SPA-API) | ✅ `status` (JSON) | дата публикации (дефолт) | да |
+| lot_online_223 | Angular SPA (Taiga) | **API** indexer (`/api-gateway/indexer/api/lots/query-extended`: `search`+`regionOkpd2Code`+`statusGroup`+`page`) | ✅ `regionOkpd2Code` (список) | ✅ `search` (по-одному) | дата публикации (дефолт) | да |
 
 ## Серверная фильтрация по состояниям (`search_criteria.active_only`)
 
@@ -43,7 +43,7 @@
 
 | platform_id | Цель | `state_ids.active` | `state_ids.all` | Примечание |
 |---|---|---|---|---|
-| zakupki_mos | `auctionSpecificFilter.stateIdIn` (json_path) | `[19000002]` (Активные) | 5 состояний (Все закупки) | значения сняты с UI-фильтра «Статус» |
+| zakupki_mos | `needSpecificFilter.stateIdIn` (json_path) | `[20000002]` (Прием предложений) | — («все» — без параметра) | значения сняты с UI-фильтра «Статус»; прежние 19000002… устарели |
 | zakupki_gov_44fz | `af=on&ca=on` (query_params) | — | — | «Этап закупки»: Подача заявок + Работа комиссии; «все» — без параметров |
 | zakupki_gov_223fz | `af=on&ca=on` (query_params) | — | — | как 44-ФЗ |
 | roseltorg_44fz | `status[]` (raw_array_flat) | `[5, 0, 1]` | `[5, 0, 1, 2, 3, 4]` | 5=Ожидание приема, 0=Прием заявок, 1=Работа комиссии; 2=Отменена, 3=Приостановлена, 4=Завершена |
@@ -52,7 +52,7 @@
 | b2b_center | `show` (query_param) | `actual` | `all` | show=actual — только актуальные (неистёкшие) |
 | etpgpb | `procedure[stage]` (raw_array) | `accepting` | — | «все» невыразимо: сайт редиректит на accepting (дефолт = активные) |
 | lot_online_44 | `status` (raw_array_flat) | `[accept, commission, contract]` | — | «все» — без параметра (весь реестр); активные = дефолт UI |
-| lot_online_223 | `status` (query_params, JSON) | `DEMANDS_STARTED` | — | JSON-формат `[{label,value}]` сайта; дефолт поиска = только «Прием заявок» |
+| lot_online_223 | `statusGroup` (query_param) | `DEMANDS_STARTED` | — | «все» — без параметра (весь реестр) |
 
 Итог: `active_only=true` на всех площадках отсекает завершённые/отменённые закупки
 серверно. Там, где «все» невыразимо (etpgpb, lot_online_223), площадка и так отдаёт
@@ -110,9 +110,14 @@
 - **API-листер** `search.api_endpoint` — список закупок читается из JSON API площадки (GET), а не
   парсингом DOM-страницы. Нужен площадкам, где SSR-страница всегда рендерит базовую выдачу, а
   фильтрацию выполняет только внутренний API после гидрации SPA (etpgpb: `/api/v2/procedures/`).
-  Query строится так же (`query_params` + `criteria_map`), записи собираются из `attributes` item'а,
-  детальные страницы/файлы/ИНН остаются на DOM-парсинге. `search.keywords_sort` — значение `sort`,
-  подставляемое при наличии ключевых слов (etpgpb: `search` фильтрует только с `sort=by_relevance`).
+  Query строится так же (`query_params` + `criteria_map`), записи собираются из `attributes` item'а.
+  `search.keywords_sort` — значение `sort`, подставляемое при наличии ключевых слов (etpgpb:
+  `search` фильтрует только с `sort=by_relevance`).
+- **API-детали** `detail.api_format` — детали закупки (ОКПД2/позиции/заказчик с ИНН/файлы) читаются
+  из открытого JSON API площадки без открытия страницы (etpgpb: `/api/v2/procedures/{kind}/{id}/`;
+  lot-online 44: двухшаговый JSON-RPC `/etp_back/api/get`; mos.ru: `/newapi/api/Need/Get` +
+  FileStorage). Оркестратор не открывает вкладку деталей и не резолвит ИНН через DOM.
+  Реализация — `parser/detail_api.py`.
 - **Пропуск уже сохранённых закупок** — оркестратор грузит номера площадки из БД и не открывает
   детальные страницы известных записей.
 - **Потолок страниц** `parser.max_list_pages` — защита от вечного цикла пагинации за проход.
@@ -157,30 +162,31 @@
 - `zakupki_gov_223fz` — путь документов 223-ФЗ (`notice223/...`) не подтверждён.
 
 ### Особенности lot_online (gz / tender)
+- 44-ФЗ: список с 2026-08-18 читается из открытого API реестра
+  (`GET /etp_back/procedure/list`, `search.api_endpoint` + `api_item_format: lot_online`):
+  `filter[*]` для слов, `filter[okpd2]` со sphinx-префиксом `_`, `filter[status]`
+  для активных статусов, пагинация `offset` шагом `page_size`. Детали — тоже из API
+  (`detail.api_format: lot_online`: JSON-RPC `POST /etp_back/api/get` по внутреннему id
+  из реестра, sphinx-резолв номера — только fallback). Браузер для этой площадки не нужен.
 - 44-ФЗ: ОКПД2 есть только на странице лотов (`.../procedure/view/procedure/lot/...`), на
-  «Общей информации» (`.../common/...`) его нет. Перед переходом на детали URL переписывается
-  через `detail.path_replace_from/path_replace_to` (проверено на живом сайте 2026-08-18).
+  «Общей информации» (`.../common/...`) его нет — ранее URL переписывался через
+  `detail.path_replace_from/path_replace_to`; после перевода деталей на API не требуется.
+- 223-ФЗ (tender): список с 2026-08-18 — открытый API `/api-gateway/indexer/api/lots/query-extended`
+  (`search`, `regionOkpd2Code`, `statusGroup=DEMANDS_STARTED`, пагинация `page`). Детали (ОКПД2) —
+  DOM-страница `/procedure?procedureNumber=...&lotNumber=...` (полный ОКПД2/файлы в indexer-API
+  требуют авторизации) — гибрид.
 - Список рендерится клиентом (Angular SPA): карточки `app-procedure-card` (gz, 44-ФЗ) и
   `app-purchase-card` (tender, 223-ФЗ). Селекторы проверены по снимку (2026-08-14).
-- 44-ФЗ: пагинация по URL `page` (10/стр), сортировка по дате -> стоп-порог. В списке есть
-  `nmck`, статус, заказчик, даты.
-- 223-ФЗ: пагинация кликом по кнопке tui-pagination «Следующая страница» (`:not([disabled])`
-  отсекает последнюю страницу), дефолтная сортировка — «По дате публикации» (проверил
-  2026-08-17: опция «По релевантности» в дропдауне есть, но выбрана по умолчанию дата,
-  парсер её не меняет) -> стоп-порог по дате применяется.
-  В списке есть даты публикации/окончания приёма заявок (заметка «нет дат» устарела).
-- Фильтры по словам/ОКПД2 не отражаются в URL (44-ФЗ — частично: keywords/okpd2 в URL;
-  223-ФЗ — в URL отражаются searchToken/okpd2/status) — коллекция в основном идёт по
-  полному списку. Статус на 223-ФЗ фильтрует через JSON-параметр `status`
-  (`[{"label":...,"value":...}]`, формат самого сайта).
 - Детальные страницы (ОКПД2/файлы/цена) — через внутренний API, см. «TODO по деталям (SPA)».
 
 ### Прочее
 - **b2b_center** — ОКПД2/НМЦК/регион-фильтры и документы доступны только зарегистрированным.
 - **etpgpb** — выдача `/procedures/` содержит и 44-ФЗ, и 223-ФЗ; разделяющего параметра закона
   нет (проверено 2026-08-14) — площадка одна, закон по закупкам не различается (kind fz223/fz44
-  из API сохраняется в `law`). С 2026-08-18 список читается из API (`search.api_endpoint`):
-  индексированная форма `procedure[okpd][0]=...` и `procedure[name]` НЕ фильтруют (отсюда и шум
+  из API сохраняется в `law`). С 2026-08-18 список читается из API (`search.api_endpoint`), детали —
+  тоже из API (`detail.api_format: etpgpb`: `GET /api/v2/procedures/{kind}/{platform_id}/` —
+  ОКПД2 из `included.nomenclature`, заказчик с ИНН из `included.company`, файлы из `included.doc`).
+  Индексированная форма `procedure[okpd][0]=...` и `procedure[name]` НЕ фильтруют (отсюда и шум
   «нерелевантных» закупок); работают плоский `procedure[okpd]=код[,код]` и `search` **только** с
   `sort=by_relevance`. Короткие слова (1–2 символа) движок перематчивает в подстрочный шум —
   `min_keyword_len: 3`.

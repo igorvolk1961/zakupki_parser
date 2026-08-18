@@ -1,12 +1,8 @@
 # lot-online (РАД) — 223-ФЗ (tender.lot-online.ru). Платформа_id = имя файла.
-# Angular SPA (Taiga UI). Карточки — app-purchase-card; список рендерится клиентом,
-# извлекается по DOM (как на gz.lot-online.ru). Пагинация — кнопка tui-pagination
-# «Следующая страница» (URL-параметра page нет; :not([disabled]) отсекает последнюю
-# страницу, чтобы не было вечного цикла). В списке ЕСТЬ даты публикации и окончания
-# приёма заявок. Статус закупки отражается в URL JSON-параметром status (см. search);
-# дефолтная выдача (без параметра) — только «Прием заявок».
-# Селекторы списка проверены по снимку (2026-08-14). Детальная страница грузится
-# асинхронно (ОКПД2/файлы отдаются через внутренний API) — TODO (см. docs/platforms.md).
+# С 2026-08-18 список читается из открытого API реестра (api-gateway indexer:
+# /api-gateway/indexer/api/lots/query-extended — слова, ОКПД2, статусы, пагинация
+# page). Детали (ОКПД2) остаются на DOM-странице: полный ОКПД2/файлы в API indexer
+# требуют авторизации (проверено 2026-08-18).
 name: "lot-online РАД (223-ФЗ)"
 url: "https://tender.lot-online.ru"
 list_path: "/search"
@@ -18,6 +14,9 @@ list_config:
   # Пагинация — кнопка «Следующая страница»; на последней странице она disabled
   # (:not([disabled]) → конец пагинации).
   next_page: "button[title='Следующая страница']:not([disabled])"
+  # API-реестр пагинируется через page (10/стр.).
+  page_param: "page"
+  page_size: 10
   # Имя переменной с датой публикации (стоп-порог; дефолтная сортировка — по дате).
   publication_date: "publication_date"
   # Активность — по сроку приёма заявок (deadline).
@@ -42,10 +41,15 @@ list_config:
     - { name: "publication_date", selector: "xpath=//div[.='Дата публикации']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
     - { name: "deadline",         selector: "xpath=//div[.='Дата окончания приема заявок']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
 detail:
-  # ОКПД2 отображается серверно строкой «ОКПД2: 62.02.2 Услуги…» — извлекаем код и название.
+  # ОКПД2 отображается серверно строкой «ОКПД2: 26.20.14.100: Серверы» — извлекаем
+  # код и название. Метка/значение — div.tui-text_body-m.color-text-02/01 (живая
+  # страница 2026-08-18; в снимке 2026-08-14 были span — структура изменилась).
+  # ВАЖНО: у значения [1] — только ПЕРВЫЙ следующий sibling-цвет (иначе ловятся
+  # последующие ОКВЭД2/количество).
+  wait_selector: "xpath=//div[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']"
   variables:
-    - { name: "okpd2_code", selector: "xpath=//span[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::span[contains(@class,'color-text-01')]", handler: "regex", handler_arg: "^\\s*(\\d{2}(?:\\.[\\d]+)*)", multiple: true, separator: ",", default: null }
-    - { name: "okpd2_name", selector: "xpath=//span[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::span[contains(@class,'color-text-01')]", handler: "regex", handler_arg: "^\\d{2}(?:\\.[\\d]+)*\\s+(.+)", multiple: true, separator: " | ", default: "" }
+    - { name: "okpd2_code", selector: "xpath=//div[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::div[contains(@class,'color-text-01')][1]", handler: "regex", handler_arg: "^\\s*(\\d{2}(?:\\.[\\d]+)*)", multiple: true, separator: ",", default: null }
+    - { name: "okpd2_name", selector: "xpath=//div[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::div[contains(@class,'color-text-01')][1]", handler: "regex", handler_arg: "^\\s*\\d{2}(?:\\.[\\d]+)*\\s*[:\\s]\\s*(.+)", multiple: true, separator: " | ", default: "" }
   files: []
 # Сортировка по умолчанию — «По дате публикации» (дропдаун tui-select; опция
 # «По релевантности» есть, но НЕ выбрана по умолчанию, проверил 2026-08-17).
@@ -60,20 +64,24 @@ sort:
 filters: []
 search:
   enabled: true
-  # ВНИМАНИЕ: searchToken на 223 ищет по ПОДСТРОКЕ, а «или» — литеральное слово,
-  # а не оператор: `X или Y` матчит «или эквивалент» (серверы/ИБП) и даёт мусор.
-  # Поэтому слова перебираются по-одному (keywords_one_at_a_time) и объединяются
-  # дедупом. Слова и коды ОКПД2 обрабатываются раздельно (OR, дедуп по номеру).
+  # Список читается из открытого JSON API (api-gateway indexer). Слова и коды
+  # ОКПД2 обрабатываются раздельно (OR, дедуп по номеру); слова перебираются
+  # по-одному (keywords_one_at_a_time — «или» на 223 литеральное слово, мусор).
+  api_endpoint: "/api-gateway/indexer/api/lots/query-extended"
+  # Записи реестра — в data (count — общее число результатов).
+  api_items_key: "data"
+  # Формат item'а — реестр tender.lot-online (uuid, eisNumber, price, даты-части).
+  api_item_format: "tender_223"
   keywords_one_at_a_time: true
+  query_params:
+    page: "0"
   criteria_map:
-    # Слова -> searchToken (по одному слову за раз).
-    keywords: { query_param: "searchToken" }
-    # ОКПД2 -> okpd2 как JSON-массив объектов {key: код} (без названий).
-    okpd2:    { raw_json: "okpd2" }
-    # active_only -> статус закупки: JSON-массив [{label,value}] (формат самого
-    # сайта, проверено 2026-08-17). DEMANDS_STARTED = «Прием заявок» — дефолт
-    # поиска сайта (только активные). «Все» невыразимо: сайт не имеет варианта
-    # «все статусы» и без параметра отдаёт только приём заявок.
-    active_only:
-      query_params:
-        status: '[{"label":"Прием заявок","value":"DEMANDS_STARTED"}]'
+    # Слова -> search (полнотекстовый поиск реестра).
+    keywords: { query_param: "search" }
+    # ОКПД2 -> regionOkpd2Code (код как есть, несколько — через запятую).
+    okpd2: { query_param: "regionOkpd2Code" }
+    # active_only -> statusGroup (DEMANDS_STARTED = «Идет прием заявок», дефолт
+    # поиска). «Все» — без параметра (весь реестр).
+    active_only: { query_param: "statusGroup" }
+  state_ids:
+    active: ["DEMANDS_STARTED"]

@@ -1,8 +1,9 @@
 # ЭТП ГПБ (etpgpb.ru). Платформа_id = имя файла.
 # Vue SPA. Площадка НЕ различает закон 44-ФЗ/223-ФЗ: выдача /procedures/ единая,
 # разделяющего параметра закона нет (проверено 2026-08-14), поэтому одна площадка.
-# Селекторы СПИСКА И ДЕТАЛЕЙ ВЕРИФИЦИРОВАНЫ (снимки 2026-08-14). Список с 2026-08-18
-# читается из JSON API (search.api_endpoint), см. search-блок ниже.
+# Список с 2026-08-18 читается из JSON API (search.api_endpoint), детали — тоже
+# из API (detail.api_format: etpgpb — /api/v2/procedures/{kind}/{platform_id}/:
+# ОКПД2, позиции, заказчик с ИНН, НМЦК, статус, файлы). Браузер не нужен.
 name: "ЭТП ГПБ"
 url: "https://etpgpb.ru"
 list_path: "/procedures/"
@@ -27,24 +28,9 @@ list_config:
     - { name: "deadline",         selector: ".procedureDateExpired__value", index: 0, handler: "ru_date", default: null }
     - { name: "publication_date", selector: ".procedureDateExpired__value", index: 1, handler: "ru_date", default: null }
 detail:
-  variables:
-    - { name: "status",      selector: "dt:text-is('Текущий статус') + dd", handler: "strip", default: "" }
-    - { name: "customer",    selector: "dt:text-is('Наименование организации') + dd", handler: "strip", default: "" }
-    - { name: "okpd2_code",  selector: "h4:text-is('Классификатор ОКПД2') + dl dt.procedureCardDl__value--name", handler: "strip", default: "" }
-    - { name: "okpd2_name",  selector: "h4:text-is('Классификатор ОКПД2') + dl dd.procedureCardDl__value--desc", handler: "strip", default: "" }
-  files:
-    - { selector: "a.procedureDocItem__title", name_attribute: null, url_attribute: "href" }
-
-# Извлечение ИНН заказчика (ADR-4). На etpgpb ИНН — на странице организации
-# (/catalog/customers/{slug}), куда ведёт ссылка на наименование организации.
-organization:
-  customer_link_selector: "dt:text-is('Наименование организации') + dd a"
-  inn_from_link_regex: null
-  inn_from_org_page: true
-  # ИНН на странице организации — строка «ИНН: 6731033838» (метка+значение).
-  # Точный селектор обязателен: обобщённый поиск по body ловит ИНН из рекламы
-  # в шапке/меню («Банк ГПБ (АО) ИНН 7744001497»).
-  inn_page_selector: "div.customerInfo__item:has(> .customerInfo__label:text-is('ИНН: '))"
+  api_format: "etpgpb"
+  variables: []
+  files: []
 
 search:
   enabled: true

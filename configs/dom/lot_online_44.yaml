@@ -1,9 +1,7 @@
 # lot-online (РАД) — 44-ФЗ (gz.lot-online.ru). Платформа_id = имя файла.
-# Angular SPA, но список рендерится сервером по URL-параметрам
-# (sort=1&sortDirection=ASC дата, status=accept). По дате -> стоп-порог.
-# Селекторы СПИСКА ВЕРИФИЦИРОВАНЫ (снимок 2026-08-12). ОКПД2 есть только на
-# странице лотов (.../procedure/view/procedure/lot/...), на «Общей информации»
-# (.../common/...) его нет — перед переходом URL переписывается (path_replace).
+# Список и детали с 2026-08-18 читаются из открытого JSON API (без браузера):
+# реестр GET /etp_back/procedure/list (search.api_endpoint) + детали двухшаговым
+# JSON-RPC POST /etp_back/api/get (detail.api_format: lot_online — ОКПД2/позиции).
 name: "lot-online РАД (44-ФЗ)"
 url: "https://gz.lot-online.ru"
 list_path: "/etp_front/procedure/list"
@@ -11,7 +9,8 @@ list_config:
   container: "app-procedure-card"
   detail_link: "a.__link_purchase-number"
   next_page: ""
-  page_param: "page"
+  # API-реестр пагинируется через offset (шаг = page_size), а не page.
+  page_param: "offset"
   page_size: 10
   variables:
     # Номер — «№ 0120400000526000233» в ссылке.
@@ -32,39 +31,42 @@ list_config:
     # Организатор — блок под заголовком «Организатор».
     - { name: "customer",         selector: ".card-div__placerTitle + div", handler: "strip", default: "" }
 detail:
-  # Детальная страница — Angular SPA. ОКПД2 рендерится клиентом, но только на
-  # странице лотов: «Общая информация» (/common/) его не содержит (проверено на
-  # живом сайте 2026-08-18), поэтому перед переходом заменяем сегмент пути.
-  path_replace_from: "/procedure/view/procedure/common/"
-  path_replace_to: "/procedure/view/procedure/lot/"
-  # Ждём появления поля «ОКПД2» (wait_selector), затем извлекаем все коды.
-  wait_selector: "xpath=//label[contains(.,'ОКПД2')]"
-  variables:
-    # Кодов ОКПД2 может быть несколько — каждый в отдельном блоке «ОКПД2:» как
-    # «КОД: Наименование». Собираем все (multiple) и склеиваем запятой.
-    - { name: "okpd2_code", selector: "xpath=//app-label[.//label[contains(.,'ОКПД2')]]/following-sibling::div[contains(@class,'form-control-static')]/p", handler: "regex", handler_arg: "^\\s*(\\d{2}(?:\\.[\\d]+)*)", multiple: true, separator: ",", default: null }
-    - { name: "okpd2_name", selector: "xpath=//app-label[.//label[contains(.,'ОКПД2')]]/following-sibling::div[contains(@class,'form-control-static')]/p", handler: "regex", handler_arg: "^\\d{2}(?:\\.[\\d]+)*:\\s*(.+)", multiple: true, separator: " | ", default: "" }
+  # Детали — из открытого JSON-RPC API (двухшагово: резолв номера -> лоты с
+  # позициями и кодами ОКПД2). Детальная страница не открывается.
+  api_format: "lot_online"
+  variables: []
   files: []
 search:
   enabled: true
-  # Слова ищутся по «ИЛИ»: парсер открывает отдельный поиск на каждое слово
-  # (keywords_one_at_a_time) и объединяет результаты (дедуп по номеру).
-  keywords_one_at_a_time: true
+  # Список читается из открытого JSON API реестра (GET /etp_back/procedure/list);
+  # фильтрацию (слова/ОКПД2/статус) выполняет сервер (проверено 2026-08-18).
+  api_endpoint: "/etp_back/procedure/list"
+  # Записи реестра — в data.items (data.count — общее число результатов).
+  api_items_key: "items"
+  # Формат item'а — плоские поля реестра lot-online (purchaseNumber/maxSum/...).
+  api_item_format: "lot_online"
+  # Пагинация — offset (шаг = page_size), а не page.
+  api_offset_step: 10
   query_params:
     limit: "10"
-    sort: "1"
-    sortDirection: "ASC"
+    offset: "0"
+    # ВАЖНО (стоп-порог): сортировка активных (finishedPurchase) вперёд — как в UI
+    # сайта. Выборка монотонна по дате только внутри каждой группы, поэтому
+    # стоп-порог/«вся страница в БД» корректны при active_only=true (статус-фильтр
+    # даёт одну группу finishedPurchase=0). В режиме «все» (active_only=false)
+    # сортировка и стоп-логика несовместимы — обход до конца пагинации.
+    "sort[0][property]": "finishedPurchase"
+    "sort[0][direction]": "ASC"
+    "sort[1][property]": "publicationDateTime"
+    "sort[1][direction]": "DESC"
   criteria_map:
-    # Слова -> параметр keywords (site принимает и одинарную, и двойную кодировку;
-    # движок выдаёт одинарную — работает).
-    keywords: { query_param: "keywords" }
-    # ОКПД2 -> повторяемый okpd2=код (без индекса; индексную форму okpd2[0] сайт
-    # игнорирует). Коды передаются как есть, сервер матчит по префиксу.
-    okpd2:    { raw_array_flat: "okpd2" }
-    # active_only -> статус закупки status (повторяемый). Активные = accept
-    # (Прием заявок) + commission (Работа комиссии) + contract (Заключение
-    # контракта) — дефолт UI сайта (проверено 2026-08-17). «Все» — параметр
-    # не ставится (сервер отдаёт весь реестр).
-    active_only: { raw_array_flat: "status" }
+    # Слова -> полнотекстовый фильтр sphinx filter[*] (property=*).
+    keywords: { filter: { key: "*", property: "*", condition: "match" } }
+    # ОКПД2 -> filter[okpd2] со sphinx-префиксом "_" (код матчится по префиксу).
+    okpd2: { filter: { key: "okpd2", property: "okpd2", condition: "match", value_prefix: "_" } }
+    # active_only -> статус закупки filter[status]. Активные = accept (Прием
+    # заявок) + commission (Работа комиссии) + contract (Заключение контракта) —
+    # дефолт UI сайта. «Все» — параметр не ставится (сервер отдаёт весь реестр).
+    active_only: { filter: { key: "status", property: "status", condition: "in" } }
   state_ids:
     active: ["accept", "commission", "contract"]

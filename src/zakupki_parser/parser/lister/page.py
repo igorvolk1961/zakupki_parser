@@ -124,11 +124,13 @@ async def extract_total_results(page: Page, platform: PlatformDom) -> int | None
         return None
 
 
-def _increment_url_page(url: str, param: str) -> str:
+def _increment_url_page(url: str, param: str, step: int = 1) -> str:
     """Возвращает ``url`` с инкрементированным значением query-параметра ``param``.
 
-    Параметр отсутствует — считается 1 (следующая страница = 2). Прочие параметры
-    сохраняются в исходном виде (без перекодировки), переписывается только ``param``.
+    Параметр отсутствует — считается 1 (следующая страница = 1 + step). Прочие
+    параметры сохраняются в исходном виде (без перекодировки), переписывается
+    только ``param``. ``step`` — шаг инкремента (для offset-пагинации API, где
+    offset растёт на размер страницы).
     """
     parts = urllib.parse.urlsplit(url)
     # Разделяем query на пары, сохраняя исходное (сырое) представление каждого
@@ -149,7 +151,7 @@ def _increment_url_page(url: str, param: str) -> str:
                 current = 1
             break
 
-    next_param = f"{param}={current + 1}"
+    next_param = f"{param}={current + step}"
     existing = [f"{k}={v}" for k, v in raw_pairs if k != param]
     existing.append(next_param)
     query = "&".join(existing)

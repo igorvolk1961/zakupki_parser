@@ -103,10 +103,10 @@
       - короткие слова (1–2 символа) движок перематчивает в подстрочный шум (`search=ИИ` → 63
         нерелевантные закупки) — задан `min_keyword_len: 3`, как на fabrikant.
 - [ ] **lot_online (44/223): детальные страницы (SPA API)** — цена/файлы отдаются через
-      внутренний JSON-RPC `POST /etp_back/api/get` (`manager`/`entity`/`fields`/`rules`). ОКПД2
-      44-ФЗ извлекается со страницы лотов (`path_replace` common→lot в `lot_online_44.yaml`,
-      проверено на живом сайте 2026-08-18); 223-ФЗ — TODO. Цена/файлы в DOM не рендерятся —
-      нужен отдельный механизм API-извлечения (или рендер после взаимодействия).
+      внутренний JSON-RPC `POST /etp_back/api/get` (`manager`/`entity`/`fields`/`rules`). С 2026-08-18
+      44-ФЗ (gz) полностью на API (список `/etp_back/procedure/list` + детали `detail.api_format:
+      lot_online`); 223-ФЗ (tender) — список с открытого `/api-gateway/indexer/api/lots/query-extended`,
+      детали (ОКПД2) с DOM-страницы, файлы/полный ОКПД2 в indexer-API требуют авторизации — TODO.
       Список обеих площадок верифицирован (2026-08-14): `app-procedure-card` (gz, 44-ФЗ, пагинация
       по `page`), `app-purchase-card` (tender, 223-ФЗ, пагинация tui-pagination + `:not([disabled])`).
 - [ ] **Верификация селекторов прочих коммерческих ЭТП** — для каждой площадки `zp capture-fixture`
