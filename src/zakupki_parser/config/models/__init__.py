@@ -48,8 +48,8 @@ from zakupki_parser.config.models.score import (
     SCORE_METHOD_FIT,
     SCORE_METHOD_MARGIN,
     SCORE_METHOD_PWIN,
+    SCORE_METHOD_SIM,
     SCORE_METHOD_STAGES,
-    SCORE_METHOD_VECTOR,
     ScoreConfig,
 )
 from zakupki_parser.config.models.service import (
@@ -85,8 +85,8 @@ __all__ = [
     "SCORE_METHOD_FIT",
     "SCORE_METHOD_MARGIN",
     "SCORE_METHOD_PWIN",
+    "SCORE_METHOD_SIM",
     "SCORE_METHOD_STAGES",
-    "SCORE_METHOD_VECTOR",
     "ScoreConfig",
     "SearchCriteria",
     "SearchFilterConfig",

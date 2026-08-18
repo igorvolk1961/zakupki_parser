@@ -169,7 +169,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
                     "platform_id": "zakupki_mos",
                     "subject": "Векторная отсечка",
                     "fit_score": 0.0,
-                    "score_method": "vector",
+                    "score_method": "sim",
                 }
             )
             rows, _ = await repo.list_procurements(number="CIR-")
@@ -178,7 +178,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
         finally:
             await db.dispose()
 
-    relevant_id, irrelevant_id, vector_id = asyncio.run(_seed())
+    relevant_id, irrelevant_id, sim_id = asyncio.run(_seed())
 
     resp = client.post("/api/db/clear-irrelevant", json={"min_fit_score": 0.4})
     assert resp.status_code == 200
@@ -186,7 +186,7 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
 
     assert client.get(f"/api/procurements/{relevant_id}").status_code == 200
     assert client.get(f"/api/procurements/{irrelevant_id}").status_code == 404
-    assert client.get(f"/api/procurements/{vector_id}").status_code == 404
+    assert client.get(f"/api/procurements/{sim_id}").status_code == 404
 
 
 def test_websocket_receives_broadcast(api_client: tuple[TestClient, Path]) -> None:
@@ -299,13 +299,13 @@ def test_list_filter_min_fit_score_ignores_default_scored(
     assert any(item["id"] == default_id for item in all_procs["items"])
 
 
-def test_vector_filtered_record_visible_with_fit_score(
+def test_sim_filtered_record_visible_with_fit_score(
     api_client: tuple[TestClient, Path],
 ) -> None:
-    """Отсечка по векторной близости (score_method=vector) видна в API: fit_score=0.
+    """Отсечка по векторной близости (score_method=sim) видна в API: fit_score=0.
 
     В «Только релевантные» (порог > 0) такая закупка не попадает, но в обычном
-    списке возвращается с fit_score=0 и score_method=vector (ADR-8) — то есть
+    списке возвращается с fit_score=0 и score_method=sim (ADR-8) — то есть
     отсечённая закупка отличима от ещё не обработанной.
     """
     client, _ = api_client
@@ -328,32 +328,32 @@ def test_vector_filtered_record_visible_with_fit_score(
         finally:
             await db.dispose()
 
-    vector_id = asyncio.run(_seed())
+    sim_id = asyncio.run(_seed())
 
-    # Результат сервиса скоринга приходит через POST /score (ADR-7): vector —
+    # Результат сервиса скоринга приходит через POST /score (ADR-7): sim —
     # предварительная фильтрация по векторной близости, LLM не выполнялся.
     resp = client.post(
-        f"/api/procurements/{vector_id}/score",
+        f"/api/procurements/{sim_id}/score",
         json={
             "score": 0.0,
             "fit_score": 0.0,
-            "score_method": "vector",
+            "score_method": "sim",
             "embedding_similarity": 0.62,
         },
     )
     assert resp.status_code == 200
 
-    # В обычном списке — с fit_score=0 и score_method=vector.
+    # В обычном списке — с fit_score=0 и score_method=sim.
     all_procs = client.get("/api/procurements", params={"number": "API-VECTOR"}).json()
-    item = next(item for item in all_procs["items"] if item["id"] == vector_id)
+    item = next(item for item in all_procs["items"] if item["id"] == sim_id)
     assert item["fit_score"] == 0.0
     assert item["score"] == 0.0
-    assert item["score_method"] == "vector"
+    assert item["score_method"] == "sim"
     assert item["embedding_similarity"] == 0.62
 
     # В «Только релевантные» (порог 0.4) не попадает: fit_score=0 < порога.
     relevant = client.get("/api/procurements", params={"min_fit_score": 0.4}).json()
-    assert all(item["id"] != vector_id for item in relevant["items"])
+    assert all(item["id"] != sim_id for item in relevant["items"])
 
 
 def test_list_sort_fit_score(api_client: tuple[TestClient, Path]) -> None:
@@ -484,11 +484,11 @@ def test_set_score_notifies_above_threshold(
     state.notifier = _FakeNotifier()
     state.notify_min_fit_score = 0.5
 
-    # Ниже порога — score обновляется, уведомления нет (vector — терминальная
+    # Ниже порога — score обновляется, уведомления нет (sim — терминальная
     # отсечка по векторной близости, ADR-8).
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 50.0, "fit_score": 0.3, "score_method": "vector"},
+        json={"score": 50.0, "fit_score": 0.3, "score_method": "sim"},
     )
     assert resp.status_code == 200
     assert calls == []
@@ -515,7 +515,7 @@ def test_set_score_rejects_unknown_method(
     """POST /score с неизвестным score_method отклоняется (422), а не пишется в БД.
 
     Приёмный эндпоинт принимает только известные результаты внешнего скоринга
-    (fit/pwin/margin/vector, ADR-7/ADR-8): неизвестный метод — признак рассинхрона
+    (fit/pwin/margin/sim, ADR-7/ADR-8): неизвестный метод — признак рассинхрона
     конвейера, его не нужно молча сохранять.
     """
     client, _ = api_client
@@ -674,3 +674,58 @@ def test_export_csv_writes_to_export_dir(
 
     # Подтверждаем, что релевантная запись существует в БД.
     assert client.get(f"/api/procurements/{relevant_id}").status_code == 200
+
+
+def test_prompts_list_get_put_validate(tmp_path: Path) -> None:
+    """Промпты: список, чтение, сохранение; JSON валидируется, traversal запрещён.
+
+    Используем копию tests/configs и отдельный каталог промптов в tmp_path,
+    чтобы не трогать реальные конфиги и файлы промптов.
+    """
+    from zakupki_parser.api.app import create_app
+
+    cfgdir = tmp_path / "configs"
+    shutil.copytree(Path(__file__).resolve().parents[2] / "tests" / "configs", cfgdir)
+    prompts_dir = tmp_path / "prompts"
+    prompts_dir.mkdir()
+    (prompts_dir / "fit_system.md").write_text("СТАРЫЙ ПРОМПТ", encoding="utf-8")
+    (prompts_dir / "few_shot.json").write_text('[{"a": 1}]', encoding="utf-8")
+
+    os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
+    os.environ["ZAKUPKI_PROMPTS_DIR"] = str(prompts_dir)
+    app = create_app(str(cfgdir))
+    with TestClient(app) as client:
+        # Список: только md/json внутри prompts_dir.
+        files = client.get("/api/prompts").json()["files"]
+        names = [f["name"] for f in files]
+        assert "fit_system.md" in names
+        assert "few_shot.json" in names
+
+        # Чтение содержимого.
+        got = client.get("/api/prompts/fit_system.md")
+        assert got.status_code == 200
+        assert got.json()["content"] == "СТАРЫЙ ПРОМПТ"
+        assert got.json()["kind"] == "markdown"
+
+        # Сохранение markdown.
+        r = client.put("/api/prompts/fit_system.md", json={"content": "НОВЫЙ ПРОМПТ"})
+        assert r.status_code == 200
+        assert r.json()["content"] == "НОВЫЙ ПРОМПТ"
+        assert (prompts_dir / "fit_system.md").read_text(encoding="utf-8") == "НОВЫЙ ПРОМПТ"
+
+        # Некорректный JSON — 422, файл не меняется.
+        bad = client.put("/api/prompts/few_shot.json", json={"content": "{broken"})
+        assert bad.status_code == 422
+        assert (prompts_dir / "few_shot.json").read_text(encoding="utf-8") == '[{"a": 1}]'
+
+        # Корректный JSON сохраняется.
+        ok = client.put("/api/prompts/few_shot.json", json={"content": '[{"b": 2}]'})
+        assert ok.status_code == 200
+        assert ok.json()["kind"] == "json"
+
+        # Path traversal и несуществующие файлы отклоняются.
+        assert client.get("/api/prompts/..%2Fconfig_service.yaml").status_code in (400, 404)
+        assert client.put("/api/prompts/nope.md", json={"content": "x"}).status_code == 404
+        assert client.get("/api/prompts/secret.txt").status_code in (400, 404)
+    os.environ.pop("ZAKUPKI_DB_DSN", None)
+    os.environ.pop("ZAKUPKI_PROMPTS_DIR", None)

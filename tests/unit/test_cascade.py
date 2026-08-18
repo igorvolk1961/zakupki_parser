@@ -213,6 +213,6 @@ def test_notify_margin_disabled_never_notifies() -> None:
     assert _meets_stage_notify_threshold(row, _FakeState(margin_enabled=False)) is False
 
 
-def test_notify_threshold_vector_not_notified() -> None:
-    row = _FakeRow("vector", fit_score=0.0)
+def test_notify_threshold_sim_not_notified() -> None:
+    row = _FakeRow("sim", fit_score=0.0)
     assert _meets_stage_notify_threshold(row, _FakeState()) is False

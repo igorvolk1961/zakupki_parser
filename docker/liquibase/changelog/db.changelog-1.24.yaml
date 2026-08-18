@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 26
+      author: zakupki-parser
+      comment: "score_method: значение vector переименовано в sim (ADR-8)"
+      changes:
+        - sql:
+            sql: |
+              UPDATE procurements
+              SET score_method = 'sim'
+              WHERE score_method = 'vector';

@@ -167,6 +167,15 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     if env_transport_url:
         score_model.scoring_transport_url = env_transport_url
 
+    # Каталог промптов scoring_service — из env (имеет приоритет над YAML).
+    # В Docker это общий том (например, /app/prompts), чтобы правки из
+    # web-интерфейса видел scoring_service при следующем старте.
+    prompts_dir = os.environ.get("ZAKUPKI_PROMPTS_DIR") or ops_model.prompts_dir
+    prompts_path = Path(prompts_dir)
+    if not prompts_path.is_absolute():
+        prompts_path = base.parent / prompts_path
+    ops_model.prompts_dir = str(prompts_path)
+
     return AppConfig(
         configs_dir=base,
         parser=ParserConfig.model_validate(parser_data),

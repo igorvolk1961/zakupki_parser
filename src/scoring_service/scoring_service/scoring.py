@@ -4,7 +4,7 @@
 1. извлечь описание закупки из карточки (``pipeline.description``);
 2. (опц.) ветка векторной близости ДО LLM: если близость ниже порога
    ``embedding_filter_threshold`` — предварительная фильтрация (LLM не
-   запускается, возвращается fit_score=0 и score_method=vector);
+   запускается, возвращается fit_score=0 и score_method=sim);
 3. fit-цепочка: reasoning + fit_score (0..10);
 4. judge-цепочка: critics / verdict / final_fit_score;
 5. если verdict == reject — до ``num_refine_rounds`` повторный fit с учётом critics,
@@ -347,7 +347,7 @@ class Scorer:
             requires_tz_body=False,
             fit_multiplier=0.0,
             score=0.0,
-            score_method="vector",
+            score_method="sim",
             embedding_similarity=embed_sim,
         )
 

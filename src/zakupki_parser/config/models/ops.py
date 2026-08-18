@@ -171,3 +171,11 @@ class OpsConfig(_BaseConfig):
     notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     circuit_breaker_failure_threshold: int = Field(default=5, ge=1)
     circuit_breaker_reset_timeout_seconds: float = Field(default=60.0, ge=1)
+    prompts_dir: str = Field(
+        default="src/scoring_service/scoring_service/pipeline/prompts",
+        description=(
+            "каталог с файлами промптов scoring_service (вкладка «Промпты»); "
+            "относительный путь — от корня проекта; в Docker — общий том, "
+            "переопределяется через ZAKUPKI_PROMPTS_DIR"
+        ),
+    )

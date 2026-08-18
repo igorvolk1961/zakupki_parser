@@ -35,5 +35,9 @@ notifications:
   notify_margin_enabled: false
   notify_min_margin: 0.0
 export_dir: data/export
+# Каталог промптов scoring_service (вкладка «Промпты» web-интерфейса).
+# Относительный путь — от корня проекта; в Docker переопределяется
+# через ZAKUPKI_PROMPTS_DIR (общий том с scoring_service).
+prompts_dir: src/scoring_service/scoring_service/pipeline/prompts
 circuit_breaker_failure_threshold: 5
 circuit_breaker_reset_timeout_seconds: 60.0

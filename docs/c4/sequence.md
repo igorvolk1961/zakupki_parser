@@ -1,8 +1,9 @@
 # Диаграмма последовательности — алгоритм парсинга и скоринга
 
 Последовательность действий парсера для одной площадки (Mermaid sequenceDiagram).
-Соответствует `../../src/zakupki_parser/parser/orchestrator.py` и конвейеру скоринга
-(ADR-7: `scoring_transport` + `scoring_service` + Redis).
+Соответствует `../../src/zakupki_parser/parser/orchestrator.py` и каскаду скоринга
+(ADR-7/ADR-9: `scoring_transport` + Redis + стадии `scoring_service`/`pwin_service`/
+`margin_service`).
 
 ```mermaid
 sequenceDiagram
@@ -17,7 +18,9 @@ sequenceDiagram
     participant R as ProcurementRepository
     participant TR as Scoring Transport
     participant RS as Redis
-    participant SG as Scoring Service
+    participant SF as Scoring Service (Fit)
+    participant PW as P(win) Service
+    participant MM as Margin Service
     participant N as Notifier
 
     S->>B: start() (stealth, задержки)
@@ -47,24 +50,50 @@ sequenceDiagram
             S->>S: score (default / deadline_expired)
             S->>R: upsert(record) (контроль дубликатов)
             alt новая запись (score_method=default)
-                S->>TR: POST /api/scoring/jobs {id, default_score}
+                S->>TR: POST /api/scoring/jobs {id, default_score, stage="fit"}
                 TR->>RS: ZADD scoring:jobs (по приоритету)
             end
         end
         S->>L: goto_next_page()
     end
 
-    Note over TR,SG: (асинхронный конвейер скоринга, вне цикла парсинга)
-    SG->>RS: ZPOPMAX scoring:jobs
-    SG->>A: GET /api/procurements/{id}
-    A-->>SG: карточка (вкл. detail_json)
-    SG->>SG: score (LLM: Fit → Judge → refine → ТЗ → Giga)
-    SG->>RS: LPUSH scoring:results {id, score}
+    Note over TR,MM: (асинхронный каскад скоринга Fit → P(win) → Margin, вне цикла парсинга)
+    SF->>RS: ZPOPMAX scoring:jobs
+    SF->>A: GET /api/procurements/{id}
+    A-->>SF: карточка (вкл. detail_json)
+    SF->>SF: score (LLM: Fit → Judge → refine → ТЗ → Giga)
+    SF->>RS: LPUSH scoring:results {id, fit_score}
     TR->>RS: BRPOP scoring:results
-    TR->>A: POST /api/procurements/{id}/score
-    A->>R: update_score (score, fit_score; score_method=external)
-    A->>A: fit_score ≥ notify_min_fit_score?
-    alt fit_score ≥ notify_min_fit_score
+    TR->>A: POST /api/procurements/{id}/score {fit_score, score_method="fit"}
+    A->>R: update_score (score, fit_score; score_method=fit)
+    alt fit_score ≥ pwin_fit_threshold и pwin_enabled
+        A->>TR: POST /api/scoring/jobs {id, priority, stage="pwin"}
+        TR->>RS: ZADD pwin:jobs
+        PW->>RS: ZPOPMAX pwin:jobs
+        PW->>A: GET /api/procurements/{id}
+        A-->>PW: карточка
+        PW->>PW: P(win) = base × k_smp × k_license × …
+        PW->>RS: LPUSH pwin:results {id, p_win}
+        TR->>RS: BRPOP pwin:results
+        TR->>A: POST /api/procurements/{id}/score {p_win, score_method="pwin"}
+        A->>R: update_score (score, p_win; score_method=pwin)
+        alt p_win ≥ margin_pwin_threshold и margin_enabled
+            A->>TR: POST /api/scoring/jobs {id, priority, stage="margin"}
+            TR->>RS: ZADD margin:jobs
+            MM->>RS: ZPOPMAX margin:jobs
+            MM->>A: GET /api/procurements/{id}
+            A-->>MM: карточка
+            MM->>MM: Margin = НМЦК × margin_rate
+            MM->>RS: LPUSH margin:results {id, margin}
+            TR->>RS: BRPOP margin:results
+            TR->>A: POST /api/procurements/{id}/score {margin, score_method="margin"}
+            A->>R: update_score (score, margin; score_method=margin)
+        end
+    end
+
+    Note over A,N: Уведомление — после каждой стадии каскада<br/>(порог по значению стадии)
+    A->>A: результат стадии ≥ notify_min_<stage>?
+    alt порог стадии пройден
         A->>N: notify(record)
     end
 
@@ -82,15 +111,20 @@ sequenceDiagram
 - **Файлы**: в основном режиме не скачиваются — сохраняются только метаданные
   в `files_json` (включая ТЗ). Глубокую обработку (PDF/DOCX/ZIP, поиск ТЗ)
   выполняет **внешний сервис** (ADR-5).
-- **Скоринг (ADR-7)**: при сохранении ставится `default` (или `deadline_expired` для
+- **Скоринг (ADR-7/ADR-9)**: при сохранении ставится `default` (или `deadline_expired` для
   просроченных) вместе с дефолтным `fit_score`. Для новой записи парсер **автоматически**
-  отправляет задание в транспорт (`POST /api/scoring/jobs` с приоритетом = дефолтным score).
-  Дальше конвейер работает **асинхронно**: `scoring_service` берёт задание из Redis
-  (`ZPOPMAX`), получает карточку через API парсера (`GET /api/procurements/{id}`), считает
-  score по LLM-пайплайну (Fit → Judge → refine → уточнение по ТЗ → ветка Giga-эмбеддингов)
-  и публикует результат; транспорт возвращает его в API парсера (`POST /score`).
+  отправляет задание в транспорт (`POST /api/scoring/jobs` с приоритетом = дефолтным score
+  и `stage="fit"`). Дальше каскад работает **асинхронно**: `scoring_service` берёт задание
+  из Redis (`ZPOPMAX`), получает карточку через API парсера (`GET /api/procurements/{id}`),
+  считает Fit по LLM-пайплайну (Fit → Judge → refine → уточнение по ТЗ → ветка
+  Giga-эмбеддингов) и публикует результат; транспорт возвращает его в API парсера
+  (`POST /score`). Переходы к стадиям **P(win)** (`pwin_service`) и **Margin**
+  (`margin_service`) выполняет парсер по порогам `pwin_fit_threshold`/`margin_pwin_threshold`
+  (`config_score.yaml`) с учётом флагов `pwin_enabled`/`margin_enabled`.
 - **Уведомление подписчиков** выполняется **в FastAPI-слое** — в обработчике
-  `POST /api/procurements/{id}/score` после обновления финального `fit_score`, только если
-  `fit_score ≥ notify_min_fit_score` (порог из `config_ops.yaml`). В цикле парсинга уведомлений нет.
+  `POST /api/procurements/{id}/score` **после каждой стадии** каскада (fit/pwin/margin),
+  когда значение стадии прошло её порог (`notify_min_fit_score`/`notify_min_pwin`/
+  `notify_min_margin` из `config_ops.yaml`; стадия выключается флагом `notify_*_enabled`).
+  В цикле парсинга уведомлений нет.
 - **upsert** гарантирует отсутствие повторной записи закупки с тем же номером
   (unique-констрейнт + проверка перед вставкой).

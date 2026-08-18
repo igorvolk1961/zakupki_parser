@@ -16,6 +16,7 @@ flowchart TB
         CUT["Cutoff<br/>порог дат последней обработки"]
         FILES["Files<br/>метаданные файлов / ТЗ"]
         SCD["Scoring<br/>default / deadline_expired + push в транспорт"]
+        CSC["Cascade<br/>Fit → P(win) → Margin:<br/>переходы по порогам,<br/>постадийные уведомления"]
     end
 
     subgraph Store["Слой хранения"]
@@ -27,7 +28,7 @@ flowchart TB
     subgraph Infra["Инфраструктура"]
         CB["CircuitBreaker<br/>CLOSED / OPEN / HALF_OPEN"]
         RETR["Retry<br/>экспоненциальный backoff"]
-        TRC["Transport client<br/>POST /api/scoring/jobs {id, default_score}"]
+        TRC["Transport client<br/>POST /api/scoring/jobs {id, default_score, stage}"]
     end
 
     ORC --> LST
@@ -41,6 +42,7 @@ flowchart TB
     ORC --> CUT
     ORC --> ORG
     ORC --> REPO
+    ORC --> CSC
     REPO --> CUSTR
     REPO --> DB
     ORC --> TRC
@@ -59,8 +61,13 @@ flowchart TB
 - **Scoring**: при сохранении проставляется дефолтный score и `fit_score`
   (`default`, fit-множитель по ОКПД2) или `deadline_expired` для просроченных; затем
   **Transport client** автоматически отправляет задание в транспорт скоринга
-  (`POST /api/scoring/jobs` с приоритетом = дефолтным score). Финальный внешний score
-  и `fit_score` возвращаются в парсер через `POST /score` (ADR-7).
+  (`POST /api/scoring/jobs` с приоритетом = дефолтным score и `stage="fit"`).
+- **Cascade** (в FastAPI-слое): после возврата результата стадии в `POST /score`
+  переход к следующей стадии (Fit → P(win) → Margin) выполняется по порогам
+  `pwin_fit_threshold`/`margin_pwin_threshold` (`config_score.yaml`), если стадия
+  включена (`pwin_enabled`/`margin_enabled`); стадия сохраняет свой множитель
+  (`fit_score`/`p_win`/`margin`), `score` — накопленное произведение (ADR-7/ADR-9).
 - **Уведомления** подписчиков отправляются **не в движке**, а в FastAPI-слое —
-  в обработчике `POST /api/procurements/{id}/score` после обновления `fit_score`, если
-  `fit_score ≥ notify_min_fit_score` (порог из `config_ops.yaml`).
+  в обработчике `POST /api/procurements/{id}/score` **после каждой стадии** каскада
+  (fit/pwin/margin), когда значение стадии прошло её порог
+  (`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin` из `config_ops.yaml`).

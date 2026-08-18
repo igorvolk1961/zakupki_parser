@@ -118,7 +118,7 @@
       <option value="light">Светлая</option>
       <option value="dark">Тёмная</option>
     </select>
-    <label class="admin-toggle" title="Доступ к «Очистить БД», «Выгрузить CSV» и «Параметры»">
+    <label class="admin-toggle" title="Доступ к «Очистить БД», «Выгрузить CSV», «Параметры» и «Промпты»">
       <input type="checkbox" id="admin"> Режим администратора
     </label>
   </div>
@@ -139,6 +139,7 @@
     <button class="active" id="tab-proc">Закупки <span class="tab-count" id="cnt-proc"></span></button>
     <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
     <button id="tab-cfg">Параметры</button>
+    <button id="tab-prompts">Промпты</button>
   </div>
 
   <div id="view-proc">
@@ -204,6 +205,26 @@
       <span id="cfg-status" class="muted"></span>
     </div>
   </div>
+
+  <div id="view-prompts" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Промпты scoring_service</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <label>Промпт:
+          <select id="prompt-sel"></select>
+        </label>
+        <span class="pill" id="prompt-kind" style="display:none;"></span>
+        <span id="prompt-dir" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем старте scoring_service (как и параметры конфигурации).</p>
+    </div>
+    <textarea id="prompt-editor" spellcheck="false" style="width:100%;height:480px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    <div class="toolbar" style="margin-top:12px;">
+      <button class="primary" id="prompt-save">Сохранить</button>
+      <button id="prompt-reload">Отменить изменения</button>
+      <span id="prompt-status" class="muted"></span>
+    </div>
+  </div>
 </main>
 
 <div class="modal-bg" id="modal-bg">
@@ -266,14 +287,14 @@ const fmtDT = (v) => v ? new Date(v).toLocaleString("ru-RU", { year:"numeric", m
 // Только дата (для таблицы закупок).
 const fmtDateOnly = (v) => v ? new Date(v).toLocaleDateString("ru-RU") : "–";
 // Фит-скор считается только после обработки внешним скорингом
-// (score_method=fit/pwin/margin/vector); до этого (дефолтный/просроченный)
-// возвращаем null → показываем прочерк. vector — предварительная фильтрация
+// (score_method=fit/pwin/margin/sim); до этого (дефолтный/просроченный)
+// возвращаем null → показываем прочерк. sim — предварительная фильтрация
 // по векторной близости: LLM не выполнялся, fit_score=0 (ADR-8).
 const realFit = (row) =>
-  ["fit", "pwin", "margin", "vector"].includes(row.score_method) ? row.fit_score : null;
+  ["fit", "pwin", "margin", "sim"].includes(row.score_method) ? row.fit_score : null;
 
 // Значение fit-скора с пометкой метода скоринга (кроме обычной стадии fit):
-// «0 (vector)» — отсечка по векторной близости, «0.5 (pwin)» — стадия каскада.
+// «0 (sim)» — отсечка по векторной близости, «0.5 (pwin)» — стадия каскада.
 function fitCell(row) {
   const v = realFit(row);
   if (v == null) return "—";
@@ -571,12 +592,12 @@ $("#fit-dn").addEventListener("click", () => stepFit(-0.1));
 $("#proc-platform").addEventListener("change", () => { procPage = 1; loadProc(); });
 $("#proc-active").addEventListener("change", () => { procPage = 1; loadProc(); });
 $("#tab-proc").addEventListener("click", () => {
-  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
-  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";
+  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active");
+  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none";
 });
 $("#tab-cust").addEventListener("click", () => {
-  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cfg").classList.remove("active");
-  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cfg").style.display = "none";
+  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active");
+  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none";
   loadCustomers();
 });
 
@@ -610,11 +631,103 @@ $("#cfg-editor").addEventListener("input", () => { cfgDirty = true; $("#cfg-stat
 $("#cfg-save").addEventListener("click", saveConfig);
 $("#cfg-reload").addEventListener("click", loadConfig);
 $("#tab-cfg").addEventListener("click", () => {
-  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active");
-  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none";
+  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-prompts").classList.remove("active");
+  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-prompts").style.display = "none";
   if (!cfgDirty) loadConfig();
 });
-window.addEventListener("beforeunload", (e) => { if (cfgDirty) { e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", (e) => { if (cfgDirty || promptDirty) { e.preventDefault(); e.returnValue = ""; } });
+
+// --- Промпты ----------------------------------------------------------
+// Человекочитаемые подписи для известных файлов промптов; неизвестные
+// показываются по имени файла.
+const PROMPT_LABELS = {
+  "fit_system.md": "Fit — системный промпт",
+  "judge_system.md": "Judge — системный промпт",
+  "truncated_note.md": "Заметка: обрезанное описание",
+  "full_text_note.md": "Заметка: полный текст ТЗ",
+  "few_shot.json": "Примеры few-shot",
+};
+let promptsMeta = [];
+let promptDirty = false;
+
+async function loadPromptList() {
+  const data = await api("prompts");
+  promptsMeta = data.files;
+  $("#prompt-dir").textContent = data.dir ? "каталог: " + data.dir : "каталог промптов не найден";
+  const sel = $("#prompt-sel");
+  const cur = sel.value;
+  sel.innerHTML = "";
+  data.files.forEach((f) => {
+    const o = document.createElement("option");
+    o.value = f.name;
+    const label = PROMPT_LABELS[f.name] || f.name;
+    o.textContent = label + " (" + f.name + ")";
+    sel.appendChild(o);
+  });
+  if (cur && data.files.some((f) => f.name === cur)) sel.value = cur;
+  if (sel.options.length) await loadPrompt();
+  else { $("#prompt-editor").value = ""; $("#prompt-kind").style.display = "none"; }
+}
+
+async function loadPrompt() {
+  const name = $("#prompt-sel").value;
+  if (!name) return;
+  const data = await api("prompts/" + encodeURIComponent(name));
+  $("#prompt-editor").value = data.content;
+  const kindEl = $("#prompt-kind");
+  kindEl.textContent = data.kind === "json" ? "JSON" : "markdown";
+  kindEl.style.display = "inline-block";
+  $("#prompt-status").textContent = "";
+  promptDirty = false;
+}
+
+async function savePrompt() {
+  const name = $("#prompt-sel").value;
+  if (!name) return;
+  const meta = promptsMeta.find((f) => f.name === name);
+  const kind = meta ? meta.kind : "";
+  const content = $("#prompt-editor").value;
+  // Корректность JSON проверяем до отправки на сервер (сервер валидирует повторно).
+  if (kind === "json") {
+    try { JSON.parse(content); }
+    catch (err) { $("#prompt-status").textContent = "Ошибка JSON: " + err.message; return; }
+  }
+  $("#prompt-status").textContent = "Сохранение…";
+  try {
+    const r = await fetch("/api/prompts/" + encodeURIComponent(name), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    if (!r.ok) {
+      let msg = "не удалось сохранить";
+      try { const d = await r.json(); if (d && d.detail) msg = typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail); } catch (e) { /* ignore */ }
+      $("#prompt-status").textContent = "Ошибка: " + msg;
+      return;
+    }
+    $("#prompt-status").textContent = "Сохранено ✓ (применится при следующем старте scoring_service)";
+    promptDirty = false;
+  } catch (err) {
+    $("#prompt-status").textContent = "Ошибка: " + err.message;
+  }
+}
+$("#prompt-editor").addEventListener("input", () => { promptDirty = true; $("#prompt-status").textContent = "несохранённые изменения"; });
+$("#prompt-save").addEventListener("click", savePrompt);
+$("#prompt-reload").addEventListener("click", loadPrompt);
+$("#prompt-sel").addEventListener("change", () => {
+  if (promptDirty && !confirm("Есть несохранённые изменения — перезагрузить промпт?")) {
+    const sel = $("#prompt-sel");
+    sel.value = sel.dataset.last || sel.options[0].value;
+    return;
+  }
+  $("#prompt-sel").dataset.last = $("#prompt-sel").value;
+  loadPrompt();
+});
+$("#tab-prompts").addEventListener("click", () => {
+  $("#tab-prompts").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
+  $("#view-prompts").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";
+  if (!promptDirty) loadPromptList();
+});
 
 // --- Парсер ------------------------------------------------------------
 let parserTimer = null;
@@ -632,6 +745,7 @@ function updateControls() {
   $("#db-clear").disabled = parserRunning;
   $("#db-export").style.display = adminOn ? "" : "none";
   $("#tab-cfg").style.display = adminOn ? "" : "none";
+  $("#tab-prompts").style.display = adminOn ? "" : "none";
 }
 
 async function refreshParserStatus() {

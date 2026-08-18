@@ -15,7 +15,9 @@
 - [x] `configs/dom/<platform_id>.yaml` — селекторы, переменные, сортировка, фильтры (ADR-1)
 - [x] `config_service.yaml` — аналитические настройки (сайты, пороги дат, критерии поиска, stop-условия)
 - [x] `config_ops.yaml` — эксплуатационные настройки (таймер, БД, уведомления, export_dir, circuit breaker)
-- [x] `config_score.yaml` — скоринг (fit_table, default_fit, p_win; дефолтный score в парсере)
+- [x] `config_score.yaml` — скоринг (fit_table, default_fit, p_win, margin_rate;
+      каскад: pwin_fit_threshold, margin_pwin_threshold, pwin_enabled, margin_enabled;
+      дефолтный score в парсере)
 - [x] `config_log.yaml` — логирование (файл, `truncate_on_start`)
 
 ## 3. Браузер и антиблок
@@ -42,6 +44,13 @@
 - [x] Скоринг: default/deadline_expired (внешний — через конвейер, ADR-7)
 - [x] Конвейер внешнего скоринга (ADR-7): `scoring_transport` + `scoring_service` + Redis
       (очередь по дефолтному score, возврат результата через `POST /score`)
+- [x] Каскад скоринга Fit → P(win) → Margin (ADR-9): сервисы стадий `pwin_service`
+      (`P(win) = base × k_smp × k_license × k_large × k_procedure × k_ai`) и
+      `margin_service` (`Margin = НМЦК × margin_rate`), общий код `scoring_common`,
+      очереди `pwin:jobs`/`margin:jobs`, переходы по порогам
+      (`pwin_fit_threshold`/`margin_pwin_threshold`, флаги `pwin_enabled`/`margin_enabled`),
+      постадийные уведомления (`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`),
+      колонки `p_win`/`margin` (миграция 1.19)
 - [x] Выпил deprecated-путей (`ExternalScoreClient` `before_save`/`worker`,
       `run_scoring_worker`) и дублирующей fit-таблицы транспорта (ADR-7)
 - [x] Авто-пуш задания в транспорт после сохранения закупки (шаг 1 ADR-7)
@@ -64,8 +73,9 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - [x] ORM (SQLAlchemy 2.x async) и репозиторий (upsert, дубликаты, чтение)
-- [x] Миграции Liquibase (1.0–1.16): колонки, даты, score, `fit_score`/`embedding_similarity`/
-      `is_active`, `technical_spec_*`, комментарии
+- [x] Миграции Liquibase (1.0–1.24): колонки, даты, score, `fit_score`/`p_win`/`margin`/
+      `embedding_similarity`/`is_active`, справочники `platforms`/`procedure_types`
+      (+маппинги), `score_method` vector→sim (1.24), комментарии
 - [x] Поля task.md: number, customer, law, subject, nmck, deadline, okpd2, ТЗ, files_json
 - [x] Колонки security_amount/advance (обеспечение/аванс), security_amount_unit, update_date
 - [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (сделано: okpd2, обеспечение+единица, срок; осталось: kpgz_codes/advance)
@@ -95,7 +105,11 @@
 - [x] ЕИС (zakupki.gov.ru): список, детали (blockInfo__section), URL-фильтр, «Обновлено»
 - [x] ЕИС: 223-ФЗ (11-значные номера), файлы закупок (`documents.html`)
 - [ ] 🟡 ЕИС: детальные поля по типам извещений (ea20 проработан; ezt20/zk20/ok504 — уточнить)
-- [ ] ⬜ Коммерческие ЭТП (Роселторг, B2B-Center и др.)
+- [x] Коммерческие ЭТП — верификация и включение (2026-08-17, подробности в
+  `docs/platforms.md`): b2b_center, lot_online_44/223, etpgpb, fabrikant, roseltorg_223fz
+  (список/детали/ОКПД2, полный Chromium); roseltorg_44fz — селекторы TODO
+- [ ] 🟡 Детальные страницы lot_online (SPA API), fabrikant (ОКПД2/файлы,
+  коммерческие типы) — см. `TODO.md`
 
 ## 10. API-сервис (FastAPI)
 - [x] `GET /health`
@@ -104,11 +118,13 @@
       и `fit_score`, при `fit_score ≥ notify_min_fit_score` отправляет уведомление — ADR-7)
 - [x] `POST /api/procurements/export` (выгрузка БД в CSV, каталог `export_dir`; кнопка «Выгрузить CSV»)
 - [x] Управление парсером из web-демо: `POST /api/parser/start|stop`, `GET /api/parser/status`
-- [x] Очистка БД: `POST /api/db/clear` (только при остановленном парсере)
+- [x] Очистка БД: `POST /api/db/clear` (полная), `POST /api/db/clear-inactive` (неактивные),
+      `POST /api/db/clear-irrelevant` (нерелевантные по fit-порогу) — только при
+      остановленном парсере
 - [x] Конфиг: `GET/PUT /api/config` (аналитические), `GET /api/config/threshold`; WebSocket `/ws`
-- [ ] 🟡 Эндпоинт чистки БД по фильтрам/возрасту записи (`DELETE /api/procurements`) —
+- [ ] 🟡 Точечная чистка по фильтрам/возрасту записи (`DELETE /api/procurements`) —
       при удалении записей удалять и связанные файлы из хранилища (S3/local), ссылки на которые
-      хранятся в `files_json` (сейчас — только полная очистка `POST /api/db/clear`)
+      хранятся в `files_json` (сейчас — полная очистка и её варианты через `POST /api/db/*`)
 
 ## 11. Уведомления
 - [x] Бэкенды Telegram / MAX / webhook (реальный HTTP POST, `notify.py`)
@@ -119,6 +135,7 @@
 ## 12. Тесты и CI
 - [x] Unit: обработчики, конфиг, circuit breaker, дата последней обработки, stop-условия, ОКПД2, скоринг, retry
 - [x] Unit: извлечение общего числа результатов (`tests/unit/test_total_results.py`)
+- [x] Unit: каскад скоринга и постадийные уведомления (`tests/unit/test_cascade.py`)
 - [x] Integration: фикстуры (mos.ru, ЕИС 44-ФЗ/223-ФЗ, documents.html), репозиторий, API (PostgreSQL)
 - [x] GitHub Actions CI: ruff, mypy, pytest (сервисный postgres), docker build
 - [x] Фикстуры реальных страниц (list/detail mos.ru и ЕИС)
@@ -127,8 +144,9 @@
 
 ## 13. Docker
 - [x] `docker/Dockerfile` (python:3.12-slim + uv + playwright chromium)
-- [x] `docker/docker-compose.yml`: db, liquibase, minio, parser, api
-- [ ] 🟡 Проверка полного стека на реальном прогоне
+- [x] `docker/docker-compose.yml`: db, liquibase, redis, scoring-service/transport,
+      pwin-service/margin-service, parser, api (+ профиль langfuse; minio — S3 для LangFuse)
+- [ ] 🟡 Проверка полного стека на реальном прогоне (включая стадии pwin/margin)
 
 ## 14. Документация
 - [x] `README.md`
@@ -148,12 +166,14 @@
 - [ ] ⬜ Устранение дублирования кода между площадками (общие хелперы селекторов/дат).
 
 ## Текущий фокус
-- Конвейер внешнего скоринга (ADR-7) реализован и работает без заглушки: авто-пуш из
-  парсера в транспорт, LLM-пайплайн scoring_service (Fit → Judge → refine → уточнение
-  по ТЗ), параллельная ветка Giga-эмбеддингов, возврат через `POST /score`,
-  отложенное пороговое уведомление (`notify_min_fit_score`). Далее — подбор гиперпараметров
-  и порогов regression-гейта, оценка влияния ветки эмбеддингов (`giga_embedding_alpha`).
-- Коммерческие ЭТП: верификация селекторов (list/detail) и включение по одной площадке.
+- Каскад скоринга Fit → P(win) → Margin (ADR-9) включён полностью: авто-пуш из парсера,
+  LLM-пайплайн Fit, стадии `pwin_service`/`margin_service`, переходы по порогам,
+  постадийные уведомления. Далее — калибровка порогов каскада
+  (`pwin_fit_threshold`/`margin_pwin_threshold`), коэффициентов P(win) и порогов
+  постадийных уведомлений; подбор гиперпараметров и порогов regression-гейта,
+  оценка влияния ветки эмбеддингов (`giga_embedding_alpha`).
+- Коммерческие ЭТП: детали lot_online (SPA API), ОКПД2/файлы fabrikant, селекторы
+  roseltorg_44fz.
 - ЕИС: `kpgz_codes`/`advance` на детальных страницах, детальные поля по типам извещений
   (ezt20/zk20/ok504).
 - Авторизация администраторов в web-приложении.

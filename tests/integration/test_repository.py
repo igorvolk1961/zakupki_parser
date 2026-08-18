@@ -413,7 +413,7 @@ async def test_delete_irrelevant(db: Database) -> None:
             "platform_id": "zakupki_mos",
             "subject": "w",
             "fit_score": 0.0,
-            "score_method": "vector",
+            "score_method": "sim",
         }
     )
     # Отсечка по векторной близости, но fit_score выше порога — остаётся.
@@ -423,7 +423,7 @@ async def test_delete_irrelevant(db: Database) -> None:
             "platform_id": "zakupki_mos",
             "subject": "v",
             "fit_score": 0.7,
-            "score_method": "vector",
+            "score_method": "sim",
         }
     )
     deleted = await repo.delete_irrelevant(min_fit_score=0.4)

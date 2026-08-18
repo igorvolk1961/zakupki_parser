@@ -8,8 +8,9 @@
 Собирает закупки (44-ФЗ / 223-ФЗ и коммерческие тендеры), сохраняет в **PostgreSQL**
 и оповещает подписчиков. Поддерживаемые площадки — Портал поставщиков
 Москвы (`zakupki.mos.ru`), ЕИС (`zakupki.gov.ru`, 44-ФЗ/223-ФЗ) и коммерческие ЭТП
-(Росэлторг, Фабрикант, B2B-Center, ЭТП ГПБ, lot-online/РАД — конфиги добавлены,
-по умолчанию выключены до верификации селекторов), тематика — ИТ-услуги.
+(Фабрикант, B2B-Center, ЭТП ГПБ, lot-online/РАД, Росэлторг — статус верификации
+и `enabled` каждой площадки см. в [docs/platforms.md](docs/platforms.md)),
+тематика — ИТ-услуги.
 
 ## Возможности
 - Движок парсинга, настраиваемый через 6 YAML-конфигов (см. `configs/`: parser,
@@ -33,16 +34,25 @@
 - Файлы закупки (в т.ч. техническое задание) — в БД сохраняются только метаданные
   (имя и URL скачивания с ЭТП) в `files_json`; парсер не скачивает файлы.
 - **FastAPI-сервис**: `GET /health`, `GET /api/procurements` (список/фильтры,
-  включая `active`/`min_fit_score`), `GET /api/procurements/{id}` (карточка),
-  `POST /{id}/score` (возврат результата скоринга из транспорта + пороговое уведомление),
+  включая `active`/`min_fit_score`, серверная сортировка и пагинация),
+  `GET /api/procurements/{id}` (карточка),
+  `POST /{id}/score` (возврат результата стадии каскада скоринга из транспорта +
+  постадийное пороговое уведомление),
   управление парсером
-  (`/api/parser/start|stop|status`), очистка БД (`/api/db/clear`), конфиг
+  (`/api/parser/start|stop|status`), очистка БД (`/api/db/clear` — всё,
+  `/api/db/clear-inactive` — неактивные, `/api/db/clear-irrelevant` — нерелевантные
+  по fit-порогу), выгрузка CSV (`/api/procurements/export`), конфиг
   (`/api/config`, `/api/config/threshold`), WebSocket `/ws`.
-- **Асинхронный внешний скоринг** (ADR-7): после сохранения закупки парсер автоматически
-  передаёт задание в `scoring_transport`, тот ставит его в Redis-очередь по дефолтному
-  скору, `scoring_service` считает score по **LLM-пайплайну** (Fit → Judge → refine →
-  уточнение по ТЗ → ветка Giga-эмбеддингов) и возвращает результат через транспорт;
-  уведомление подписчиков — только при `fit_score ≥ notify_min_fit_score`.
+- **Асинхронный внешний скоринг каскадом Fit → P(win) → Margin** (ADR-7/ADR-9):
+  после сохранения закупки парсер автоматически передаёт задание в `scoring_transport`,
+  тот ставит его в Redis-очередь по дефолтному скору, `scoring_service` считает **Fit**
+  по **LLM-пайплайну** (Fit → Judge → refine → уточнение по ТЗ → ветка Giga-эмбеддингов);
+  если `fit_score ≥ pwin_fit_threshold` — закупка ставится в очередь **P(win)**
+  (`pwin_service`), если `p_win ≥ margin_pwin_threshold` — в очередь **Margin**
+  (`margin_service`); результат каждой стадии возвращается через транспорт.
+  Уведомление подписчиков — **после каждой стадии** (fit/pwin/margin) с порогом по
+  возвращаемому значению стадии (`notify_min_fit_score` / `notify_min_pwin` /
+  `notify_min_margin`, флаги `notify_*_enabled` в `config_ops.yaml`).
 - Защита от повторной записи закупки с тем же номером.
 - Circuit Breaker и вежливая деградация при отказе БД/сайта.
 - Таймерный запуск по списку сайтов, уведомления подписчиков
@@ -61,8 +71,11 @@ src/zakupki_parser/
   storage/                     # SQLAlchemy (БД), customers
   circuit.py                   # circuit breaker
   notify.py                    # уведомления (telegram / max / webhook)
-src/scoring_service/           # LLM-сервис скоринга (Fit → Judge → refine → ТЗ → Giga), Redis-воркер
-src/scoring_transport/         # gateway скоринга: ingest, Redis-очередь, возврат результата
+src/scoring_service/           # стадия Fit каскада: LLM-скоринг (Fit → Judge → refine → ТЗ → Giga), Redis-воркер
+src/scoring_transport/         # gateway скоринга: ingest (POST /api/scoring/jobs), Redis-очереди, возврат результата
+src/pwin_service/              # стадия P(win) каскада: вероятность победы (Redis-воркер)
+src/margin_service/            # стадия Margin каскада: маржа (НМЦК × margin_rate, Redis-воркер)
+src/scoring_common/            # общий код стадий: очередь, клиент API парсера, формула P(win)
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
 docs/c4/                       # C4-диаграммы (Mermaid)
@@ -82,7 +95,8 @@ uv run playwright install chromium --with-deps
 ## Запуск
 
 Команда CLI — `zp` (сокращение от `zakupki-parser`; длинное имя доступно как алиас).
-Сначала поднимите фоновый стек (БД + Redis + `scoring_service`-воркер +
+Сначала поднимите фоновый стек (БД + Redis + воркеры каскада
+`scoring_service`/`pwin_service`/`margin_service` +
 `scoring_transport`), затем запустите парсер:
 
 ```bash
@@ -138,13 +152,14 @@ uv run zp --configs configs stop --force
 ## Инфраструктура (PostgreSQL + Redis + LangFuse)
 
 В локальном запуске (вне контейнера) контейнерами Docker являются БД, Redis и LangFuse;
-`scoring_service` и `scoring_transport` поднимаются как локальные `uv`-процессы
+`scoring_service`, `pwin_service` и `margin_service` поднимаются как локальные `uv`-процессы
 (`scripts/run_all.sh`, см. «Запуск»). Контейнеры:
 
 - `zakupki_db` — PostgreSQL: данные и миграции (Liquibase) применяются автоматически
   (через `scripts/db_up.sh`).
 - `zakupki_redis` — Redis: нужен конвейеру внешнего скоринга (`scoring_transport` +
-  `scoring_service`, очередь `scoring:jobs`/`scoring:results`).
+  стадии `scoring_service`/`pwin_service`/`margin_service`, очереди
+  `scoring:jobs`/`scoring:results`, `pwin:jobs`/`pwin:results`, `margin:jobs`/`margin:results`).
 - LangFuse (compose-профиль `langfuse`, UI `http://localhost:3000`) — трассировка
   LLM-вызовов `scoring_service`; поднимается `run_all.sh` по умолчанию, отключается
   `SKIP_LANGFUSE=1 scripts/run_all.sh`. Останавливается `scripts/run_all.sh stop`.
@@ -152,7 +167,8 @@ uv run zp --configs configs stop --force
 Данные контейнеров хранятся в volume и сохраняются между сессиями. Если контейнера
 нет — он создаётся и ждёт готовности; если есть — просто запускается (идемпотентно).
 
-В Docker-варианте всё, включая парсер, `scoring_transport` и `scoring_service`, —
+В Docker-варианте всё, включая парсер, `scoring_transport` и все стадии каскада
+(`scoring_service`/`pwin_service`/`margin_service`), —
 также контейнеры; весь стек описан одним манифестом `docker/docker-compose.yml`
 (см. раздел «Docker»).
 
@@ -176,7 +192,8 @@ uv run zp --configs configs capture-fixture --platform zakupki_mos
 ```
 
 Дополнительные скрипты:
-- `scripts/run_all.sh` — фоновый стек (БД + Redis + `scoring_service` + `scoring_transport`);
+- `scripts/run_all.sh` — фоновый стек (БД + Redis + воркеры каскада `scoring_service`/
+  `pwin_service`/`margin_service` + `scoring_transport`);
 - `scripts/db_up.sh` — только PostgreSQL (данные и миграции), если нужно поднять
   БД без остального стека:
   ```bash
@@ -213,10 +230,13 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 - `config_service.yaml` — **аналитические** настройки: список сайтов, порог дат,
   критерии поиска, stop-условия (редактируется через web-интерфейс).
 - `config_ops.yaml` — **эксплуатационные** настройки (devops): таймер, БД, уведомления
-  (telegram/max/webhook, порог `notify_min_fit_score`), каталог выгрузки CSV, circuit breaker.
-- `config_score.yaml` — скоринг: fit-таблица ОКПД2, параметры конвейера внешнего скоринга
-  (`scoring_transport` + `scoring_service` + Redis, ADR-7); приоритет очереди = дефолтный score
-  парсера.
+  (telegram/max/webhook, постадийные пороги и флаги `notify_min_fit_score`/
+  `notify_min_pwin`/`notify_min_margin`, `notify_{fit,pwin,margin}_enabled`), каталог
+  выгрузки CSV, circuit breaker.
+- `config_score.yaml` — скоринг: fit-таблица ОКПД2, параметры каскада внешнего скоринга
+  (`scoring_transport` + `scoring_service` + `pwin_service` + `margin_service` + Redis, ADR-7/ADR-9):
+  пороги переходов `pwin_fit_threshold`/`margin_pwin_threshold`, флаги `pwin_enabled`/
+  `margin_enabled`; приоритет очереди = дефолтный score парсера.
 - `config_log.yaml` — логирование.
 
 Переменные окружения (для Docker/CI):
@@ -233,10 +253,12 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 docker compose -f docker/docker-compose.yml up --build
 ```
 Запустит единый стек одной командой: PostgreSQL + Liquibase-миграции + Redis +
-`scoring_service` (воркер) + `scoring_transport` + `parser` (периодический обход) +
+`scoring_service` (воркер стадии Fit) + `scoring_transport` + `pwin_service` +
+`margin_service` + `parser` (периодический обход) +
 `api` (FastAPI на `http://localhost:8000/`). Сервисы связаны по имени (api ↔
-`scoring-transport` ↔ redis), поэтому конвейер внешнего скоринга и возврат результата
-в `POST /score` работают из коробки. Команду запускать из корня репозитория —
+`scoring-transport` ↔ redis), поэтому конвейер каскада скоринга (Fit → P(win) →
+Margin) и возврат результата в `POST /score` работают из коробки. Команду запускать
+из корня репозитория —
 контекст сборки и файл `.env` резолвятся относительно `docker/docker-compose.yml`.
 
 Для удобства есть скрипт-обёртка над compose-стеком — `scripts/compose.sh`:

@@ -242,6 +242,10 @@ services:
       LANGFUSE_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANG_INIT_SECRET_KEY:-}
       LANGFUSE_HOST: ${LANG_HOST:-http://langfuse-web:3000}
+      # Общий том промптов: правки из вкладки «Промпты» (api) видны при следующем старте.
+      SCORE_PROMPTS_DIR: /app/prompts
+    volumes:
+      - ../src/scoring_service/scoring_service/pipeline/prompts:/app/prompts
     restart: unless-stopped
 
   scoring-transport:
@@ -314,12 +318,15 @@ services:
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
+      # Общий том промптов: вкладка «Промпты» пишет сюда, scoring_service читает.
+      ZAKUPKI_PROMPTS_DIR: /app/prompts
     ports:
       - "8000:8000"
     command: >
       uv run zp --configs /app/configs serve --host 0.0.0.0 --port 8000
     volumes:
       - ../configs:/app/configs
+      - ../src/scoring_service/scoring_service/pipeline/prompts:/app/prompts
     restart: unless-stopped
 
 volumes:

@@ -8,18 +8,24 @@
 Тексты промптов вынесены в markdown-файлы, few-shot примеры — в JSON (подпапка
 ``prompts`` рядом с модулем). Как и конфигурация сервиса, промпты редактируются
 через web-интерфейс и применяются при следующем старте: тексты загружаются один
-раз при импорте модуля.
+раз при импорте модуля. Каталог можно переопределить переменной окружения
+``SCORE_PROMPTS_DIR`` (в Docker — общий том, куда пишет web-интерфейс).
 """
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_PROMPTS_DIR = (
+    Path(os.environ["SCORE_PROMPTS_DIR"])
+    if os.environ.get("SCORE_PROMPTS_DIR")
+    else Path(__file__).parent / "prompts"
+)
 
 
 def _load_md(name: str) -> str:

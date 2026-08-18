@@ -13,7 +13,7 @@ card + competencies
   ├─ extract description   (subject + detail_json; при requires_tz_review — текст ТЗ)
   ├─ (опц.) embedding branch: косинусная близость Giga Embedder
   │     └─ если близость < embedding_filter_threshold — pre-filter: fit_score=0,
-  │        score_method=vector, LLM НЕ выполняется
+  │        score_method=sim, LLM НЕ выполняется
   ├─ fit-chain:  reasoning + fit_score (0–10)   [few-shot + negative-example]
   ├─ (опц.) tz_review: уточнение по тексту ТЗ, повторный fit/judge
   ├─ judge-chain: critics / verdict / final_fit_score
@@ -51,7 +51,7 @@ score — через `giga_embedding_alpha` (`SCORE_GIGA_EMBEDDING_ALPHA`, 0.0 =
 ### Предварительная фильтрация по векторной близости
 Если `embedding_similarity < embedding_filter_threshold`
 (`SCORE_EMBEDDING_FILTER_THRESHOLD`, по умолчанию `0.66`), закупка отсекается **без вызова
-LLM**: возвращается `fit_score=0`, `score=0` и `score_method=vector` (фиксируется в БД парсера).
+LLM**: возвращается `fit_score=0`, `score=0` и `score_method=sim` (фиксируется в БД парсера).
 Порог `<= 0` отключает фильтрацию. Результат фильтрации терминален для каскада скоринга —
 переходы Fit → P(win) → Margin не запускаются.
 

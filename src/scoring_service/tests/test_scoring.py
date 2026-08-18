@@ -689,7 +689,7 @@ def _embedding_scorer(
 
 
 def test_score_embedding_prefilter_below_threshold_skips_llm() -> None:
-    """Близость ниже порога: LLM не запускается, fit_score=0, score_method=vector."""
+    """Близость ниже порога: LLM не запускается, fit_score=0, score_method=sim."""
     fit = _FakeFit([8.0])
     judge = _FakeJudge([_judge("accept", 8.0)])
     scorer = _embedding_scorer(fit, judge, similarity=0.5, threshold=0.66)
@@ -700,7 +700,7 @@ def test_score_embedding_prefilter_below_threshold_skips_llm() -> None:
     assert out.score == 0.0
     assert out.fit_multiplier == 0.0
     assert out.final_fit_score == 0.0
-    assert out.score_method == "vector"
+    assert out.score_method == "sim"
     assert out.embedding_similarity == 0.5
     assert out.requires_tz_review is False
 

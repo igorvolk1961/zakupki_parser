@@ -59,16 +59,17 @@
 2. **P(win)** (`pwin_service`) — если `fit_score >= pwin_fit_threshold`, закупка
    ставится в очередь `pwin:jobs`; сервис считает `P(win) = base_pwin × k_smp ×
    k_license × k_large × k_procedure × k_ai` и возвращает `p_win`.
-3. **Margin** (`margin_service`) — если накопленный `score` (`fit_score × p_win`)
-   `>= margin_threshold`, закупка ставится в очередь `margin:jobs`; сервис считает
-   маржу (`НМЦК × margin_rate`) и возвращает `margin`.
+3. **Margin** (`margin_service`) — если `p_win >= margin_pwin_threshold`, закупка
+   ставится в очередь `margin:jobs`; сервис считает маржу (`НМЦК × margin_rate`)
+   и возвращает `margin`.
 
 Три множителя хранятся в БД **отдельными полями** (`fit_score`, `p_win`, `margin`);
 `score` — накопленное произведение (после финальной стадии = `fit × p_win × margin`).
 
 **Оркестрация — парсером**: обработчик `POST /api/procurements/{id}/score` после
-записи результата стадии сравнивает его с порогом (`pwin_fit_threshold` /
-`margin_threshold` из `config_score.yaml`) и через транспорт ставит задачу следующей
+записи результата стадии сравнивает **возвращаемое значение стадии** (не произведение
+score) с порогом следующей (`pwin_fit_threshold` — по `fit_score`, `margin_pwin_threshold` —
+по `p_win`, из `config_score.yaml`) и через транспорт ставит задачу следующей
 стадии (параметр `stage` в `POST /api/scoring/jobs`).
 
 ### 3.1 Постановка задачи на скоринг (конвейер, ADR-7)
@@ -102,10 +103,10 @@ Content-Type: application/json
 ```
 Ответ: `200` с обновлённой карточкой. `404` — закупка не найдена.
 
-Значения `score_method`: `default` | `fit` | `pwin` | `margin` | `deadline_expired` | `vector`
+Значения `score_method`: `default` | `fit` | `pwin` | `margin` | `deadline_expired` | `sim`
 (`deadline_expired` выставляется парсером при просроченном сроке подачи, `score=0`).
 `fit`/`pwin`/`margin` — стадии внешнего каскада скоринга; переход между стадиями
-выполняет парсер по порогам `config_score.yaml`. `vector` — предварительная
+выполняет парсер по порогам `config_score.yaml`. `sim` — предварительная
 фильтрация сервиса скоринга по векторной близости (близость ниже порога
 `embedding_filter_threshold`): LLM не выполнялся, `score=0` и `fit_score=0`.
 

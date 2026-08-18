@@ -12,18 +12,22 @@ flowchart LR
     Z["Платформы закупок<br/>HTML через браузер"]
     DB[("PostgreSQL<br/>хранилище закупок")]
     TR["Scoring Transport<br/>gateway скоринга (ingest + возврат)"]
-    RS[("Redis<br/>scoring:jobs / scoring:results")]
-    SG["Scoring Service<br/>LLM-скоринг закупок"]
+    RS[("Redis<br/>scoring:/pwin:/margin: jobs и results")]
+    SF["Scoring Service (Fit)<br/>LLM-скоринг (Fit → Judge → refine → ТЗ → Giga)"]
+    SP["P(win) Service<br/>P(win) = base × k_smp × k_license × …"]
+    SM["Margin Service<br/>Margin = НМЦК × margin_rate"]
     SUB["👤 Подписчики<br/>Telegram / MAX / Webhook"]
 
     U --> P
     P -->|"HTML-страницы"| Z
     P --> DB
-    P -->|"POST /api/scoring/jobs {id, default_score}"| TR
+    P -->|"POST /api/scoring/jobs {id, default_score, stage}"| TR
     TR <-->|"jobs (ZADD) / results (BRPOP)"| RS
-    RS <-->|"jobs (ZPOPMAX) / results (LPUSH)"| SG
-    TR -->|"POST /score (возврат результата)"| P
-    P -->|"уведомления (fit_score ≥ notify_min_fit_score)"| SUB
+    RS <-->|"jobs (ZPOPMAX) / results (LPUSH)"| SF
+    RS <-->|"pwin:jobs / pwin:results"| SP
+    RS <-->|"margin:jobs / margin:results"| SM
+    TR -->|"POST /score (возврат результата стадии)"| P
+    P -->|"уведомления (постадийно, порог по значению стадии)"| SUB
 
     class U,SUB actor
 ```
@@ -36,15 +40,19 @@ flowchart LR
   Playwright, слой хранения SQLAlchemy async, Notifier). Пишет в PostgreSQL с контролем
   дубликатов по `number + platform_id`. Парсер не скачивает файлы — в БД хранятся
   только метаданные файлов (имя и URL скачивания с ЭТП).
-- **Скоринг** выполняется асинхронным конвейером (ADR-7): после сохранения закупки
+- **Скоринг** — каскад **Fit → P(win) → Margin** (ADR-7/ADR-9): после сохранения закупки
   парсер автоматически передаёт задание в **Scoring Transport** (`POST /api/scoring/jobs`
-  с приоритетом = дефолтным score), транспорт ставит его в **Redis** по приоритету,
-  **Scoring Service** обрабатывает задание и возвращает результат через транспорт
-  (`POST /score`). Транспорт — единственная граница между конвейером и парсером;
-  приоритет приходит из парсера (эвристика дефолтного score в транспорте не дублируется).
+  с приоритетом = дефолтным score и стадией `stage`), транспорт ставит его в **Redis**
+  очередь стадии, сервис стадии обрабатывает задание и возвращает результат через
+  транспорт (`POST /score`). Переходы между стадиями оркестрирует парсер по порогам
+  (`pwin_fit_threshold`/`margin_pwin_threshold`, флаги `pwin_enabled`/`margin_enabled`).
+  Транспорт — единственная граница между конвейером и парсером; приоритет приходит из
+  парсера (эвристика дефолтного score в транспорте не дублируется).
 - **LLM-пайплайн** `scoring_service`: Fit → Judge → refine (`num_refine_rounds`) →
   уточнение по тексту ТЗ (`tz_review`) → параллельная ветка векторной близости
   **Giga Embedder** (влияет на score через `giga_embedding_alpha`, результат —
   `embedding_similarity`). Режим заглушки `score_use_stub` выключен.
-- **Уведомления** подписчиков отправляются только после обновления финального
-  `fit_score`, если `fit_score ≥ notify_min_fit_score` (порог из `config_ops.yaml`).
+- **Уведомления** подписчиков отправляются **после каждой стадии** каскада (fit/pwin/
+  margin), когда значение стадии прошло её порог (`notify_min_fit_score`/
+  `notify_min_pwin`/`notify_min_margin`; флаги `notify_{fit,pwin,margin}_enabled`
+  в `config_ops.yaml`).

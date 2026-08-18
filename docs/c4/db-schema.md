@@ -63,9 +63,11 @@ erDiagram
         text okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
         text kpgz_codes "коды КПГЗ (один или несколько, через запятую)"
         jsonb files_json "файлы: [{name, url скачивания с ЭТП}]"
-        double score "скоринг Fit × P(win) × Margin"
+        double score "скоринг: накопленное произведение Fit × P(win) × Margin"
         double fit_score "множитель Fit (default 0..1 по ОКПД2; external 0..1 нормализованный)"
-        varchar(64) score_method "default | fit | pwin | margin"
+        double p_win "множитель P(win) стадии каскада (0..1)"
+        double margin "множитель Margin стадии каскада (НМЦК × margin_rate)"
+        varchar(64) score_method "default | fit | pwin | margin | deadline_expired | sim"
         double embedding_similarity "косинусная близость 0..1 (Giga Embedder); NULL если ветка выключена"
         boolean is_active "активна ли закупка (false: завершённая/отменённая и т.п.)"
         jsonb detail_json "полный набор переменных карточки"
@@ -114,7 +116,12 @@ erDiagram
   `ix_procurements_procedure_type_id` по `procedure_type_id`,
   `ix_procedure_type_mappings_platform` по `platform_id`,
   `ix_platforms_platform_id` по `platform_id`.
-- `score_method`: `default | fit | pwin | margin` (каскад Fit → P(win) → Margin, ADR-7).
+- `score_method`: `default | fit | pwin | margin | deadline_expired | sim` (каскад
+  Fit → P(win) → Margin, ADR-7/ADR-9; `deadline_expired` выставляет парсер при
+  просроченном сроке, `sim` — предварительная фильтрация по векторной близости, ADR-8).
+- `p_win`/`margin` (миграция 1.19): множители стадий каскада, хранятся отдельными
+  колонками; `score` — накопленное произведение (после финальной стадии =
+  fit × p_win × margin).
 - `fit_score` (миграция 1.15): множитель Fit — дефолтный (0..1 из `fit_table` по ОКПД2)
   или нормализованный внешний (0..1). `embedding_similarity` (миграция 1.16) —
   косинусная близость ветки Giga Embedder. `is_active` (миграция 1.14) — активна ли

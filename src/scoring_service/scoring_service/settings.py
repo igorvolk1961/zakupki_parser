@@ -107,7 +107,7 @@ class Settings(BaseSettings):
     giga_verify_ssl: bool = True
     # Порог предварительной фильтрации по векторной близости (0..1): если
     # embedding_similarity < порога, LLM-пайплайн не выполняется, возвращается
-    # fit_score=0 и score_method=vector. Значение <= 0 отключает фильтрацию.
+    # fit_score=0 и score_method=sim. Значение <= 0 отключает фильтрацию.
     embedding_filter_threshold: float = 0.66
 
     @property

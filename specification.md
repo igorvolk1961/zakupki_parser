@@ -13,9 +13,9 @@
 - `zakupki_mos` — Портал поставщиков Москвы;
 - `zakupki_gov_44fz`, `zakupki_gov_223fz` — ЕИС (zakupki.gov.ru; раздельно по законам,
   разные структуры детальных страниц);
-- коммерческие ЭТП (конфиги добавлены, селекторы — плейсхолдеры, по умолчанию
-  `enabled: false` до верификации): `roseltorg_44fz`, `roseltorg_com`, `fabrikant`,
-  `b2b_center`, `etpgpb`, `lot_online_44`, `lot_online_223`.
+- коммерческие ЭТП (конфиги добавлены; статус верификации и `enabled` — в
+  [docs/platforms.md](docs/platforms.md)): `roseltorg_44fz`, `roseltorg_223fz`,
+  `fabrikant`, `b2b_center`, `etpgpb`, `lot_online_44`, `lot_online_223`.
 
 Статус верификации селекторов, механика фильтрации/сортировки по каждой площадке —
 в [docs/platforms.md](docs/platforms.md).
@@ -30,7 +30,7 @@
 | `config_parser.yaml` | Параметры браузера и антиблок-мер (задержки, UA, stealth, лимиты), потолок страниц списка за проход `max_list_pages`. |
 | `dom/` (`<platform_id>.yaml`) | URL площадки, имена переменных, селекторы контейнеров и значений, селекторы сортировки и фильтров (блоки `sort`/`filters`), пагинация (`page_param`/`page_size`/`next_page`) и селектор общего числа результатов (`total_results_selector`/`total_results_regex`). |
 | `config_service.yaml`| **Аналитические** настройки: список сайтов (`sites`), порог дат (`default_cutoff_days`), критерии поиска (`search_criteria`), stop-условия. |
-| `config_ops.yaml`    | **Эксплуатационные** настройки (devops): таймер (`timeout_seconds`), БД (`db`), уведомления (`notifications`, порог `notify_min_fit_score`), `export_dir` (каталог выгрузки CSV), параметры circuit breaker. Управляется devops, через API не редактируется. |
+| `config_ops.yaml`    | **Эксплуатационные** настройки (devops): таймер (`timeout_seconds`), БД (`db`), уведомления (`notifications`, постадийные пороги и флаги `notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`, `notify_{fit,pwin,margin}_enabled`), `export_dir` (каталог выгрузки CSV), параметры circuit breaker. Управляется devops, через API не редактируется. |
 | `config_score.yaml`  | Скоринг: fit-таблица ОКПД2, `default_fit`, `empty_code_fit`, `p_win`, `margin_rate`, адрес транспорта `scoring_transport_url`. Дефолтный score и `fit_score` вычисляются в парсере; внешний score приходит через конвейер transport + scoring_service (ADR-7). |
 | `config_log.yaml`    | Конфигурация логирования.                                           |
 
@@ -95,9 +95,9 @@
    (0/None — без ограничения; в `config_parser.yaml` по умолчанию 100).
    Выход из цикла при любом из условий:
    - достигнут конец пагинации или потолок `max_list_pages`;
-    - запись с датой публикации **старее** порога `last_processed_date`
-      (порог по умолчанию — из `config_service.yaml -> default_cutoff_days`,
-      в конфиге установлено `1`);
+   - запись с датой публикации **старее** порога `last_processed_date`
+     (порог по умолчанию — из `config_service.yaml -> default_cutoff_days`,
+     в конфиге установлено `14`);
    - обработка записи с аномальной (будущей) датой публикации — лог + стоп.
 
    **Оптимизации для сортировки по релевантности** (у таких площадок нет даты-порога;
@@ -149,8 +149,8 @@
    11. возврат к списку записей.
 
    > **Уведомление подписчиков** при внешнем скоринге выполняется **не в цикле парсинга**,
-   > а в обработчике `POST /api/procurements/{id}/score` после возврата финального
-   > `fit_score`, и только если `fit_score ≥ notify_min_fit_score` (см. §8а и §11а).
+   > а в обработчике `POST /api/procurements/{id}/score` после возврата результата стадии
+   > каскада, если значение стадии прошло её порог (см. §8а и §11а).
 
 ## 4. Условия прекращения обработки закупки (`stop_conditions`)
 Набор флагов-условий в `config_service.yaml`. Каждый флаг — условие, при котором
@@ -183,22 +183,27 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - Доступ к БД — SQLAlchemy 2.x (async, asyncpg).
-- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.16`),
-  таблицы `procurements` и `customers`.
+- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.24`).
+  Пять таблиц: `procurements`, справочники `customers` (ADR-4), `platforms` (1.21),
+  `procedure_types` + `procedure_type_mappings` (1.20; маппинги площадок — до 1.23).
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
 - `procurements` (колонки): `id`, `number`, `platform_id`, `url`, `customer_id`
-  (FK → `customers.id`), `law`, `subject`, `nmck`, `publication_date`, `update_date`,
+  (FK → `customers.id`), `procedure_type_id` (FK → `procedure_types.id`), `law`,
+  `subject`, `nmck`, `publication_date`, `update_date`,
   `deadline`, `execution_term`, `security_amount`+`security_amount_unit`, `advance`,
    `okpd2_codes`, `kpgz_codes`, `files_json`,
-  `score`/`fit_score`/`score_method`, `embedding_similarity`, `is_active`,
-  `detail_json`, `created_at`, `updated_at`.
+  `score`/`fit_score`/`p_win`/`margin`/`score_method`, `embedding_similarity`,
+  `is_active`, `detail_json`, `created_at`, `updated_at`.
 - **Справочник заказчиков** `customers` (ADR-4, реализован): `name`, `normalized_name`
   (ключ дедупликации, UNIQUE), `inn`, `rating`; связь `procurements.customer_id → customers.id`
   (ON DELETE SET NULL). Денормализованная колонка `customer` удалена.
-- **Скоринг в БД**: `score` — финальный (Score = Fit × P(win) × Margin);
+- **Скоринг в БД** (каскад Fit → P(win) → Margin, ADR-7/ADR-9): `score` — накопленное
+  произведение (после финальной стадии = fit × p_win × margin);
   `fit_score` (миграция 1.15) — множитель Fit (дефолтный 0..1 из `fit_table` по ОКПД2,
-  либо нормализованный внешний 0..1); `embedding_similarity` (миграция 1.16) —
+  либо нормализованный внешний 0..1); `p_win`/`margin` (миграция 1.19) — множители
+  стадий P(win) и Margin; `score_method` — `default | fit | pwin | margin |
+  deadline_expired | sim`; `embedding_similarity` (миграция 1.16) —
   косинусная близость ветки Giga Embedder (NULL, если ветка выключена/не настроена/сбой);
   `is_active` (миграция 1.14) — активна ли закупка по статусу: выставляется парсером
   по текстовому `status` из `detail_json` (`list_config.active_statuses`). Срок
@@ -242,25 +247,40 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
   если точного кода нет); `default_fit` — для неизвестных кодов, `empty_code_fit` —
   для закупки без кода ОКПД2.
 
-### 8а.1 Канонический конвейер внешнего скоринга (ADR-7)
-Внешний скоринг выполняется асинхронным конвейером **`scoring_transport` (gateway) +
-`scoring_service` (LLM-скоринг) + Redis**:
+### 8а.1 Каскад внешнего скоринга Fit → P(win) → Margin (ADR-7/ADR-9)
+Внешний скоринг выполняется асинхронным каскадом **`scoring_transport` (gateway) +
+стадии `scoring_service` (LLM-Fit) / `pwin_service` (P(win)) / `margin_service` (Margin)
++ Redis**:
+
 1. Парсер сохраняет «сырую» запись с дефолтным скором и `fit_score`
    (`score_method=default`), затем **автоматически** передаёт задание в транспорт:
-   `POST /api/scoring/jobs {procurement_id, priority=default_score}`.
-2. Транспорт ставит задание в Redis ZSET `scoring:jobs` (`member = proc:{id}`, `score =
-   priority`). **Приоритет приходит из парсера** (дефолтный score) — транспорт не
-   пересчитывает эвристику по собственной fit-таблице (единственный источник — `config_score.yaml`).
+   `POST /api/scoring/jobs {procurement_id, priority=default_score, stage="fit"}`.
+2. Транспорт ставит задание в Redis ZSET соответствующей стадии (`scoring:jobs` — member
+   `proc:{id}`, score = priority). **Приоритет приходит из парсера** (дефолтный score) —
+   транспорт не пересчитывает эвристику по собственной fit-таблице (единственный
+   источник — `config_score.yaml`).
 3. `scoring_service` берёт задание **напрямую из Redis** (`ZPOPMAX`, сначала самая «ценная»
    закупка), получает карточку через REST парсера (`GET /api/procurements/{id}`), прогоняет
    **LLM-пайплайн** и публикует результат в `scoring:results` (`LPUSH`). Надёжность — TTL-аренда
    `scoring:processing` + `recover_stale`; идемпотентность — перезапись через `POST /score`.
 4. Транспорт (`BRPOP`) получает результат и возвращает его в парсер:
-   `POST /api/procurements/{id}/score {score, fit_score, score_method:"external",
+   `POST /api/procurements/{id}/score {score, fit_score, score_method:"fit",
    embedding_similarity}` (с ретраями/backoff). Транспорт — единственная граница между
    конвейером и парсером.
-5. Парсер обновляет `score`/`fit_score` в БД, затем в обработчике `POST /score` сравнивает
-   `fit_score ≥ notify_min_fit_score` и **уведомляет подписчиков только при прохождении порога**.
+5. **Переходы между стадиями выполняет парсер** в обработчике `POST /score` (по
+   возвращаемым значениям стадий, НЕ по произведению score):
+   - после стадии Fit — если `fit_score ≥ pwin_fit_threshold` и `pwin_enabled=true`,
+     закупка ставится в очередь `pwin:jobs` (`stage="pwin"`); иначе каскад завершён;
+   - после стадии P(win) — если `p_win ≥ margin_pwin_threshold` и `margin_enabled=true`,
+     ставится в очередь `margin:jobs` (`stage="margin"`); иначе каскад завершён;
+   - стадия Margin — финальная.
+   Каждая стадия сохраняет свой множитель отдельной колонкой (`fit_score`/`p_win`/`margin`);
+   `score` — накопленное произведение.
+6. **Уведомление подписчиков — после каждой стадии** (fit/pwin/margin), когда результат
+   стадии изменён и его возвращаемое значение прошло порог стадии:
+   `notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin` (порог 0 отключает);
+   стадия целиком выключается флагом `notify_fit_enabled`/`notify_pwin_enabled`/
+   `notify_margin_enabled` в `config_ops.yaml`.
 
 **LLM-пайплайн `scoring_service`** (`scoring_service/scoring.py`):
 - **Fit** (0–10): reasoning + `fit_score` по описанию закупки и компетенциям поставщика;
@@ -277,6 +297,16 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
   0–1 (`normalize_fit_for_score`).
 Режим заглушки `score_use_stub` (возврат существующего score без LLM) выключен
 по умолчанию.
+
+**Стадии P(win) и Margin** (`pwin_service`/`margin_service`, общий код `scoring_common`):
+- **P(win)** (`pwin_service/worker.py`): формула `P(win) = base_pwin × k_smp ×
+  k_license × k_large × k_procedure × k_ai` — коэффициенты из `config.yaml` сервиса
+  (`scoring_common/pwin.py`). Потребляет очередь `pwin:jobs`, результат публикует в
+  `pwin:results` (транспорт возвращает в парсер как `score_method=pwin`). Пока
+  работает в режиме заглушки (`use_stub=true`, P(win) = константа `stub_pwin`) —
+  модель коэффициентов калибруется (TODO).
+- **Margin** (`margin_service/worker.py`): `Margin = НМЦК × margin_rate`. Потребляет
+  очередь `margin:jobs`, результат — в `margin:results` (`score_method=margin`).
 
 > Прежние «прямые» пути внешнего скоринга (`external_call_mode: before_save|worker`,
 > `ExternalScoreClient`, `Scheduler.run_scoring_worker`) удалены (ADR-7). Приоритет в
@@ -307,21 +337,30 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - `GET /` — web-демо (просмотр закупок/заказчиков, запуск/остановка парсера,
   редактирование аналитического конфига);
 - `GET /api/procurements` — список с фильтрами (`number`, `platform_id`,
-  `okpd2`, `customer`, `active`, `min_fit_score`) и пагинацией (`limit`, `offset`);
+  `okpd2`, `customer`, `active`, `min_fit_score`), серверной сортировкой
+  (`sort` — fit-score/дата) и пагинацией (`limit`, `offset`);
 - `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
-- `POST /api/procurements/{id}/score` — возврат результата скоринга от транспорта:
-  парсер обновляет `score`/`fit_score` закупки и, если `fit_score ≥ notify_min_fit_score`,
-  отправляет уведомление подписчикам (ADR-7);
+- `POST /api/procurements/{id}/score` — возврат результата стадии каскада от транспорта:
+  парсер обновляет `score`/`fit_score`/`p_win`/`margin` закупки, при прохождении порога
+  следующей стадии ставит задачу следующей стадии и, если результат стадии прошёл её
+  порог (`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`), отправляет
+  уведомление подписчикам (ADR-7/ADR-9);
 - `GET /api/customers`, `GET /api/customers/{id}` — справочник заказчиков;
 - `POST /api/customers/{id}/rating` — установка рейтинга заказчика (ADR-6);
 - `POST /api/procurements/export` — выгрузка закупок из БД в CSV на сервере в каталог
   `config_ops.yaml -> export_dir` (создаётся при необходимости, файл
-  `procurements.csv`, UTF-8 с BOM — открывается в Excel). Операция read-only;
-  используется кнопкой «Выгрузить CSV» в web-приложении.
+  `procurements.csv`, UTF-8 с BOM — открывается в Excel). В выгрузку попадают только
+  активные и релевантные закупки (`fit_score ≥` заданного порога, по умолчанию 0.4).
+  Операция read-only; используется кнопкой «Выгрузить CSV» в web-приложении.
 - `POST /api/parser/start` / `POST /api/parser/stop` / `GET /api/parser/status` —
   управление постоянным мониторингом парсера из web-демо;
-- `POST /api/db/clear` — очистка БД (закупки и заказчики); доступна только при
+- `POST /api/db/clear` — полная очистка БД (закупки и заказчики); доступна только при
   остановленном парсере;
+- `POST /api/db/clear-inactive` — удаление неактивных закупок (`is_active=false` или
+  истёкший срок актуальности, как в фильтре `active`); только при остановленном парсере;
+- `POST /api/db/clear-irrelevant` — удаление нерелевантных закупок среди обработанных
+  скорингом (`score_method` из стадий каскада и `fit_score <` заданного порога,
+  по умолчанию 0.4); только при остановленном парсере;
 - `GET /api/config` / `PUT /api/config` — просмотр и сохранение аналитических
   параметров `config_service.yaml` (эксплуатационные из `config_ops.yaml` через API
   не редактируются);
@@ -329,10 +368,12 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
   (используется переключателем «Только релевантные»);
 - `/ws` — WebSocket-канал живых обновлений (`data-changed` при изменении БД).
 
-**Конвейер скоринга (ADR-7)** дополнительно использует API транспорта:
-- `POST /api/scoring/jobs {procurement_id, priority?}` — приём задания на скоринг
-  (вызывается парсером после сохранения новой закупки); транспорт ставит его в
-  Redis-очередь по приоритету (если `priority` не задан — берётся дефолтный score карточки).
+**Конвейер скоринга (ADR-7/ADR-9)** дополнительно использует API транспорта:
+- `POST /api/scoring/jobs {procurement_id, priority?, stage?}` — приём задания на скоринг
+  (вызывается парсером после сохранения новой закупки и при переходе между стадиями
+  каскада); транспорт ставит его в Redis-очередь соответствующей стадии
+  (`fit`/`pwin`/`margin`) по приоритету (если `priority` не задан — берётся дефолтный
+  score карточки).
 
 ## 11а. Уведомления подписчиков
 Доставка новых закупок настраивается в `config_ops.yaml -> notifications`:
@@ -345,20 +386,29 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 - **Webhook** — POST JSON-карточки на произвольный URL (при заданном `token` — как
   Bearer-заголовок).
 
-Уведомление отправляется только для новых записей и только после обновления
-`fit_score` в БД (ADR-3/ADR-7), если `fit_score ≥ notify_min_fit_score` (порог из
-`config_ops.yaml -> notifications.notify_min_fit_score`). Ошибки отправки логируются
+Уведомление отправляется только для новых записей и после обновления результата
+стадии в БД (ADR-3/ADR-7/ADR-9). Уведомление выполняется **после каждой стадии
+каскада** (fit/pwin/margin), когда результат стадии изменён и его возвращаемое значение
+прошло порог стадии (`config_ops.yaml -> notifications`):
+`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin` (0 — порог отключён),
+флаги `notify_fit_enabled`/`notify_pwin_enabled`/`notify_margin_enabled` выключают
+уведомление после стадии целиком. Ошибки отправки логируются
 и не прерывают проход парсера.
 
 ## 12. Тестирование
 - Unit: обработчики значений, конфиг, circuit breaker, дата последней обработки, stop-условия,
   резолв ОКПД2, нормализация заказчиков, извлечение общего числа результатов
-  (`tests/unit/test_total_results.py`).
+  (`tests/unit/test_total_results.py`), каскад скоринга и постадийные уведомления
+  (`tests/unit/test_cascade.py`).
 - Integration: извлечение из HTML-фикстур (реальные страницы площадки), репозиторий БД
   и API-роуты (PostgreSQL, DSN через `ZAKUPKI_TEST_DSN`).
 - Фикстуры — в `tests/fixtures/` (урезанные реальные HTML списка и деталей).
+- Тесты подпроектов скоринга (`scoring_service`/`scoring_transport`/`pwin_service`/
+  `margin_service`/`scoring_common`) — в соответствующих `src/*/tests`.
 
 ## 13. Docker
 `docker/docker-compose.yml`: сервисы `db` (PostgreSQL), `liquibase` (миграции),
-`parser` (приложение + Chromium), `api` (FastAPI, порт 8000). DSN задаётся
+`redis`, `scoring-service`/`scoring-transport`/`pwin-service`/`margin-service`
+(каскад скоринга), `parser` (приложение + Chromium), `api` (FastAPI, порт 8000),
+а также профиль `langfuse` (трассировка LLM). DSN задаётся
 через `ZAKUPKI_DB_DSN`.
