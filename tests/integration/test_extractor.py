@@ -52,7 +52,7 @@ async def test_extract_list_variables(app_config: AppConfig, page: Page) -> None
     containers = page.locator(platform.list_config.container)
     data = await extract_from_scope(containers.first, platform.list_config.variables)
 
-    assert data.get("number"), "Номер заявки должен извлекаться из карточки"
+    assert data.get("number"), "Номер закупки должен извлекаться из карточки"
     assert data.get("customer"), "Заказчик должен извлекаться из карточки"
     assert data.get("subject"), "Предмет должен извлекаться из карточки"
     assert data.get("status"), "Статус должен извлекаться из карточки"

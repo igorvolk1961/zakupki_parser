@@ -198,7 +198,7 @@ platforms:
         # стоп-логике по дате обновления закупки.
         update_date:   { query_param: "updateDateFrom" }
         # Срок подачи заявок (applSubmissionCloseDateFrom) = сегодня — отсекает
-        # просроченные заявки (дедлайн обязателен).
+        # просроченные закупки (дедлайн обязателен).
         deadline_from: { query_param: "applSubmissionCloseDateFrom" }
         # okpd2IdsWithNested=on (в query_params) включает дочерние узлы — перечислять
         # всё поддерево не нужно, достаточно собственных id выбранных кодов.

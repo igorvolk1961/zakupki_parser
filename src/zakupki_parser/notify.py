@@ -198,7 +198,7 @@ class Notifier:
         """Рассылает уведомление всем активным бэкендам; ошибки логируются."""
         if not self._backends:
             logger.info(
-                "уведомления отключены; пропущена заявка %s (%s)",
+                "уведомления отключены; пропущена закупка %s (%s)",
                 record.get("number"),
                 record.get("platform_id"),
             )
@@ -208,7 +208,7 @@ class Notifier:
                 await backend.send(record)
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "Не удалось отправить уведомление о заявке %s (%s): %s",
+                    "Не удалось отправить уведомление о закупке %s (%s): %s",
                     record.get("number"),
                     record.get("platform_id"),
                     exc,

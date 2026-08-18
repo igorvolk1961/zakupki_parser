@@ -1,4 +1,4 @@
-"""Условия прекращения обработки заявки (stop-условия).
+"""Условия прекращения обработки закупки (stop-условия).
 
 Миксин, используемый классом ``Orchestrator``. Набор флагов задаётся в
 ``config_service.yaml -> stop_conditions``.
@@ -16,16 +16,16 @@ logger = logging.getLogger(__name__)
 
 
 class StopMixin:
-    """Проверка условий прекращения обработки заявки."""
+    """Проверка условий прекращения обработки закупки."""
 
     # Задаётся в ``Orchestrator.__init__``.
     _now: datetime
     _cfg: AppConfig
 
     def _check_stop_conditions(self, record: dict[str, Any]) -> bool:
-        """Проверяет набор флагов прекращения обработки заявки.
+        """Проверяет набор флагов прекращения обработки закупки.
 
-        Возвращает True, если заявку следует ПРОПУСТИТЬ (обработка прекращается).
+        Возвращает True, если закупку следует ПРОПУСТИТЬ (обработка прекращается).
         """
         sc = self._cfg.service.stop_conditions
         if sc.deadline_not_expired:
@@ -34,7 +34,7 @@ class StopMixin:
                 return False
             if deadline < self._now:
                 logger.info(
-                    "Заявка %s пропущена: срок приёма истёк (%s)",
+                    "Закупка %s пропущена: срок приёма истёк (%s)",
                     record.get("number"),
                     deadline,
                 )
@@ -43,7 +43,7 @@ class StopMixin:
                 days_left = (deadline - self._now).total_seconds() / 86400
                 if days_left < sc.min_deadline_days:
                     logger.info(
-                        "Заявка %s пропущена: до срока подачи %.1f дн. < %d",
+                        "Закупка %s пропущена: до срока подачи %.1f дн. < %d",
                         record.get("number"),
                         days_left,
                         sc.min_deadline_days,

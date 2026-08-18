@@ -185,7 +185,7 @@ class ProcurementRepository:
         return rows, total
 
     async def exists(self, number: str, platform_id: str) -> bool:
-        """Проверяет наличие заявки с указанным номером на площадке."""
+        """Проверяет наличие закупки с указанным номером на площадке."""
         stmt = select(Procurement.id).where(
             Procurement.number == number,
             Procurement.platform_id == platform_id,
@@ -218,9 +218,9 @@ class ProcurementRepository:
             return int((await session.execute(stmt)).scalar_one())
 
     async def upsert(self, data: dict[str, Any]) -> bool:
-        """Записывает заявку.
+        """Записывает закупку.
 
-        Возвращает True, если запись была добавлена; False, если такая заявка
+        Возвращает True, если запись была добавлена; False, если такая закупка
         (number + platform_id) уже существует (повторная запись исключена).
 
         Реализация: сначала явная проверка существования, затем INSERT. Второй
@@ -233,7 +233,7 @@ class ProcurementRepository:
             return False
 
         if await self.exists(number, platform_id):
-            logger.info("Дубликат: заявка %s (%s) уже сохранена", number, platform_id)
+            logger.info("Дубликат: закупка № %s (%s) уже сохранена", number, platform_id)
             return False
 
         record = Procurement(
@@ -273,7 +273,7 @@ class ProcurementRepository:
         # Отдаём id записи в исходный dict — нужен для постановки задания на внешний
         # скоринг (POST /api/scoring/jobs, ADR-7).
         data["id"] = record.id
-        logger.info("Сохранена заявка %s (%s)", number, platform_id)
+        logger.info("Сохранена закупка id=%s (№ %s, %s)", record.id, number, platform_id)
         return True
 
     async def _resolve_customer_id(
@@ -408,8 +408,10 @@ class ProcurementRepository:
                 )
                 await session.commit()
                 logger.info(
-                    "Обновлён score заявки %s: %s (fit %s, p_win %s, margin %s, метод %s)",
-                    procurement_id,
+                    "Обновлён score закупки id=%s (№ %s): %s "
+                    "(fit %s, p_win %s, margin %s, метод %s)",
+                    obj.id,
+                    obj.number,
                     rounded,
                     obj.fit_score,
                     obj.p_win,

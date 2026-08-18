@@ -75,7 +75,7 @@ search:
     # стоп-логике по дате обновления закупки.
     update_date:   { query_param: "updateDateFrom" }
     # Срок подачи заявок (applSubmissionCloseDateFrom) = сегодня — отсекает
-    # просроченные заявки (дедлайн обязателен).
+    # просроченные закупки (дедлайн обязателен).
     deadline_from: { query_param: "applSubmissionCloseDateFrom" }
     # Ключевые слова -> свободный текстовый поиск ЕИС (searchString).
     keywords:      { query_param: "searchString" }

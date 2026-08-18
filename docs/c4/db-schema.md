@@ -45,7 +45,7 @@ erDiagram
 
     PROCUREMENTS {
         bigint id PK "автоинкремент"
-        varchar(64) number "реестровый номер заявки"
+        varchar(64) number "реестровый номер закупки"
         varchar(128) platform_id "ключ платформы-источника (platforms.platform_id)"
         varchar(1024) url "ссылка на закупку"
         bigint customer_id FK "ссылка на заказчика (customers.id, SET NULL)"

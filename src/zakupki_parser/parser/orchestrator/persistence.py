@@ -1,4 +1,4 @@
-"""Сохранение заявки в БД с вежливой деградацией.
+"""Сохранение закупки в БД с вежливой деградацией.
 
 Миксин, используемый классом ``Orchestrator``. Circuit breaker учитывает ТОЛЬКО
 транзиентные ошибки доступности БД; ошибки данных/схемы не открывают CB.
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class PersistenceMixin:
-    """Запись заявки в БД (``_persist``)."""
+    """Запись закупки в БД (``_persist``)."""
 
     # Задаётся в ``Orchestrator.__init__``.
     _cfg: AppConfig
@@ -31,7 +31,7 @@ class PersistenceMixin:
     _on_record_saved: Callable[[], Awaitable[None]] | None
 
     async def _persist(self, record: dict[str, Any]) -> bool:
-        """Сохраняет заявку в БД с вежливой деградацией.
+        """Сохраняет закупку в БД с вежливой деградацией.
 
         Circuit breaker учитывает ТОЛЬКО транзиентные ошибки доступности БД;
         ошибки данных/схемы (например, усечение значения) не открывают CB.
@@ -61,7 +61,7 @@ class PersistenceMixin:
                 return False
             except Exception as exc:  # noqa: BLE001
                 if is_data_db_error(exc):
-                    logger.error("Ошибка данных при записи заявки: %s", exc)
+                    logger.error("Ошибка данных при записи закупки: %s", exc)
                     return False
                 if is_transient_db_error(exc) and attempt < attempts:
                     delay = db_cfg.retry_backoff_seconds * (2 ** (attempt - 1))
