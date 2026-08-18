@@ -151,30 +151,42 @@ def test_is_active_default_true_when_no_statuses(app_config: AppConfig) -> None:
 def test_keyword_context_missing_skips(app_config: AppConfig) -> None:
     """Буквосочетание слова входит в другое слово — закупка не проходит."""
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
-    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    orch = _make_orch(
+        app_config,
+        now,
+        min_deadline_days=None,
+        keyword_context_required=True,
+        keyword_context_regexes={"ИИ": r"(?<!\w)ИИ(?!\w)"},
+    )
     record = {"number": "10", "subject": "Услуга по оценки инвестиции"}
     assert orch._check_stop_conditions(record, keywords=["ИИ"]) is True  # noqa: SLF001
 
 
 def test_keyword_context_embedded_word_skips(app_config: AppConfig) -> None:
-    """Отсекаются и другие слова-подстроки ('облигации', 'полуавтоматизация')."""
+    """Отсекаются и другие слова-подстроки ('облигации', 'АИИС')."""
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
-    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
-    for subject, keyword in (
-        ("облигации и акции", "ИИ"),
-        ("полуавтоматизация", "автоматизация"),
-        ("фотоискусственный интеллект", "искусственный интеллект"),
-    ):
+    orch = _make_orch(
+        app_config,
+        now,
+        min_deadline_days=None,
+        keyword_context_required=True,
+        keyword_context_regexes={"ИИ": r"(?<!\w)ИИ(?!\w)"},
+    )
+    for subject in ("облигации и акции", "АИИС и электроэнергетика"):
         record = {"number": "11", "subject": subject}
-        assert (
-            orch._check_stop_conditions(record, keywords=[keyword]) is True  # noqa: SLF001
-        )
+        assert orch._check_stop_conditions(record, keywords=["ИИ"]) is True  # noqa: SLF001
 
 
 def test_keyword_context_present_kept(app_config: AppConfig) -> None:
     """Отдельное слово или слово перед дефисом — закупка проходит."""
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
-    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    orch = _make_orch(
+        app_config,
+        now,
+        min_deadline_days=None,
+        keyword_context_required=True,
+        keyword_context_regexes={"ИИ": r"(?<!\w)ИИ(?!\w)"},
+    )
     for subject in (
         "Разработка ИИ-решений",
         "(ИИ-системы)",
@@ -193,7 +205,16 @@ def test_keyword_context_present_kept(app_config: AppConfig) -> None:
 def test_keyword_context_any_word_kept(app_config: AppConfig) -> None:
     """Достаточно одного ключевого слова в контексте (поиск по нескольким словам)."""
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
-    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    orch = _make_orch(
+        app_config,
+        now,
+        min_deadline_days=None,
+        keyword_context_required=True,
+        keyword_context_regexes={
+            "ИИ": r"(?<!\w)ИИ(?!\w)",
+            "системы": r"(?<!\w)системы(?!\w)",
+        },
+    )
     record = {"number": "13", "subject": "Разработка системы учета"}
     assert (
         orch._check_stop_conditions(record, keywords=["ИИ", "системы"]) is False  # noqa: SLF001
@@ -204,9 +225,15 @@ def test_keyword_context_any_word_kept(app_config: AppConfig) -> None:
 
 
 def test_keyword_context_empty_subject_skips(app_config: AppConfig) -> None:
-    """Пустой subject при включённом флаге — критический дефект, закупка не идёт дальше."""
+    """Пустой subject при наличии проверяемых слов — критический дефект записи."""
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
-    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    orch = _make_orch(
+        app_config,
+        now,
+        min_deadline_days=None,
+        keyword_context_required=True,
+        keyword_context_regexes={"ИИ": r"(?<!\w)ИИ(?!\w)"},
+    )
     assert (
         orch._check_stop_conditions({"number": "14", "subject": ""}, keywords=["ИИ"])  # noqa: SLF001
         is True
@@ -217,14 +244,20 @@ def test_keyword_context_empty_subject_skips(app_config: AppConfig) -> None:
 
 
 def test_keyword_context_standalone_or_hyphen_keeps_mixed(app_config: AppConfig) -> None:
-    """Слово без regex: стоп только когда встречается ЛИШЬ внутри другого слова.
+    """Стоп только когда слово встречается ЛИШЬ внутри другого слова.
 
     Отдельное слово или перед дефисом — закупка проходит, даже если слово есть
     ещё и внутри другого (для «ИИ»: «инвестиции», «АИИС», «ИИС» не мешают,
     если рядом есть самостоятельное «ИИ» или «ИИ-»).
     """
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
-    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    orch = _make_orch(
+        app_config,
+        now,
+        min_deadline_days=None,
+        keyword_context_required=True,
+        keyword_context_regexes={"ИИ": r"(?<!\w)ИИ(?!\w)"},
+    )
     # Только внутри другого слова — стоп.
     for subject in ("инвестиции в проект", "АИИС и электроэнергетика", "система ИИС"):
         record = {"number": "30", "subject": subject}
@@ -244,11 +277,41 @@ def test_keyword_context_standalone_or_hyphen_keeps_mixed(app_config: AppConfig)
         )
 
 
-def test_keyword_context_regex_applies_only_to_its_search_word(app_config: AppConfig) -> None:
-    """Regex-условие действует только если поиск идёт по слову из ключа словаря.
+def test_keyword_context_no_pattern_not_applied(app_config: AppConfig) -> None:
+    """Слово без паттерна в keyword_context_regexes не проверяется вовсе.
 
-    Regex «ИИ» не должен «спасать» закупки в обходах по другим словам и не должен
-    применяться в обходе по кодам ОКПД2 (keywords пуст).
+    Стоп-условие применяется только к словам с явным паттерном: закупка из
+    обхода по такому слову не отсекается, даже если слова нет в описании.
+    """
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    # Паттерн не задан — закупка проходит независимо от наличия слова в описании.
+    assert (
+        orch._check_stop_conditions(  # noqa: SLF001
+            {"number": "19", "subject": "Разработка системы учета"}, keywords=["автоматизация"]
+        )
+        is False
+    )
+    assert (
+        orch._check_stop_conditions(  # noqa: SLF001
+            {"number": "20", "subject": "инвестиции"}, keywords=["искусственный интеллект"]
+        )
+        is False
+    )
+    assert (
+        orch._check_stop_conditions(  # noqa: SLF001
+            {"number": "21", "subject": ""}, keywords=["автоматизация"]
+        )
+        is False
+    )
+
+
+def test_keyword_context_regex_applies_only_to_its_search_word(app_config: AppConfig) -> None:
+    """Стоп-условие действует только если поиск идёт по слову с паттерном.
+
+    Regex «ИИ» не должен «спасать» закупки в обходах по другим словам, слово без
+    паттерна не проверяется вовсе, в обходе по кодам ОКПД2 (keywords пуст)
+    условие не применяется.
     """
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
     orch = _make_orch(
@@ -258,7 +321,7 @@ def test_keyword_context_regex_applies_only_to_its_search_word(app_config: AppCo
         keyword_context_required=True,
         keyword_context_regexes={"ИИ": r"(?<!\w)ИИ(?!\w)"},
     )
-    # Обход по «ИИ»: regex применяется.
+    # Обход по «ИИ» (есть паттерн): regex применяется.
     assert (
         orch._check_stop_conditions(  # noqa: SLF001
             {"number": "40", "subject": "инвестиции"}, keywords=["ИИ"]
@@ -271,17 +334,19 @@ def test_keyword_context_regex_applies_only_to_its_search_word(app_config: AppCo
         )
         is False
     )
-    # Обход по «автоматизация»: regex «ИИ» не действует — проверяется только «автоматизация».
+    # Обход по «автоматизация» (паттерна нет): условие не применяется вовсе —
+    # regex «ИИ» не действует, и сама «автоматизация» не проверяется.
     assert (
         orch._check_stop_conditions(  # noqa: SLF001
             {"number": "42", "subject": "внедрение автоматизации в систему ИИ"},
             keywords=["автоматизация"],
         )
-        is True
+        is False
     )
     assert (
         orch._check_stop_conditions(  # noqa: SLF001
-            {"number": "43", "subject": "автоматизация процессов"}, keywords=["автоматизация"]
+            {"number": "43", "subject": "совершенно посторонний текст"},
+            keywords=["автоматизация"],
         )
         is False
     )
@@ -344,20 +409,4 @@ def test_keyword_context_regex_is_explicit(app_config: AppConfig) -> None:
     record = {"number": "18", "subject": "Внедрение полуавтоматизации"}
     assert (
         anchored._check_stop_conditions(record, keywords=["автоматизация"]) is True  # noqa: SLF001
-    )
-
-
-def test_keyword_context_strict_without_regex(app_config: AppConfig) -> None:
-    """Слово без regex в конфиге — строго отдельная форма (без словоизменения)."""
-    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
-    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
-    # «автоматизации» — словоизменённая форма, строгий режим её не находит.
-    record = {"number": "19", "subject": "Разработка системы автоматизации учета"}
-    assert (
-        orch._check_stop_conditions(record, keywords=["автоматизация"]) is True  # noqa: SLF001
-    )
-    # Точная форма — проходит.
-    record2 = {"number": "20", "subject": "Разработка системы автоматизация учета"}
-    assert (
-        orch._check_stop_conditions(record2, keywords=["автоматизация"]) is False  # noqa: SLF001
     )

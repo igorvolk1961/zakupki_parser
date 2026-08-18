@@ -15,15 +15,6 @@ from zakupki_parser.config.models import AppConfig
 
 logger = logging.getLogger(__name__)
 
-# Контекст, в котором ключевое слово должно встречаться в описании закупки, чтобы
-# считаться осмысленным совпадением (отдельное слово или перед дефисом):
-# - (?<![\w]) — слева не буква/цифра/подчёркивание (для str-паттернов \w покрывает
-#   кириллицу, поэтому 'ии' в 'инвестиции' не совпадёт);
-# - {kw} — регэксп-эскейп ключевого слова (подставляется в рантайме);
-# - (?=[...]|$) — справа пробел, знак препинания, закрывающая скобка/кавычка,
-#   дефис или конец строки (примеры: " ИИ ", " ИИ. ", " ИИ) ", " (ИИ ", " ИИ-", " (ИИ- ").
-_KEYWORD_WORD_CONTEXT = r"(?<![\w]){kw}(?=[\s.,:;!?»)'\"\]\-}]|$)"
-
 
 class StopMixin:
     """Проверка условий прекращения обработки закупки."""
@@ -73,25 +64,33 @@ class StopMixin:
 
     @staticmethod
     def _keyword_in_context(subject: str, keyword: str, regex: str | None = None) -> bool:
-        """True, если ключевое слово встречается в описании закупки.
+        """True, если ``regex`` (из keyword_context_regexes) совпал с описанием.
 
-        ``regex`` — явный паттерн из ``stop_conditions.keyword_context_regexes``
-        (например 'автоматизаци\\w*' для словоформ 'автоматизации'); применяется
-        как есть. Без него — отдельное слово или перед дефисом.
+        Паттерн применяется как есть (регистронезависимо). Без паттерна — False:
+        слово без паттерна в обходе не проверяется вовсе (см. также
+        ``_keyword_missing_from_description``).
         """
-        if regex:
-            return re.search(regex, subject, re.IGNORECASE) is not None
-        pattern = _KEYWORD_WORD_CONTEXT.replace("{kw}", re.escape(keyword))
-        return re.search(pattern, subject, re.IGNORECASE) is not None
+        if not regex:
+            return False
+        return re.search(regex, subject, re.IGNORECASE) is not None
 
     def _keyword_missing_from_description(
         self, record: dict[str, Any], keywords: list[str]
     ) -> bool:
-        """True, если в описании закупки нет ни одного ключевого слова в контексте.
+        """True, если в описании нет ни одного проверяемого ключевого слова.
 
-        Пустой subject при включённом флаге — критический дефект записи: закупка
-        не передаётся дальше (в скоринг) и пропускается.
+        Стоп-условие применяется ТОЛЬКО к словам с явным паттерном в
+        ``stop_conditions.keyword_context_regexes``: слово без паттерна не
+        проверяется вовсе (закупка через него не отсекается). Если в обходе
+        нет ни одного слова с паттерном — условие не применяется (False).
+
+        Пустой subject при наличии проверяемых слов — критический дефект
+        записи: закупка не передаётся дальше (в скоринг) и пропускается.
         """
+        regexes = self._cfg.service.stop_conditions.keyword_context_regexes or {}
+        checked = [(kw, regexes[kw]) for kw in keywords if kw in regexes]
+        if not checked:
+            return False
         subject = record.get("subject")
         if not isinstance(subject, str) or not subject.strip():
             logger.critical(
@@ -99,15 +98,14 @@ class StopMixin:
                 record.get("number"),
             )
             return True
-        regexes = self._cfg.service.stop_conditions.keyword_context_regexes or {}
-        for keyword in keywords:
-            if self._keyword_in_context(subject, keyword, regex=regexes.get(keyword)):
+        for keyword, regex in checked:
+            if self._keyword_in_context(subject, keyword, regex=regex):
                 return False
         logger.info(
             "Закупка %s пропущена: ключевые слова %s не встречаются в описании "
             "как отдельное слово или перед дефисом: %.200r",
             record.get("number"),
-            keywords,
+            [kw for kw, _ in checked],
             subject,
         )
         return True
