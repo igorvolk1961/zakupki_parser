@@ -218,7 +218,7 @@
     <div style="display:flex; flex-direction:column; gap:10px;">
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="radio" name="db-clear-mode" value="all" checked> Удалить все записи (закупки и заказчики)</label>
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="radio" name="db-clear-mode" value="inactive"> Удалить все неактивные закупки</label>
-      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap;"><input type="radio" name="db-clear-mode" value="irrelevant"> Удалить нерелевантные закупки
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap;"><input type="radio" name="db-clear-mode" value="irrelevant"> Удалить закупки с fit-score <
         <span class="step" id="db-min-fit-step">
           <input type="number" id="db-min-fit" value="0.4" min="0" max="0.9" step="0.1">
           <span class="step-btn">
@@ -227,6 +227,7 @@
           </span>
         </span>
       </label>
+      <p class="muted" style="margin:0;">Нерелевантные — закупки, обработанные внешним скорингом, с fit-score ниже порога или без значения.</p>
     </div>
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="db-clear-cancel">Отменить</button>
