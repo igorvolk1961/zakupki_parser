@@ -1,0 +1,39 @@
+databaseChangeLog:
+  - changeSet:
+      id: 24
+      author: zakupki-parser
+      comment: "Маппинг «Запрос котировок в электронной форме ... (МСП)» ЕИС 223-ФЗ -> канонический «Запрос котировок»"
+      changes:
+        - sql:
+            sql: |
+              -- 1) маппинг родного значения площадки -> канонический тип
+              INSERT INTO procedure_type_mappings
+                  (platform_id, native_name, normalized_name, procedure_type_id)
+              SELECT 'zakupki_gov_223fz',
+                     'Запрос котировок в электронной форме, участниками которого могут быть только субъекты малого и среднего предпринимательства',
+                     lower(trim(regexp_replace(
+                         'Запрос котировок в электронной форме, участниками которого могут быть только субъекты малого и среднего предпринимательства',
+                         '[[:space:]]+', ' ', 'g'))),
+                     t.id
+              FROM procedure_types t
+              WHERE t.normalized_name = 'запрос котировок'
+              ON CONFLICT (platform_id, normalized_name) DO NOTHING;
+
+              -- 2) backfill: уже сохранённые процедуры переводим с «сырого» типа на канонический
+              UPDATE procurements p
+              SET procedure_type_id = m.procedure_type_id
+              FROM procedure_type_mappings m
+              WHERE m.platform_id = 'zakupki_gov_223fz'
+                AND m.normalized_name = lower(trim(regexp_replace(
+                    p.detail_json ->> 'purchase_type', '[[:space:]]+', ' ', 'g')))
+                AND p.detail_json ->> 'purchase_type' =
+                    'Запрос котировок в электронной форме, участниками которого могут быть только субъекты малого и среднего предпринимательства';
+
+              -- 3) удаление «сырого» типа, если на него больше никто не ссылается
+              DELETE FROM procedure_types t
+              WHERE t.is_canonical = false
+                AND t.normalized_name =
+                    'запрос котировок в электронной форме, участниками которого могут быть только субъекты малого и среднего предпринимательства'
+                AND NOT EXISTS (
+                    SELECT 1 FROM procurements p WHERE p.procedure_type_id = t.id
+                );
