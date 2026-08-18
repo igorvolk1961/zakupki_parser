@@ -1,0 +1,38 @@
+databaseChangeLog:
+  - changeSet:
+      id: 25
+      author: zakupki-parser
+      comment: "Маппинг «Электронный запрос котировок» fabrikant -> канонический «Запрос котировок»"
+      changes:
+        - sql:
+            sql: |
+              -- 1) маппинг родного значения площадки -> канонический тип
+              INSERT INTO procedure_type_mappings
+                  (platform_id, native_name, normalized_name, procedure_type_id)
+              SELECT 'fabrikant',
+                     'Электронный запрос котировок',
+                     lower(trim(regexp_replace(
+                         'Электронный запрос котировок',
+                         '[[:space:]]+', ' ', 'g'))),
+                     t.id
+              FROM procedure_types t
+              WHERE t.normalized_name = 'запрос котировок'
+              ON CONFLICT (platform_id, normalized_name) DO NOTHING;
+
+              -- 2) backfill: уже сохранённые процедуры fabrikant переводим на канонический тип
+              UPDATE procurements p
+              SET procedure_type_id = m.procedure_type_id
+              FROM procedure_type_mappings m
+              WHERE m.platform_id = 'fabrikant'
+                AND m.normalized_name = lower(trim(regexp_replace(
+                    p.detail_json ->> 'purchase_type', '[[:space:]]+', ' ', 'g')))
+                AND p.detail_json ->> 'purchase_type' =
+                    'Электронный запрос котировок';
+
+              -- 3) удаление «сырого» типа, если на него больше никто не ссылается
+              DELETE FROM procedure_types t
+              WHERE t.is_canonical = false
+                AND t.normalized_name = 'электронный запрос котировок'
+                AND NOT EXISTS (
+                    SELECT 1 FROM procurements p WHERE p.procedure_type_id = t.id
+                );
