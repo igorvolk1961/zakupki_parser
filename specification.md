@@ -183,9 +183,9 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - Доступ к БД — SQLAlchemy 2.x (async, asyncpg).
-- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.24`).
+- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.25`).
   Пять таблиц: `procurements`, справочники `customers` (ADR-4), `platforms` (1.21),
-  `procedure_types` + `procedure_type_mappings` (1.20; маппинги площадок — до 1.23).
+  `procedure_types` + `procedure_type_mappings` (1.20; маппинги площадок — до 1.25).
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
 - `procurements` (колонки): `id`, `number`, `platform_id`, `url`, `customer_id`
