@@ -72,8 +72,15 @@ class StopMixin:
         return False
 
     @staticmethod
-    def _keyword_in_context(subject: str, keyword: str) -> bool:
-        """True, если ключевое слово встречается отдельным словом или перед дефисом."""
+    def _keyword_in_context(subject: str, keyword: str, regex: str | None = None) -> bool:
+        """True, если ключевое слово встречается в описании закупки.
+
+        ``regex`` — явный паттерн из ``stop_conditions.keyword_context_regexes``
+        (например 'автоматизаци\\w*' для словоформ 'автоматизации'); применяется
+        как есть. Без него — отдельное слово или перед дефисом.
+        """
+        if regex:
+            return re.search(regex, subject, re.IGNORECASE) is not None
         pattern = _KEYWORD_WORD_CONTEXT.replace("{kw}", re.escape(keyword))
         return re.search(pattern, subject, re.IGNORECASE) is not None
 
@@ -92,8 +99,9 @@ class StopMixin:
                 record.get("number"),
             )
             return True
+        regexes = self._cfg.service.stop_conditions.keyword_context_regexes or {}
         for keyword in keywords:
-            if self._keyword_in_context(subject, keyword):
+            if self._keyword_in_context(subject, keyword, regex=regexes.get(keyword)):
                 return False
         logger.info(
             "Закупка %s пропущена: ключевые слова %s не встречаются в описании "

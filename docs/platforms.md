@@ -30,7 +30,7 @@
 | zakupki_gov_223fz | сервер | query-параметры | ✅ (через lot-list) | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | b2b_center | сервер | `f_keyword=`+`searching`/`trade`/`show`+`order_by`/`order_dir` | ❌ анонимно нет (после регистрации) | ✅ `f_keyword=` (богатый синтаксис; слова по «И») | дата | да |
 | lot_online_44 | SPA (Taiga/Angular) | `limit`/`sort`/`sortDirection`/`status`+`page`+`keywords`+`okpd2` | ✅ `okpd2=код` (повторяемый, префиксный) | ✅ `keywords` (URL) | дата | да |
-| etpgpb | Vue SPA | `procedure[stage][0]`+`procedure[okpd][N]`+`sort`+`per`+`page` | ✅ `procedure[okpd][0]=62.02` (raw, префиксный матчинг) | ❌ (`procedure[name]` не фильтрует) | дата `by_published_desc` | да |
+| etpgpb | Vue SPA | **API** `/api/v2/procedures/` (`procedure[stage][0]`+`procedure[okpd]`+`search`+`sort`+`per`+`page`) | ✅ `procedure[okpd]=62.02` (плоский, префиксный) | ✅ `search` (только с `sort=by_relevance`; `min_keyword_len=3`) | дата `by_published_desc`; слова — relevance | да |
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
 | roseltorg_223fz | Drupal+React | `query_field`/`okpd2[]`/`status[]`/`page` | ✅ (JSON-LD деталей) | ✅ `query_field` (пробел=OR) | релевантность | нет |
 | fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | дата `date_publication desc` | да |
@@ -107,6 +107,12 @@
   `ru_date` (русские месяцы, «14 августа 2026, 18:00»).
 - **Ранний пропуск прохода по числу результатов** `total_results_selector`/`total_results_regex` —
   если в БД записей площадки не меньше, чем нашёл поиск, проход не выполняется (relevance-режим).
+- **API-листер** `search.api_endpoint` — список закупок читается из JSON API площадки (GET), а не
+  парсингом DOM-страницы. Нужен площадкам, где SSR-страница всегда рендерит базовую выдачу, а
+  фильтрацию выполняет только внутренний API после гидрации SPA (etpgpb: `/api/v2/procedures/`).
+  Query строится так же (`query_params` + `criteria_map`), записи собираются из `attributes` item'а,
+  детальные страницы/файлы/ИНН остаются на DOM-парсинге. `search.keywords_sort` — значение `sort`,
+  подставляемое при наличии ключевых слов (etpgpb: `search` фильтрует только с `sort=by_relevance`).
 - **Пропуск уже сохранённых закупок** — оркестратор грузит номера площадки из БД и не открывает
   детальные страницы известных записей.
 - **Потолок страниц** `parser.max_list_pages` — защита от вечного цикла пагинации за проход.
@@ -168,6 +174,11 @@
 ### Прочее
 - **b2b_center** — ОКПД2/НМЦК/регион-фильтры и документы доступны только зарегистрированным.
 - **etpgpb** — выдача `/procedures/` содержит и 44-ФЗ, и 223-ФЗ; разделяющего параметра закона
-  нет (проверено 2026-08-14) — площадка одна, закон по закупкам не различается.
+  нет (проверено 2026-08-14) — площадка одна, закон по закупкам не различается (kind fz223/fz44
+  из API сохраняется в `law`). С 2026-08-18 список читается из API (`search.api_endpoint`):
+  индексированная форма `procedure[okpd][0]=...` и `procedure[name]` НЕ фильтруют (отсюда и шум
+  «нерелевантных» закупок); работают плоский `procedure[okpd]=код[,код]` и `search` **только** с
+  `sort=by_relevance`. Короткие слова (1–2 символа) движок перематчивает в подстрочный шум —
+  `min_keyword_len: 3`.
 - **ЕИС** — текстовый поиск `searchString` подключён (критерий `keywords` через `criteria_map`);
   сортировка `sortBy=RELEVANCE` не используется (задан фиксированный `UPDATE_DATE`).

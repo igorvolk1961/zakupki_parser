@@ -166,6 +166,12 @@ def _criteria_value(
         # отсекаются сервером — дополняет stop_conditions.deadline_not_expired).
         return datetime.now(MSK).strftime(search.date_great_equal_format)
     if key == "okpd2":
+        if not criteria.okpd_codes:
+            return []
+        # Без дерева поиска коды передаются как есть (например, etpgpb с плоским
+        # procedure[okpd]=... и префиксным матчингом сервера); иначе — пути из дерева.
+        if not search.okpd_tree_file:
+            return criteria.okpd_codes
         return _resolve_paths(criteria.okpd_codes, search.okpd_tree_file, "ОКПД2")
     if key == "nmck_min":
         return criteria.nmck_min
@@ -295,6 +301,11 @@ def build_query(
         for value in param_values:
             value = value.replace("{filter_json}", filter_json_str)
             value = value.replace("{state_json}", state_json_str)
+            # Площадка, чей текстовый поиск работает только с сортировкой по релевантности
+            # (etpgpb: search фильтрует только с sort=by_relevance) — при наличии ключевых
+            # слов статический sort подменяется на search.keywords_sort.
+            if key == "sort" and search.keywords_sort and criteria.keywords:
+                value = search.keywords_sort
             # Статические значения (в т.ч. кириллица/пробелы) URL-кодируются целиком.
             parts.append(f"{key}={urllib.parse.quote(value, safe='')}")
     for name, value in extra_params.items():

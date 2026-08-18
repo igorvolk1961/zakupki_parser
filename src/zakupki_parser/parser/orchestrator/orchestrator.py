@@ -10,6 +10,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any
 
 from playwright.async_api import Locator, Page
@@ -28,6 +29,7 @@ from zakupki_parser.parser.detail import (
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
+    _increment_url_page,
     extract_total_results,
     goto_next_page,
     iter_container_records,
@@ -35,6 +37,7 @@ from zakupki_parser.parser.lister import (
     open_list_page,
     setup_sort_and_filters,
 )
+from zakupki_parser.parser.lister.api import build_api_list_url, fetch_api_items, parse_api_item
 from zakupki_parser.parser.orchestrator.activity import ActivityMixin
 from zakupki_parser.parser.orchestrator.persistence import PersistenceMixin
 from zakupki_parser.parser.orchestrator.stop import StopMixin
@@ -115,7 +118,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         container: Locator,
         keywords: list[str] | None = None,
     ) -> tuple[bool, Any]:
-        """Обрабатывает один контейнер записи о закупке.
+        """Обрабатывает один контейнер записи о закупке (DOM-листер).
 
         Возвращает (пропущена ли запись как уже сохранённая в БД, номер закупки).
         ``keywords`` — ключевые слова текущего поискового обхода (для stop-условия
@@ -158,6 +161,25 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     url_re,
                 )
 
+        return await self._process_list_record(page, list_vars, detail_url, number, keywords)
+
+    async def _process_list_record(
+        self,
+        page: Page,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        number: Any,
+        keywords: list[str] | None = None,
+    ) -> tuple[bool, Any]:
+        """Общая обработка записи из списка (DOM или API): детали, stop, скоринг, запись.
+
+        ``list_vars`` — переменные карточки списка (list_config.variables), ``detail_url`` —
+        ссылка на детальную страницу, ``number`` — номер закупки. Возвращает
+        (пропущена ли запись как уже сохранённая в БД, номер закупки).
+        """
+        if not detail_url:
+            logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
+            return False, number
         # stop-условия по данным из деталей проверяются после извлечения деталей.
         # 3) переход на детальную страницу — в отдельной вкладке, чтобы не терять
         #    страницу списка (итерация по контейнерам и пагинация продолжаются).
@@ -441,6 +463,12 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         retry_cfg: RetryConfig,
     ) -> None:
         """Обход страниц и записей для одного поискового запроса."""
+        search = self._platform.search
+        if search is not None and search.api_endpoint:
+            # Список читается из JSON API площадки (etpgpb): SSR-страница всегда
+            # рендерит базовую выдачу, фильтрует только API после гидрации SPA.
+            await self._crawl_api(page, cutoff, criteria, retry_cfg)
+            return
         await run_with_retry(
             lambda: open_list_page(page, self._platform, cutoff, criteria),
             retry=retry_cfg,
@@ -586,4 +614,131 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             if not moved:
                 logger.info("Не удалось перейти на следующую страницу")
                 break
+            await self._delayer.sleep()
+
+    async def _crawl_api(
+        self,
+        page: Page,
+        cutoff: datetime | None,
+        criteria: SearchCriteria,
+        retry_cfg: RetryConfig,
+    ) -> None:
+        """Обход записей списка через JSON API площадки (``search.api_endpoint``).
+
+        Записи читаются из API напрямую (без DOM-парсинга списка), поля карточки
+        берутся из ``attributes`` item'а. Детальные страницы, stop-условия, скоринг
+        и сохранение — общий путь ``_process_list_record``.
+
+        Стоп-порог по дате применяется только для обходов без ключевых слов: при
+        поиске по словам площадка сортирует по релевантности (``keywords_sort``),
+        выдачи маленькие — обходим до конца пагинации.
+        """
+        lc = self._platform.list_config
+        page_size = lc.page_size
+        has_keywords = bool(criteria.keywords)
+        url = build_api_list_url(self._platform, criteria)
+        # Жёсткий потолок числа страниц (защита от вечного цикла).
+        max_pages = self._cfg.parser.max_list_pages or 0
+        pages_done = 0
+        seen_page_sigs: set[frozenset[Any]] = set()
+
+        while True:
+            pages_done += 1
+            if max_pages and pages_done > max_pages:
+                logger.warning(
+                    "Площадка %s: превышен лимит страниц %d (API), обход прерван",
+                    self._platform_id,
+                    max_pages,
+                )
+                break
+
+            items = await run_with_retry(
+                partial(fetch_api_items, page, url),
+                retry=retry_cfg,
+                circuit=self._site_cb,
+                label="API список",
+            )
+            if not items:
+                logger.info("API списка вернул пустую страницу — конец пагинации")
+                break
+
+            reached_cutoff = False
+            page_total = 0
+            page_known = 0
+            page_numbers: list[Any] = []
+            for item in items:
+                page_total += 1
+                list_vars = parse_api_item(item)
+                number = list_vars.get("number")
+                # Стоп-порог по дате (только не keyword-обходы: там relevance-сортировка).
+                if (
+                    not has_keywords
+                    and cutoff is not None
+                    and is_older_than_cutoff(list_vars.get(lc.publication_date), cutoff)
+                ):
+                    logger.info(
+                        "Достигнут порог дат (%s < %s), завершаем цикл",
+                        list_vars.get(lc.publication_date),
+                        cutoff,
+                    )
+                    reached_cutoff = True
+                    break
+                detail_path = list_vars.pop("detail_path", None)
+                detail_url = None
+                if detail_path:
+                    detail_url = (
+                        detail_path
+                        if detail_path.startswith("http")
+                        else self._platform.url.rstrip("/") + detail_path
+                    )
+                known, number = await self._process_list_record(
+                    page, list_vars, detail_url, number, keywords=criteria.keywords
+                )
+                if number is not None and number != "":
+                    page_numbers.append(number)
+                if known:
+                    page_known += 1
+
+            if reached_cutoff:
+                break
+
+            # Защита от повтора содержимого: тот же набор номеров на предыдущей странице.
+            if page_numbers:
+                page_sig = frozenset(page_numbers)
+                if page_sig in seen_page_sigs:
+                    logger.info(
+                        "Площадка %s: страница повторяет предыдущую (%d записей) — "
+                        "пагинацию прекращаем",
+                        self._platform_id,
+                        len(page_numbers),
+                    )
+                    break
+                seen_page_sigs.add(page_sig)
+
+            # Вся страница из уже известных закупок (дата-сортировка) — новых не будет.
+            if (
+                not has_keywords
+                and self._known_numbers is not None
+                and page_total > 0
+                and page_known == page_total
+            ):
+                logger.info(
+                    "Площадка %s: вся страница уже в БД (%d) — новых закупок не будет, "
+                    "пагинацию прекращаем",
+                    self._platform_id,
+                    page_total,
+                )
+                break
+
+            # Неполная страница (< page_size) — последняя.
+            if page_size and len(items) < page_size:
+                logger.info(
+                    "API списка: страница неполная (%d < %d) — конец пагинации",
+                    len(items),
+                    page_size,
+                )
+                break
+
+            page_param = lc.page_param or "page"
+            url = _increment_url_page(url, page_param)
             await self._delayer.sleep()

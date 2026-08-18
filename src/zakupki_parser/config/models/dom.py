@@ -290,11 +290,30 @@ class SearchFilterConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True)
+    api_endpoint: str | None = Field(
+        default=None,
+        description=(
+            "если задан — список закупок получается GET-запросом к этому API-эндпоинту "
+            "(относительный путь, например /api/v2/procedures/) вместо парсинга DOM-страницы "
+            "list_path. Query строится так же (query_params + criteria_map), фильтрацию выполняет "
+            "сервер (etpgpb: SPA-страница рендерит базовый список, фильтрует только API). "
+            "Ответ — JSON {data: [{id, attributes}]}."
+        ),
+    )
     query_params: dict[str, str | list[str]] = Field(
         default_factory=dict,
         description=(
             "имя параметра запроса -> шаблон значения; плейсхолдеры {filter_json}, {state_json}. "
             "Значение может быть списком — тогда параметр повторяется (status[]=2&status[]=3)"
+        ),
+    )
+    keywords_sort: str | None = Field(
+        default=None,
+        description=(
+            "значение параметра sort, подставляемое вместо статического (query_params['sort']), "
+            "когда в критериях есть ключевые слова. Нужно площадкам, чей текстовый поиск "
+            "работает только с сортировкой по релевантности (etpgpb: search фильтрует выдачу "
+            "только с sort=by_relevance; с by_published_desc API возвращает нерелевантные записи)"
         ),
     )
     filter_json: dict[str, Any] = Field(
