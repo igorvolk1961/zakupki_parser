@@ -279,6 +279,20 @@ def _prompt_kind(name: str) -> str:
     return "json" if name.endswith(".json") else "markdown"
 
 
+def _prompt_dir_rel(state: AppState) -> str:
+    """Каталог промптов для вкладки: относительный путь от корня проекта.
+
+    В Docker каталог вне корня проекта (например, /app/prompts) — показываем
+    как есть (абсолютный и короткий путь).
+    """
+    base = Path(state.cfg.ops.prompts_dir)
+    root = Path(state.configs_dir).parent
+    try:
+        return str(base.relative_to(root))
+    except ValueError:
+        return str(base)
+
+
 def _procurement_out(row: Procurement) -> ProcurementOut:
     """Карточка закупки с именем заказчика (имя — из связи customers, не колонки)."""
     out = ProcurementOut.model_validate(row)
@@ -790,7 +804,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             for path in sorted(base.iterdir()):
                 if path.is_file() and path.suffix in (".md", ".json"):
                     files.append({"name": path.name, "kind": _prompt_kind(path.name)})
-        return {"files": files, "dir": str(base)}
+        return {"files": files, "dir": _prompt_dir_rel(state)}
 
     @app.get("/api/prompts/{name}", response_model=dict[str, Any], include_in_schema=False)
     async def get_prompt(name: str) -> dict[str, Any]:
@@ -800,7 +814,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             "name": path.name,
             "kind": _prompt_kind(path.name),
             "content": path.read_text(encoding="utf-8"),
-            "dir": str(Path(state.cfg.ops.prompts_dir)),
+            "dir": _prompt_dir_rel(state),
         }
 
     @app.put("/api/prompts/{name}", response_model=dict[str, Any], include_in_schema=False)
@@ -825,7 +839,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             "name": path.name,
             "kind": _prompt_kind(path.name),
             "content": body.content,
-            "dir": str(Path(state.cfg.ops.prompts_dir)),
+            "dir": _prompt_dir_rel(state),
         }
 
     return app
