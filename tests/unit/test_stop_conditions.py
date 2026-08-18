@@ -31,10 +31,12 @@ def _make_orch(
     now: datetime,
     min_deadline_days: int | None,
     deadline_not_expired: bool = True,
+    keyword_context_required: bool = False,
 ) -> Orchestrator:
     cfg = app_config.model_copy(deep=True)
     cfg.service.stop_conditions.min_deadline_days = min_deadline_days
     cfg.service.stop_conditions.deadline_not_expired = deadline_not_expired
+    cfg.service.stop_conditions.keyword_context_required = keyword_context_required
     return Orchestrator(
         cfg=cfg,
         platform_id="zakupki_mos",
@@ -141,3 +143,86 @@ def test_is_active_default_true_when_no_statuses(app_config: AppConfig) -> None:
     orch._platform.list_config.active_statuses = None
     assert orch._is_active({"status": "anything"}) is True  # noqa: SLF001
     assert orch._is_active({}) is True  # noqa: SLF001
+
+
+def test_keyword_context_missing_skips(app_config: AppConfig) -> None:
+    """Буквосочетание слова входит в другое слово — закупка не проходит."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    record = {"number": "10", "subject": "Услуга по оценки инвестиции"}
+    assert orch._check_stop_conditions(record, keywords=["ИИ"]) is True  # noqa: SLF001
+
+
+def test_keyword_context_embedded_word_skips(app_config: AppConfig) -> None:
+    """Отсекаются и другие слова-подстроки ('облигации', 'полуавтоматизация')."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    for subject, keyword in (
+        ("облигации и акции", "ИИ"),
+        ("полуавтоматизация", "автоматизация"),
+        ("фотоискусственный интеллект", "искусственный интеллект"),
+    ):
+        record = {"number": "11", "subject": subject}
+        assert (
+            orch._check_stop_conditions(record, keywords=[keyword]) is True  # noqa: SLF001
+        )
+
+
+def test_keyword_context_present_kept(app_config: AppConfig) -> None:
+    """Отдельное слово или слово перед дефисом — закупка проходит."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    for subject in (
+        "Разработка ИИ-решений",
+        "(ИИ-системы)",
+        "система ИИ",
+        "ИИ и автоматизация",
+        "применение ИИ.",
+        "решение (ИИ)",
+        "инвестиции ИИ",
+    ):
+        record = {"number": "12", "subject": subject}
+        assert (
+            orch._check_stop_conditions(record, keywords=["ИИ"]) is False  # noqa: SLF001
+        )
+
+
+def test_keyword_context_any_word_kept(app_config: AppConfig) -> None:
+    """Достаточно одного ключевого слова в контексте (поиск по нескольким словам)."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    record = {"number": "13", "subject": "Разработка системы учета"}
+    assert (
+        orch._check_stop_conditions(record, keywords=["ИИ", "системы"]) is False  # noqa: SLF001
+    )
+    assert (
+        orch._check_stop_conditions(record, keywords=["ИИ", "нейросеть"]) is True  # noqa: SLF001
+    )
+
+
+def test_keyword_context_empty_subject_skips(app_config: AppConfig) -> None:
+    """Пустой subject при включённом флаге — критический дефект, закупка не идёт дальше."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, keyword_context_required=True)
+    assert (
+        orch._check_stop_conditions({"number": "14", "subject": ""}, keywords=["ИИ"])  # noqa: SLF001
+        is True
+    )
+    assert (
+        orch._check_stop_conditions({"number": "15"}, keywords=["ИИ"]) is True  # noqa: SLF001
+    )
+
+
+def test_keyword_context_disabled_or_no_keywords(app_config: AppConfig) -> None:
+    """Флаг выключен или обход без ключевых слов (ОКПД2) — условие не применяется."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    record = {"number": "16", "subject": "Услуга по оценки инвестиции"}
+    orch_disabled = _make_orch(app_config, now, min_deadline_days=None)
+    assert (
+        orch_disabled._check_stop_conditions(record, keywords=["ИИ"]) is False  # noqa: SLF001
+    )
+    orch_enabled = _make_orch(
+        app_config, now, min_deadline_days=None, keyword_context_required=True
+    )
+    assert orch_enabled._check_stop_conditions(record, keywords=[]) is False  # noqa: SLF001
+    assert orch_enabled._check_stop_conditions(record, keywords=None) is False  # noqa: SLF001

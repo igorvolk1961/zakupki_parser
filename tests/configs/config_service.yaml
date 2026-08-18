@@ -16,3 +16,4 @@ search_criteria:
 stop_conditions:
   deadline_not_expired: true
   min_deadline_days: null
+  keyword_context_required: false

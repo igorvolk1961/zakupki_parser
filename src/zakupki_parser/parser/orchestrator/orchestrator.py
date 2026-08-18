@@ -109,10 +109,17 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             and str(number) in self._known_numbers
         )
 
-    async def _process_container(self, page: Page, container: Locator) -> tuple[bool, Any]:
+    async def _process_container(
+        self,
+        page: Page,
+        container: Locator,
+        keywords: list[str] | None = None,
+    ) -> tuple[bool, Any]:
         """Обрабатывает один контейнер записи о закупке.
 
         Возвращает (пропущена ли запись как уже сохранённая в БД, номер закупки).
+        ``keywords`` — ключевые слова текущего поискового обхода (для stop-условия
+        keyword_context_required; пусто при обходе по ОКПД2).
         """
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
@@ -252,7 +259,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         record["is_active"] = self._is_active(record)
 
         # 4) условия прекращения обработки
-        if self._check_stop_conditions(record):
+        if self._check_stop_conditions(record, keywords=keywords):
             return False, number
 
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
@@ -514,7 +521,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         )
                         reached_cutoff = True
                         break
-                known, number = await self._process_container(page, container)
+                known, number = await self._process_container(
+                    page, container, keywords=criteria.keywords
+                )
                 if number is not None and number != "":
                     page_numbers.append(number)
                 if known:
