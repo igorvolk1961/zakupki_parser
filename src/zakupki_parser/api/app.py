@@ -21,6 +21,7 @@ from sqlalchemy import text as sql_text
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import (
     SCORE_METHOD_FIT,
+    SCORE_METHOD_MARGIN,
     SCORE_METHOD_PWIN,
     SCORE_METHOD_STAGES,
     AppConfig,
@@ -310,6 +311,8 @@ class ScoreStageRow(Protocol):
     score_method: str | None
     fit_score: float | None
     score: float | None
+    p_win: float | None
+    margin: float | None
 
 
 class ScoreCascadeCfg(Protocol):
@@ -325,8 +328,10 @@ def _next_stage_score(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> tuple[str, fl
     следующей И следующая стадия включена (``pwin_enabled``/``margin_enabled``);
     иначе ``None`` (каскад остановлен, стадия терминальная).
 
+    Пороги — по возвращаемым значениям стадий (не по произведению score):
+
     - ``fit`` → ``pwin``, если ``fit_score >= pwin_fit_threshold``;
-    - ``pwin`` → ``margin``, если накопленный ``score`` (fit × p_win) >= ``margin_threshold``;
+    - ``pwin`` → ``margin``, если ``p_win >= margin_pwin_threshold``;
     - ``margin`` — финальная стадия, следующей нет.
     """
     method = row.score_method
@@ -334,15 +339,15 @@ def _next_stage_score(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> tuple[str, fl
         if cfg.score.pwin_enabled and row.fit_score >= cfg.score.pwin_fit_threshold:
             return "pwin", float(row.fit_score)
         return None
-    if method == SCORE_METHOD_PWIN and row.score is not None:
-        if cfg.score.margin_enabled and row.score >= cfg.score.margin_threshold:
-            return "margin", float(row.score)
+    if method == SCORE_METHOD_PWIN and row.p_win is not None:
+        if cfg.score.margin_enabled and row.p_win >= cfg.score.margin_pwin_threshold:
+            return "margin", float(row.score or 0.0)
         return None
     return None
 
 
 def _is_terminal_stage(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> bool:
-    """Терминальная ли стадия (уведомление подписчиков отправляем только на ней).
+    """Терминальная ли стадия (каскад завершён).
 
     Каскад завершён, если:
     - результат fit ниже порога pwin (или стадия pwin не включена);
@@ -356,10 +361,34 @@ def _is_terminal_stage(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> bool:
         )
     if method == SCORE_METHOD_PWIN:
         return not cfg.score.margin_enabled or (
-            row.score is None or row.score < cfg.score.margin_threshold
+            row.p_win is None or row.p_win < cfg.score.margin_pwin_threshold
         )
     return True
-    return True
+
+
+def _meets_stage_notify_threshold(row: ScoreStageRow, state: Any) -> bool:
+    """Порог уведомления по возвращаемому значению стадии (не по score-произведению).
+
+    Уведомление отправляется ПОСЛЕ КАЖДОЙ стадии каскада (fit → pwin → margin):
+    каждая стадия имеет собственный порог по своему возвращаемому значению.
+    Стадия целиком выключается флагом ``notify_fit_enabled``/``notify_pwin_enabled``/
+    ``notify_margin_enabled`` (при false уведомление после стадии не отправляется вовсе).
+    """
+    if row.score_method == SCORE_METHOD_FIT:
+        if not state.cfg.ops.notifications.notify_fit_enabled:
+            return False
+        return row.fit_score is not None and row.fit_score >= state.notify_min_fit_score
+    if row.score_method == SCORE_METHOD_PWIN:
+        if not state.cfg.ops.notifications.notify_pwin_enabled:
+            return False
+        return row.p_win is not None and row.p_win >= state.cfg.ops.notifications.notify_min_pwin
+    if row.score_method == SCORE_METHOD_MARGIN:
+        if not state.cfg.ops.notifications.notify_margin_enabled:
+            return False
+        return (
+            row.margin is not None and row.margin >= state.cfg.ops.notifications.notify_min_margin
+        )
+    return False
 
 
 def create_app(configs_dir: str = "configs") -> FastAPI:
@@ -517,11 +546,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
 
         Каскад скоринга Fit -> P(win) -> Margin: после записи результата стадии,
         если он проходит порог следующей (и стадия включена), закупка ставится в
-        очередь следующей стадии через транспорт (идемпотентно). Уведомляет
-        подписчиков, когда каскад завершён (терминальная стадия) ИЛИ следующая
-        стадия не может быть поставлена (транспорт недоступен/не настроен) —
-        чтобы фит-результаты не терялись при ролл-ауте, если fit_score >=
-        notify_min_fit_score (ADR-7).
+        очередь следующей стадии через транспорт (идемпотентно). Пороги переходов —
+        по возвращаемым значениям стадий (fit_score/p_win), не по произведению score.
+
+        Уведомляет подписчиков ПОСЛЕ КАЖДОЙ стадии (fit/pwin/margin), когда
+        результат стадии изменён и его возвращаемое значение прошло порог стадии
+        (notify_min_fit_score / notify_min_pwin / notify_min_margin, ADR-7).
         """
         existing = await _repo().get_by_id(procurement_id)
         if existing is None:
@@ -543,21 +573,18 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         # Следующая стадия каскада. Постановка идемпотентна (ZADD), поэтому
         # повторная доставка результата той же стадии (ADR-7 retry) безопасна.
         next_stage = _next_stage_score(row, state.cfg)
-        transitioned = False
         if next_stage is not None:
             stage, priority = next_stage
-            transitioned = await _enqueue_next_stage(state, procurement_id, stage, priority)
+            await _enqueue_next_stage(state, procurement_id, stage, priority)
 
-        # Уведомление: только когда результат этой стадии изменён (не повторная
-        # доставка той же стадии) и либо каскад завершён, либо следующая стадия
-        # не смогла быть поставлена (fallback, чтобы не терять фит-результаты).
+        # Уведомление после КАЖДОЙ стадии: только когда результат этой стадии
+        # изменён (не повторная доставка той же стадии) и возвращаемое значение
+        # стадии прошло её собственный порог.
         stage_changed = existing.score_method != row.score_method
         if (
             stage_changed
             and state.notifier is not None
-            and row.fit_score is not None
-            and row.fit_score >= state.notify_min_fit_score
-            and (_is_terminal_stage(row, state.cfg) or not transitioned)
+            and _meets_stage_notify_threshold(row, state)
         ):
             await state.notifier.notify(_row_to_record(row))
         return _procurement_detail_out(row)

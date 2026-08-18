@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -53,6 +54,15 @@ class Settings(BaseSettings, PwinCoefficients):
 
     # Пайплайн
     score_round_digits: int = 4
+
+    # Заглушка: константное P(win) без расчёта по карточке (модель калибруется).
+    # Включать, пока модель коэффициентов не отлажена. AliasChoices: из-за
+    # env_prefix="PWIN_" без явного алиаса pydantic ждёт PWIN_use_stub.
+    use_stub: bool = Field(
+        default=False, validation_alias=AliasChoices("use_stub", "PWIN_USE_STUB")
+    )
+    # Константа P(win) в режиме заглушки (0..1).
+    stub_pwin: float = Field(default=0.5, ge=0, le=1)
 
     @classmethod
     def settings_customise_sources(

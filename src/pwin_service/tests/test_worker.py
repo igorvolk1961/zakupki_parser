@@ -48,7 +48,8 @@ class _MissingParser:
 
 @pytest.fixture
 async def worker_queue():
-    settings = Settings(parser_retry_backoff_seconds=0.0)
+    # config.yaml включает use_stub — для теста формулы включаем расчёт по карточке.
+    settings = Settings(parser_retry_backoff_seconds=0.0, use_stub=False)
     worker = PwinWorker(settings)
     worker._queue._client = FakeRedis(server=FakeServer(), decode_responses=True)  # noqa: SLF001
     yield worker
@@ -71,6 +72,23 @@ async def test_pwin_publishes_result(worker_queue) -> None:
     assert data["p_win"] == 0.72
     assert data["fit_score"] == 0.7
     assert data["score"] == 0.504
+
+
+async def test_pwin_stub_returns_constant() -> None:
+    """Заглушка: P(win) = константа stub_pwin, без расчёта по карточке."""
+    settings = Settings(parser_retry_backoff_seconds=0.0, use_stub=True, stub_pwin=0.42)
+    worker = PwinWorker(settings)
+    worker._queue._client = FakeRedis(server=FakeServer(), decode_responses=True)  # noqa: SLF001
+    worker._parser = _StubParser()
+    try:
+        await worker._queue.enqueue(1, 0.7)
+        await worker._process_once()
+        payload = await worker._queue._client.lindex(settings.results_key, 0)
+        data = json.loads(payload)
+        assert data["p_win"] == 0.42
+        assert data["score"] == round(0.7 * 0.42, 4)
+    finally:
+        await worker._queue.close()
 
 
 async def test_transient_parser_error_requeues_job(worker_queue) -> None:

@@ -59,8 +59,17 @@ class PwinWorker:
         )
 
     def _compute_payload(self, record: dict[str, Any], procurement_id: int) -> dict[str, Any]:
-        """Расчёт P(win) и накопленного score = fit × p_win."""
-        p_win = compute_pwin(record, self._settings)
+        """Расчёт P(win) и накопленного score = fit × p_win.
+
+        В режиме заглушки (``use_stub``) P(win) = константа ``stub_pwin``
+        (модель коэффициентов ещё калибруется) — каскад завершается без
+        зависимости от полей карточки.
+        """
+        p_win = (
+            self._settings.stub_pwin
+            if self._settings.use_stub
+            else compute_pwin(record, self._settings)
+        )
         fit_score = float(record.get("fit_score") or 0.0)
         score = round(fit_score * p_win, self._settings.score_round_digits)
         return {

@@ -47,3 +47,8 @@ ai_markers:
 
 # Пайплайн
 score_round_digits: 4
+
+# Заглушка: P(win) = константа stub_pwin (модель коэффициентов калибруется).
+# Переопределяется env PWIN_USE_STUB.
+use_stub: true
+stub_pwin: 0.5

@@ -17,14 +17,23 @@ notifications:
     chat_id: '-1004416405744'
     timeout_seconds: 10.0
   max:
-    enabled: false
+    enabled: true
     chat_id: '-77593707840894'
     timeout_seconds: 10.0
     insecure_tls: true
   webhook:
     enabled: false
     timeout_seconds: 10.0
-  notify_min_fit_score: 0.4
+  # Уведомления — после каждой стадии каскада (fit/pwin/margin), порог по
+  # возвращаемому значению стадии; 0 — порог отключён (уведомлять без ограничений).
+  # notify_fit_enabled/notify_pwin_enabled/notify_margin_enabled=false — стадия
+  # нотификации выключена целиком (уведомление после стадии не отправляется вовсе).
+  notify_fit_enabled: true
+  notify_min_fit_score: 0.7
+  notify_pwin_enabled: false
+  notify_min_pwin: 0.0
+  notify_margin_enabled: false
+  notify_min_margin: 0.0
 export_dir: data/export
 circuit_breaker_failure_threshold: 5
 circuit_breaker_reset_timeout_seconds: 60.0

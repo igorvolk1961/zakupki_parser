@@ -60,12 +60,14 @@ class ScoreConfig(BaseModel):
             "если внешний fit_score >= порога (каскад Fit -> P(win) -> Margin)"
         ),
     )
-    margin_threshold: float = Field(
-        default=0.6,
+    margin_pwin_threshold: float = Field(
+        default=0.3,
         ge=0,
+        le=1,
         description=(
-            "порог запуска стадии Margin: закупка ставится в очередь margin:jobs, "
-            "если накопленный score (fit_score × p_win) >= порога"
+            "порог запуска стадии Margin по возвращаемому значению стадии P(win): "
+            "закупка ставится в очередь margin:jobs, если p_win >= порога "
+            "(не по произведению score — каскад Fit -> P(win) -> Margin)"
         ),
     )
     pwin_enabled: bool = Field(

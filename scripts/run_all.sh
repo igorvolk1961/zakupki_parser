@@ -4,9 +4,11 @@
 #   1. инфраструктура — PostgreSQL (scripts/db_up.sh) + Redis;
 #   2. LangFuse (docker, профиль langfuse) — трассировка LLM скоринга. По умолчанию
 #      поднимается; отключить: SKIP_LANGFUSE=1 scripts/run_all.sh;
-#   3. scoring_service — фоновый воркер Redis-очереди (в режиме заглушки,
-#      пока LLM-пайплайн не отлажен: SCORE_USE_STUB/score_use_stub);
-#   4. scoring_transport — gateway скоринга (ingest + возврат результата);
+#   3. scoring_service — фоновый воркер Redis-очереди стадии Fit (LLM-пайплайн);
+#   4. pwin_service — воркер стадии P(win) (в режиме заглушки: P(win) = константа,
+#      пока модель коэффициентов не отлажена — PWIN_USE_STUB);
+#   5. margin_service — воркер стадии Margin (Margin = НМЦК × margin_rate);
+#   6. scoring_transport — gateway скоринга (ingest + возврат результата);
 #
 # Парсер запускается отдельной командой (не внутри этого скрипта):
 #   uv run zp --configs configs serve --host 0.0.0.0 --port <PORT_PARSER>
@@ -40,11 +42,13 @@ scoring_process_pids() {
     if command -v pgrep >/dev/null 2>&1; then
         pgrep -f "scoring_transport serve" 2>/dev/null
         pgrep -f "scoring_service worker" 2>/dev/null
+        pgrep -f "pwin_service worker" 2>/dev/null
+        pgrep -f "margin_service worker" 2>/dev/null
     else
         # Windows (Git Bash): pgrep отсутствует — ищем python-процессы по
-        # командной строке через PowerShell (скоринг-транспорт/воркер).
+        # командной строке через PowerShell (скоринг-транспорт/воркеры).
         powershell -NoProfile -Command \
-            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -match 'scoring_(transport serve|service worker)' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -match 'scoring_(transport serve|service worker)|pwin_service worker|margin_service worker' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null
     fi
 }
 
@@ -200,11 +204,25 @@ fi
 COMMON_PATH="$ROOT_DIR/src/scoring_common"
 SCORING_PYTHONPATH="$COMMON_PATH${PYTHONPATH:+:$PYTHONPATH}"
 
-# --- scoring_service (воркер, заглушка) ------------------------------------
-echo "Запуск scoring_service (воркер, заглушка)..."
+# --- scoring_service (воркер стадии Fit, LLM-пайплайн) ---------------------
+echo "Запуск scoring_service (воркер Fit)..."
 ( cd "$ROOT_DIR/src/scoring_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     SCORE_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
     uv run python -m scoring_service worker ) &
+BGPIDS+=($!)
+
+# --- pwin_service (воркер стадии P(win), заглушка) -------------------------
+echo "Запуск pwin_service (воркер P(win), заглушка)..."
+( cd "$ROOT_DIR/src/pwin_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
+    PWIN_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" PWIN_USE_STUB=true \
+    uv run python -m pwin_service worker ) &
+BGPIDS+=($!)
+
+# --- margin_service (воркер стадии Margin) ---------------------------------
+echo "Запуск margin_service (воркер Margin)..."
+( cd "$ROOT_DIR/src/margin_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
+    MARGIN_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
+    uv run python -m margin_service worker ) &
 BGPIDS+=($!)
 
 # --- scoring_transport ------------------------------------------------------
