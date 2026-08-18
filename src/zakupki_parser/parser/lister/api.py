@@ -47,7 +47,7 @@ async def fetch_api_items(page: Page, url: str) -> list[dict[str, Any]]:
     if not resp.ok:
         raise RuntimeError(f"API списка вернул HTTP {resp.status}")
     try:
-        data = resp.json()
+        data = await resp.json()
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"API списка: некорректный JSON: {exc}") from exc
     items = data.get("data") if isinstance(data, dict) else None

@@ -12,9 +12,9 @@ sites:
 - platform_id: fabrikant
   enabled: false
 - platform_id: b2b_center
-  enabled: true
-- platform_id: etpgpb
   enabled: false
+- platform_id: etpgpb
+  enabled: true
 - platform_id: lot_online_44
   enabled: true
 - platform_id: lot_online_223
@@ -33,9 +33,5 @@ stop_conditions:
   deadline_not_expired: true
   min_deadline_days: 0
   keyword_context_required: true
-  # Явный regex для keyword_context_required: «ИИ» учитывается только как отдельное
-  # слово или перед дефисом (отсекает «инвестиции», «АИИС», «ИИС»). Если «ИИ» есть
-  # отдельным словом/перед дефисом хотя бы раз — закупка проходит, даже если оно
-  # встречается ещё и внутри другого слова.
   keyword_context_regexes:
-    ИИ: "(?<!\\w)ИИ(?!\\w)"
+    ИИ: (?<!\w)ИИ(?!\w)
