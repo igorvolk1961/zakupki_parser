@@ -144,6 +144,14 @@ class DomDetailConfig(BaseModel):
             "клиентом после загрузки оболочки)"
         ),
     )
+    path_replace_from: str | None = Field(
+        default=None,
+        description=(
+            "подстрока детального URL, заменяемая перед переходом на страницу "
+            "(например, common → lot, когда поле есть только на странице лотов)"
+        ),
+    )
+    path_replace_to: str | None = Field(default=None, description="замена для path_replace_from")
     files: list[FileSpec] = Field(
         default_factory=list, description="элементы ссылок на скачиваемые файлы"
     )
