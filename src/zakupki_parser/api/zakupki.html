@@ -26,8 +26,6 @@
   header h1 { font-size:18px; margin:0; }
   header .sub { color: var(--muted); font-size:13px; }
   header .header-right { display:flex; align-items:center; gap:18px; }
-  .admin-toggle { color: var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none;}
-  .admin-toggle input { margin:0; }
   main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center;}
   input, select, button { background: var(--panel2); border:1px solid var(--line); color: var(--text);
@@ -115,7 +113,6 @@
   .login-modal .error { color: #dc2626; font-size:13px; min-height:18px; margin-bottom:8px; }
   .login-modal .switch { margin-top:14px; text-align:center; font-size:13px; }
   .login-modal .switch button { background:none; border:none; color: var(--accent); cursor:pointer; padding:0; font-size:13px; }
-  .login-note { margin-top:8px; text-align:center; font-size:12px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -129,9 +126,6 @@
       <option value="light">Светлая</option>
       <option value="dark">Тёмная</option>
     </select>
-    <label class="admin-toggle" id="admin-toggle" title="Доступ к «Очистить БД», «Выгрузить CSV», «Параметры» и «Промпты»">
-      <input type="checkbox" id="admin"> Режим администратора
-    </label>
     <span class="user-bar" id="user-bar" style="display:none;">
       <b id="user-name"></b><span class="pill" id="user-role"></span>
       <button class="ghost" id="logout" title="Выйти">Выйти</button>
@@ -311,12 +305,15 @@
       <label for="login-password">Пароль</label>
       <input id="login-password" type="password" autocomplete="current-password" placeholder="пароль">
     </div>
+    <div class="field" id="login-confirm-field" style="display:none;">
+      <label for="login-password-confirm">Подтверждение пароля</label>
+      <input id="login-password-confirm" type="password" autocomplete="new-password" placeholder="повторите пароль">
+    </div>
     <div class="error" id="login-error"></div>
     <div class="toolbar" style="margin-bottom:0; justify-content:flex-end;">
       <button class="primary" id="login-submit">Войти</button>
     </div>
     <div class="switch"><span class="muted">Нет аккаунта?</span> <button id="login-switch">Зарегистрироваться</button></div>
-    <div class="login-note">Роль администратора выставляется в таблице БД.</div>
   </div>
 </div>
 
@@ -355,6 +352,8 @@ function escapeHtml(s) {
 const TOKEN_KEY = "zp_token";
 let authUser = null;          // профиль пользователя из /api/auth/me (null — без авторизации)
 let loginMode = "login";      // "login" | "register"
+let authRequired = false;     // авторизация включена на сервере (нужен токен для WS)
+let wsSocket = null;          // текущий WebSocket канала обновлений
 
 function authToken() { return localStorage.getItem(TOKEN_KEY); }
 function setToken(t) { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); }
@@ -373,6 +372,8 @@ function showLogin() {
   $("#login-error").textContent = "";
   $("#login-password").type = "password";
   $("#login-password").autocomplete = "current-password";
+  $("#login-confirm-field").style.display = "none";
+  $("#login-password-confirm").value = "";
   $("#login-modal-bg").classList.add("open");
   $("#login-username").focus();
 }
@@ -382,25 +383,36 @@ function hideLogin() { $("#login-modal-bg").classList.remove("open"); }
 async function doLogin(register) {
   const username = $("#login-username").value.trim();
   const password = $("#login-password").value;
+  const confirm = $("#login-password-confirm").value;
   const err = $("#login-error");
   err.textContent = "";
   if (!username || !password) { err.textContent = "Укажите логин и пароль"; return; }
+  if (register) {
+    if (!confirm) { err.textContent = "Повторите пароль"; return; }
+    if (password !== confirm) { err.textContent = "Пароли не совпадают"; return; }
+  }
   $("#login-submit").disabled = true;
   try {
+    const body = register ? { username, password, password_confirm: confirm } : { username, password };
     const r = await fetch(register ? "/api/auth/register" : "/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(body),
     });
-    const body = await r.json().catch(() => ({}));
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) {
-      err.textContent = (body && body.detail) || "Не удалось выполнить вход";
+      // 422 — ошибка валидации: detail — массив ошибок полей.
+      let detail = data.detail;
+      if (Array.isArray(detail)) detail = detail.map((d) => d.msg).join("; ");
+      err.textContent = detail || "Не удалось выполнить вход";
       return;
     }
-    setToken(body.access_token);
-    authUser = body.user;
+    setToken(data.access_token);
+    authUser = data.user;
+    authRequired = true;
     hideLogin();
     renderAuth();
+    connectWS();
     loadProc(); loadCustomers(); loadPlatforms(); loadActiveClient();
   } catch (e) {
     err.textContent = "Ошибка: " + e.message;
@@ -410,17 +422,13 @@ async function doLogin(register) {
 }
 
 function renderAuth() {
-  const bar = $("#user-bar"), toggle = $("#admin-toggle");
+  const bar = $("#user-bar");
   if (authUser) {
     bar.style.display = "flex";
     $("#user-name").textContent = authUser.username;
-    const roleName = authUser.role === "admin" ? "администратор" : "тендеролог";
-    $("#user-role").textContent = roleName;
-    // Для тендеролога переключатель администратора не показываем.
-    toggle.style.display = authUser.role === "admin" ? "" : "none";
+    $("#user-role").textContent = authUser.role === "admin" ? "администратор" : "тендеролог";
   } else {
     bar.style.display = "none";
-    toggle.style.display = "";
   }
   updateControls();
 }
@@ -428,7 +436,8 @@ function renderAuth() {
 function logout() {
   setToken(null);
   authUser = null;
-  adminMode = false;
+  // Закрываем канал обновлений: при отсутствии токена onclose переподключаться не будет.
+  if (wsSocket) { try { wsSocket.close(); } catch (err) {} wsSocket = null; }
   renderAuth();
   showLogin();
 }
@@ -439,8 +448,8 @@ function logout() {
 async function checkAuth() {
   try {
     const r = await fetch("/api/auth/me", { headers: authHeaders() });
-    if (r.status === 200) { authUser = await r.json(); renderAuth(); return true; }
-    if (r.status === 401) { showLogin(); return true; }
+    if (r.status === 200) { authRequired = true; authUser = await r.json(); renderAuth(); return true; }
+    if (r.status === 401) { authRequired = true; showLogin(); return true; }
   } catch (e) { /* сервис ещё недоступен — повторим при следующем действии */ }
   renderAuth();
   return false;
@@ -1029,18 +1038,16 @@ $("#tab-prompts").addEventListener("click", () => {
 // --- Парсер ------------------------------------------------------------
 let parserTimer = null;
 let prevRunning = false;
-let adminMode = false;
 let parserRunning = false;
 let stopping = false;
 
 function updateControls() {
   $("#parser-start").disabled = parserRunning;
   $("#parser-stop").disabled = !parserRunning || stopping;
-  // Элементы режима администратора скрываются, а не просто блокируются.
-  // При включённой авторизации админ-режим доступен только роли admin
-  // (роль задаётся в таблице БД); в dev-режиме (без авторизации) — всем.
-  const adminAllowed = !authUser || authUser.role === "admin";
-  const adminOn = adminMode && adminAllowed;
+  // Элементы администратора видны автоматически для роли admin (или в dev-режиме
+  // без авторизации — всем). Роль регистрацией не выдаётся; задаётся env-сидом
+  // администратора или в таблице БД.
+  const adminOn = !authUser || authUser.role === "admin";
   $("#db-clear").style.display = adminOn ? "" : "none";
   $("#db-clear").disabled = parserRunning;
   $("#db-export").style.display = adminOn ? "" : "none";
@@ -1065,7 +1072,6 @@ async function refreshParserStatus() {
   }
   return s;
 }
-$("#admin").addEventListener("change", (e) => { adminMode = e.target.checked; updateControls(); });
 
 // --- Вход / регистрация --------------------------------------------------
 $("#login-submit").addEventListener("click", () => doLogin(loginMode === "register"));
@@ -1074,8 +1080,10 @@ $("#login-switch").addEventListener("click", () => {
   $("#login-title").textContent = loginMode === "register" ? "Регистрация" : "Вход";
   $("#login-switch").textContent = loginMode === "register" ? "Войти" : "Зарегистрироваться";
   $("#login-submit").textContent = loginMode === "register" ? "Создать аккаунт" : "Войти";
-  $("#login-password").type = loginMode === "register" ? "password" : "password";
+  $("#login-password").type = "password";
   $("#login-password").autocomplete = loginMode === "register" ? "new-password" : "current-password";
+  $("#login-confirm-field").style.display = loginMode === "register" ? "" : "none";
+  $("#login-password-confirm").value = "";
   $("#login-error").textContent = "";
   $("#login-username").focus();
 });
@@ -1219,28 +1227,35 @@ function scheduleRefresh() {
   }, 500);
 }
 function connectWS() {
-  const proto = location.protocol === "https:" ? "wss" : "ws";
+  // При включённой авторизации без токена не подключаемся: иначе сервер
+  // отклоняет каждый запрос (403) и клиент спамит в лог.
   const t = authToken();
+  if (authRequired && !t) return;
+  // Не плодим дубликаты соединений (повторный вход, переподключение).
+  if (wsSocket && (wsSocket.readyState === WebSocket.CONNECTING || wsSocket.readyState === WebSocket.OPEN)) return;
+  const proto = location.protocol === "https:" ? "wss" : "ws";
   const url = `${proto}://${location.host}/ws` + (t ? "?token=" + encodeURIComponent(t) : "");
   const ws = new WebSocket(url);
+  wsSocket = ws;
   ws.onmessage = scheduleRefresh;
-  ws.onclose = () => setTimeout(connectWS, 3000); // авто-переподключение
+  ws.onclose = () => {
+    wsSocket = null;
+    // Переподключаемся только если всё ещё есть токен (вход выполнен).
+    if (authToken()) setTimeout(connectWS, 3000);
+  };
   ws.onerror = () => { try { ws.close(); } catch (err) {} };
 }
-connectWS();
 
 (async function init() {
-  // Режим администратора всегда выключен при старте страницы (браузер может
-  // восстанавливать состояние формы после перезагрузки).
-  adminMode = false;
-  $("#admin").checked = false;
   updateControls();
   // Состояние переключателя «Только релевантные» и числового поля порога.
   $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
   updateMinFit();
-  // При включённой авторизации без входа не загружаем данные (ждём логин).
+  // При включённой авторизации без входа не загружаем данные (ждём логин) —
+  // WebSocket подключится после успешного входа (см. doLogin).
   const authActive = await checkAuth();
   if (authActive && !authUser) return;
+  connectWS();
   try {
     await loadPlatforms();
     await loadProc();

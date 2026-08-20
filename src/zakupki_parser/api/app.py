@@ -17,7 +17,14 @@ from typing import Any
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import text as sql_text
 from sqlalchemy.exc import IntegrityError
 
@@ -169,12 +176,19 @@ class UserOut(BaseModel):
 class RegisterIn(BaseModel):
     """Самостоятельная регистрация: пользователь сам выбирает пароль.
 
-    Роль при регистрации всегда ``tenderologist``; роль администратора задаётся
-    напрямую в таблице БД (``UPDATE users SET role='admin' WHERE ...``).
+    Требуется подтверждение пароля (``password_confirm``). Роль при регистрации
+    всегда ``tenderologist``; роль администратора регистрацией не выдаётся.
     """
 
     username: str = Field(min_length=1, max_length=128)
     password: str = Field(min_length=8)
+    password_confirm: str = Field(min_length=8)
+
+    @model_validator(mode="after")
+    def _passwords_match(self) -> RegisterIn:
+        if self.password != self.password_confirm:
+            raise ValueError("password_confirm не совпадает с password")
+        return self
 
 
 class TokenOut(BaseModel):
@@ -668,8 +682,10 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     async def register(body: RegisterIn) -> TokenOut:
         """Самостоятельная регистрация: пользователь сам выбирает пароль.
 
-        Роль — ``tenderologist``; роль администратора выставляется напрямую
-        в таблице БД (см. комментарий к ``RegisterIn``).
+        Роль при регистрации всегда ``tenderologist``. Роль администратора
+        регистрацией не выдаётся — её задаёт администратор системы (env-сид
+        ``ZAKUPKI_ADMIN_USERNAME``/``ZAKUPKI_ADMIN_PASSWORD`` при первом старте
+        либо правка таблицы ``users``).
         """
         _auth_disabled()
         if await _repo().get_user_by_username(body.username) is not None:
@@ -685,7 +701,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             ) from exc
         ttl = state.cfg.ops.auth.token_ttl_seconds
         token = create_token(user.id, user.role, state.cfg.ops.auth.secret or "", ttl)
-        logger.info("Зарегистрирован пользователь %s (роль tenderologist)", user.username)
+        logger.info("Зарегистрирован пользователь %s (роль %s)", user.username, user.role)
         return TokenOut(access_token=token, expires_in=ttl, user=UserOut.model_validate(user))
 
     @app.get(

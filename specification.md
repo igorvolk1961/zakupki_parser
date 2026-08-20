@@ -427,9 +427,12 @@ score_method/rag_report`, UNIQUE `(procurement_id, client_id)`). Базовая 
 Пользователи сервиса: **администратор** (`admin`) и **тендеролог**
 (`tenderologist`). Пока вход по логину и паролю (позже — OAuth2 через Сбер ID).
 
-- **Регистрация самостоятельная** (`POST /api/auth/register {username, password}`):
-  пользователь сам выбирает пароль, роль при регистрации — `tenderologist`.
-  **Роль администратора выставляется напрямую в таблице БД** (`UPDATE users SET role='admin'`).
+- **Регистрация самостоятельная** (`POST /api/auth/register {username, password, password_confirm}`):
+  пользователь сам выбирает пароль (обязательно подтверждение), роль при
+  регистрации всегда — `tenderologist`. **Роль администратора регистрацией не
+  выдаётся**: начальный администратор создаётся env-сидом
+  (`ZAKUPKI_ADMIN_USERNAME`/`ZAKUPKI_ADMIN_PASSWORD` при первом старте, если
+  таблица `users` пуста) либо правкой таблицы БД (`UPDATE users SET role='admin'`).
 - `POST /api/auth/login` — вход, возвращает bearer-токен и профиль
   (`{access_token, expires_in, user}`); `GET /api/auth/me` — текущий пользователь;
   `POST /api/auth/logout` — выход (stateless, токен удаляется клиентом).

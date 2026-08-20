@@ -1,7 +1,8 @@
 """Интеграционные тесты авторизации (требуют PostgreSQL).
 
-Проверяют самостоятельную регистрацию (пользователь сам выбирает пароль),
-вход, защиту эндпоинтов и выдачу роли администратора напрямую в таблице БД.
+Проверяют самостоятельную регистрацию (пароль + подтверждение), вход и защиту
+эндпоинтов. Роль при регистрации всегда ``tenderologist`` — администраторская
+роль регистрацией не выдаётся.
 """
 
 from __future__ import annotations
@@ -94,9 +95,10 @@ def _headers(token: str) -> dict[str, str]:
 
 def test_register_login_me(auth_client: TestClient) -> None:
     client = auth_client
-    # Регистрация: пароль выбирает сам пользователь, роль — tenderologist.
+    # Регистрация: пароль выбирает сам пользователь + подтверждение, роль — tenderologist.
     resp = client.post(
-        "/api/auth/register", json={"username": "tender1", "password": "password123"}
+        "/api/auth/register",
+        json={"username": "tender1", "password": "password123", "password_confirm": "password123"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -105,11 +107,24 @@ def test_register_login_me(auth_client: TestClient) -> None:
     assert body["user"]["role"] == "tenderologist"
 
     # Дубликат логина отклоняется.
-    dup = client.post("/api/auth/register", json={"username": "tender1", "password": "password123"})
+    dup = client.post(
+        "/api/auth/register",
+        json={"username": "tender1", "password": "password123", "password_confirm": "password123"},
+    )
     assert dup.status_code == 409
 
+    # Подтверждение пароля не совпадает — 422.
+    mismatch = client.post(
+        "/api/auth/register",
+        json={"username": "tender2", "password": "password123", "password_confirm": "password124"},
+    )
+    assert mismatch.status_code == 422
+
     # Короткий пароль — 422.
-    short = client.post("/api/auth/register", json={"username": "short", "password": "short"})
+    short = client.post(
+        "/api/auth/register",
+        json={"username": "short", "password": "short", "password_confirm": "short"},
+    )
     assert short.status_code == 422
 
     # Вход под тем же паролем, который выбрал пользователь.
@@ -200,29 +215,23 @@ def test_tenderologist_cannot_use_admin_endpoints(auth_client: TestClient) -> No
     assert client.put("/api/config", headers=headers, json={}).status_code == 403
 
 
-def test_admin_role_set_directly_in_db(auth_client: TestClient) -> None:
-    """Роль администратора выставляется напрямую в таблице БД (без API)."""
+def test_register_never_grants_admin_role(auth_client: TestClient) -> None:
+    """Регистрация (даже под логином admin) всегда даёт роль tenderologist.
+
+    Роль администратора регистрацией не выдаётся — она задаётся env-сидом
+    начального администратора или администратором системы.
+    """
     client = auth_client
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "admin", "password": "password123", "password_confirm": "password123"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["user"]["role"] == "tenderologist"
 
-    async def _promote() -> None:
-        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
-        await db.connect()
-        try:
-            repo = ProcurementRepository(db)
-            user = await repo.get_user_by_username("tender1")
-            assert user is not None
-            user.role = "admin"
-            async with db.session() as session:
-                await session.commit()
-        finally:
-            await db.dispose()
-
-    asyncio.run(_promote())
-
-    token = _login(client, "tender1", "password123")
-    headers = _headers(token)
-    # Теперь админ-эндпоинт доступен (парсер остановлен — очистка разрешена).
-    assert client.post("/api/db/clear", headers=headers).status_code == 200
+    # Тендеролог не имеет доступа к админ-эндпоинту.
+    token = _login(client, "admin", "password123")
+    assert client.post("/api/db/clear", headers=_headers(token)).status_code == 403
 
 
 def test_websocket_requires_token(auth_client: TestClient) -> None:
