@@ -1,5 +1,10 @@
 # Спецификация парсера площадок закупок
 
+> **Статус: текущее состояние (v0.3.0).** Целевая архитектура — мультитенантный SaaS
+> «TenderSearch» по `docs/system_analisys/` (требования, ER, NFR) — и roadmap этапов
+> перестройки описаны в разделе [14. Целевая архитектура (TenderSearch)](#14-целевая-архитектура-tendersearch).
+> Этапы перестройки и статусы — в `plans/plan.md`, детальные планы — в `plans/00_plan.md`+.
+
 ## 1. Назначение
 Сервис автоматически собирает информацию о закупках с платформ госзакупок и
 коммерческих тендеров, сохраняет её в PostgreSQL и оповещает подписчиков.
@@ -487,3 +492,209 @@ score_method/rag_report`, UNIQUE `(procurement_id, client_id)`). Базовая 
 (каскад скоринга), `parser` (приложение + Chromium), `api` (FastAPI, порт 8000),
 а также профиль `langfuse` (трассировка LLM). DSN задаётся
 через `ZAKUPKI_DB_DSN`.
+
+---
+
+## 14. Целевая архитектура (TenderSearch)
+
+> Этап 0 перестройки: фиксация требований и roadmap. Разделы 1–13 описывают **текущее
+> состояние (v0.3.0)**; раздел 14 — целевую модель по `docs/system_analisys/`
+> (Vision & Scope, User Stories Эпики 1–9, Business Rules BR-01…BR-07, ER-диаграмма, NFR).
+> Источник решений: мастер-план `.kilo/plans/1787250023996-architecture-multitenancy-master-plan.md`
+> (локальный, `.kilo/` в git не входит); трекер прогресса — `plans/plan.md`;
+> детальный план этапа 0 — `plans/00_plan.md`.
+
+### 14.1 Gap-анализ: текущее состояние (v0.3.0) vs требования docs/system_analisys
+
+Обозначения статуса: ✅ реализовано · 🟡 частично · ❌ отсутствует.
+
+**Эпики 1–6 (бизнес-функциональность):**
+
+| Требование (docs) | Статус | Место в коде | Закрывает этап |
+| :---------------- | :----- | :----------- | :------------- |
+| US-1.1–1.4 Профили фильтрации (слова, исключения, ЭТП, законы, несколько профилей) | 🟡 `client_profiles` есть (name, keywords, exclusion_words, competencies, questions), но глобальные (активный — в конфиге), нет per-user, нет target_etp/target_laws | `storage/db.py`, `api/app.py`, `config_score.yaml` | 1, 3 |
+| ER: таблица `keywords` (word, type) | ❌ слова — JSONB-массивы профиля | `storage/db.py` | 1, 3 |
+| US-2.1 Периодический сбор закупок | ✅ планировщик по списку площадок | `scheduler.py` | — |
+| US-2.2 Первичный скоринг Fit | ✅ LLM-пайплайн, `fit_score`, пороги | `scoring_service/`, `api/app.py` | — |
+| US-2.3 Сортировка по убыванию Fit | ✅ `sort=fit_score` | `storage/repository.py` | — |
+| US-2.4 Не прошедшие фильтр не попадают в список | 🟡 stop-условия (`keyword_context_required`, `exclusion_words_present`); R9 меняет механику на клиентскую пост-фильтрацию **до записи в БД** | `parser/orchestrator/stop.py` | 4 |
+| US-2.5 Не показывать отклонённые повторно | ❌ отклонение = `score_method=reject`; скрытия из выдачи нет | `api/app.py` | 6 |
+| US-3.1 Оповещение о высокорелевантных закупках в Telegram | 🟡 уведомления после стадий каскада есть (Telegram/MAX/webhook); оповещение по каждой высокорелевантной закупке в Telegram — с этапа 8; дайджест топ-3 **не нужен** (US-3.4 удалён решением заказчика) | `notify.py`, `api/app.py` | 8 |
+| US-3.3 Экспорт XLSX | 🟡 только CSV | `api/app.py` (`/api/procurements/export`) | 8 |
+| US-4.1 Инициация детального анализа ТЗ | ✅ `POST /api/procurements/analyze` → `analysis_service` | `api/app.py`, `analysis_service/` | — |
+| US-4.2 Проверка опыта (ПП РФ 2571, hard/soft) | 🟡 RAG-вердикты по вопросам профиля; формальный маркер 2571 не выделен | `analysis_service/pipeline/rag.py` | 7 |
+| US-4.3 Реестр Минпромторга с учётом «не установлено» | 🟡 общий RAG; контекстный кейс «не установлено» не специфицирован | `rag.py` | 7 |
+| US-4.4 Лицензии (какая требуется) | 🟡 общий RAG-вопрос | `rag.py` | 7 |
+| US-4.5 Маркеры 🔴/🟡/🟢 в карточке | 🟡 вердикты `absolute/soft/no_stop_condition` есть; формализованных маркеров по проверкам нет | `rag.py`, `api/zakupki.html` | 7 |
+| US-5.1 «В работу» / «Отклонить» | 🟡 ручные пресеты (`manual-score`) и `reject`; статуса «В работе» нет | `api/app.py` | 6 |
+| US-5.2 Причина отклонения | ❌ | — | 6 |
+| US-5.3 Предложение добавить слово-исключение | ❌ | — | 6 |
+| US-6.1/6.2 Сводка «В работу» в XLSX с маркерами | ❌ | — | 8 |
+
+**Эпики 7–9 (мультитенантность, наблюдаемость, compliance) и BR:**
+
+| Требование (docs) | Статус | Место в коде | Закрывает этап |
+| :---------------- | :----- | :----------- | :------------- |
+| US-7.1–7.5 Регистрация, trial **10 лет** (оплата не обязательна), заморозка, удаление через 90 дней | 🟡 `users` + регистрация/логин есть; нет email/status/trial_end_date/заморозки/удаления; подтверждение email — целевая модель, в MVP не реализуется | `auth.py`, `api/app.py`, `storage/db.py` | 2 |
+| US-7.6/7.7 Админ-управление пользователями, создание админов | ❌ (только env-сид первого админа) | `api/app.py` | 2, 10 |
+| US-7.8/7.9, BR-07 Изоляция по user_id на уровне БД | 🟡 оценки per-client (`client_id`), активный профиль глобальный; нет user_id-скоупа | `storage/db.py`, `repository.py` | 1 |
+| ER: `subscriptions` | ❌ (заглушка; оплата вне MVP) | — | 1 |
+| ER: `audit_log` | ❌ | — | 1, 2, 9 |
+| ER: `procedure_categories` (pwin_coefficient) | ❌ (заглушка) | — | 1 |
+| BR-01 Кэширование/пропуск неизменного | 🟡 `known_numbers`, `total_results` early-exit, unique-constraint; кэша ответов ЭТП нет | `orchestrator.py`, `repository.py` | 5 |
+| BR-02 Первичный скоринг Fit (стоп-слова, веса, порог) | ✅ | `scoring_service/`, `config_score.yaml` | — |
+| BR-03 Валидация опыта (ПП РФ 2571) | 🟡 (см. US-4.2) | `rag.py` | 7 |
+| BR-04 Контекстный анализ реестра Минпромторга («не установлено») | 🟡 (см. US-4.3) | `rag.py` | 7 |
+| BR-05 Жизненный цикл аккаунта | ❌ | — | 2 |
+| BR-06 Обработка ошибок, DLQ после 3 попыток | 🟡 retry/backoff/recovery, circuit breaker; явной DLQ нет | `retry.py`, `circuit.py`, `scoring_common/stage_worker.py` | 10 |
+| US-8.1 Метрики (Prometheus/LangFuse) | 🟡 LangFuse-трейсинг LLM есть; `GET /metrics` нет | `scoring_service/`, `docker-compose.yml` | 10 |
+| US-8.2 Админ-панель пользователей | 🟡 web-демо без управления аккаунтами | `api/zakupki.html` | 2, 10 |
+| US-8.3 Stateless-воркеры, горизонтальное масштабирование | 🟡 стадии скоринга — stateless; парсер — один процесс | `scoring_*`, `docker-compose.yml` | 5C |
+| US-9.1 Дисклеймер в UI/экспортах | ❌ | — | 8, 9 |
+| US-9.2 Уважение robots.txt, официальные API | ❌ | `browser/manager.py` | 9 |
+| US-9.3 Маскирование персональных данных | ❌ | — | 9 |
+| US-9.4 Аудит действий с IP | ❌ (только логи) | — | 2, 9 |
+| NFR-SEC-2 Секреты в env | ✅ | `config/loader.py` | — |
+| NFR-COST-1/3 Стоимость анализа, лимит токенов | 🟡 лимиты чанков/top-k есть; подсчёт стоимости на закупку нет | `analysis_service/settings.py`, `rag.py` | 7, 10 |
+| NFR-COST-2 Повторная обработка = $0 | 🟡 дедуп в БД; кэша ЭТП нет | — | 5 |
+| NFR-PERF-2 Асинхронные задачи (202 Accepted) | 🟡 `analyze`/`pwin-margin` возвращают «queued»; формальный 202 — на этапе асинхронных задач | `api/app.py` | 4, 5 |
+| NFR-REL-2/FT-1/FT-5 Устойчивость очередей, идемпотентность | 🟡 unique-constraints, TTL-аренда, recovery; идемпотентность по `(registry_number, user_id)` — с этапа 1 | `scoring_common/queue.py`, `repository.py` | 1, 10 |
+| NFR-FT-2 Graceful degradation при сбое LLM | 🟡 сбои LLM не роняют парсинг; статус «анализ отложен» не выводится | `scoring_service/`, `analysis_service/` | 7 |
+
+**Дополнительные требования заказчика (вне docs, зафиксированы в мастер-плане):**
+
+| Требование | Статус | Закрывает этап |
+| :--------- | :----- | :------------- |
+| R4 Кэш ЭТП — Redis; очереди задач — RabbitMQ (текущие Redis-очереди стадий — перевод); TTL = период повтора × 0.5 (ключ — ОКПД2-фильтр) | ❌ | 5, 5C |
+| R5 Параллельная обработка площадок (простой одной не блокирует другие) | ❌ последовательный обход в `Scheduler.run_once` | 5 |
+| R9 Ключевые слова — только клиентская пост-фильтрация до записи; сервер — только ОКПД2 (+ обход «без кода»; без позитивных слов обход «без кода» пропускается с логом) | ❌ противоречит: keywords в запросах ЭТП (`criteria_map.keywords` → searchString/nameLike/f_keyword, `keywords_one_at_a_time`) | 4 |
+
+### 14.2 Целевая модель данных (эволюция существующей)
+
+```mermaid
+erDiagram
+    USERS ||--o{ PROFILES : "владеет"
+    USERS ||--o{ EVALUATIONS : "оценивает"
+    USERS ||--o{ SUBSCRIPTIONS : "оформляет"
+    USERS ||--o{ AUDIT_LOG : "генерирует"
+    PROFILES ||--o{ KEYWORDS : "содержит"
+    PROCUREMENTS ||--o{ EVALUATIONS : "оценивается в"
+    PROCEDURE_CATEGORIES ||--o{ PROCUREMENTS : "классифицирует"
+
+    USERS {
+        int id PK
+        string username
+        string email
+        string password_hash
+        string role
+        string status
+        date trial_end_date
+        date last_activity_at
+        date created_at
+    }
+    PROFILES {
+        int id PK
+        int user_id FK
+        string name
+        jsonb target_etp
+        jsonb target_laws
+        float min_fit_threshold
+        bool enabled
+        text competencies
+        jsonb keywords
+        jsonb exclusion_words
+        jsonb keyword_context_regexes
+        jsonb questions
+    }
+    KEYWORDS {
+        int id PK
+        int profile_id FK
+        string word
+        string type
+    }
+    PROCUREMENTS {
+        int id PK
+        string number
+        string platform_id
+        int category_id FK
+    }
+    EVALUATIONS {
+        int id PK
+        int user_id FK
+        int procurement_id FK
+        float fit_score
+        float p_win
+        float margin
+        string score_method
+        jsonb rag_report
+        string status
+        text rejection_reason
+        date evaluated_at
+    }
+    SUBSCRIPTIONS {
+        int id PK
+        int user_id FK
+        string status
+        date start_date
+        date end_date
+    }
+    AUDIT_LOG {
+        int id PK
+        int user_id FK
+        string action_type
+        string resource_id
+        string ip_address
+        timestamp created_at
+    }
+    PROCEDURE_CATEGORIES {
+        int id PK
+        string name
+        float pwin_coefficient
+    }
+```
+
+Ключевые преобразования (миграция 1.29, этап 1):
+- `users` + `email`, `status` (`trial|active|frozen|deleted`), `trial_end_date` (= `now()+10 лет`),
+  `last_activity_at`, `delete_notified_at`; подтверждение email (`email_verified_at`) — целевая
+  модель, в MVP не заполняется;
+- `client_profiles` → `profiles` (+ `user_id`, `name` UNIQUE в пределах пользователя, `target_etp`/`target_laws`/`min_fit_threshold`);
+- `procurement_scores` → `procurement_evaluations` (+ `user_id`, `status`, `rejection_reason`, UNIQUE `(user_id, procurement_id)`);
+- новые `keywords`, `audit_log`, `subscriptions` (заглушка), `procedure_categories` (заглушка).
+
+### 14.3 Зафиксированные архитектурные решения (кратко)
+
+- **R1** — парсинг по (площадка × набор ОКПД2) + per-user пост-фильтрация и оценки; обходы общие и кэшируемые.
+- **R2** — эволюция существующих таблиц (без «legacy»-дублей), backfill на сервис-аккаунт.
+- **R3** — жизненный цикл аккаунта: целевая модель включает подтверждение email при
+  регистрации (в MVP **не реализуется**); trial-период **10 лет** (можно не оплачивать);
+  заморозка по истечении, удаление через 90 дней с уведомлением за 7 дней;
+  `subscriptions` — заглушка, оплата не обязательна.
+- **R4** — кэш ЭТП — **Redis** (решение принято): ключ `platform + ОКПД2-фильтр`
+  (+пагинация; детали — URL), `TTL = timeout_seconds × 0.5`; **очереди задач (парсинг,
+  стадии скоринга, анализ) — RabbitMQ** (решение принято); текущие Redis-очереди стадий
+  переводятся за абстракцией `scoring_common/queue.py`.
+- **R5** — параллельная обработка площадок: asyncio-задачи в планировщике → очередь `parser:jobs` + stateless воркеры.
+- **R6** — изоляция BR-07: репозиторий фильтрует по `user_id`; внутренние вызовы — только `X-Internal-Token`.
+- **R7** — сервис-аккаунт (админ) до этапа 4; `config_score.yaml -> active_client_id` deprecated.
+- **R8** — сид таблицы `keywords` из `data/key_words.md`.
+- **R9** — ключевые слова — клиентская пост-фильтрация до записи; серверная фильтрация — только ОКПД2 (+ обход «без кода», пропускаемый без позитивных слов с логом).
+
+### 14.4 Roadmap этапов перестройки
+
+| Этап | Содержание | Трекер/план |
+| :--- | :--------- | :---------- |
+| 0 | Базовая линия и документация (данный раздел) | `plans/00_plan.md` |
+| 1 | Мультитенантная модель данных (BR-07): миграция 1.29, `profiles`/`evaluations`/`keywords`/`audit_log`/`subscriptions`/`categories`, tenant-скоуп репозитория | `plans/plan.md` |
+| 2 | Жизненный цикл аккаунта (BR-05): регистрация, trial/заморозка/удаление, админ-управление, аудит | `plans/plan.md` |
+| 3 | Профили фильтрации (Эпик 1): per-user CRUD, сид `keywords` из `data/key_words.md` | `plans/plan.md` |
+| 4 | Парсинг по ОКПД2 + клиентская фильтрация словами + per-user оценки (R1, R9) | `plans/plan.md` |
+| 5 | Кэш ЭТП (R4, Redis) и параллельные площадки (R5): asyncio → очередь `parser:jobs` (RabbitMQ) + воркеры | `plans/plan.md` |
+| 6 | Решения и обратная связь (Эпик 5): «В работу»/«Отклонить», причины, скрытие отклонённых, предложения слов | `plans/plan.md` |
+| 7 | Глубокая проверка ТЗ с маркерами 🔴/🟡/🟢 (Эпик 4, BR-03/04): опыт 2571, Минпромторг, лицензии | `plans/plan.md` |
+| 8 | Доставка и экспорт (Эпики 3, 6): оповещение о высокорелевантных закупках в Telegram (US-3.1; дайджест топ-3 не нужен), XLSX с маркерами и дисклеймером | `plans/plan.md` |
+| 9 | Compliance (Эпик 9): дисклеймер, robots.txt, маскирование ПДн, аудит | `plans/plan.md` |
+| 10 | Наблюдаемость и устойчивость (Эпик 8, BR-06, NFR): `/metrics`, DLQ, идемпотентность, circuit breaker per-platform | `plans/plan.md` |
+
+Детальные планы этапов создаются перед реализацией каждого этапа (`plans/NN_plan.md`).
+Каждый этап сохраняет работоспособность приложения (заглушки) и покрывается тестами;
+устаревшие тесты заменяются или удаляются.
