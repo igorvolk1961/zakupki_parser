@@ -1,179 +1,106 @@
-# План разработки парсера площадок закупок
+# Трекер прогресса: перестройка архитектуры в мультитенантный SaaS (TenderSearch)
 
-Дата начала: 2026-08-03. Статусы: ✅ выполнено · 🟡 частично · ⬜ в работе/запланировано.
+> Источник: [мастер-план](.kilo/plans/1787250023996-architecture-multitenancy-master-plan.md)
+> Дата старта: 2026-08-20.
+> Статусы: ✅ выполнено · 🟡 частично · ⬜ в работе · ☐ запланировано.
 
-## 1. Каркас проекта
-- [x] Инициализация `uv`-проекта, `pyproject.toml`, dev-группа (pytest, ruff, mypy)
-- [x] Настройка `[tool.ruff]` (lint+format) и `[tool.mypy]` (strict)
-- [x] `.gitignore`, структура каталогов
+Принципы работы:
+- Перед реализацией каждого этапа разрабатывается **детальный план этапа** (задачи,
+  миграции, заглушки, тесты, критерии приёмки).
+- Каждый этап сохраняет работоспособность приложения (заглушки); каждый шаг покрывается
+  тестами; устаревшие тесты заменяются или удаляются.
+- «Сразу всё» запрещено.
 
-## 2. Конфигурация (всё через YAML)
-- [x] Модели конфигов (pydantic): parser/dom/service/logging/score
-- [x] Декомпозиция моделей в пакет `config/models/`
-- [x] Загрузка и валидация (`config/loader.py`), env-переопределения (`ZAKUPKI_DB_DSN`)
-- [x] `config_parser.yaml` — браузер и антиблок (UA, viewport, задержки, stealth, `ignore_https_errors`)
-- [x] `configs/dom/<platform_id>.yaml` — селекторы, переменные, сортировка, фильтры (ADR-1)
-- [x] `config_service.yaml` — аналитические настройки (сайты, пороги дат, критерии поиска, stop-условия)
-- [x] `config_ops.yaml` — эксплуатационные настройки (таймер, БД, уведомления, export_dir, circuit breaker)
-- [x] `config_score.yaml` — скоринг (fit_table, default_fit, p_win, margin_rate;
-      каскад: pwin_fit_threshold, margin_pwin_threshold, pwin_enabled, margin_enabled;
-      дефолтный score в парсере)
-- [x] `config_log.yaml` — логирование (файл, `truncate_on_start`)
+---
 
-## 3. Браузер и антиблок
-- [x] Playwright (полный Chromium вместо headless-shell — сайт блокирует headless-shell)
-- [x] Stealth-скрипты (webdriver, языки/плагины), реалистичный UA
-- [x] Вежливые задержки (4–12 с), лимит запросов
-- [x] Персистентная сессия (куки), `ignore_https_errors` для ЕИС
-- [x] Экспоненциальный backoff для операций браузера и БД (`retry.py` + circuit breaker)
-- [ ] 🟡 Ротация прокси и пул IP (при появлении инфраструктуры)
+## Этап 0. Базовая линия и документация
+- ☐ Зафиксировать `docs/system_analisys/` в git (сейчас не отслеживается).
+- ☐ Gap-анализ «текущее vs docs» → обновить `specification.md` и `README.md` (roadmap).
+- ☐ Прогон базовой линии: unit + integration (при DSN), ruff, mypy — зелёный статус.
 
-## 4. Движок парсинга
-- [x] Оркестратор основного алгоритма (`parser/orchestrator.py`)
-- [x] Lister: вход, сортировка (по дате публикации), фильтры, пагинация
-- [x] URL-пагинация `page_param`/`page_size` (b2b_center, etpgpb, lot_online, zakupki_mos)
-- [x] Потолок страниц за проход `parser.max_list_pages` (защита от вечного цикла)
-- [x] Ранний пропуск прохода по числу результатов (`total_results_selector`/`total_results_regex`,
-      `lister.extract_total_results`, `repository.count`) — relevance-режим без пост-фильтра
-- [x] Пропуск уже сохранённых закупок (`repository.known_numbers`) — детали не открываем
-- [x] Extractor: извлечение по конфигу (selector/index/regex/обработчики)
-- [x] Обработчики значений: strip/money/float/int/date/datetime/law/regex/pub_date/deadline
-- [x] Детальные страницы в отдельной вкладке (список не теряется)
-- [x] Стоп-порог по календарному дню (`is_older_than_cutoff`), порог из БД (`MAX(update_date)`)
-- [x] Метаданный режим файлов: имена+URL с ЭТП (ТЗ — 2 поля, остальные — `files_json`)
-- [x] Скоринг: default/deadline_expired (внешний — через конвейер, ADR-7)
-- [x] Конвейер внешнего скоринга (ADR-7): `scoring_transport` + `scoring_service` + Redis
-      (очередь по дефолтному score, возврат результата через `POST /score`)
-- [x] Каскад скоринга Fit → P(win) → Margin (ADR-9): сервисы стадий `pwin_service`
-      (`P(win) = base × k_smp × k_license × k_large × k_procedure × k_ai`) и
-      `margin_service` (`Margin = НМЦК × margin_rate`), общий код `scoring_common`,
-      очереди `pwin:jobs`/`margin:jobs`, переходы по порогам
-      (`pwin_fit_threshold`/`margin_pwin_threshold`, флаги `pwin_enabled`/`margin_enabled`),
-      постадийные уведомления (`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`),
-      колонки `p_win`/`margin` (миграция 1.19)
-- [x] Выпил deprecated-путей (`ExternalScoreClient` `before_save`/`worker`,
-      `run_scoring_worker`) и дублирующей fit-таблицы транспорта (ADR-7)
-- [x] Авто-пуш задания в транспорт после сохранения закупки (шаг 1 ADR-7)
-- [x] Пороговое уведомление `notify_min_fit_score` + отложенная отправка в `POST /score`
-      (шаг 6 ADR-7)
-- [x] LLM-пайплайн `scoring_service`: Fit → Judge → refine (`num_refine_rounds`) →
-      уточнение по тексту ТЗ (`tz_review`) → Score = Fit × P(win) × Margin
-      (заглушка `score_use_stub` снята)
-- [x] Ветка векторной близости **Giga Embedder** (`modules/giga_embedder.py`:
-      EmbeddingsGigaR, OAuth `RqUID`, чанкинг; `giga_embedding_alpha`) — отображение
-      на карточке закупки (`embedding_similarity`)
-- [x] Оценка качества и regression-гейт (`scoring_service/eval/`: metrics, dataset,
-      evaluate; CLI `evaluate`, `--compare` с порогами MAE/RMSE/accuracy/Spearman)
+## Этап 1. Мультитенантная модель данных (BR-07, ядро)
+- ☐ Миграция 1.29: `users` (+email/status/trial_end_date/last_activity_at),
+      `client_profiles`→`profiles` (+user_id, name UNIQUE (user_id,name)),
+      `procurement_scores`→`procurement_evaluations` (+user_id/status/rejection_reason),
+      новые `keywords`, `audit_log`, `subscriptions` (заглушка), `procedure_categories` (заглушка).
+- ☐ Backfill существующих профилей/оценок на сервис-аккаунт (админ).
+- ☐ Репозиторий: tenant-скоуп по `user_id` (BR-07); `get_active_profile(user_id)`,
+      `ensure_service_account()`.
+- ☐ API: `effective_user` (auth off → сервис-аккаунт); внутренние эндпоинты — только X-Internal-Token.
+- ☐ Тесты: изоляция (BR-07, 403), backfill, fallback профиля, совместимость старых эндпоинтов.
 
-## 5. Файлы (метаданные, без скачивания)
-- [x] Парсер НЕ скачивает файлы: в БД сохраняются имя и URL скачивания с ЭТП
-  всех файлов (включая ТЗ) в `files_json`.
-- [x] Глубокая обработка файлов (PDF/DOCX/ZIP, поиск ТЗ) — внешний сервис (ADR-5).
-- ~~Скачивание файлов в хранилище (MinIO/local) — удалено~~
+## Этап 2. Жизненный цикл аккаунта (BR-05, Эпик 7 — минимальный)
+- ☐ Регистрация: email + пароль, статус `trial`, `trial_end_date=+14 дней` (без email-подтверждения).
+- ☐ Логин: отклонение `frozen`/`deleted`.
+- ☐ Фоновый job: истечение trial → `frozen`; >90 дней заморозки → удаление (предупреждение за 7 дней).
+- ☐ Уведомления 7/3/1 день до конца trial (Notifier / лог).
+- ☐ Админ: список/фильтры/заморозка/разморозка/удаление пользователей, создание админов (US-7.6/7.7).
+- ☐ `audit_log` критичных действий (US-9.4 частично).
+- ☐ Тесты: регистрация+trial, вход frozen/deleted, job истечения/удаления, админ-операции, аудит.
 
-## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
-- [x] ORM (SQLAlchemy 2.x async) и репозиторий (upsert, дубликаты, чтение)
-- [x] Миграции Liquibase (1.0–1.24): колонки, даты, score, `fit_score`/`p_win`/`margin`/
-      `embedding_similarity`/`is_active`, справочники `platforms`/`procedure_types`
-      (+маппинги), `score_method` vector→sim (1.24), комментарии
-- [x] Поля task.md: number, customer, law, subject, nmck, deadline, okpd2, ТЗ, files_json
-- [x] Колонки security_amount/advance (обеспечение/аванс), security_amount_unit, update_date
-- [ ] 🟡 Заполнение execution_term/kpgz_codes/security_amount/advance на ЕИС (сделано: okpd2, обеспечение+единица, срок; осталось: kpgz_codes/advance)
-- [x] Нормализация БД по ADR-4: таблица `customers` (имя/нормализованное имя/ИНН/рейтинг),
-      `procurements.customer_id` (FK, `customer` удалена), миграция 1.13 (create+backfill+drop),
-      эндпоинты `/api/customers` и `POST /api/customers/{id}/rating`;
-      ИНН — универсальный механизм (из org-ссылки или org-страницы, ADR-1/ADR-4).
+## Этап 3. Профили фильтрации (Эпик 1)
+- ☐ CRUD профилей per-user (name, keywords, exclusion_words, competencies, questions,
+      target_etp, target_laws, min_fit_threshold, enabled); активный профиль пользователя.
+- ☐ Таблица `keywords`: парсер формата `data/key_words.md` (R8); сид для профилей
+      по умолчанию (сервис-аккаунт + каждый новый пользователь); синхронизация JSONB↔keywords.
+- ☐ Парсер до этапа 4 использует активный профиль сервис-аккаунта (поведение не меняется).
+- ☐ Тесты: CRUD+изоляция, парсер key_words.md, сид нового пользователя, fallback активного профиля.
 
-## 7. Circuit Breaker и graceful degradation
-- [x] `circuit.py` (CLOSED/OPEN/HALF_OPEN), отдельные инстансы для сайта и БД
-- [x] Классификация ошибок БД (транзиентные/данные/дубликаты), retry с backoff
-- [x] Сброс CB на дубликатах, обновление даты последней обработки при достижении порога
-- [ ] ⬜ Тест с имитацией сбоя БД (retry + открытие CB)
+## Этап 4. Парсинг по ОКПД2 + клиентская фильтрация словами + per-user оценки (R1, R9)
+- ☐ Убрать серверную подстановку ключевых слов (`criteria_map.keywords`,
+      `keywords_one_at_a_time`, `profile.keywords` в запрос). Сервер — только ОКПД2
+      (+ обход «без кода», конфиг-флаг; при отсутствии позитивных слов — пропуск с логом).
+- ☐ Клиентская пост-фильтрация: позитивные слова + слова-исключения до записи в БД
+      (вливаются `keyword_context_required`/`exclusion_words_present`).
+- ☐ Планировщик: сбор активных (профиль, ОКПД2)-наборов × целевые ЭТП/законы; обходы
+      (площадка × ОКПД2) общие и кэшируемые; пост-фильтрация каждого подходящего профиля.
+- ☐ Оценки в `procurement_evaluations` с user_id; auto-Fit под профиль пользователя.
+- ☐ Тесты: запрос без слов, пост-фильтрация до записи, одинаковые ОКПД2-результаты,
+      обход «без кода» (в т.ч. пропуск без слов), изоляция оценок.
 
-## 8. Фильтрация закупок
-- [x] URL-фильтр (ADR-2): mos.ru — `filter` JSON, ЕИС — query-параметры
-- [x] Обобщённый механизм `criteria_map` (json_path/query_param)
-- [x] Резолв ОКПД2 (точный код → потомки → предок) + маппинг `okpd2_tree.json` (mos.ru)
-- [x] Маппинг ОКПД2 → id ЕИС (62→8873937, 63→8873938), эндпоинт `children.html`,
-      файл `docs/codes/gov_okpd2_tree.json`
-- [x] ОКПД2-фильтр ЕИС: полный список id/кодов поддерева через `criteria_map`
-      (`query_params` okpd2Ids + okpd2IdsCodes) — проверено на живом сайте (687 записей)
-- [ ] 🟡 DOM-шаги фильтров для площадок с панелью (не используется для mos.ru/ЕИС)
+## Этап 5. Кэш ЭТП и параллельная обработка площадок (R4, R5)
+- ☐ 5A. Redis-кэш ЭТП: ключ `platform + okpd2-фильтр + страница` (детали — URL);
+      TTL = `timeout_seconds × 0.5` (коэффициент < 1, конфиг); graceful degradation.
+- ☐ 5B. Параллельные площадки: asyncio-задачи в планировщике + `max_concurrent_platforms`.
+- ☐ 5C. Очередь `parser:jobs` + stateless воркеры парсера; кулдауны площадок в Redis;
+      DLQ после 3 попыток (BR-06).
+- ☐ Тесты: TTL/хиты кэша, параллельный запуск (backoff одной площадки не блокирует
+      другие), дедуп заданий, кулдаун, DLQ.
 
-## 9. Площадки
-- [x] Портал поставщиков Москвы (zakupki.mos.ru): Реестр закупок, детали, файлы
-- [x] ЕИС (zakupki.gov.ru): список, детали (blockInfo__section), URL-фильтр, «Обновлено»
-- [x] ЕИС: 223-ФЗ (11-значные номера), файлы закупок (`documents.html`)
-- [ ] 🟡 ЕИС: детальные поля по типам извещений (ea20 проработан; ezt20/zk20/ok504 — уточнить)
-- [x] Коммерческие ЭТП — верификация и включение (2026-08-17, подробности в
-  `docs/platforms.md`): b2b_center, lot_online_44/223, etpgpb, fabrikant, roseltorg_223fz
-  (список/детали/ОКПД2, полный Chromium); roseltorg_44fz — селекторы TODO
-- [ ] 🟡 Детальные страницы lot_online (SPA API), fabrikant (ОКПД2/файлы,
-  коммерческие типы) — см. `TODO.md`
+## Этап 6. Решения и обратная связь (Эпик 5, US-2.5, US-5.1…5.3)
+- ☐ «В работу» / «Отклонить» (status, причина); скрытие отклонённых (US-2.5).
+- ☐ Предложение слова-исключения при отклонении (US-5.3; без автоприменения, не-повтор).
+- ☐ Тесты: статусы, скрытие отклонённых, предложение/не-повтор, изоляция.
 
-## 10. API-сервис (FastAPI)
-- [x] `GET /health`
-- [x] `GET /api/procurements` (фильтры + пагинация), `GET /api/procurements/{id}`
-- [x] `POST /api/procurements/{id}/score` (возврат результата из транспорта; обновляет score
-      и `fit_score`, при `fit_score ≥ notify_min_fit_score` отправляет уведомление — ADR-7)
-- [x] `POST /api/procurements/export` (выгрузка БД в CSV, каталог `export_dir`; кнопка «Выгрузить CSV»)
-- [x] Управление парсером из web-демо: `POST /api/parser/start|stop`, `GET /api/parser/status`
-- [x] Очистка БД: `POST /api/db/clear` (полная), `POST /api/db/clear-inactive` (неактивные),
-      `POST /api/db/clear-irrelevant` (нерелевантные по fit-порогу) — только при
-      остановленном парсере
-- [x] Конфиг: `GET/PUT /api/config` (аналитические), `GET /api/config/threshold`; WebSocket `/ws`
-- [ ] 🟡 Точечная чистка по фильтрам/возрасту записи (`DELETE /api/procurements`) —
-      при удалении записей удалять и связанные файлы из хранилища (S3/local), ссылки на которые
-      хранятся в `files_json` (сейчас — полная очистка и её варианты через `POST /api/db/*`)
+## Этап 7. Глубокая проверка ТЗ с маркерами (Эпик 4, BR-03/BR-04)
+- ☐ Формализованные проверки в `analysis_service`: опыт (ПП РФ 2571, hard/soft/none),
+      реестр Минпромторга (учёт «не установлено»), лицензии. Маркеры 🔴/🟡/🟢 (US-4.5).
+- ☐ Сид вопросов профиля по умолчанию из `data/key_words.md` (примеры 2571) и BR-03/04.
+- ☐ Заглушка при недоступности LLM — «анализ отложен» (NFR-FT-2).
+- ☐ Тесты: «не установлено» (AC US-4.3), hard/soft опыт (US-4.2), лицензии (US-4.4), маркеры.
 
-## 11. Уведомления
-- [x] Бэкенды Telegram / MAX / webhook (реальный HTTP POST, `notify.py`)
-- [x] `insecure_tls` для MAX-уведомлений, токены из env (`ZAKUPKI_TELEGRAM_TOKEN`, `ZAKUPKI_MAX_TOKEN`)
-- [x] Порог `notify_min_fit_score` (уведомление только при `fit_score ≥ notify_min_fit_score`,
-      отложено до `POST /score`)
+## Этап 8. Доставка и экспорт (Эпик 3, 6)
+- ☐ Дайджест «Найдено N новых закупок» + топ-3 по Fit (US-3.1/3.4) через Notifier.
+- ☐ XLSX-экспорт списка (US-3.3) и сводки «В работу» (US-6.1/6.2) с маркерами + дисклеймер (NFR-SEC-4).
+- ☐ Тесты: формирование дайджеста, структура XLSX (колонки/маркеры/дисклеймер).
 
-## 12. Тесты и CI
-- [x] Unit: обработчики, конфиг, circuit breaker, дата последней обработки, stop-условия, ОКПД2, скоринг, retry
-- [x] Unit: извлечение общего числа результатов (`tests/unit/test_total_results.py`)
-- [x] Unit: каскад скоринга и постадийные уведомления (`tests/unit/test_cascade.py`)
-- [x] Integration: фикстуры (mos.ru, ЕИС 44-ФЗ/223-ФЗ, documents.html), репозиторий, API (PostgreSQL)
-- [x] GitHub Actions CI: ruff, mypy, pytest (сервисный postgres), docker build
-- [x] Фикстуры реальных страниц (list/detail mos.ru и ЕИС)
-- [ ] ⬜ Полный оркестратор против локального HTTP-сервера
-- [ ] ⬜ Тест имитации сбоя БД
+## Этап 9. Compliance (Эпик 9)
+- ☐ Дисклеймер в UI и экспортах (US-9.1).
+- ☐ Уважение `robots.txt` (US-9.2, NFR-SEC-5); официальные API — по мере наличия.
+- ☐ Маскирование ПДн (US-9.3, NFR-SEC-3).
+- ☐ Полный audit_log критичных действий (US-9.4).
+- ☐ Тесты: robots.txt, маскирование, дисклеймер, аудит.
 
-## 13. Docker
-- [x] `docker/Dockerfile` (python:3.12-slim + uv + playwright chromium)
-- [x] `docker/docker-compose.yml`: db, liquibase, redis, scoring-service/transport,
-      pwin-service/margin-service, parser, api (+ профиль langfuse; minio — S3 для LangFuse)
-- [ ] 🟡 Проверка полного стека на реальном прогоне (включая стадии pwin/margin)
+## Этап 10. Наблюдаемость и устойчивость (Эпик 8, BR-06, NFR)
+- ☐ Метрики `GET /metrics` (US-8.1): обработано тендеров, ошибки, латентность, стоимость токенов.
+- ☐ Админ-панель пользователей (US-8.2) — расширение этапа 2.
+- ☐ Горизонтальное масштабирование stateless-воркеров (US-8.3) — итог этапа 5C.
+- ☐ DLQ после 3 попыток стадий скоринга/анализа, circuit breaker per-platform,
+      идемпотентность (registry_number + user_id).
+- ☐ Тесты: эндпоинт метрик, имитация сбоев (retry+CB+DLQ), идемпотентность.
 
-## 14. Документация
-- [x] `README.md`
-- [x] `specification.md`
-- [x] `TODO.md`
-- [x] C4-диаграммы (context/container/component, db-schema, sequence) — Mermaid flowchart
-- [x] `docs/adr.md` (ADR-1…7, включая ADR-7 — конвейер скоринга через транспорт)
-- [x] `docs/codes/okpd2_tree.json` (маппинг ОКПД2 mos.ru)
-
-## 15. Code Review и оптимизация кода
-- [x] Первичный code review и устранение замечаний (дата последней обработки при пороге, сброс CB,
-      path traversal, detail_json из финальной записи)
-- [ ] 🟡 Регулярный code review после каждой крупной фичи (ЕИС, критерии поиска, скоринг)
-- [ ] ⬜ Оптимизация цикла парсинга:
-- [ ] ⬜ Оптимизация работы с БД: батчи, индексы под типовые запросы, пагинация.
-- [ ] ⬜ Аудит асинхронных утечек и таймаутов (page.request, сессии, пул БД).
-- [ ] ⬜ Устранение дублирования кода между площадками (общие хелперы селекторов/дат).
+---
 
 ## Текущий фокус
-- Каскад скоринга Fit → P(win) → Margin (ADR-9) включён полностью: авто-пуш из парсера,
-  LLM-пайплайн Fit, стадии `pwin_service`/`margin_service`, переходы по порогам,
-  постадийные уведомления. Далее — калибровка порогов каскада
-  (`pwin_fit_threshold`/`margin_pwin_threshold`), коэффициентов P(win) и порогов
-  постадийных уведомлений; подбор гиперпараметров и порогов regression-гейта,
-  оценка влияния ветки эмбеддингов (`giga_embedding_alpha`).
-- Коммерческие ЭТП: детали lot_online (SPA API), ОКПД2/файлы fabrikant, селекторы
-  roseltorg_44fz.
-- ЕИС: `kpgz_codes`/`advance` на детальных страницах, детальные поля по типам извещений
-  (ezt20/zk20/ok504).
-- Авторизация администраторов в web-приложении.
+- Детальный план **Этапа 0** (базовая линия и документация) и согласование.
+- После этапа 0 — детальный план **Этапа 1** (мультитенантная модель данных, BR-07).
