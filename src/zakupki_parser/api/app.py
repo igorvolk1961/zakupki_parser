@@ -568,19 +568,18 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         """Доступ только для внутренних сервисов конвейера (по X-Internal-Token).
 
         Применяется к служебным эндпоинтам (POST /score, POST /customers/{id}/rating),
-        которые вызывают компоненты конвейера, а не пользователи. Если внутренний
-        токен не задан (env ZAKUPKI_INTERNAL_TOKEN), эндпоинт остаётся открытым
-        с явным предупреждением в логе.
+        которые вызывают компоненты конвейера, а не пользователи. Fail-closed:
+        при включённой авторизации без заданного токена эндпоинты закрыты
+        (конфиг-валидатор отклоняет такой запуск ещё на старте; ветка — страховка).
         """
         if not state.cfg.ops.auth.enabled:
             return
         internal = state.cfg.ops.auth.internal_token
         if not internal:
-            logger.warning(
-                "auth.enabled=true, но ZAKUPKI_INTERNAL_TOKEN не задан: "
-                "служебные эндпоинты конвейера (/score, /rating) открыты"
+            raise HTTPException(
+                status_code=503,
+                detail="Внутренний токен конвейера не задан (ZAKUPKI_INTERNAL_TOKEN)",
             )
-            return
         if request.headers.get("X-Internal-Token") != internal:
             raise HTTPException(status_code=401, detail="Неверный внутренний токен")
 

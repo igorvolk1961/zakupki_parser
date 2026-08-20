@@ -1,17 +1,26 @@
 """Настройки транспорта скоринга.
 
 Всё через env-переменные с префиксом ``TRANSPORT_`` (pydantic-settings).
+Значения берутся из собственного ``.env`` сервиса (каталог ``scoring_transport/``);
+env-переменные окружения имеют приоритет.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Собственный каталог сервиса: src/scoring_transport/scoring_transport/settings.py -> parents[1].
+_SERVICE_DIR = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
     """Конфигурация транспорта скоринга."""
 
-    model_config = SettingsConfigDict(env_prefix="TRANSPORT_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="TRANSPORT_", env_file=_SERVICE_DIR / ".env", extra="ignore"
+    )
 
     # Redis-очередь (та же, что у scoring_service/pwin/margin сервисов)
     redis_url: str = "redis://localhost:6379/0"

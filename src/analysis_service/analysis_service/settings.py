@@ -3,7 +3,7 @@
 Порядок приоритета (от высшего к низшему):
 1. аргументы конструктора;
 2. переменные окружения ``ANALYSIS_*``;
-3. файл ``.env``;
+3. собственный ``.env`` сервиса (каталог ``analysis_service/``);
 4. YAML-конфиг (по умолчанию ``config.yaml``, путь — env ``ANALYSIS_CONFIG_FILE``);
 5. значения по умолчанию в модели.
 """
@@ -22,6 +22,9 @@ from pydantic_settings import (
 
 from scoring_common.config import YamlConfigSource
 
+# Собственный каталог сервиса: src/analysis_service/analysis_service/settings.py -> parents[1].
+_SERVICE_DIR = Path(__file__).resolve().parents[1]
+
 
 class _YamlSource(YamlConfigSource):
     """YAML-источник с фиксированным путём из env ``ANALYSIS_CONFIG_FILE``."""
@@ -34,7 +37,9 @@ class _YamlSource(YamlConfigSource):
 class Settings(BaseSettings):
     """Конфигурация сервиса RAG-анализа."""
 
-    model_config = SettingsConfigDict(env_prefix="ANALYSIS_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="ANALYSIS_", env_file=_SERVICE_DIR / ".env", extra="ignore"
+    )
 
     # LLM (OpenAI-совместимый) для верификации стоп-условий в найденных чанках.
     llm_base_url: str = "http://localhost:8001/v1"
