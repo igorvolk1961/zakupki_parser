@@ -286,6 +286,28 @@ services:
       MARGIN_PARSER_API_URL: http://api:8000
     restart: unless-stopped
 
+  analysis-service:
+    build:
+      context: ../src
+      dockerfile: analysis_service/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    env_file:
+      - ../.env
+    environment:
+      ANALYSIS_REDIS_URL: redis://redis:6379/0
+      ANALYSIS_PARSER_API_URL: http://api:8000
+      ANALYSIS_PARSER_INTERNAL_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
+      ANALYSIS_EMBEDDING_BASE_URL: ${ANALYSIS_EMBEDDING_BASE_URL:-http://gpt2giga:8080/v1}
+      ANALYSIS_EMBEDDING_MODEL: ${ANALYSIS_EMBEDDING_MODEL:-EmbeddingsGigaR}
+      ANALYSIS_LLM_BASE_URL: ${ANALYSIS_LLM_BASE_URL:-}
+      ANALYSIS_LLM_MODEL: ${ANALYSIS_LLM_MODEL:-deepseek-chat}
+      ANALYSIS_LLM_API_KEY: ${ANALYSIS_LLM_API_KEY:-}
+    restart: unless-stopped
+
   parser:
     build:
       context: ..

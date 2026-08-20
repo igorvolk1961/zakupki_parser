@@ -48,7 +48,7 @@ class ScoringJobRequest(BaseModel):
     )
     stage: str = Field(
         default="fit",
-        description="стадия каскада скоринга: fit | pwin | margin",
+        description="стадия: fit | pwin | margin | analysis",
     )
 
 

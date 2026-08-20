@@ -1,0 +1,29 @@
+# RAG-анализ стоп-условий по вопросам клиента (analysis_service).
+llm_base_url: "http://localhost:8001/v1"
+llm_model: "deepseek-chat"
+llm_temperature: 0.0
+llm_request_timeout: 45.0
+
+# Эмбеддинги: OpenAI-совместимый endpoint (Giga Embedder через gpt2giga-прокси).
+embedding_base_url: "http://localhost:8002/v1"
+embedding_model: "EmbeddingsGigaR"
+embedding_timeout: 30.0
+
+# Парсер закупок (REST).
+parser_api_url: "http://localhost:8000"
+parser_retry_backoff_seconds: 5.0
+
+# Redis-очередь.
+redis_url: "redis://localhost:6379/0"
+jobs_key: "analysis:jobs"
+results_key: "analysis:results"
+processing_key: "analysis:processing"
+processing_meta_key: "analysis:processing_meta"
+processing_ttl_seconds: 600
+processing_recovery_priority: 0.0
+queue_poll_seconds: 2.0
+
+# RAG-параметры.
+chunk_max_chars: 1500
+top_k: 3
+tz_download_timeout: 30.0

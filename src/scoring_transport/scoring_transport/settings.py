@@ -22,10 +22,15 @@ class Settings(BaseSettings):
     pwin_results_key: str = "pwin:results"
     margin_jobs_key: str = "margin:jobs"
     margin_results_key: str = "margin:results"
+    analysis_jobs_key: str = "analysis:jobs"
+    analysis_results_key: str = "analysis:results"
     result_timeout_seconds: float = 5.0
 
     # Парсер закупок (REST)
     parser_api_url: str = "http://localhost:8000"
+    # Внутренний токен парсера для служебных эндпоинтов (POST /score):
+    # передаётся заголовком X-Internal-Token. Из env TRANSPORT_PARSER_INTERNAL_TOKEN.
+    parser_internal_token: str | None = None
 
     # Приоритет по умолчанию, если в задаче не передан (обычно приходит из парсера)
     priority_default: float = 0.0

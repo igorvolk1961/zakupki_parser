@@ -10,6 +10,8 @@ SCORE_METHOD_PWIN = "pwin"
 SCORE_METHOD_MARGIN = "margin"
 SCORE_METHOD_SIM = "sim"
 SCORE_METHOD_DEADLINE_EXPIRED = "deadline_expired"
+SCORE_METHOD_MANUAL = "manual"
+SCORE_METHOD_REJECT = "reject"
 
 # Стадии внешнего каскада скоринга (Fit -> P(win) -> Margin) плюс терминальная
 # предварительная фильтрация по векторной близости (sim): значение
@@ -83,6 +85,14 @@ class ScoreConfig(BaseModel):
         description=(
             "включена ли стадия Margin: парсер ставит задачи в очередь margin:jobs "
             "только при True. Держать False, пока сервис margin_service не развёрнут"
+        ),
+    )
+    active_client_id: int | None = Field(
+        default=None,
+        description=(
+            "идентификатор активного клиентского профиля (client_profiles.id). "
+            "Под ним выполняются авто-Fit, анализ, ручные оценки и P(win)/Margin; "
+            "если не задан — профиль по имени 'default'"
         ),
     )
     scoring_transport_url: str | None = Field(

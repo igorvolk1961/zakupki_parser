@@ -307,7 +307,10 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         record["is_active"] = self._is_active(record)
 
         # 4) условия прекращения обработки
-        if self._check_stop_conditions(record, keywords=keywords):
+        exclusion_words = (
+            self._client_profile.exclusion_words if self._client_profile is not None else None
+        )
+        if self._check_stop_conditions(record, keywords=keywords, exclusion_words=exclusion_words):
             return False, number, False
 
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
@@ -410,7 +413,21 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
 
         retry_cfg = self._cfg.parser.retry
         search = self._platform.search
-        base = self._cfg.service.search_criteria
+        # Ключевые слова активного клиентского профиля подставляются в серверный
+        # текстовый поиск (многоклиентный скоринг); fallback — глобальные
+        # search_criteria.keywords (профиль не задан/нет слов).
+        if self._repository is not None:
+            profile = await self._repository.get_active_client(self._cfg.score.active_client_id)
+        else:
+            profile = None
+        # Активный профиль для стоп-условий (слова-исключения, regex-паттерны).
+        self._client_profile = profile
+        if profile is not None and profile.keywords:
+            base = self._cfg.service.search_criteria.model_copy(
+                update={"keywords": list(profile.keywords)}
+            )
+        else:
+            base = self._cfg.service.search_criteria
         # Площадка может игнорировать короткие поисковые запросы (например fabrikant:
         # слова короче 3 символов не фильтруют и возвращают весь список закупок).
         # min_keyword_len задан в search-конфиге площадки — слова короче порога

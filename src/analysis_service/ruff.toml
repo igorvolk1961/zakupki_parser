@@ -1,0 +1,2 @@
+# Локальная конфигурация ruff для подпроекта analysis_service.
+extend = "../../pyproject.toml"

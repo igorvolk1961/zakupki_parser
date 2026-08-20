@@ -112,7 +112,7 @@ class ScoringTransportClient:
     ) -> None:
         """Поставить задание на скоринг: POST /api/scoring/jobs.
 
-        ``stage`` — стадия каскада (fit/pwin/margin); транспорт направляет задание
+        ``stage`` — стадия (fit/pwin/margin/analysis); транспорт направляет задание
         в соответствующую Redis-очередь.
         """
         url = f"{self._base}/api/scoring/jobs"

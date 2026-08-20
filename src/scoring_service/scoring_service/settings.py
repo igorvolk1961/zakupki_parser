@@ -52,6 +52,9 @@ class Settings(BaseSettings):
 
     # Парсер закупок (REST, без БД)
     parser_api_url: str = "http://localhost:8000"
+    # Внутренний токен парсера для служебных эндпоинтов (GET /api/clients/active):
+    # передаётся заголовком X-Internal-Token. Из env SCORE_PARSER_INTERNAL_TOKEN.
+    parser_internal_token: str | None = None
     # Пауза перед повторной обработкой задачи при недоступности парсера (сек).
     # Парсер стартует отдельно от фонового стека, поэтому воркер должен переживать
     # его временную недоступность: задача возвращается в очередь, а не теряется.

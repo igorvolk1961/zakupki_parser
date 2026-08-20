@@ -29,6 +29,7 @@ from scoring_service.modules import embedding as embedding_module
 from scoring_service.pipeline.description import (
     extend_description_from_tz,
     extract_description,
+    first_tz_section,
     is_truncated_description,
 )
 from scoring_service.pipeline.fit_chain import FitChain
@@ -130,7 +131,6 @@ class Scorer:
         session_id: str | None,
         metadata: dict[str, Any],
         parent_config: RunnableConfig,
-        full_text: bool = False,
     ) -> FitResult:
         """Повторный fit с учётом критики судьи (best-effort: без гарантии JSON)."""
         messages_hint = (
@@ -143,7 +143,6 @@ class Scorer:
             metadata,
             parent_config=parent_config,
             run_name="fit_refine",
-            full_text=full_text,
         )
 
     def _stub_score(self, record: dict[str, Any], procurement_id: int | None) -> ScoringOutput:
@@ -373,40 +372,31 @@ class Scorer:
             truncated=truncated,
         )
 
-        # Уточнение по тексту ТЗ: если fit потребовал (requires_tz_review), ищем файл ТЗ
-        # в карточке и извлекаем его текст. Если найден — повторный fit/judge выполняются
-        # по расширенному описанию вместо обрезанного. Иначе скор остаётся без изменений.
+        # Уточнение по тексту ТЗ: если fit запросил (requires_tz_review), ищем файл ТЗ
+        # в карточке и извлекаем его текст. Стадия Fit обрабатывает ТОЛЬКО описание
+        # закупки (первая секция ТЗ) для расширения обрезанного описания — глубокий
+        # анализ тела ТЗ (стоп-условия) вынесен в analysis_service (on-demand).
         tz_outcome: TzReviewOutcome | None = None
         effective_description = description
         # True, только если уточнение реально состоялось (ТЗ найден и текст непустой).
         tz_refined = False
-        # True, когда модели уже предоставлен полный текст ТЗ: дальше не запрашиваем
-        # повторное чтение файла (requires_tz_review/requires_tz_body).
-        full_text = False
         if fit.requires_tz_review and self._tz_reviewer is not None:
             tz_outcome = self._tz_reviewer.invoke(record, parent_config, trace_meta, session_id)
             if tz_outcome.found and tz_outcome.description and tz_outcome.description.strip():
                 tz_refined = True
-                if not fit.requires_tz_body:
-                    # Достаточно заголовка (тело ТЗ не нужно): пытаемся алгоритмически
-                    # расширить обрезанное описание фрагментом из полного текста ТЗ.
-                    # Если не нашли — читаем всё тело ТЗ.
-                    effective_description = (
-                        extend_description_from_tz(description, tz_outcome.description)
-                        or tz_outcome.description
+                extended = extend_description_from_tz(
+                    description, tz_outcome.description
+                ) or first_tz_section(tz_outcome.description)
+                if extended:
+                    effective_description = extended
+                    fit = self._fit.invoke(  # type: ignore[union-attr]
+                        competencies,
+                        effective_description,
+                        session_id,
+                        trace_meta,
+                        parent_config=parent_config,
+                        run_name="fit_tz",
                     )
-                else:
-                    effective_description = tz_outcome.description
-                full_text = True
-                fit = self._fit.invoke(  # type: ignore[union-attr]
-                    competencies,
-                    effective_description,
-                    session_id,
-                    trace_meta,
-                    parent_config=parent_config,
-                    run_name="fit_tz",
-                    full_text=True,
-                )
 
         judge = self._judge.invoke(  # type: ignore[union-attr]
             competencies,
@@ -427,7 +417,6 @@ class Scorer:
                 session_id,
                 trace_meta,
                 parent_config,
-                full_text=full_text,
             )
             judge = self._judge.invoke(  # type: ignore[union-attr]
                 competencies,
@@ -455,13 +444,11 @@ class Scorer:
             fit_norm=fit_norm,
             # Флаг остаётся, если уточнение не запрошено или не состоялось
             # (ТЗ не найден / текст пуст) — скор не уточнён. При успешном
-            # уточнении снимаем флаг.
+            # уточнении снимаем флаг (глубокое чтение тела ТЗ не выполняется).
             requires_tz_review=(
                 fit.requires_tz_review if tz_outcome is None or not tz_refined else False
             ),
-            requires_tz_body=(
-                fit.requires_tz_body if tz_outcome is None or not tz_refined else True
-            ),
+            requires_tz_body=False,
         )
 
     def _build_output(

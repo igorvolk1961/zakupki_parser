@@ -1,11 +1,11 @@
-"""Тесты поиска и извлечения текста ТЗ (requires_tz_review)."""
+"""Тесты поиска и извлечения текста ТЗ (общий код в scoring_common.tz)."""
 
 from __future__ import annotations
 
 import io
 import zipfile
 
-from scoring_service.pipeline.tz_review import (
+from scoring_common.tz import (
     _decode_member_name,
     clean_text,
     collect_files,

@@ -354,8 +354,8 @@ def test_score_uses_tz_text_when_requires_tz_review() -> None:
     assert fit.descriptions[0] != fit.descriptions[1]
     assert fit.descriptions[1] == "ТЗ: автоматизация документооборота"
     assert fit.run_names == ["fit_scoring", "fit_tz"]
-    # Повторный fit уже получил полный текст ТЗ — не запрашиваем чтение файла повторно.
-    assert fit.full_text_flags == [False, True]
+    # Полное тело ТЗ не передаётся (только описание/первая секция) — full_text всегда False.
+    assert fit.full_text_flags == [False, False]
     assert out.requires_tz_review is False
     assert out.final_fit_score == 8.0
     assert out.description == "ТЗ: автоматизация документооборота"
@@ -477,8 +477,8 @@ def test_score_header_extends_description_from_tz() -> None:
     )
 
     assert fit.run_names == ["fit_scoring", "fit_tz"]
-    # Повторный fit уже получил текст (заголовок) из ТЗ — не запрашиваем чтение файла.
-    assert fit.full_text_flags == [False, True]
+    # Полное тело ТЗ не передаётся (только описание/первая секция) — full_text всегда False.
+    assert fit.full_text_flags == [False, False]
     # Второй fit получает расширенный заголовок из ТЗ, а не весь текст ТЗ.
     assert fit.descriptions[1] == (
         "Разработка и внедрение системы автоматизации документооборота предприятия"
@@ -489,8 +489,8 @@ def test_score_header_extends_description_from_tz() -> None:
     assert out.final_fit_score == 8.0
 
 
-def test_score_header_falls_back_to_full_tz_when_not_found() -> None:
-    """requires_tz_body=false, но фрагмент не найден — используется весь текст ТЗ."""
+def test_score_header_falls_back_to_first_tz_section_when_not_found() -> None:
+    """Фрагмент не найден — описание из первой секции ТЗ (тело целиком не читается)."""
     tz_text = "Совершенно другой текст технического задания\n"
     fit = _HeaderRecordingFit([5.0, 8.0])
     judge = _FakeJudge([_judge("accept", 8.0)])
@@ -501,8 +501,8 @@ def test_score_header_falls_back_to_full_tz_when_not_found() -> None:
         tz_reviewer=_fake_tz_reviewer(tz_text),  # type: ignore[arg-type]
     )
     out = scorer.score({"subject": "Разработка системы автоматизации", "nmck": 10.0}, "comp")
-    assert fit.descriptions[1] == tz_text
-    assert out.description == tz_text
+    assert fit.descriptions[1] == tz_text.rstrip()
+    assert out.description == tz_text.rstrip()
 
 
 class _FakeEmbedder:

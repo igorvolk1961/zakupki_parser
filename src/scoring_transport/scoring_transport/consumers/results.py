@@ -44,20 +44,26 @@ class ResultsConsumer:
             return
         procurement_id = payload.get("procurement_id")
         score = payload.get("score")
-        if procurement_id is None or score is None:
+        if procurement_id is None:
+            logger.warning("Пропускаю некорректный результат: %s", payload)
+            return
+        # Результат анализа (RAG-отчёт) не обязан нести score: score_method не меняется.
+        if score is None and "rag_report" not in payload:
             logger.warning("Пропускаю некорректный результат: %s", payload)
             return
         try:
             await self._parser.post_score(
                 int(procurement_id),
-                float(score),
+                float(score or 0.0),
                 payload.get("score_method", "fit"),
                 fit_score=payload.get("fit_score"),
                 embedding_similarity=payload.get("embedding_similarity"),
                 p_win=payload.get("p_win"),
                 margin=payload.get("margin"),
+                rag_report=payload.get("rag_report"),
                 retry_max=self._settings.retry_max,
                 retry_backoff=self._settings.retry_backoff_seconds,
+                internal_token=self._settings.parser_internal_token,
             )
             logger.info("Score для закупки %s отправлен в парсер: %s", procurement_id, score)
         except Exception as exc:  # noqa: BLE001

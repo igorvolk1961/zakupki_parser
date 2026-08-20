@@ -168,7 +168,14 @@
   встречается как **отдельное слово** или **перед дефисом** (регистронезависимо).
   Отсекает ложные совпадения, когда слово входит в другое слово (например, «ИИ» в
   «инвестиции»). Пустой `subject` при включённом флаге — критический дефект записи,
-  такая закупка также пропускается.
+  такая закупка также пропускается. Regex-паттерны — из активного клиентского профиля
+  (fallback — глобальные `keyword_context_regexes`);
+- `exclusion_words_present` — (слова-исключения активного клиентского профиля) не
+  обрабатывать закупку, если в описании (`subject`) встречается любое слово-исключение
+  (`client_profiles.exclusion_words`). Стем-матчинг по границе слова с учётом русской
+  морфологии («медицинский» ловит «медицинской»; «карамель» не сработает на «ель»).
+  Пример: нет медицинских компетенций — слово «медицинский»; при слове «искусственный» —
+  «ель», «лед», «алмаз» (см. ADR-10).
 
 ## 5. Меры против блокировки IP
 Реализованы в `src/zakupki_parser/browser/`:
@@ -183,9 +190,11 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - Доступ к БД — SQLAlchemy 2.x (async, asyncpg).
-- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.25`).
-  Пять таблиц: `procurements`, справочники `customers` (ADR-4), `platforms` (1.21),
-  `procedure_types` + `procedure_type_mappings` (1.20; маппинги площадок — до 1.25).
+- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.27`).
+  Таблицы: `procurements`, справочники `customers` (ADR-4), `platforms` (1.21),
+  `procedure_types` + `procedure_type_mappings` (1.20; маппинги площадок — до 1.25),
+  `users` (1.26; администратор/тендеролог, PBKDF2-хэши паролей),
+  `client_profiles` + `procurement_scores` (1.27; многоклиентный скоринг, ADR-10).
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
 - `procurements` (колонки): `id`, `number`, `platform_id`, `url`, `customer_id`
@@ -318,6 +327,45 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 Нормализация заказчиков реализована (ADR-4, таблица `customers`); в формулу рейтинг
 пока не подставляется — `P(win)` берётся из конфига.
 
+## 8а.1. Многоклиентный скоринг и on-demand анализ (ADR-10)
+**Модель:** у тендеролога несколько клиентов (заказчиков услуг тендеролога) — таблицы
+`client_profiles` (компетенции, ключевые слова, слова-исключения, вопросы к ТЗ) и
+`procurement_scores` (per-client результат скоринга: `fit_score/score/p_win/margin/
+score_method/rag_report`, UNIQUE `(procurement_id, client_id)`). Базовая таблица
+`procurements` хранит дефолтный скор широкого отбора. Активный профиль —
+`config_score.yaml -> active_client_id` (иначе — профиль `default`); под ним выполняются
+авто-Fit, анализ, ручные оценки и P(win)/Margin.
+
+**Экономичность (из встречи 18.08):**
+- Автокаскад Fit → P(win) → Margin убран: остаётся только авто-Fit после сохранения.
+  P(win)/Margin — on-demand (`POST /api/procurements/pwin-margin`, обе стадии сразу).
+- Fit не читает всё ТЗ: извлекается только описание закупки (заголовок/первая секция)
+  для расширения обрезанного описания. Глубокий анализ ТЗ (стоп-условия) — в
+  `analysis_service` по запросу тендеролога.
+- Промпт Fit — «recall-over-precision»: важнее не пропустить потенциально релевантную
+  закупку, чем отсеять сомнительную (решение принимает тендеролог).
+
+**Ручные оценки тендеролога:** пресеты 0.1 (не релевантна) / 0.4 / 0.8 / 0.9 / 1.0
+(`POST /api/procurements/{id}/manual-score`, `score_method=manual`) и «Отклонить»
+(`POST /api/procurements/{id}/reject`, fit=0.1, `score_method=reject`). Уведомлений нет.
+
+**analysis_service** (`src/analysis_service/`, on-demand RAG-анализ стоп-условий):
+- очередь `analysis:jobs`/`analysis:results` (маршрутизация в транспорте);
+- чанкинг ТЗ по разделам (чанк не пересекает границу раздела, `pipeline/chunker.py`);
+- эмбеддинги чанков/вопросов — OpenAI-совместимый endpoint (`scoring_common/embeddings.py`,
+  Giga Embedder через gpt2giga-прокси), cosine-поиск top-k;
+- лёгкая LLM (DeepSeek через `llm.py`) — вердикт по каждому вопросу профиля:
+  `no_stop_condition | soft | absolute` (+ цитата и обоснование);
+- результат `rag_report` сохраняется в `procurement_scores.rag_report`
+  (`POST /score` с полем `rag_report`, score_method не меняется) и показывается
+  тендерологу в таблице закупок.
+
+**Предварительная фильтрация (слова-исключения):** `stop_conditions.exclusion_words_present`
+включает проверку слов-исключений активного профиля в описании (стем-матчинг по границе
+слова с учётом русской морфологии: «медицинский» ловит «медицинской»; «карамель» не
+сработает на «ель»). Ключевые слова активного профиля подставляются в серверный
+текстовый поиск площадок (fallback — глобальные `search_criteria.keywords`).
+
 ## 9. Таймерный запуск (scheduler)
 `src/zakupki_parser/scheduler.py` циклически проходит по списку сайтов из
 `config_service.yaml` (поле `sites`), после каждого цикла ожидает `timeout_seconds`.
@@ -375,7 +423,31 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
   (`fit`/`pwin`/`margin`) по приоритету (если `priority` не задан — берётся дефолтный
   score карточки).
 
-## 11а. Уведомления подписчиков
+## 11а. Авторизация
+Пользователи сервиса: **администратор** (`admin`) и **тендеролог**
+(`tenderologist`). Пока вход по логину и паролю (позже — OAuth2 через Сбер ID).
+
+- **Регистрация самостоятельная** (`POST /api/auth/register {username, password}`):
+  пользователь сам выбирает пароль, роль при регистрации — `tenderologist`.
+  **Роль администратора выставляется напрямую в таблице БД** (`UPDATE users SET role='admin'`).
+- `POST /api/auth/login` — вход, возвращает bearer-токен и профиль
+  (`{access_token, expires_in, user}`); `GET /api/auth/me` — текущий пользователь;
+  `POST /api/auth/logout` — выход (stateless, токен удаляется клиентом).
+- Пароли хранятся как PBKDF2-хэши (`zakupki_parser/auth.py`), токены —
+  HMAC-SHA256-подпись (payload: `sub`, `role`, `exp`).
+- Включение: `config_ops.yaml -> auth.enabled` (env `ZAKUPKI_AUTH_ENABLED`),
+  секрет подписи — env `ZAKUPKI_AUTH_SECRET`. При выключенной авторизации
+  эндпоинты открыты (dev-режим).
+- Защита эндпоинтов: без токена — 401; админ-операции (управление парсером,
+  очистка БД, правка конфигурации и промптов) — только `admin` (403 для остальных).
+  Служебные вызовы конвейера (`POST /score`, `POST /customers/{id}/rating`) защищены
+  отдельным внутренним токеном (`X-Internal-Token`, env `ZAKUPKI_INTERNAL_TOKEN`;
+  транспорт передаёт его через `TRANSPORT_PARSER_INTERNAL_TOKEN`). WebSocket `/ws` —
+  токен параметром `?token=`.
+- Первый администратор создаётся при старте API, если таблица пользователей пуста
+  и заданы `ZAKUPKI_ADMIN_USERNAME`/`ZAKUPKI_ADMIN_PASSWORD`.
+
+## 11б. Уведомления подписчиков
 Доставка новых закупок настраивается в `config_ops.yaml -> notifications`:
 бэкенд выбирается полем `backend` (`telegram | max | webhook`). Бэкенд активен, только
 если выбран и у него включён флаг `enabled`.

@@ -50,4 +50,8 @@ databaseChangeLog:
   - include:
       file: db.changelog-1.25.yaml
   - include:
+      file: db.changelog-1.26.yaml
+  - include:
+      file: db.changelog-1.27.yaml
+  - include:
       file: db.changelog-1.28.yaml

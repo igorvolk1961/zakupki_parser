@@ -94,6 +94,38 @@ def _inject_chat_ids(service_data: dict[str, Any]) -> None:
             block["chat_id"] = env_chat
 
 
+def _apply_auth_env(ops_data: dict[str, Any]) -> None:
+    """Применяет параметры авторизации из env к ``ops_data`` ДО валидации.
+
+    - ``ZAKUPKI_AUTH_SECRET`` — секрет подписи токенов (в YAML не хранится);
+    - ``ZAKUPKI_AUTH_ENABLED`` — включение авторизации (приоритет над YAML);
+    - ``ZAKUPKI_INTERNAL_TOKEN`` — внутренний токен служебных эндпоинтов.
+
+    Всё подставляется до ``OpsConfig.model_validate``: при ``enabled=true`` без
+    секрета конфигурация отклоняется валидатором (fail fast), а не «включается»
+    после валидации с пустым ключом подписи (HMAC над пустой строкой — подделка
+    токенов).
+    """
+    auth = ops_data.setdefault("auth", {})
+    if not isinstance(auth, dict):
+        return
+    env_secret = os.environ.get("ZAKUPKI_AUTH_SECRET")
+    if env_secret:
+        auth["secret"] = env_secret
+    env_internal = os.environ.get("ZAKUPKI_INTERNAL_TOKEN")
+    if env_internal:
+        auth["internal_token"] = env_internal
+    env_enabled = os.environ.get("ZAKUPKI_AUTH_ENABLED")
+    if env_enabled is not None:
+        value = env_enabled.lower()
+        if value in ("1", "true", "yes", "on"):
+            auth["enabled"] = True
+        elif value in ("0", "false", "no", "off"):
+            auth["enabled"] = False
+        else:
+            raise ValueError(f"ZAKUPKI_AUTH_ENABLED: недопустимое значение '{env_enabled}'")
+
+
 def load_config(configs_dir: str | Path) -> AppConfig:
     """Загружает все конфиги из ``configs_dir`` и возвращает ``AppConfig``."""
     base = Path(configs_dir).expanduser().resolve()
@@ -112,6 +144,10 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     # валидации, т.к. включённый бэкенд без chat_id — ошибка конфигурации.
     # Уведомления относятся к эксплуатационному (devops) конфигу.
     _inject_chat_ids(ops_data)
+
+    # Параметры авторизации из env (секрет, включение, внутренний токен) — ДО
+    # валидации: при auth.enabled=true без секрета конфигурация невалидна (fail fast).
+    _apply_auth_env(ops_data)
 
     service_model = ServiceConfig.model_validate(service_data)
     logging_model = LoggingConfig.model_validate(logging_data)

@@ -111,3 +111,32 @@ def extend_description_from_tz(description: str, tz_text: str) -> str | None:
             if prefix and line.startswith(prefix):
                 return line
     return None
+
+
+# Маркеры начала разделов ТЗ (для выделения первой секции как описания закупки).
+_SECTION_MARKER_RE = re.compile(
+    r"^\s*(?:раздел[^\n]*|общие положения[^\n]*|требования[^\n]*|"
+    r"общие сведения[^\n]*|\d+(?:\.\d+)*[\.\)]?\s)",
+    re.IGNORECASE,
+)
+
+
+def first_tz_section(text: str, max_chars: int = 2000) -> str:
+    """Первая секция текста ТЗ как описание закупки (без глубокого чтения тела).
+
+    Полный текст ТЗ стадия Fit НЕ обрабатывает: берётся первая секция (до первого
+    маркера раздела — «Раздел», «Общие положения», «Требования», нумерация «1.»
+    и т.п.). При отсутствии маркеров — первые ``max_chars`` символов.
+    """
+    if not text:
+        return ""
+    lines = text.splitlines()
+    section: list[str] = []
+    for line in lines:
+        if section and _SECTION_MARKER_RE.match(line):
+            break
+        section.append(line)
+    head = "\n".join(section).strip()
+    if not head:
+        head = text.strip()
+    return head[:max_chars]

@@ -156,11 +156,50 @@ class NotificationsConfig(_BaseConfig):
         return self
 
 
+class AuthConfig(_BaseConfig):
+    """Параметры аутентификации API (config_ops.yaml -> auth).
+
+    Секрет подписи токенов не хранится в YAML — подкладывается из env
+    ``ZAKUPKI_AUTH_SECRET`` в ``config/loader.py`` (как токены уведомлений).
+    При ``enabled=true`` без секрета конфигурация невалидна (fail fast).
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "требовать ли авторизацию на эндпоинтах API (кроме /health, / и /api/auth/login); "
+            "пока вход по логину/паролю, позже — OAuth2 через Сбер ID"
+        ),
+    )
+    secret: str | None = Field(
+        default=None,
+        description="секрет подписи bearer-токенов; из env ZAKUPKI_AUTH_SECRET, в YAML не пишется",
+    )
+    internal_token: str | None = Field(
+        default=None,
+        description=(
+            "внутренний токен служебных эндпоинтов конвейера (POST /score, "
+            "POST /customers/{id}/rating); проверяется по заголовку X-Internal-Token; "
+            "из env ZAKUPKI_INTERNAL_TOKEN, в YAML не пишется"
+        ),
+    )
+    token_ttl_seconds: int = Field(default=12 * 3600, ge=60, description="время жизни токена (сек)")
+
+    @model_validator(mode="after")
+    def _require_secret_when_enabled(self) -> AuthConfig:
+        if self.enabled and not self.secret:
+            raise ValueError(
+                "auth.enabled=true, но не задан секрет: установите env ZAKUPKI_AUTH_SECRET"
+            )
+        return self
+
+
 class OpsConfig(_BaseConfig):
     """Эксплуатационная конфигурация: таймер, БД, уведомления, выгрузка, circuit breaker."""
 
     timeout_seconds: int = Field(default=3600, ge=1)
     db: DbConfig = Field(default_factory=DbConfig)
+    auth: AuthConfig = Field(default_factory=AuthConfig)
     export_dir: str = Field(
         default="data/export",
         description=(

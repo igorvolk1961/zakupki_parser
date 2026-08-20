@@ -27,6 +27,20 @@ class ParserApiClient:
             data: dict[str, Any] = resp.json()
             return data
 
+    async def get_active_client(self, internal_token: str | None = None) -> dict[str, Any]:
+        """Активный клиентский профиль (компетенции, слова, вопросы к ТЗ).
+
+        ``internal_token`` — внутренний токен парсера (заголовок X-Internal-Token):
+        эндпоинт /api/clients/active открыт и для конвейера, и для пользователей.
+        """
+        url = f"{self._base}/api/clients/active"
+        headers = {"X-Internal-Token": internal_token} if internal_token else None
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+            return data
+
     async def post_score(
         self,
         procurement_id: int,
@@ -36,10 +50,17 @@ class ParserApiClient:
         embedding_similarity: float | None = None,
         p_win: float | None = None,
         margin: float | None = None,
+        rag_report: dict[str, Any] | None = None,
         retry_max: int = 3,
         retry_backoff: float = 2.0,
+        internal_token: str | None = None,
     ) -> dict[str, Any]:
-        """Вернуть результат скоринга в парсер (с ретраями/backoff)."""
+        """Вернуть результат скоринга в парсер (с ретраями/backoff).
+
+        ``internal_token`` — внутренний токен парсера (заголовок X-Internal-Token):
+        служебные эндпоинты парсера (POST /score) доступны только конвейеру.
+        ``rag_report`` — результат RAG-анализа стоп-условий (analysis_service).
+        """
         url = f"{self._base}/api/procurements/{procurement_id}/score"
         payload = {"score": score, "score_method": score_method}
         if fit_score is not None:
@@ -50,11 +71,14 @@ class ParserApiClient:
             payload["p_win"] = p_win
         if margin is not None:
             payload["margin"] = margin
+        if rag_report is not None:
+            payload["rag_report"] = rag_report
+        headers = {"X-Internal-Token": internal_token} if internal_token else None
         last_exc: Exception | None = None
         for attempt in range(retry_max):
             try:
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.post(url, json=payload)
+                    resp = await client.post(url, json=payload, headers=headers)
                     resp.raise_for_status()
                     data: dict[str, Any] = resp.json()
                     return data

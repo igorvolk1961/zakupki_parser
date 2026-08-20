@@ -43,6 +43,8 @@ class TransportQueue:
             return self._settings.pwin_jobs_key
         if stage == "margin":
             return self._settings.margin_jobs_key
+        if stage == "analysis":
+            return self._settings.analysis_jobs_key
         return self._settings.jobs_key
 
     def _results_keys(self) -> list[str]:
@@ -50,6 +52,7 @@ class TransportQueue:
             self._settings.results_key,
             self._settings.pwin_results_key,
             self._settings.margin_results_key,
+            self._settings.analysis_results_key,
         ]
 
     async def pop_result(self, timeout: float | None = None) -> dict[str, Any] | None:

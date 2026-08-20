@@ -27,25 +27,23 @@ p_win: 1.0
 # 1.0 — margin = НМЦК; 1.2 — +20% к НМЦК.
 margin_rate: 1.0
 
-# Каскад скоринга Fit -> P(win) -> Margin (ADR-7). Парсер оркестрирует переходы:
-# - после стадии Fit (score_method=fit), если fit_score >= pwin_fit_threshold,
-#   закупка ставится в очередь pwin:jobs (сервис pwin_service);
-# - после стадии P(win) (score_method=pwin), если p_win >= margin_pwin_threshold
-#   (порог по возвращаемому значению стадии, НЕ по произведению score), закупка
-#   ставится в очередь margin:jobs (сервис margin_service).
+# Каскад скоринга Fit -> P(win) -> Margin (ADR-7). Автокаскад ОТКЛЮЧЁН:
+# P(win)/Margin вычисляются только по явному запросу тендеролога (on-demand,
+# POST /api/procurements/pwin-margin — обе стадии ставятся сразу). Остаётся
+# авто-Fit: после сохранения закупки парсер ставит задание fit:jobs.
 #
 # Уведомления — после каждой стадии, с порогами по возвращаемым значениям
 # (notify_min_fit_score/notify_min_pwin/notify_min_margin в config_ops.yaml).
 #
 # Три множителя хранятся отдельными полями: fit_score, p_win, margin;
 # score — накопленное произведение (после margin = fit × p_win × margin).
+# Пороги переходов больше не используются в авто-режиме (deprecated).
 pwin_fit_threshold: 0.5
 margin_pwin_threshold: 0.3
 
-# Стадии каскада включаются ТОЛЬКО после развёртывания соответствующих сервисов
-# (pwin_service/margin_service): пока pwin_enabled=false, парсер не ставит задачи
-# в pwin:jobs/margin:jobs и уведомляет подписчиков уже на стадии fit (безопасный
-# ролл-аут — фит-результаты не теряются).
+# Стадии P(win)/Margin включаются ТОЛЬКО после развёртывания соответствующих
+# сервисов (pwin_service/margin_service): pwin_enabled/margin_enabled — флаги
+# доступности сервисов для on-demand запросов тендеролога.
 pwin_enabled: true
 margin_enabled: true
 
@@ -53,3 +51,8 @@ margin_enabled: true
 # После сохранения закупки парсер отправляет POST /api/scoring/jobs с дефолтным скором.
 # Если не задан — внешний скоринг не запускается, закупка остаётся с дефолтным score.
 scoring_transport_url: "http://localhost:8200"
+
+# Активный клиентский профиль (client_profiles.id, многоклиентный скоринг).
+# Под ним выполняются авто-Fit, RAG-анализ, ручные оценки и P(win)/Margin;
+# если не задан — профиль по имени 'default'.
+active_client_id: null

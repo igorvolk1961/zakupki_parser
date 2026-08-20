@@ -33,11 +33,13 @@ def _make_orch(
     deadline_not_expired: bool = True,
     keyword_context_required: bool = False,
     keyword_context_regexes: dict[str, str] | None = None,
+    exclusion_words_present: bool = False,
 ) -> Orchestrator:
     cfg = app_config.model_copy(deep=True)
     cfg.service.stop_conditions.min_deadline_days = min_deadline_days
     cfg.service.stop_conditions.deadline_not_expired = deadline_not_expired
     cfg.service.stop_conditions.keyword_context_required = keyword_context_required
+    cfg.service.stop_conditions.exclusion_words_present = exclusion_words_present
     if keyword_context_regexes is not None:
         cfg.service.stop_conditions.keyword_context_regexes = keyword_context_regexes
     return Orchestrator(
@@ -409,4 +411,68 @@ def test_keyword_context_regex_is_explicit(app_config: AppConfig) -> None:
     record = {"number": "18", "subject": "Внедрение полуавтоматизации"}
     assert (
         anchored._check_stop_conditions(record, keywords=["автоматизация"]) is True  # noqa: SLF001
+    )
+
+
+def test_exclusion_word_present_skips(app_config: AppConfig) -> None:
+    """Слово-исключение в описании — закупка пропускается (по границе слова)."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, exclusion_words_present=True)
+    for subject in ("Услуги медицинской техники", "МЕДИЦИНСКИЙ центр"):
+        record = {"number": "20", "subject": subject}
+        assert (
+            orch._check_stop_conditions(record, exclusion_words=["медицинский"]) is True  # noqa: SLF001
+        )
+
+
+def test_exclusion_word_inside_word_kept(app_config: AppConfig) -> None:
+    """Исключение по границе слова: 'медицинский' не отсекает 'немедицинский'."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, exclusion_words_present=True)
+    record = {"number": "21", "subject": "Поставка немедицинских расходников"}
+    assert (
+        orch._check_stop_conditions(record, exclusion_words=["медицинский"]) is False  # noqa: SLF001
+    )
+
+
+def test_exclusion_word_inside_other_word_kept(app_config: AppConfig) -> None:
+    """'ель'/'лед' не отсекают 'карамель'/'следов' (нет границы слова)."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, exclusion_words_present=True)
+    for subject in ("карамель на палочке", "анализ следов"):
+        record = {"number": "22", "subject": subject}
+        assert (
+            orch._check_stop_conditions(record, exclusion_words=["ель", "лед"]) is False  # noqa: SLF001
+        )
+
+
+def test_exclusion_word_stem_suffix_matches(app_config: AppConfig) -> None:
+    """Стем-матчинг: 'медицинский'/'алмаз' ловят 'медицинской'/'алмазный'."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, exclusion_words_present=True)
+    for subject in ("поставка медицинской техники", "искусственный алмазный материал"):
+        record = {"number": "25", "subject": subject}
+        assert (
+            orch._check_stop_conditions(record, exclusion_words=["медицинский", "алмаз"]) is True  # noqa: SLF001
+        )
+
+
+def test_exclusion_words_from_profile(app_config: AppConfig) -> None:
+    """Слова-исключения приходят из активного клиентского профиля (не конфига)."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, exclusion_words_present=True)
+    record = {"number": "23", "subject": "Разработка искусственного интеллекта на ели"}
+    # 'ель' как отдельное слово — стоп; 'ель' внутри 'карамель' не сработал бы.
+    assert (
+        orch._check_stop_conditions(record, exclusion_words=["ель", "лед", "алмаз"]) is True  # noqa: SLF001
+    )
+
+
+def test_exclusion_flag_disabled_allows(app_config: AppConfig) -> None:
+    """Флаг exclusion_words_present=false — слова-исключения не проверяются."""
+    now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
+    orch = _make_orch(app_config, now, min_deadline_days=None, exclusion_words_present=False)
+    record = {"number": "24", "subject": "Медицинское оборудование"}
+    assert (
+        orch._check_stop_conditions(record, exclusion_words=["медицинский"]) is False  # noqa: SLF001
     )

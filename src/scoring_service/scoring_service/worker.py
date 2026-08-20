@@ -32,6 +32,23 @@ class ScoringWorker:
         self._scorer = build_scorer(settings)
         self._queue = StageQueue(settings)
         self._parser = ParserApiClient(settings.parser_api_url)
+        self._competencies = settings.competencies()
+
+    async def _resolve_competencies(self) -> str:
+        """Компетенции активного клиентского профиля (из парсера), fallback — файл."""
+        try:
+            client = await self._parser.get_active_client(
+                internal_token=self._settings.parser_internal_token
+            )
+            competencies = (client or {}).get("competencies")
+            if competencies:
+                return competencies
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            logger.warning(
+                "Не удалось получить активный клиентский профиль (%s) — компетенции из файла",
+                exc,
+            )
+        return self._competencies
 
     async def run_forever(self) -> None:
         await self._queue.connect()
@@ -53,7 +70,7 @@ class ScoringWorker:
         try:
             await self._queue.claim_processing(procurement_id, priority)
             record = await self._parser.get_procurement(procurement_id)
-            competencies = self._settings.competencies()
+            competencies = await self._resolve_competencies()
             result = self._scorer.score(record, competencies, procurement_id, run_id=self._run_id)
             await self._queue.publish_result(
                 {

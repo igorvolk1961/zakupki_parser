@@ -107,6 +107,15 @@
   .muted { color: var(--muted); }
   a { color: var(--accent); }
   .editor-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin-top: 12px; z-index: 2; }
+  .user-bar { display:flex; align-items:center; gap:10px; font-size:13px; color: var(--muted); }
+  .user-bar b { color: var(--text); font-weight:600; }
+  .login-modal { max-width:360px; }
+  .login-modal .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .login-modal .field label { font-size:13px; color: var(--muted); }
+  .login-modal .error { color: #dc2626; font-size:13px; min-height:18px; margin-bottom:8px; }
+  .login-modal .switch { margin-top:14px; text-align:center; font-size:13px; }
+  .login-modal .switch button { background:none; border:none; color: var(--accent); cursor:pointer; padding:0; font-size:13px; }
+  .login-note { margin-top:8px; text-align:center; font-size:12px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -115,13 +124,18 @@
     <h1>Парсер закупок</h1>
   </div>
   <div class="header-right">
+    <span class="pill" id="client-pill" style="display:none;" title="Активный клиентский профиль"></span>
     <select id="theme" title="Цветовая схема">
       <option value="light">Светлая</option>
       <option value="dark">Тёмная</option>
     </select>
-    <label class="admin-toggle" title="Доступ к «Очистить БД», «Выгрузить CSV», «Параметры» и «Промпты»">
+    <label class="admin-toggle" id="admin-toggle" title="Доступ к «Очистить БД», «Выгрузить CSV», «Параметры» и «Промпты»">
       <input type="checkbox" id="admin"> Режим администратора
     </label>
+    <span class="user-bar" id="user-bar" style="display:none;">
+      <b id="user-name"></b><span class="pill" id="user-role"></span>
+      <button class="ghost" id="logout" title="Выйти">Выйти</button>
+    </span>
   </div>
 </header>
 <main>
@@ -176,8 +190,16 @@
           </span>
         </label>
         <div class="proc-table">
+          <div class="toolbar" style="margin-bottom:8px;">
+            <button class="primary" id="batch-analyze" disabled>Обработать выбранные</button>
+            <button class="ghost" id="batch-pwin-margin" disabled>Оценить P(win)/Margin</button>
+            <span id="sel-count" class="muted"></span>
+          </div>
           <table>
-            <thead><tr><th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>Статус</th><th>Дата публикации</th></tr></thead>
+            <thead><tr>
+              <th><input type="checkbox" id="sel-all" title="Выбрать все на странице"></th>
+              <th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>Статус</th><th>Дата публикации</th><th>Действия</th>
+            </tr></thead>
             <tbody id="proc-rows"></tbody>
           </table>
           <div class="empty" id="proc-empty" style="display:none;">Закупок пока нет</div>
@@ -278,6 +300,26 @@
   </div>
 </div>
 
+<div class="modal-bg" id="login-modal-bg">
+  <div class="modal login-modal" id="login-modal">
+    <h2 id="login-title">Вход</h2>
+    <div class="field">
+      <label for="login-username">Логин</label>
+      <input id="login-username" autocomplete="username" placeholder="логин">
+    </div>
+    <div class="field">
+      <label for="login-password">Пароль</label>
+      <input id="login-password" type="password" autocomplete="current-password" placeholder="пароль">
+    </div>
+    <div class="error" id="login-error"></div>
+    <div class="toolbar" style="margin-bottom:0; justify-content:flex-end;">
+      <button class="primary" id="login-submit">Войти</button>
+    </div>
+    <div class="switch"><span class="muted">Нет аккаунта?</span> <button id="login-switch">Зарегистрироваться</button></div>
+    <div class="login-note">Роль администратора выставляется в таблице БД.</div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
@@ -292,7 +334,9 @@ const fmtDateOnly = (v) => v ? new Date(v).toLocaleDateString("ru-RU") : "–";
 // возвращаем null → показываем прочерк. sim — предварительная фильтрация
 // по векторной близости: LLM не выполнялся, fit_score=0 (ADR-8).
 const realFit = (row) =>
-  ["fit", "pwin", "margin", "sim"].includes(row.score_method) ? row.fit_score : null;
+  ["fit", "pwin", "margin", "sim", "manual", "reject"].includes(row.score_method)
+    ? row.fit_score
+    : null;
 
 // Значение fit-скора с пометкой метода скоринга (кроме обычной стадии fit):
 // «0 (sim)» — отсечка по векторной близости, «0.5 (pwin)» — стадия каскада.
@@ -307,11 +351,113 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 }
 
+// --- Авторизация --------------------------------------------------------
+const TOKEN_KEY = "zp_token";
+let authUser = null;          // профиль пользователя из /api/auth/me (null — без авторизации)
+let loginMode = "login";      // "login" | "register"
+
+function authToken() { return localStorage.getItem(TOKEN_KEY); }
+function setToken(t) { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); }
+function authHeaders(extra) {
+  const h = extra || {};
+  const t = authToken();
+  if (t) h["Authorization"] = "Bearer " + t;
+  return h;
+}
+
+function showLogin() {
+  loginMode = "login";
+  $("#login-title").textContent = "Вход";
+  $("#login-switch").textContent = "Зарегистрироваться";
+  $("#login-submit").textContent = "Войти";
+  $("#login-error").textContent = "";
+  $("#login-password").type = "password";
+  $("#login-password").autocomplete = "current-password";
+  $("#login-modal-bg").classList.add("open");
+  $("#login-username").focus();
+}
+
+function hideLogin() { $("#login-modal-bg").classList.remove("open"); }
+
+async function doLogin(register) {
+  const username = $("#login-username").value.trim();
+  const password = $("#login-password").value;
+  const err = $("#login-error");
+  err.textContent = "";
+  if (!username || !password) { err.textContent = "Укажите логин и пароль"; return; }
+  $("#login-submit").disabled = true;
+  try {
+    const r = await fetch(register ? "/api/auth/register" : "/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      err.textContent = (body && body.detail) || "Не удалось выполнить вход";
+      return;
+    }
+    setToken(body.access_token);
+    authUser = body.user;
+    hideLogin();
+    renderAuth();
+    loadProc(); loadCustomers(); loadPlatforms(); loadActiveClient();
+  } catch (e) {
+    err.textContent = "Ошибка: " + e.message;
+  } finally {
+    $("#login-submit").disabled = false;
+  }
+}
+
+function renderAuth() {
+  const bar = $("#user-bar"), toggle = $("#admin-toggle");
+  if (authUser) {
+    bar.style.display = "flex";
+    $("#user-name").textContent = authUser.username;
+    const roleName = authUser.role === "admin" ? "администратор" : "тендеролог";
+    $("#user-role").textContent = roleName;
+    // Для тендеролога переключатель администратора не показываем.
+    toggle.style.display = authUser.role === "admin" ? "" : "none";
+  } else {
+    bar.style.display = "none";
+    toggle.style.display = "";
+  }
+  updateControls();
+}
+
+function logout() {
+  setToken(null);
+  authUser = null;
+  adminMode = false;
+  renderAuth();
+  showLogin();
+}
+
+// Проверяет состояние авторизации. Возвращает true, если авторизация включена
+// (200 — пользователь известен, 401 — показать вход); false — отключена/сбой
+// (dev-режим, загружаем данные без логина).
+async function checkAuth() {
+  try {
+    const r = await fetch("/api/auth/me", { headers: authHeaders() });
+    if (r.status === 200) { authUser = await r.json(); renderAuth(); return true; }
+    if (r.status === 401) { showLogin(); return true; }
+  } catch (e) { /* сервис ещё недоступен — повторим при следующем действии */ }
+  renderAuth();
+  return false;
+}
+
 async function api(path, params) {
   const url = "/api/" + path + (params ? "?" + new URLSearchParams(params) : "");
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: authHeaders() });
+  if (r.status === 401) { showLogin(); throw new Error("Требуется авторизация"); }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+async function apiJSON(url, opts) {
+  const r = await fetch(url, Object.assign({}, opts, { headers: authHeaders((opts && opts.headers) || {}) }));
+  if (r.status === 401) { showLogin(); throw new Error("Требуется авторизация"); }
+  return r;
 }
 
 let allItems = [];
@@ -341,13 +487,31 @@ function card(row) {
 }
 
 function procRow(row) {
-  return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}">
+  const methodLabel = row.score_method
+    ? { manual: "ручная", reject: "отклонена" }[row.score_method] || row.score_method
+    : "";
+  const rg = row.rag_report ? ` data-rag="${escapeHtml(JSON.stringify(row.rag_report))}"` : "";
+  return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}"${rg}>
+    <td><input type="checkbox" class="row-sel" data-id="${row.id}" ${selected.has(row.id) ? "checked" : ""}></td>
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
     <td><span class="pill">${escapeHtml(row.platform_id)}</span></td>
-    <td><span class="pill score">${fitCell(row)}</span></td>
+    <td><span class="pill score">${fitCell(row)}</span>${methodLabel ? `<span class="muted" style="font-size:11px"> ${escapeHtml(methodLabel)}</span>` : ""}</td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
     <td>${fmtDateOnly(row.publication_date)}</td>
+    <td class="row-actions">
+      <button class="ghost" data-action="analyze" title="RAG-анализ стоп-условий по вопросам клиента">Анализ</button>
+      <button class="ghost" data-action="pwin" title="Оценить P(win)/Margin">P/M</button>
+      <select class="manual-sel" title="Ручная оценка fit (пресет)">
+        <option value="">Ручная</option>
+        <option value="0.1">0.1 — не релевантна</option>
+        <option value="0.4">0.4 — низкий приоритет</option>
+        <option value="0.8">0.8 — перспективная</option>
+        <option value="0.9">0.9 — высокий приоритет</option>
+        <option value="1.0">1.0 — идеально</option>
+      </select>
+      <button class="ghost" data-action="reject" title="Отклонить (fit=0.1)">Откл</button>
+    </td>
   </tr>`;
 }
 
@@ -488,8 +652,36 @@ async function openDetail(id) {
       ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
       ${f("Файлы", files)}
       ${f("Ссылка", row.url ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">открыть</a>` : "—")}
-    </table>`;
+    </table>
+    ${ragReportHtml(row.rag_report)}`;
   $("#modal-bg").classList.add("open");
+}
+
+// RAG-отчёт анализа стоп-условий (по вопросам клиента).
+function ragReportHtml(report) {
+  if (!report) return "";
+  const verdictBadge = (v) => {
+    const cls = v === "absolute" ? "active" : v === "soft" ? "" : "";
+    const label = v === "absolute" ? "запрет" : v === "soft" ? "понижает" : "нет";
+    return `<span class="pill ${cls}">${label}</span>`;
+  };
+  if (report.tz_found === false) {
+    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">ТЗ не найдено.</p>`;
+  }
+  if (report.error) {
+    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">${escapeHtml(report.error)}</p>`;
+  }
+  const items = (report.questions || []).map((q) => `
+    <div style="border-top:1px solid var(--line); padding:8px 0;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <b>${escapeHtml(q.question_text)}</b> ${verdictBadge(q.verdict)}
+      </div>
+      ${q.excerpt ? `<div class="muted" style="margin-top:4px;">«${escapeHtml(q.excerpt)}»</div>` : ""}
+      ${q.reasoning ? `<div style="margin-top:4px;">${escapeHtml(q.reasoning)}</div>` : ""}
+    </div>`).join("");
+  return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
+    <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
+    ${items || '<p class="muted">Вопросов клиента пока нет.</p>'}`;
 }
 
 function renderCustomers(data) {
@@ -547,13 +739,76 @@ async function loadPlatforms() {
   });
 }
 
+// Индикатор активного клиентского профиля (многоклиентный скоринг).
+async function loadActiveClient() {
+  try {
+    const c = await api("clients/active");
+    $("#client-pill").style.display = "inline-block";
+    $("#client-pill").textContent = "клиент: " + c.name;
+  } catch (err) { $("#client-pill").style.display = "none"; }
+}
+
 function closeModal() { $("#modal-bg").classList.remove("open"); }
 
 // --- События списка закупок -------------------------------------------
+async function rowAction(tr, action) {
+  const id = Number(tr.dataset.id);
+  if (action === "analyze") {
+    const r = await apiJSON("/api/procurements/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ procurement_ids: [id] }),
+    });
+    if (r.ok) $("#parser-status").textContent = `Закупка #${id}: поставлен RAG-анализ…`;
+    else $("#parser-status").textContent = "не удалось поставить анализ (транспорт не настроен?)";
+  } else if (action === "pwin") {
+    const r = await apiJSON("/api/procurements/pwin-margin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ procurement_ids: [id] }),
+    });
+    if (r.ok) $("#parser-status").textContent = `Закупка #${id}: поставлена оценка P(win)/Margin…`;
+    else $("#parser-status").textContent = "не удалось поставить P(win)/Margin";
+  } else if (action === "reject") {
+    const r = await apiJSON(`/api/procurements/${id}/reject`, { method: "POST" });
+    if (r.ok) { $("#parser-status").textContent = `Закупка #${id} отклонена`; loadProc(); }
+    else $("#parser-status").textContent = "не удалось отклонить";
+  }
+}
+
+async function manualScore(tr, value) {
+  const id = Number(tr.dataset.id);
+  const r = await apiJSON(`/api/procurements/${id}/manual-score`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value: parseFloat(value) }),
+  });
+  if (r.ok) { $("#parser-status").textContent = `Закупка #${id}: ручная оценка ${value}`; loadProc(); }
+  else $("#parser-status").textContent = "не удалось выставить ручную оценку";
+}
+
+function updateSelUi() {
+  const n = selected.size;
+  $("#batch-analyze").disabled = !n;
+  $("#batch-pwin-margin").disabled = !n;
+  $("#sel-count").textContent = n ? `выбрано: ${n}` : "";
+}
+
 $("#proc-rows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-id]");
   if (!tr) return;
   const id = Number(tr.dataset.id);
+  // Действия строки: кнопки/селект — без смены выбора.
+  const actionBtn = e.target.closest("button[data-action]");
+  if (actionBtn) { rowAction(tr, actionBtn.dataset.action); return; }
+  if (e.target.classList.contains("row-sel")) {
+    if (selected.has(id)) { selected.delete(id); }
+    else { selected.add(id); }
+    e.target.checked = selected.has(id);
+    tr.classList.toggle("sel", selected.has(id));
+    renderDetail(); updateSelUi();
+    return;
+  }
   if (e.ctrlKey) {
     if (selected.has(id)) { selected.delete(id); tr.classList.remove("sel"); }
     else { selected.add(id); tr.classList.add("sel"); }
@@ -562,6 +817,43 @@ $("#proc-rows").addEventListener("click", (e) => {
     document.querySelectorAll("#proc-rows tr").forEach((r) => r.classList.toggle("sel", r === tr));
   }
   renderDetail();
+  updateSelUi();
+});
+$("#proc-rows").addEventListener("change", (e) => {
+  const sel = e.target.closest(".manual-sel");
+  if (sel && sel.value) {
+    const tr = sel.closest("tr[data-id]");
+    manualScore(tr, sel.value);
+    sel.value = "";
+  }
+});
+$("#sel-all").addEventListener("change", (e) => {
+  allItems.forEach((r) => {
+    if (e.target.checked) selected.add(r.id); else selected.delete(r.id);
+  });
+  renderProc(); renderDetail(); updateSelUi();
+});
+$("#batch-analyze").addEventListener("click", async () => {
+  const ids = [...selected];
+  const r = await apiJSON("/api/procurements/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ procurement_ids: ids }),
+  });
+  $("#parser-status").textContent = r.ok
+    ? `Поставлен RAG-анализ для ${ids.length} закупок…`
+    : "не удалось поставить анализ (транспорт не настроен?)";
+});
+$("#batch-pwin-margin").addEventListener("click", async () => {
+  const ids = [...selected];
+  const r = await apiJSON("/api/procurements/pwin-margin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ procurement_ids: ids }),
+  });
+  $("#parser-status").textContent = r.ok
+    ? `Поставлена оценка P(win)/Margin для ${ids.length} закупок…`
+    : "не удалось поставить P(win)/Margin";
 });
 $("#proc-detail").addEventListener("click", (e) => {
   const card = e.target.closest(".card");
@@ -616,7 +908,7 @@ async function saveConfig() {
   catch (err) { $("#cfg-status").textContent = "Ошибка JSON: " + err.message; return; }
   $("#cfg-status").textContent = "Сохранение…";
   try {
-    const r = await fetch("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const r = await apiJSON("/api/config", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (!r.ok) {
       const detail = await r.json();
       $("#cfg-status").textContent = "Ошибка валидации: " + JSON.stringify(detail.detail || detail);
@@ -695,7 +987,7 @@ async function savePrompt() {
   }
   $("#prompt-status").textContent = "Сохранение…";
   try {
-    const r = await fetch("/api/prompts/" + encodeURIComponent(name), {
+    const r = await apiJSON("/api/prompts/" + encodeURIComponent(name), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
@@ -741,7 +1033,10 @@ function updateControls() {
   $("#parser-start").disabled = parserRunning;
   $("#parser-stop").disabled = !parserRunning || stopping;
   // Элементы режима администратора скрываются, а не просто блокируются.
-  const adminOn = adminMode;
+  // При включённой авторизации админ-режим доступен только роли admin
+  // (роль задаётся в таблице БД); в dev-режиме (без авторизации) — всем.
+  const adminAllowed = !authUser || authUser.role === "admin";
+  const adminOn = adminMode && adminAllowed;
   $("#db-clear").style.display = adminOn ? "" : "none";
   $("#db-clear").disabled = parserRunning;
   $("#db-export").style.display = adminOn ? "" : "none";
@@ -767,6 +1062,29 @@ async function refreshParserStatus() {
   return s;
 }
 $("#admin").addEventListener("change", (e) => { adminMode = e.target.checked; updateControls(); });
+
+// --- Вход / регистрация --------------------------------------------------
+$("#login-submit").addEventListener("click", () => doLogin(loginMode === "register"));
+$("#login-switch").addEventListener("click", () => {
+  loginMode = loginMode === "login" ? "register" : "login";
+  $("#login-title").textContent = loginMode === "register" ? "Регистрация" : "Вход";
+  $("#login-switch").textContent = loginMode === "register" ? "Войти" : "Зарегистрироваться";
+  $("#login-submit").textContent = loginMode === "register" ? "Создать аккаунт" : "Войти";
+  $("#login-password").type = loginMode === "register" ? "password" : "password";
+  $("#login-password").autocomplete = loginMode === "register" ? "new-password" : "current-password";
+  $("#login-error").textContent = "";
+  $("#login-username").focus();
+});
+["login-username", "login-password"].forEach((id) => {
+  document.getElementById(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doLogin(loginMode === "register");
+  });
+});
+$("#login-modal-bg").addEventListener("click", (e) => {
+  // Не даём закрыть модалку входа кликом мимо (нужна авторизация).
+  if (e.target.id === "login-modal-bg" && authUser) hideLogin();
+});
+$("#logout").addEventListener("click", logout);
 
 // Цветовая схема (по умолчанию светлая; выбор запоминается в localStorage).
 function applyTheme(theme) {
@@ -796,7 +1114,7 @@ $("#parser-start").addEventListener("click", async () => {
   $("#parser-status").textContent = "запуск…";
   stopping = false;
   parserRunning = true; updateControls(); renderProc(); // мгновенно блокируем «Запустить» и убираем подсказку
-  const r = await fetch("/api/parser/start", { method: "POST" });
+  const r = await apiJSON("/api/parser/start", { method: "POST" });
   if (!r.ok) {
     parserRunning = false; updateControls(); renderProc();
     $("#parser-status").textContent = "не удалось запустить (возможно, уже работает)";
@@ -808,7 +1126,7 @@ $("#parser-stop").addEventListener("click", async () => {
   $("#parser-status").textContent = "остановка…";
   stopping = true;
   parserRunning = false; updateControls(); // мгновенно блокируем «Остановить» до фактической остановки
-  await fetch("/api/parser/stop", { method: "POST" });
+  await apiJSON("/api/parser/stop", { method: "POST" });
   await refreshParserStatus(); pollParser();
 });
 $("#db-clear").addEventListener("click", () => {
@@ -829,7 +1147,7 @@ async function dbClearRequest(url, body) {
     opts.headers = { "Content-Type": "application/json" };
     opts.body = JSON.stringify(body);
   }
-  const r = await fetch(url, opts);
+  const r = await apiJSON(url, opts);
   if (!r.ok) { $("#parser-status").textContent = "не удалось очистить БД (возможно, идёт сбор)"; return; }
   const res = await r.json();
   await loadProc(); await loadCustomers();
@@ -874,7 +1192,7 @@ $("#export-fit-dn").addEventListener("click", () => stepExportFit(-0.1));
 $("#export-confirm").addEventListener("click", async () => {
   closeExportModal();
   $("#parser-status").textContent = "выгрузка CSV…";
-  const r = await fetch("/api/procurements/export", {
+  const r = await apiJSON("/api/procurements/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ min_fit_score: parseFloat($("#export-min-fit").value) }),
@@ -898,7 +1216,9 @@ function scheduleRefresh() {
 }
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  const t = authToken();
+  const url = `${proto}://${location.host}/ws` + (t ? "?token=" + encodeURIComponent(t) : "");
+  const ws = new WebSocket(url);
   ws.onmessage = scheduleRefresh;
   ws.onclose = () => setTimeout(connectWS, 3000); // авто-переподключение
   ws.onerror = () => { try { ws.close(); } catch (err) {} };
@@ -914,10 +1234,14 @@ connectWS();
   // Состояние переключателя «Только релевантные» и числового поля порога.
   $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
   updateMinFit();
+  // При включённой авторизации без входа не загружаем данные (ждём логин).
+  const authActive = await checkAuth();
+  if (authActive && !authUser) return;
   try {
     await loadPlatforms();
     await loadProc();
     await loadCustomers();
+    await loadActiveClient();
   } catch (err) {
     $("#proc-rows").innerHTML = `<tr><td colspan="4" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
   }

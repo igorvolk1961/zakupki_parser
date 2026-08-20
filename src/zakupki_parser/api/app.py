@@ -7,30 +7,42 @@ import csv
 import io
 import json
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import yaml
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import text as sql_text
+from sqlalchemy.exc import IntegrityError
 
+from zakupki_parser.auth import (
+    ROLE_ADMIN,
+    ROLE_TENDEROLOGIST,
+    create_token,
+    decode_token,
+    hash_password,
+    verify_password,
+)
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import (
     SCORE_METHOD_FIT,
+    SCORE_METHOD_MANUAL,
     SCORE_METHOD_MARGIN,
     SCORE_METHOD_PWIN,
+    SCORE_METHOD_REJECT,
     SCORE_METHOD_STAGES,
     AppConfig,
     ServiceConfig,
 )
 from zakupki_parser.notify import Notifier
 from zakupki_parser.scoring import ScoringTransportClient
-from zakupki_parser.storage.db import Database, Procurement
+from zakupki_parser.storage.db import ClientProfile, Database, Procurement, User
 from zakupki_parser.storage.repository import ProcurementRepository, effective_is_active
 
 logger = logging.getLogger(__name__)
@@ -72,6 +84,8 @@ class ProcurementOut(BaseModel):
     margin: float | None = None
     score_method: str | None = None
     embedding_similarity: float | None = None
+    # Per-client RAG-отчёт анализа стоп-условий (профиль активного клиента).
+    rag_report: dict[str, Any] | None = None
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
@@ -130,6 +144,46 @@ class HealthOut(BaseModel):
     db: bool
 
 
+# --------------------------------------------------------------------------- #
+# Схемы авторизации
+# --------------------------------------------------------------------------- #
+class LoginIn(BaseModel):
+    """Вход по логину и паролю (пока; позже — OAuth2 через Сбер ID)."""
+
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1)
+
+
+class UserOut(BaseModel):
+    """Карточка пользователя (без password_hash)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    role: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RegisterIn(BaseModel):
+    """Самостоятельная регистрация: пользователь сам выбирает пароль.
+
+    Роль при регистрации всегда ``tenderologist``; роль администратора задаётся
+    напрямую в таблице БД (``UPDATE users SET role='admin' WHERE ...``).
+    """
+
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=8)
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserOut
+
+
 class PromptUpdate(BaseModel):
     """Сохранение промпта scoring_service (вкладка «Промпты»)."""
 
@@ -145,6 +199,7 @@ class ScoreUpdate(BaseModel):
     margin: float | None = None
     score_method: str = SCORE_METHOD_FIT
     embedding_similarity: float | None = None
+    rag_report: dict[str, Any] | None = None
 
     @field_validator("score_method")
     @classmethod
@@ -159,6 +214,60 @@ class ScoreUpdate(BaseModel):
             allowed = ", ".join(SCORE_METHOD_STAGES)
             raise ValueError(f"score_method должен быть одним из: {allowed}")
         return value
+
+
+class ManualScoreIn(BaseModel):
+    """Ручная оценка релевантности тендерологом (пресеты)."""
+
+    value: float = Field(ge=0.0, le=1.0)
+
+    @field_validator("value")
+    @classmethod
+    def _preset_allowed(cls, value: float) -> float:
+        allowed = {0.1, 0.4, 0.8, 0.9, 1.0}
+        if value not in allowed:
+            raise ValueError(f"value должен быть одним из пресетов: {sorted(allowed)}")
+        return value
+
+
+class ProcurementIdsIn(BaseModel):
+    """Пакетная обработка выбранных закупок (on-demand)."""
+
+    procurement_ids: list[int] = Field(min_length=1)
+
+
+class ClientProfileIn(BaseModel):
+    """Создание/обновление клиентского профиля тендеролога (ключ — name)."""
+
+    name: str = Field(min_length=1, max_length=128)
+    enabled: bool | None = None
+    competencies: str | None = None
+    keywords: list[str] | None = None
+    exclusion_words: list[str] | None = None
+    keyword_context_regexes: dict[str, str] | None = None
+    questions: list[dict[str, Any]] | None = None
+
+
+class ClientProfileOut(BaseModel):
+    """Карточка клиентского профиля."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    enabled: bool
+    competencies: str
+    keywords: list[str]
+    exclusion_words: list[str]
+    keyword_context_regexes: dict[str, str]
+    questions: list[dict[str, Any]]
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClientProfileListOut(BaseModel):
+    total: int
+    items: list[ClientProfileOut]
 
 
 # --------------------------------------------------------------------------- #
@@ -346,68 +455,7 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
     }
 
 
-class ScoreStageRow(Protocol):
-    """Поля записи закупки, используемые оркестрацией каскада скоринга."""
-
-    score_method: str | None
-    fit_score: float | None
-    score: float | None
-    p_win: float | None
-    margin: float | None
-
-
-class ScoreCascadeCfg(Protocol):
-    """Поля конфига (AppConfig), используемые оркестрацией каскада."""
-
-    score: Any
-
-
-def _next_stage_score(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> tuple[str, float] | None:
-    """Следующая стадия каскада Fit -> P(win) -> Margin для записи.
-
-    Возвращает ``(stage, priority)``, если результат текущей стадии проходит порог
-    следующей И следующая стадия включена (``pwin_enabled``/``margin_enabled``);
-    иначе ``None`` (каскад остановлен, стадия терминальная).
-
-    Пороги — по возвращаемым значениям стадий (не по произведению score):
-
-    - ``fit`` → ``pwin``, если ``fit_score >= pwin_fit_threshold``;
-    - ``pwin`` → ``margin``, если ``p_win >= margin_pwin_threshold``;
-    - ``margin`` — финальная стадия, следующей нет.
-    """
-    method = row.score_method
-    if method == SCORE_METHOD_FIT and row.fit_score is not None:
-        if cfg.score.pwin_enabled and row.fit_score >= cfg.score.pwin_fit_threshold:
-            return "pwin", float(row.fit_score)
-        return None
-    if method == SCORE_METHOD_PWIN and row.p_win is not None:
-        if cfg.score.margin_enabled and row.p_win >= cfg.score.margin_pwin_threshold:
-            return "margin", float(row.score or 0.0)
-        return None
-    return None
-
-
-def _is_terminal_stage(row: ScoreStageRow, cfg: ScoreCascadeCfg) -> bool:
-    """Терминальная ли стадия (каскад завершён).
-
-    Каскад завершён, если:
-    - результат fit ниже порога pwin (или стадия pwin не включена);
-    - результат pwin ниже порога margin (или стадия margin не включена);
-    - стадия margin завершена.
-    """
-    method = row.score_method
-    if method == SCORE_METHOD_FIT:
-        return not cfg.score.pwin_enabled or (
-            row.fit_score is None or row.fit_score < cfg.score.pwin_fit_threshold
-        )
-    if method == SCORE_METHOD_PWIN:
-        return not cfg.score.margin_enabled or (
-            row.p_win is None or row.p_win < cfg.score.margin_pwin_threshold
-        )
-    return True
-
-
-def _meets_stage_notify_threshold(row: ScoreStageRow, state: Any) -> bool:
+def _meets_stage_notify_threshold(row: Procurement, state: Any) -> bool:
     """Порог уведомления по возвращаемому значению стадии (не по score-произведению).
 
     Уведомление отправляется ПОСЛЕ КАЖДОЙ стадии каскада (fit → pwin → margin):
@@ -446,6 +494,14 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             logger.error("БД недоступна при старте API: %s", exc)
             state.db = None
             state.repository = None
+        else:
+            # Сид начального администратора — отдельный try: его сбой не должен
+            # «ломать» общее состояние БД (иначе весь API уйдёт в 503).
+            if state.cfg.ops.auth.enabled:
+                try:
+                    await _seed_initial_admin()
+                except Exception as exc:  # noqa: BLE001
+                    logger.error("Не удалось создать начального администратора: %s", exc)
         yield
         if state.db is not None:
             await state.db.dispose()
@@ -465,6 +521,101 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=503, detail="БД недоступна")
         return state.repository
 
+    async def _active_client() -> ClientProfile:
+        """Активный клиентский профиль (для per-client скоринга)."""
+        profile = await _repo().get_active_client(state.cfg.score.active_client_id)
+        if profile is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Активный клиентский профиль не найден (примените миграции)",
+            )
+        return profile
+
+    # ------------------------------------------------------------------ #
+    # Авторизация (вход по логину/паролю; позже — OAuth2 через Сбер ID).
+    # При auth.enabled=false зависимости пропускают запрос (dev-режим).
+    # ------------------------------------------------------------------ #
+    def _extract_bearer(request: Request) -> str | None:
+        authz = request.headers.get("Authorization")
+        if not authz or not authz.startswith("Bearer "):
+            return None
+        return authz[len("Bearer ") :].strip()
+
+    async def require_user(request: Request) -> User | None:
+        """Текущий пользователь по bearer-токену; None при выключенной авторизации."""
+        if not state.cfg.ops.auth.enabled:
+            return None
+        token = _extract_bearer(request)
+        if token is None:
+            raise HTTPException(status_code=401, detail="Требуется авторизация")
+        payload = decode_token(token, state.cfg.ops.auth.secret or "")
+        if payload is None:
+            raise HTTPException(status_code=401, detail="Недействительный или истёкший токен")
+        user = await _repo().get_user(payload["sub"])
+        if user is None:
+            raise HTTPException(status_code=401, detail="Пользователь не найден")
+        return user
+
+    def require_admin(user: User | None = Depends(require_user)) -> User | None:
+        """Только администратор; None при выключенной авторизации."""
+        if user is None:
+            return None
+        if user.role != ROLE_ADMIN:
+            raise HTTPException(status_code=403, detail="Требуется роль администратора")
+        return user
+
+    def require_internal(request: Request) -> None:
+        """Доступ только для внутренних сервисов конвейера (по X-Internal-Token).
+
+        Применяется к служебным эндпоинтам (POST /score, POST /customers/{id}/rating),
+        которые вызывают компоненты конвейера, а не пользователи. Если внутренний
+        токен не задан (env ZAKUPKI_INTERNAL_TOKEN), эндпоинт остаётся открытым
+        с явным предупреждением в логе.
+        """
+        if not state.cfg.ops.auth.enabled:
+            return
+        internal = state.cfg.ops.auth.internal_token
+        if not internal:
+            logger.warning(
+                "auth.enabled=true, но ZAKUPKI_INTERNAL_TOKEN не задан: "
+                "служебные эндпоинты конвейера (/score, /rating) открыты"
+            )
+            return
+        if request.headers.get("X-Internal-Token") != internal:
+            raise HTTPException(status_code=401, detail="Неверный внутренний токен")
+
+    async def require_user_or_internal(request: Request) -> User | None:
+        """Пользователь ИЛИ внутренний токен конвейера (например, /api/clients/active).
+
+        Конвейер скоринга (scoring_service/analysis_service) не имеет пользовательского
+        токена, но читает активный профиль клиента: внутренний токен пропускает запрос.
+        """
+        if not state.cfg.ops.auth.enabled:
+            return None
+        internal = state.cfg.ops.auth.internal_token
+        if internal and request.headers.get("X-Internal-Token") == internal:
+            return None
+        return await require_user(request)
+
+    def _auth_disabled() -> None:
+        if not state.cfg.ops.auth.enabled:
+            raise HTTPException(status_code=404, detail="Авторизация отключена")
+
+    async def _seed_initial_admin() -> None:
+        """Создаёт первого администратора из env, если таблица пользователей пуста.
+
+        Удобно для первого развёртывания (Docker): задайте ZAKUPKI_ADMIN_USERNAME и
+        ZAKUPKI_ADMIN_PASSWORD; при наличии пользователей env игнорируется.
+        """
+        username = os.environ.get("ZAKUPKI_ADMIN_USERNAME")
+        password = os.environ.get("ZAKUPKI_ADMIN_PASSWORD")
+        if not username or not password:
+            return
+        if await _repo().count_users() > 0:
+            return
+        await _repo().create_user(username, hash_password(password), ROLE_ADMIN)
+        logger.info("Создан начальный администратор %s (из env)", username)
+
     # Уведомления подписчиков — отправляются в POST /score после прихода внешнего
     # скора и прохождения порога notify_min_fit_score (ADR-7).
     state.notifier = Notifier(state.cfg.ops.notifications)
@@ -482,7 +633,67 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 db_ok = False
         return HealthOut(status="ok", db=db_ok)
 
-    @app.get("/api/procurements", response_model=ProcurementListOut)
+    # ------------------------------------------------------------------ #
+    # Авторизация: вход / выход / текущий пользователь / управление (admin)
+    # ------------------------------------------------------------------ #
+    @app.post("/api/auth/login", response_model=TokenOut)
+    async def login(body: LoginIn) -> TokenOut:
+        """Вход по логину и паролю: возвращает bearer-токен и профиль пользователя."""
+        _auth_disabled()
+        user = await _repo().get_user_by_username(body.username)
+        # PBKDF2 (600k итераций) — CPU-bound: не блокируем event loop (~190 мс).
+        ok = user is not None and await asyncio.to_thread(
+            verify_password, body.password, user.password_hash
+        )
+        if user is None or not ok:
+            raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+        ttl = state.cfg.ops.auth.token_ttl_seconds
+        token = create_token(user.id, user.role, state.cfg.ops.auth.secret or "", ttl)
+        logger.info("Вход пользователя %s (роль %s)", user.username, user.role)
+        return TokenOut(access_token=token, expires_in=ttl, user=UserOut.model_validate(user))
+
+    @app.post("/api/auth/logout", include_in_schema=False)
+    async def logout(user: User | None = Depends(require_user)) -> dict[str, str]:
+        """Выход (stateless: клиент удаляет токен; серверная сессия не ведётся)."""
+        _auth_disabled()
+        return {"status": "ok"}
+
+    @app.get("/api/auth/me", response_model=UserOut)
+    async def me(user: User | None = Depends(require_user)) -> UserOut:
+        """Текущий пользователь. 404 — авторизация отключена (клиент не логинится)."""
+        if user is None:
+            raise HTTPException(status_code=404, detail="Авторизация отключена")
+        return UserOut.model_validate(user)
+
+    @app.post("/api/auth/register", response_model=TokenOut)
+    async def register(body: RegisterIn) -> TokenOut:
+        """Самостоятельная регистрация: пользователь сам выбирает пароль.
+
+        Роль — ``tenderologist``; роль администратора выставляется напрямую
+        в таблице БД (см. комментарий к ``RegisterIn``).
+        """
+        _auth_disabled()
+        if await _repo().get_user_by_username(body.username) is not None:
+            raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
+        password_hash = await asyncio.to_thread(hash_password, body.password)
+        try:
+            user = await _repo().create_user(body.username, password_hash, ROLE_TENDEROLOGIST)
+        except IntegrityError as exc:
+            # Гонка двух одновременных регистраций с одним логином: констрейнт
+            # uq_users_username срабатывает позже pre-check — отдаём 409, а не 500.
+            raise HTTPException(
+                status_code=409, detail="Пользователь с таким логином уже есть"
+            ) from exc
+        ttl = state.cfg.ops.auth.token_ttl_seconds
+        token = create_token(user.id, user.role, state.cfg.ops.auth.secret or "", ttl)
+        logger.info("Зарегистрирован пользователь %s (роль tenderologist)", user.username)
+        return TokenOut(access_token=token, expires_in=ttl, user=UserOut.model_validate(user))
+
+    @app.get(
+        "/api/procurements",
+        response_model=ProcurementListOut,
+        dependencies=[Depends(require_user)],
+    )
     async def list_procurements(
         number: str | None = None,
         platform_id: str | None = None,
@@ -494,6 +705,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> ProcurementListOut:
+        # Per-client скоринг активного клиента (многоклиентный режим).
+        profile = await _active_client()
         rows, total = await _repo().list_procurements(
             number=number,
             platform_id=platform_id,
@@ -504,6 +717,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             sort=sort,
             limit=limit,
             offset=offset,
+            client_id=profile.id,
         )
         return ProcurementListOut(total=total, items=[_procurement_out(r) for r in rows])
 
@@ -535,7 +749,11 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         "is_active",
     ]
 
-    @app.post("/api/procurements/export", include_in_schema=False)
+    @app.post(
+        "/api/procurements/export",
+        include_in_schema=False,
+        dependencies=[Depends(require_user)],
+    )
     async def export_procurements(body: ExportIn | None = None) -> dict[str, Any]:
         """Выгружает активные релевантные закупки из БД в CSV (каталог export_dir).
 
@@ -547,7 +765,13 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         необходимости). Операция read-only — безопасна при работающем парсере.
         """
         threshold = body.min_fit_score if body is not None else 0.4
-        rows, _ = await _repo().list_procurements(active=True, min_fit_score=threshold, limit=10**9)
+        profile = await _active_client()
+        rows, _ = await _repo().list_procurements(
+            active=True,
+            min_fit_score=threshold,
+            limit=10**9,
+            client_id=profile.id,
+        )
 
         buf = io.StringIO()
         writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, extrasaction="ignore")
@@ -571,9 +795,14 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         logger.info("Выгружено закупок в CSV: %s -> %s", len(rows), target)
         return {"status": "exported", "count": len(rows), "path": str(target)}
 
-    @app.get("/api/procurements/{procurement_id}", response_model=ProcurementDetailOut)
+    @app.get(
+        "/api/procurements/{procurement_id}",
+        response_model=ProcurementDetailOut,
+        dependencies=[Depends(require_user)],
+    )
     async def get_procurement(procurement_id: int) -> ProcurementDetailOut:
-        row = await _repo().get_by_id(procurement_id)
+        profile = await _active_client()
+        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return _procurement_detail_out(row)
@@ -581,22 +810,38 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     @app.post(
         "/api/procurements/{procurement_id}/score",
         response_model=ProcurementDetailOut,
+        dependencies=[Depends(require_internal)],
     )
     async def set_score(procurement_id: int, body: ScoreUpdate) -> ProcurementDetailOut:
         """Обновление score внешним сервисом по его инициативе.
 
-        Каскад скоринга Fit -> P(win) -> Margin: после записи результата стадии,
-        если он проходит порог следующей (и стадия включена), закупка ставится в
-        очередь следующей стадии через транспорт (идемпотентно). Пороги переходов —
-        по возвращаемым значениям стадий (fit_score/p_win), не по произведению score.
+        Результат пишется в per-client скоринг (``procurement_scores``) активного
+        клиентского профиля; базовые колонки ``procurements`` обновляются для
+        совместимости (дефолтный скор). Автокаскад Fit -> P(win) -> Margin
+        отключён: P(win)/Margin вычисляются только по явному запросу тендеролога.
 
-        Уведомляет подписчиков ПОСЛЕ КАЖДОЙ стадии (fit/pwin/margin), когда
-        результат стадии изменён и его возвращаемое значение прошло порог стадии
-        (notify_min_fit_score / notify_min_pwin / notify_min_margin, ADR-7).
+        RAG-отчёт (``rag_report``) сохраняется отдельно и не меняет score_method.
+        Уведомляет подписчиков ПОСЛЕ стадии (fit/pwin/margin), когда результат
+        стадии изменён и прошёл её порог (ADR-7).
         """
         existing = await _repo().get_by_id(procurement_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
+        profile = await _active_client()
+        if body.rag_report is not None:
+            # Анализ стоп-условий: сохраняем отчёт, результат скоринга не меняем.
+            await _repo().update_rag_report(procurement_id, profile.id, body.rag_report)
+        else:
+            await _repo().upsert_score(
+                procurement_id,
+                profile.id,
+                score=body.score,
+                fit_score=body.fit_score,
+                p_win=body.p_win,
+                margin=body.margin,
+                score_method=body.score_method,
+            )
+        # Базовые колонки — дефолтный скор (совместимость, ветка sim/эмбеддинги).
         await _repo().update_score(
             procurement_id,
             body.score,
@@ -607,20 +852,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             margin=body.margin,
         )
         await _broadcast(state)
-        row = await _repo().get_by_id(procurement_id)
+        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
 
-        # Следующая стадия каскада. Постановка идемпотентна (ZADD), поэтому
-        # повторная доставка результата той же стадии (ADR-7 retry) безопасна.
-        next_stage = _next_stage_score(row, state.cfg)
-        if next_stage is not None:
-            stage, priority = next_stage
-            await _enqueue_next_stage(state, procurement_id, stage, priority)
-
-        # Уведомление после КАЖДОЙ стадии: только когда результат этой стадии
-        # изменён (не повторная доставка той же стадии) и возвращаемое значение
-        # стадии прошло её собственный порог.
+        # Уведомление после стадии: только когда результат стадии изменён
+        # (не повторная доставка) и возвращаемое значение прошло её порог.
         stage_changed = existing.score_method != row.score_method
         if (
             stage_changed
@@ -630,7 +867,169 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             await state.notifier.notify(_row_to_record(row))
         return _procurement_detail_out(row)
 
-    @app.get("/api/customers", response_model=CustomerListOut)
+    @app.post(
+        "/api/procurements/{procurement_id}/manual-score",
+        response_model=ProcurementDetailOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def manual_score(procurement_id: int, body: ManualScoreIn) -> ProcurementDetailOut:
+        """Ручная оценка релевантности тендерологом (пресеты 0.1/0.4/0.8/0.9/1.0).
+
+        Сохраняется в per-client скоринг активного клиента с score_method=manual;
+        score = value × p_win × margin (текущие значения, дефолт 1.0).
+        """
+        if await _repo().get_by_id(procurement_id) is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        profile = await _active_client()
+        current = await _repo().get_score(procurement_id, profile.id)
+        p_win = (current.p_win if current else None) or 1.0
+        margin = (current.margin if current else None) or 1.0
+        await _repo().upsert_score(
+            procurement_id,
+            profile.id,
+            fit_score=body.value,
+            score=body.value * p_win * margin,
+            score_method=SCORE_METHOD_MANUAL,
+        )
+        logger.info("Закупка %s: ручная оценка fit=%.2f (тендеролог)", procurement_id, body.value)
+        await _broadcast(state)
+        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
+        assert row is not None
+        return _procurement_detail_out(row)
+
+    @app.post(
+        "/api/procurements/{procurement_id}/reject",
+        response_model=ProcurementDetailOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def reject_procurement(procurement_id: int) -> ProcurementDetailOut:
+        """Отклонить закупку (fit=0.1, score_method=reject)."""
+        if await _repo().get_by_id(procurement_id) is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        profile = await _active_client()
+        current = await _repo().get_score(procurement_id, profile.id)
+        p_win = (current.p_win if current else None) or 1.0
+        margin = (current.margin if current else None) or 1.0
+        await _repo().upsert_score(
+            procurement_id,
+            profile.id,
+            fit_score=0.1,
+            score=0.1 * p_win * margin,
+            score_method=SCORE_METHOD_REJECT,
+        )
+        logger.info("Закупка %s отклонена тендерологом", procurement_id)
+        await _broadcast(state)
+        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
+        assert row is not None
+        return _procurement_detail_out(row)
+
+    @app.post(
+        "/api/procurements/analyze",
+        include_in_schema=False,
+        dependencies=[Depends(require_user)],
+    )
+    async def analyze_procurements(body: ProcurementIdsIn) -> dict[str, Any]:
+        """Обработать выбранные закупки: авто-Fit (если нет) + RAG-анализ ТЗ.
+
+        Внутренние стадии скрыты от заказчика: для каждой закупки ставится
+        задание fit (если per-client fit ещё не посчитан) и затем analysis.
+        """
+        if state.score_transport is None:
+            raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
+        profile = await _active_client()
+        queued: list[int] = []
+        for procurement_id in body.procurement_ids:
+            current = await _repo().get_score(procurement_id, profile.id)
+            if current is None or current.fit_score is None:
+                await _enqueue_next_stage(state, procurement_id, "fit", 0.5)
+            await _enqueue_next_stage(state, procurement_id, "analysis", 0.5)
+            queued.append(procurement_id)
+        logger.info("Поставлено на обработку (fit+analysis): %s", queued)
+        return {"status": "queued", "procurement_ids": queued}
+
+    @app.post(
+        "/api/procurements/pwin-margin",
+        include_in_schema=False,
+        dependencies=[Depends(require_user)],
+    )
+    async def pwin_margin_procurements(body: ProcurementIdsIn) -> dict[str, Any]:
+        """Оценить P(win) и Margin для выбранных закупок (on-demand, обе стадии)."""
+        if state.score_transport is None:
+            raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
+        cfg = state.cfg.score
+        queued: list[int] = []
+        for procurement_id in body.procurement_ids:
+            if cfg.pwin_enabled:
+                await _enqueue_next_stage(state, procurement_id, "pwin", 0.5)
+            if cfg.margin_enabled:
+                await _enqueue_next_stage(state, procurement_id, "margin", 0.5)
+            queued.append(procurement_id)
+        logger.info("Поставлено на оценку P(win)/Margin: %s", queued)
+        return {"status": "queued", "procurement_ids": queued}
+
+    # --- Клиентские профили (многоклиентный скоринг) --------------------
+    @app.get(
+        "/api/clients/active",
+        response_model=ClientProfileOut,
+        dependencies=[Depends(require_user_or_internal)],
+    )
+    async def active_client() -> ClientProfileOut:
+        return ClientProfileOut.model_validate(await _active_client())
+
+    @app.get(
+        "/api/clients",
+        response_model=ClientProfileListOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def list_clients(
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ) -> ClientProfileListOut:
+        rows, total = await _repo().list_clients(limit=limit, offset=offset)
+        return ClientProfileListOut(
+            total=total, items=[ClientProfileOut.model_validate(r) for r in rows]
+        )
+
+    @app.get(
+        "/api/clients/{client_id}",
+        response_model=ClientProfileOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def get_client(client_id: int) -> ClientProfileOut:
+        row = await _repo().get_client(client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Профиль клиента не найден")
+        return ClientProfileOut.model_validate(row)
+
+    @app.post(
+        "/api/clients",
+        response_model=ClientProfileOut,
+        dependencies=[Depends(require_admin)],
+    )
+    async def create_client(body: ClientProfileIn) -> ClientProfileOut:
+        return ClientProfileOut.model_validate(
+            await _repo().upsert_client(body.model_dump(exclude_none=True))
+        )
+
+    @app.put(
+        "/api/clients/{client_id}",
+        response_model=ClientProfileOut,
+        dependencies=[Depends(require_admin)],
+    )
+    async def update_client(client_id: int, body: ClientProfileIn) -> ClientProfileOut:
+        existing = await _repo().get_client(client_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Профиль клиента не найден")
+        data = body.model_dump(exclude_none=True)
+        data["name"] = existing.name if body.name == existing.name else body.name
+        updated = await _repo().upsert_client(data)
+        return ClientProfileOut.model_validate(updated)
+
+    @app.get(
+        "/api/customers",
+        response_model=CustomerListOut,
+        dependencies=[Depends(require_user)],
+    )
     async def list_customers(
         name: str | None = None,
         inn: str | None = None,
@@ -640,14 +1039,22 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         rows, total = await _repo().list_customers(name=name, inn=inn, limit=limit, offset=offset)
         return CustomerListOut(total=total, items=[CustomerOut.model_validate(r) for r in rows])
 
-    @app.get("/api/customers/{customer_id}", response_model=CustomerOut)
+    @app.get(
+        "/api/customers/{customer_id}",
+        response_model=CustomerOut,
+        dependencies=[Depends(require_user)],
+    )
     async def get_customer(customer_id: int) -> CustomerOut:
         row = await _repo().get_customer(customer_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Заказчик не найден")
         return CustomerOut.model_validate(row)
 
-    @app.post("/api/customers/{customer_id}/rating", response_model=CustomerOut)
+    @app.post(
+        "/api/customers/{customer_id}/rating",
+        response_model=CustomerOut,
+        dependencies=[Depends(require_internal)],
+    )
     async def set_customer_rating(customer_id: int, body: RatingUpdate) -> CustomerOut:
         """Установка рейтинга заказчика внешним сервисом (ADR-4)."""
         if not await _repo().set_customer_rating(customer_id, body.rating):
@@ -657,7 +1064,17 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
 
     @app.websocket("/ws")
     async def ws_updates(websocket: WebSocket) -> None:
-        """Канал живых обновлений: шлёт 'data-changed' при изменении БД."""
+        """Канал живых обновлений: шлёт 'data-changed' при изменении БД.
+
+        При включённой авторизации токен передаётся query-параметром ``?token=``
+        (браузер не может задать заголовок WebSocket-запроса).
+        """
+        if state.cfg.ops.auth.enabled:
+            token = websocket.query_params.get("token")
+            payload = decode_token(token or "", state.cfg.ops.auth.secret or "")
+            if payload is None or await _repo().get_user(payload["sub"]) is None:
+                await websocket.close(code=1008)
+                return
         await websocket.accept()
         state.ws_clients.add(websocket)
         try:
@@ -668,7 +1085,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         finally:
             state.ws_clients.discard(websocket)
 
-    @app.get("/api/parser/status", include_in_schema=False)
+    @app.get("/api/parser/status", include_in_schema=False, dependencies=[Depends(require_user)])
     async def parser_status() -> dict[str, Any]:
         """Текущее состояние парсера (запущен/остановлен, ошибка, время)."""
         status = dict(state.parser_status)
@@ -676,7 +1093,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             status["running"] = True
         return status
 
-    @app.post("/api/parser/start", include_in_schema=False)
+    @app.post("/api/parser/start", include_in_schema=False, dependencies=[Depends(require_admin)])
     async def start_parser() -> dict[str, Any]:
         """Запускает постоянный мониторинг парсера (периодические проходы) в фоне."""
         async with state.parser_lock:
@@ -693,7 +1110,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         logger.info("Запущен парсер (постоянный мониторинг) по команде из web-демо")
         return {"status": "started"}
 
-    @app.post("/api/parser/stop", include_in_schema=False)
+    @app.post("/api/parser/stop", include_in_schema=False, dependencies=[Depends(require_admin)])
     async def stop_parser() -> dict[str, Any]:
         """Останавливает запущенный проход парсера."""
         task = state.parser_task
@@ -703,7 +1120,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         logger.info("Запрошена остановка парсера из web-демо")
         return {"status": "stopping"}
 
-    @app.post("/api/db/clear", include_in_schema=False)
+    @app.post("/api/db/clear", include_in_schema=False, dependencies=[Depends(require_admin)])
     async def clear_db() -> dict[str, Any]:
         """Очищает БД (закупки и заказчики). Доступно только при остановленном парсере."""
         if state.parser_task is not None and not state.parser_task.done():
@@ -713,7 +1130,11 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 
-    @app.post("/api/db/clear-inactive", include_in_schema=False)
+    @app.post(
+        "/api/db/clear-inactive",
+        include_in_schema=False,
+        dependencies=[Depends(require_admin)],
+    )
     async def clear_inactive() -> dict[str, Any]:
         """Удаляет неактивные закупки (is_active=false или истёкший срок актуальности).
 
@@ -727,7 +1148,11 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 
-    @app.post("/api/db/clear-irrelevant", include_in_schema=False)
+    @app.post(
+        "/api/db/clear-irrelevant",
+        include_in_schema=False,
+        dependencies=[Depends(require_admin)],
+    )
     async def clear_irrelevant(body: ClearIrrelevantIn | None = None) -> dict[str, Any]:
         """Удаляет нерелевантные закупки среди обработанных сервисом скоринга.
 
@@ -738,7 +1163,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         if state.parser_task is not None and not state.parser_task.done():
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         threshold = body.min_fit_score if body is not None else 0.4
-        deleted = await _repo().delete_irrelevant(threshold)
+        profile = await _active_client()
+        deleted = await _repo().delete_irrelevant(threshold, client_id=profile.id)
         logger.info("Удалены нерелевантные закупки из web-демо: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
@@ -746,7 +1172,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     # ------------------------------------------------------------------ #
     # Конфигурация сервиса (config_service.yaml) — просмотр/редактирование
     # ------------------------------------------------------------------ #
-    @app.get("/api/config/threshold", response_model=dict[str, Any], include_in_schema=False)
+    @app.get(
+        "/api/config/threshold",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_user)],
+    )
     async def get_relevance_threshold() -> dict[str, Any]:
         """Порог релевантности (fit_score) — используется переключателем «Только релевантные».
 
@@ -755,7 +1186,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         """
         return {"notify_min_fit_score": state.cfg.ops.notifications.notify_min_fit_score}
 
-    @app.get("/api/config", response_model=dict[str, Any], include_in_schema=False)
+    @app.get(
+        "/api/config",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_user)],
+    )
     async def get_config() -> dict[str, Any]:
         """Текущие параметры config_service.yaml (аналитические настройки).
 
@@ -764,7 +1200,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         """
         return state.cfg.service.model_dump()
 
-    @app.put("/api/config", response_model=dict[str, Any], include_in_schema=False)
+    @app.put(
+        "/api/config",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_admin)],
+    )
     async def put_config(body: dict[str, Any]) -> dict[str, Any]:
         """Валидирует и сохраняет аналитические параметры config_service.yaml.
 
@@ -795,7 +1236,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     # ------------------------------------------------------------------ #
     # Промпты scoring_service — просмотр/редактирование (вкладка «Промпты»)
     # ------------------------------------------------------------------ #
-    @app.get("/api/prompts", response_model=dict[str, Any], include_in_schema=False)
+    @app.get(
+        "/api/prompts",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_user)],
+    )
     async def list_prompts() -> dict[str, Any]:
         """Список файлов промптов (md/json) для вкладки «Промпты»."""
         base = Path(state.cfg.ops.prompts_dir)
@@ -806,7 +1252,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                     files.append({"name": path.name, "kind": _prompt_kind(path.name)})
         return {"files": files, "dir": _prompt_dir_rel(state)}
 
-    @app.get("/api/prompts/{name}", response_model=dict[str, Any], include_in_schema=False)
+    @app.get(
+        "/api/prompts/{name}",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_user)],
+    )
     async def get_prompt(name: str) -> dict[str, Any]:
         """Содержимое файла промпта."""
         path = _prompt_file(state, name)
@@ -817,7 +1268,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             "dir": _prompt_dir_rel(state),
         }
 
-    @app.put("/api/prompts/{name}", response_model=dict[str, Any], include_in_schema=False)
+    @app.put(
+        "/api/prompts/{name}",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_admin)],
+    )
     async def put_prompt(name: str, body: PromptUpdate) -> dict[str, Any]:
         """Сохраняет промпт; JSON-файлы проверяются на корректность до записи."""
         path = _prompt_file(state, name)

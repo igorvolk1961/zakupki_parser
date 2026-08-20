@@ -32,6 +32,24 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
             await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()
+        # Сид default-клиентского профиля (в проде его создаёт миграция 1.27).
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert_client(
+                {
+                    "name": "default",
+                    "enabled": True,
+                    "competencies": "Тестовые компетенции",
+                    "keywords": [],
+                    "exclusion_words": [],
+                    "keyword_context_regexes": {},
+                    "questions": [],
+                }
+            )
+        finally:
+            await db.dispose()
 
     asyncio.run(_setup())
     docs = tmp_path_factory.mktemp("docs")

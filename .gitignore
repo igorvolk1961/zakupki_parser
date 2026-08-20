@@ -23,6 +23,9 @@ playwright-report/
 data/
 documents/
 
+# Privat information
+docs/bbk-it/
+
 # Env / secrets
 .env
 *.local
