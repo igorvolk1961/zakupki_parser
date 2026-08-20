@@ -133,6 +133,7 @@ class ProcurementRepository:
         customer: str | None = None,
         active: bool | None = None,
         min_fit_score: float | None = None,
+        scored: bool | None = None,
         sort: str | None = None,
         limit: int = 20,
         offset: int = 0,
@@ -205,6 +206,11 @@ class ProcurementRepository:
                 # (fit/pwin/margin): дефолтный (эвристика до обработки) и deadline_expired
                 # не являются «релевантными».
                 conditions.append(Procurement.score_method.in_(SCORE_METHOD_STAGES))
+        if scored:
+            # Только закупки с выставленным fit-score (внешний скоринг выполнен):
+            # NULL — ещё не обработаны конвейером и в таблицу не попадают.
+            fit_col = score_sub.c.fit_score if score_sub is not None else Procurement.fit_score
+            conditions.append(fit_col.is_not(None))
 
         stmt = select(Procurement).options(
             selectinload(Procurement.customer_rel),

@@ -511,3 +511,25 @@ async def test_find_unscored_priority_fields(db: Database) -> None:
     assert item["id"] == pid
     assert item["update_date"] == upd
     assert item["publication_date"] == pub
+
+
+@pytest.mark.asyncio
+async def test_list_procurements_scored_filter(db: Database) -> None:
+    """scored=True возвращает только закупки с выставленным fit_score."""
+    repo = ProcurementRepository(db)
+    unscored = await _upsert(repo, "S-1")
+    scored_id = await _upsert(repo, "S-2")
+    await repo.update_score(scored_id, score=8.0, fit_score=0.8, method="fit")
+
+    all_rows, total = await repo.list_procurements()
+    assert total == 2
+
+    rows, total = await repo.list_procurements(scored=True)
+    assert total == 1
+    assert [p.number for p in rows] == ["S-2"]
+    assert all(p.fit_score is not None for p in rows)
+
+    rows, total = await repo.list_procurements(scored=False)
+    assert total == 2
+    assert {p.number for p in rows} == {"S-1", "S-2"}
+    assert unscored != scored_id

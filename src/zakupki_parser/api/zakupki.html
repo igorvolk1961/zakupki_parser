@@ -584,6 +584,8 @@ async function loadProc() {
   if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
   if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
+  // Закупки без fit-score (ещё не обработаны конвейером скоринга) в таблице не показываем.
+  params.scored = true;
   const data = await api("procurements", params);
   procTotal = data.total;
   const pages = Math.max(1, Math.ceil(procTotal / PROC_PAGE_SIZE));
@@ -607,6 +609,8 @@ async function pollProc() {
     if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
     if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
     if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
+    // Закупки без fit-score (ещё не обработаны конвейером скоринга) в таблице не показываем.
+    params.scored = true;
     const data = await api("procurements", params);
     const pages = Math.max(1, Math.ceil(data.total / PROC_PAGE_SIZE));
     if (procPage > pages) {
