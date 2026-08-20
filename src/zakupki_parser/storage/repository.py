@@ -13,7 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
-from zakupki_parser.config.models import SCORE_METHOD_FIT, SCORE_METHOD_STAGES
+from zakupki_parser.config.models import (
+    SCORE_METHOD_DEFAULT,
+    SCORE_METHOD_FIT,
+    SCORE_METHOD_STAGES,
+)
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import (
     Customer,
@@ -418,6 +422,71 @@ class ProcurementRepository:
                     obj.margin,
                     method,
                 )
+
+    async def mark_scoring_queued(self, procurement_id: int, queued_at: datetime) -> bool:
+        """Отмечает закупку как успешно поставленную в очередь внешнего скоринга.
+
+        Возвращает True, если закупка найдена и отметка проставлена. Метку пишем
+        только после успешного enqueue: по её отсутствию recovery находит закупки,
+        не попавшие в очередь (например, транспорт был недоступен при сохранении).
+        """
+        async with self._db.session() as session:
+            obj = await session.get(Procurement, procurement_id)
+            if obj is None:
+                return False
+            obj.scoring_queued_at = queued_at
+            await session.commit()
+            return True
+
+    async def find_unscored(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """Закупки, которым требуется (повторная) постановка в очередь скоринга.
+
+        Критерий (recovery после восстановления связи с транспортом):
+        - внешний скоринг не выполнен (``fit_score IS NULL``) — задача не дошла до
+          стадии fit или её результат не записан;
+        - ``score_method`` — дефолтный (deadline_expired в очередь не ставится);
+        - задача не была поставлена (``scoring_queued_at IS NULL``) ИЛИ запись
+          обновлялась после постановки (``update_date > scoring_queued_at``) —
+          «по времени обновления».
+
+        Возвращает список dict'ов: id, number, platform_id, update_date,
+        publication_date (для приоритета по времени).
+        """
+        stmt = (
+            select(
+                Procurement.id,
+                Procurement.number,
+                Procurement.platform_id,
+                Procurement.update_date,
+                Procurement.publication_date,
+            )
+            .where(
+                Procurement.fit_score.is_(None),
+                or_(
+                    Procurement.score_method.is_(None),
+                    Procurement.score_method == SCORE_METHOD_DEFAULT,
+                ),
+                or_(
+                    Procurement.scoring_queued_at.is_(None),
+                    Procurement.update_date > Procurement.scoring_queued_at,
+                ),
+            )
+            .order_by(Procurement.id.asc())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        async with self._db.session() as session:
+            rows = (await session.execute(stmt)).all()
+        return [
+            {
+                "id": int(r.id),
+                "number": r.number,
+                "platform_id": r.platform_id,
+                "update_date": r.update_date,
+                "publication_date": r.publication_date,
+            }
+            for r in rows
+        ]
 
     async def get_customer(self, customer_id: int) -> Customer | None:
         async with self._db.session() as session:

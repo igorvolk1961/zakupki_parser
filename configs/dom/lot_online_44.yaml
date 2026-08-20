@@ -11,7 +11,9 @@ list_config:
   next_page: ""
   # API-реестр пагинируется через offset (шаг = page_size), а не page.
   page_param: "offset"
-  page_size: 10
+  # Размер страницы API lot-online капом не ограничен (limit=1000 возвращает 1000,
+  # проверено 2026-08-20). 100 записей — разумный компромисс «время ответа/число запросов».
+  page_size: 100
   variables:
     # Номер — «№ 0120400000526000233» в ссылке.
     - { name: "number",           selector: "a.__link_purchase-number", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
@@ -46,9 +48,9 @@ search:
   # Формат item'а — плоские поля реестра lot-online (purchaseNumber/maxSum/...).
   api_item_format: "lot_online"
   # Пагинация — offset (шаг = page_size), а не page.
-  api_offset_step: 10
+  api_offset_step: 100
   query_params:
-    limit: "10"
+    limit: "100"
     offset: "0"
     # ВАЖНО (стоп-порог): сортировка активных (finishedPurchase) вперёд — как в UI
     # сайта. Выборка монотонна по дате только внутри каждой группы, поэтому

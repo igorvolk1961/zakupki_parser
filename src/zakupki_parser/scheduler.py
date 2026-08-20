@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
@@ -13,6 +14,7 @@ from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.logging_conf import setup_logging
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
+from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -56,6 +58,9 @@ class Scheduler:
 
     async def run_once(self) -> None:
         """Один проход по всем включённым площадкам."""
+        # Recovery очереди скоринга: догоняем закупки, не попавшие в очередь,
+        # пока транспорт был недоступен (см. _recover_scoring_queue).
+        await self._recover_scoring_queue()
         for entry in self._cfg.service.sites:
             if not entry.enabled:
                 continue
@@ -87,6 +92,45 @@ class Scheduler:
                     continue
         finally:
             await self.stop()
+
+    async def _recover_scoring_queue(self) -> None:
+        """Догоняющая постановка закупок в очередь скоринга (после сбоев транспорта).
+
+        Ищет в БД закупки с невыполненным внешним скорингом (``fit_score IS NULL``),
+        не поставленные в очередь (``scoring_queued_at IS NULL``) или обновлённые
+        после постановки, и ставит их в очередь fit с приоритетом по времени
+        обновления/публикации (новые — раньше, ZPOPMAX берёт больший score).
+
+        Идемпотентно: метка проставляется только после успешного enqueue, поэтому
+        повторно уже поставленные закупки не дублируются. При первом же сбое
+        enqueue (транспорт снова недоступен) recovery прекращается до следующего
+        цикла.
+        """
+        if not self._cfg.score.scoring_transport_url or self._repository is None:
+            return
+        transport = ScoringTransportClient(self._cfg.score.scoring_transport_url)
+        now = datetime.now(UTC)
+        for _ in range(50):  # не более 50 партий по 200 за цикл
+            items = await self._repository.find_unscored(limit=200)
+            if not items:
+                return
+            for item in items:
+                ts = item["update_date"] or item["publication_date"]
+                priority = ts.timestamp() if ts is not None else now.timestamp()
+                try:
+                    await transport.enqueue(item["id"], priority)
+                    await self._repository.mark_scoring_queued(item["id"], now)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Recovery очереди скоринга прерван: %s не поставлена (%s)",
+                        item["id"],
+                        exc,
+                    )
+                    return
+            logger.info(
+                "Recovery очереди скоринга: поставлено закупок в очередь: %d",
+                len(items),
+            )
 
     async def _parse_platform(self, platform_id: str, platform: PlatformDom) -> None:
         browser = BrowserManager(self._cfg.parser.browser)

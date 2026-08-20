@@ -1,0 +1,18 @@
+databaseChangeLog:
+- changeSet:
+    id: 30
+    author: zakupki-parser
+    comment: 'Контроль постановки в очередь скоринга: scoring_queued_at (метка успешной постановки) + частичный индекс для recovery'
+    changes:
+    - sql:
+        sql: |
+          ALTER TABLE procurements ADD COLUMN scoring_queued_at timestamptz;
+
+          -- Recovery-запрос: закупки с невыполненным fit (fit_score IS NULL),
+          -- не поставленные в очередь или обновлённые после постановки.
+          CREATE INDEX ix_procurements_scoring_queued
+              ON procurements (scoring_queued_at)
+              WHERE fit_score IS NULL;
+
+          COMMENT ON COLUMN procurements.scoring_queued_at
+              IS 'Метка успешной постановки закупки в очередь внешнего скоринга (fit). NULL — задача не поставлена (в т.ч. транспорт был недоступен); recovery догоняет такие закупки после восстановления связи с транспортом';

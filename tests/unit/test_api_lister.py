@@ -295,11 +295,11 @@ class _Recorder(Orchestrator):
         number: Any,
         keywords: list[str] | None = None,
         api_fields: dict[str, Any] | None = None,
-    ) -> tuple[bool, Any]:
+    ) -> tuple[bool, Any, bool]:
         self.processed.append(
             {"vars": list_vars, "url": detail_url, "number": number, "keywords": keywords}
         )
-        return False, number
+        return False, number, True
 
 
 class _CrawlRecorder(Orchestrator):

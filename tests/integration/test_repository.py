@@ -430,3 +430,84 @@ async def test_delete_irrelevant(db: Database) -> None:
     assert deleted == 2
     rows, _ = await repo.list_procurements()
     assert {p.number for p in rows} == {"RI-1", "RI-3", "RI-5"}
+
+
+async def _upsert(repo: ProcurementRepository, number: str, **extra: object) -> int:
+    """Сохраняет закупку и возвращает её id."""
+    ok = await repo.upsert(
+        {
+            "number": number,
+            "platform_id": "zakupki_mos",
+            "subject": "x",
+            **extra,
+        }
+    )
+    assert ok is True
+    rows, _ = await repo.list_procurements()
+    return next(p.id for p in rows if p.number == number)
+
+
+@pytest.mark.asyncio
+async def test_find_unscored_returns_unscored_and_mark_excludes(db: Database) -> None:
+    """find_unscored возвращает непоставленные закупки; mark_scoring_queued исключает."""
+    repo = ProcurementRepository(db)
+    pid = await _upsert(repo, "Q-1")
+    await _upsert(repo, "Q-2")
+
+    found = await repo.find_unscored()
+    assert {item["number"] for item in found} == {"Q-1", "Q-2"}
+
+    now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+    assert await repo.mark_scoring_queued(pid, now) is True
+    found = await repo.find_unscored()
+    assert [item["number"] for item in found] == ["Q-2"]
+
+
+@pytest.mark.asyncio
+async def test_find_unscored_excludes_scored_and_deadline_expired(db: Database) -> None:
+    """Записи с fit_score и score_method=deadline_expired в очередь не ставятся."""
+    repo = ProcurementRepository(db)
+    scored = await _upsert(repo, "Q-3")
+    await _upsert(repo, "Q-4", score_method="deadline_expired", score=0.0)
+
+    await repo.update_score(scored, score=10.0, fit_score=0.8, method="fit")
+
+    found = await repo.find_unscored()
+    assert found == []
+
+
+@pytest.mark.asyncio
+async def test_find_unscored_reenqueues_after_update(db: Database) -> None:
+    """Обновление записи после постановки (update_date новее метки) — снова в очереди."""
+    repo = ProcurementRepository(db)
+    pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 8, 10, 10, 0, tzinfo=UTC))
+    now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+    await repo.mark_scoring_queued(pid, now)
+    assert await repo.find_unscored() == []
+
+    # Площадка обновила закупку после постановки в очередь.
+    async with db.session() as session:
+        from zakupki_parser.storage.db import Procurement
+
+        obj = await session.get(Procurement, pid)
+        assert obj is not None
+        obj.update_date = datetime(2026, 8, 21, 10, 0, tzinfo=UTC)
+        await session.commit()
+
+    found = await repo.find_unscored()
+    assert [item["number"] for item in found] == ["Q-5"]
+
+
+@pytest.mark.asyncio
+async def test_find_unscored_priority_fields(db: Database) -> None:
+    """find_unscored отдаёт update_date/publication_date для приоритета по времени."""
+    repo = ProcurementRepository(db)
+    pub = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
+    upd = datetime(2026, 8, 18, 10, 0, tzinfo=UTC)
+    pid = await _upsert(repo, "Q-6", publication_date=pub, update_date=upd)
+
+    found = await repo.find_unscored()
+    item = next(i for i in found if i["number"] == "Q-6")
+    assert item["id"] == pid
+    assert item["update_date"] == upd
+    assert item["publication_date"] == pub

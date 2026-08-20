@@ -162,6 +162,10 @@ class Procurement(Base):
     p_win: Mapped[float | None] = mapped_column(Float)
     margin: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str | None] = mapped_column(String(64))
+    # Отметка успешной постановки закупки в очередь внешнего скоринга (fit).
+    # NULL — задача не поставлена (в т.ч. транспорт был недоступен при сохранении);
+    # recovery по ней догоняет пропущенные закупки (см. repository.find_unscored).
+    scoring_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Ветка векторной близости (Giga Embedder): косинусная близость 0..1 текста
     # компетенций и описания закупки. None, если ветка выключена/не настроена/сбой.
     embedding_similarity: Mapped[float | None] = mapped_column(Float)

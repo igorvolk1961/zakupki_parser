@@ -91,6 +91,8 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
         # (relevance-режим): детальные страницы известных закупок не открываем.
         self._known_numbers: set[str] | None = None
+        # Агрегированная статистика прохода площадки (получено/сохранено/известно).
+        self._platform_stats: dict[str, int] = {"received": 0, "saved": 0, "known": 0}
 
     async def _resolve_customer_inn(self, page: Page, customer_link: str | None) -> str | None:
         """ИНН заказчика с кешированием по ссылке на организацию.
@@ -118,10 +120,11 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         page: Page,
         container: Locator,
         keywords: list[str] | None = None,
-    ) -> tuple[bool, Any]:
+    ) -> tuple[bool, Any, bool]:
         """Обрабатывает один контейнер записи о закупке (DOM-листер).
 
-        Возвращает (пропущена ли запись как уже сохранённая в БД, номер закупки).
+        Возвращает (известна ли запись как уже сохранённая в БД, номер закупки,
+        сохранена ли запись в БД на этом шаге).
         ``keywords`` — ключевые слова текущего поискового обхода (для stop-условия
         keyword_context_required; пусто при обходе по ОКПД2).
         """
@@ -133,16 +136,16 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # не открываем (upsert не обновляет известные записи, поведение не меняется).
         if self._is_known(number):
             logger.info("Закупка %s уже в БД — пропуск", number)
-            return True, number
+            return True, number, False
 
         # 2) ссылка на детальную страницу
         detail_link_loc = container.locator(self._platform.list_config.detail_link)
         if await detail_link_loc.count() == 0:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
-            return False, number
+            return False, number, False
         detail_url = await detail_link_loc.first.get_attribute("href")
         if not detail_url:
-            return False, number
+            return False, number, False
 
         # Номер не извлёкся из карточки (селектор/паттерн не совпали) — достаём его из
         # URL детальной страницы (например, /procedure/COM14082600147/1 на roseltorg).
@@ -172,17 +175,18 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         number: Any,
         keywords: list[str] | None = None,
         api_fields: dict[str, Any] | None = None,
-    ) -> tuple[bool, Any]:
+    ) -> tuple[bool, Any, bool]:
         """Общая обработка записи из списка (DOM или API): детали, stop, скоринг, запись.
 
         ``list_vars`` — переменные карточки списка (list_config.variables), ``detail_url`` —
         ссылка на детальную страницу, ``number`` — номер закупки, ``api_fields`` —
         доп. поля для извлечения деталей через API (``detail.api_format``). Возвращает
-        (пропущена ли запись как уже сохранённая в БД, номер закупки).
+        (известна ли запись как уже сохранённая в БД, номер закупки, сохранена ли
+        запись в БД на этом шаге).
         """
         if not detail_url:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
-            return False, number
+            return False, number, False
         # stop-условия по данным из деталей проверяются после извлечения деталей.
         # 3) детали: либо через открытый API площадки (детальная страница не
         #    открывается), либо переход на детальную страницу в отдельной вкладке,
@@ -304,7 +308,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
 
         # 4) условия прекращения обработки
         if self._check_stop_conditions(record, keywords=keywords):
-            return False, number
+            return False, number, False
 
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
         #    (имя и URL скачивания с ЭТП). Все файлы, включая ТЗ, — в files_json.
@@ -345,13 +349,17 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     await self._transport.enqueue(
                         int(procurement_id), float(record.get("score") or 0.0)
                     )
+                    # Метка успешной постановки (recovery по ней догоняет закупки,
+                    # не попавшие в очередь — например, транспорт был недоступен).
+                    if self._repository is not None:
+                        await self._repository.mark_scoring_queued(int(procurement_id), self._now)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
                         "Не удалось поставить задание на скоринг закупки %s: %s",
                         procurement_id,
                         exc,
                     )
-        return False, number
+        return False, number, saved
 
     # -- основной цикл ------------------------------------------------------
     async def run(self, page: Page) -> None:
@@ -474,6 +482,13 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             else:
                 await self._crawl(page, cutoff, base, by_relevance, retry_cfg)
 
+        logger.info(
+            "Площадка %s: итог прохода — получено закупок: %d, сохранено: %d, уже было в БД: %d",
+            self._platform_id,
+            self._platform_stats["received"],
+            self._platform_stats["saved"],
+            self._platform_stats["known"],
+        )
         self._site_cb.record_success()
 
     async def _crawl(
@@ -525,6 +540,10 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # 0/None — ограничение отключено.
         max_pages = self._cfg.parser.max_list_pages or 0
         pages_done = 0
+        # Статистика обхода (для итоговой сводки «сколько получено с платформы»).
+        crawl_received = 0
+        crawl_saved = 0
+        crawl_known = 0
         # Дополнительная защита от повтора содержимого: площадки, которые за
         # пределами последней страницы возвращают её содержимое повторно (вместо
         # пустой страницы), приводят к бесконечной пагинации с одинаковыми
@@ -571,13 +590,18 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         )
                         reached_cutoff = True
                         break
-                known, number = await self._process_container(
+                known, number, saved = await self._process_container(
                     page, container, keywords=criteria.keywords
                 )
                 if number is not None and number != "":
                     page_numbers.append(number)
                 if known:
                     page_known += 1
+                crawl_received += 1
+                if saved:
+                    crawl_saved += 1
+                elif known:
+                    crawl_known += 1
 
             # Доcтигли порога дат — завершаем весь проход (не переходим на
             # следующую страницу) и сбрасываем CB.
@@ -638,6 +662,8 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 break
             await self._delayer.sleep()
 
+        self._log_crawl_summary(criteria, crawl_received, crawl_saved, crawl_known)
+
     async def _crawl_api(
         self,
         page: Page,
@@ -665,6 +691,10 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # Жёсткий потолок числа страниц (защита от вечного цикла).
         max_pages = self._cfg.parser.max_list_pages or 0
         pages_done = 0
+        # Статистика обхода (для итоговой сводки «сколько получено с платформы»).
+        crawl_received = 0
+        crawl_saved = 0
+        crawl_known = 0
         seen_page_sigs: set[frozenset[Any]] = set()
 
         while True:
@@ -700,6 +730,8 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 if self._is_known(number):
                     logger.info("Закупка %s уже в БД — пропуск", number)
                     page_known += 1
+                    crawl_known += 1
+                    crawl_received += 1
                     if number is not None and number != "":
                         page_numbers.append(number)
                     continue
@@ -727,7 +759,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         if detail_path.startswith("http")
                         else self._platform.url.rstrip("/") + detail_path
                     )
-                known, number = await self._process_list_record(
+                known, number, saved = await self._process_list_record(
                     page,
                     list_vars,
                     detail_url,
@@ -739,6 +771,11 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     page_numbers.append(number)
                 if known:
                     page_known += 1
+                crawl_received += 1
+                if saved:
+                    crawl_saved += 1
+                elif known:
+                    crawl_known += 1
 
             if reached_cutoff:
                 break
@@ -774,7 +811,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             # Неполная страница (< page_size) — последняя.
             if page_size and len(items) < page_size:
                 logger.info(
-                    "API списка: страница неполная (%d < %d) — конец пагинации",
+                    "API списка: страница %d вернула %d записей (меньше page_size=%d) — "
+                    "это последняя страница, пагинация завершена",
+                    pages_done,
                     len(items),
                     page_size,
                 )
@@ -792,3 +831,38 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 step = search.api_offset_step or 1
                 url = _increment_url_page(url, page_param, step=step)
             await self._delayer.sleep()
+
+        self._log_crawl_summary(criteria, crawl_received, crawl_saved, crawl_known)
+
+    def _log_crawl_summary(
+        self,
+        criteria: SearchCriteria,
+        received: int,
+        saved: int,
+        known: int,
+    ) -> None:
+        """Итоговая сводка одного поискового обхода (сколько получено с платформы).
+
+        Обновляет агрегированную статистику площадки ``_platform_stats`` (для
+        сводки всего прохода в ``run``).
+        """
+        if criteria.keywords:
+            scope = f"слова: {criteria.keywords}"
+        elif criteria.okpd_codes:
+            scope = f"коды ОКПД2: {criteria.okpd_codes}"
+        else:
+            scope = "весь список"
+        skipped = max(0, received - saved - known)
+        logger.info(
+            "Площадка %s: обход (%s) — получено закупок: %d, сохранено: %d, "
+            "уже в БД: %d, отсеяно/пропущено: %d",
+            self._platform_id,
+            scope,
+            received,
+            saved,
+            known,
+            skipped,
+        )
+        self._platform_stats["received"] += received
+        self._platform_stats["saved"] += saved
+        self._platform_stats["known"] += known
