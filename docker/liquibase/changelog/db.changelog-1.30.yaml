@@ -1,0 +1,34 @@
+databaseChangeLog:
+- changeSet:
+    id: 31
+    author: zakupki-parser
+    comment: 'Ключевые слова — отдельная таблица (канонический источник): бэкфилл keywords из JSONB profiles.keywords/exclusion_words, дроп колонок, уникальный ключ'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          -- 1) переносим слова из JSONB-массивов профиля в таблицу keywords
+          --    (type: keyword | exclusion), без дублей и пустых строк
+          INSERT INTO keywords (profile_id, word, type)
+          SELECT DISTINCT p.id, kw.word, 'keyword'::varchar
+          FROM profiles p
+          JOIN LATERAL jsonb_array_elements_text(p.keywords) AS kw(word) ON true
+          WHERE jsonb_typeof(p.keywords) = 'array'
+            AND kw.word IS NOT NULL AND btrim(kw.word) <> '';
+
+          INSERT INTO keywords (profile_id, word, type)
+          SELECT DISTINCT p.id, e.word, 'exclusion'::varchar
+          FROM profiles p
+          JOIN LATERAL jsonb_array_elements_text(p.exclusion_words) AS e(word) ON true
+          WHERE jsonb_typeof(p.exclusion_words) = 'array'
+            AND e.word IS NOT NULL AND btrim(e.word) <> '';
+
+          -- 2) уникальность (профиль, слово, тип) — защита от дублей при повторных сидах
+          CREATE UNIQUE INDEX IF NOT EXISTS uq_keywords_profile_word_type
+              ON keywords (profile_id, word, type);
+
+          -- 3) JSONB-массивы больше не используются — колонки удаляются
+          ALTER TABLE profiles DROP COLUMN IF EXISTS keywords;
+          ALTER TABLE profiles DROP COLUMN IF EXISTS exclusion_words;
+
+          COMMENT ON TABLE keywords IS 'Канонический источник ключевых слов профиля (type: keyword|exclusion)';

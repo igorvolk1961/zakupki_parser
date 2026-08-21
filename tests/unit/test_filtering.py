@@ -33,10 +33,24 @@ def test_keywords_match_multiword_phrase() -> None:
 
 
 def test_keywords_match_proximity() -> None:
-    # (автоматизир* систем* учет*)~2 — токены в пределах 2 слов.
+    # (автоматизир* систем* учет*)~2 — не более 2 слов между токенами.
     expr = "(автоматизир* систем* учет*)~2"
     assert keywords_match(_record("Автоматизированная система бухгалтерского учета"), [expr])
     assert not keywords_match(_record("Учет закупок в старой автоматизированной системе"), [expr])
+
+
+def test_proximity_window_examples() -> None:
+    """~N = не более N слов МЕЖДУ токенами (как в Lucene-slack)."""
+    cases = [
+        ("(систем* учет*)~0", "система учета", True),
+        ("(систем* учет*)~0", "система коммерческого учета", False),
+        ("(систем* учет*)~1", "система учета", True),
+        ("(систем* учет*)~1", "система коммерческого учета", True),
+        ("(систем* учет*)~1", "система автоматизированного коммерческого учета", False),
+        ("(систем* учет*)~2", "система автоматизированного коммерческого учета", True),
+    ]
+    for expr, subject, expected in cases:
+        assert keywords_match(_record(subject), [expr]) is expected, (expr, subject)
 
 
 def test_keywords_match_regex_priority() -> None:

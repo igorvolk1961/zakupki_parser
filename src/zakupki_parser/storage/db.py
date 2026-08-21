@@ -182,8 +182,6 @@ class Profile(Base):
     target_etp: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     target_laws: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     competencies: Mapped[str] = mapped_column(Text, nullable=False)
-    keywords: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
-    exclusion_words: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     keyword_context_regexes: Mapped[dict[str, str]] = mapped_column(
         JSONB, nullable=False, default=dict
     )
@@ -194,15 +192,20 @@ class Profile(Base):
     )
 
     user_rel: Mapped[User | None] = relationship(back_populates="profiles")
+    # Ключевые слова и слова-исключения профиля хранятся ТОЛЬКО в таблице ``keywords``
+    # (отдельная сущность, BR-07/ER): JSONB-массивов keywords/exclusion_words в профиле нет.
+    keywords_rel: Mapped[list[Keyword]] = relationship(
+        order_by="Keyword.type, Keyword.id", cascade="all, delete-orphan"
+    )
 
 
 class Keyword(Base):
-    """Нормализованные ключевые слова профиля (таблица для UI/индексации).
+    """Нормализованные ключевые слова профиля (канонический источник).
 
     ``type`` — ``keyword`` (позитивное) или ``exclusion`` (слово-исключение).
-    Рабочий набор парсера — JSONB-массивы ``Profile.keywords``/``exclusion_words``;
-    таблица ``keywords`` — каноническое представление (сид из ``data/key_words.md``,
-    этап 2).
+    Слова НЕ дублируются в JSONB-полях профиля (ER: PROFILE -> KEYWORD); рабочий
+    набор парсера/фильтрации читается из этой таблицы (см. ``Profile.keywords_rel``).
+    Сид для default-профиля — ``data/key_words.md`` (R8).
     """
 
     __tablename__ = "keywords"

@@ -1,4 +1,4 @@
-"""Тесты парсера ``data/key_words.md`` (R8)."""
+"""Тесты парсера файла ключевых слов/компетенций профиля (R8)."""
 
 from __future__ import annotations
 
@@ -28,6 +28,24 @@ SAMPLE = """
 https://example.com/1
 """
 
+# Формат агрегаторов (ТендерПлан/ТендерЛэнд): англ. секции + компетенции.
+SAMPLE_AGG = """
+**name**
+bbk-it
+
+**keywords**
+услуг* программирован*,
+разработ* ИИ,
+
+**exclussion_words**
+радиопрограмм*,
+(правов* систем*)~1,
+
+**competencies**
+Поставщик — BBK IT.
+Основные компетенции: ИИ, автоматизация.
+"""
+
 
 def test_parse_keywords_sections() -> None:
     parsed = parse_keywords_text(SAMPLE)
@@ -44,6 +62,18 @@ def test_parse_keywords_sections() -> None:
     assert not any("пример" in w.casefold() for w in parsed["keywords"])
 
 
+def test_parse_aggregator_format_with_competencies() -> None:
+    parsed = parse_keywords_text(SAMPLE_AGG)
+    assert parsed["name"] == "bbk-it"
+    assert "услуг* программирован*" in parsed["keywords"]
+    assert "разработ* ИИ" in parsed["keywords"]
+    assert "(правов* систем*)~1" in parsed["exclusion_words"]
+    assert "радиопрограмм*" in parsed["exclusion_words"]
+    # Текст компетенций сохраняется как блок.
+    assert "BBK IT" in parsed["competencies"]
+    assert "автоматизация" in parsed["competencies"]
+
+
 def test_parse_keywords_deduplicates() -> None:
     parsed = parse_keywords_text("**Ключевые слова**\nИИ,\nИИ,\n\n**Минус слова**\nремонт,\nремонт")
     assert parsed["keywords"] == ["ИИ"]
@@ -52,16 +82,25 @@ def test_parse_keywords_deduplicates() -> None:
 
 def test_parse_keywords_empty() -> None:
     parsed = parse_keywords_text("нет секций")
-    assert parsed == {"keywords": [], "exclusion_words": []}
+    assert parsed == {
+        "name": "",
+        "keywords": [],
+        "exclusion_words": [],
+        "competencies": "",
+    }
 
 
-def test_parse_real_keywords_file() -> None:
+def test_parse_real_profile_file() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    path = repo_root / "data" / "key_words.md"
+    path = repo_root / "data" / "profile.md"
     assert path.is_file()
     parsed = parse_keywords_file(path)
+    # Новый формат profile.md: имя профиля + компетенции-ссылка на файл.
+    assert parsed["name"] == "bbk-it"
     assert parsed["keywords"]
     assert parsed["exclusion_words"]
+    # Компетенции подставлены из docs/references/bbk-it-site.md (ссылка в файле).
+    assert "BBK IT" in parsed["competencies"]
     # Формы из файла: усечения слов и близость (…~N).
     assert any("*" in w for w in parsed["keywords"])
     assert any("~" in w for w in parsed["exclusion_words"])
@@ -69,7 +108,8 @@ def test_parse_real_keywords_file() -> None:
 
 def test_default_keywords_seed() -> None:
     seed = default_keywords_seed()
-    assert seed["name"] == "default"
+    assert seed["name"] == "bbk-it"
     assert seed["is_active"] is True
     assert isinstance(seed["keywords"], list)
     assert isinstance(seed["exclusion_words"], list)
+    assert "BBK IT" in seed["competencies"]

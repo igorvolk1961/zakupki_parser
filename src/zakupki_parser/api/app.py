@@ -49,7 +49,6 @@ from zakupki_parser.config.models import (
 from zakupki_parser.notify import Notifier
 from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.db import Database, Procurement, Profile, User
-from zakupki_parser.storage.keywords_parser import default_keywords_seed
 from zakupki_parser.storage.repository import ProcurementRepository, effective_is_active
 
 logger = logging.getLogger(__name__)
@@ -542,21 +541,20 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         user = await _repo().first_user()
         if user is not None:
             await _repo().backfill_orphaned_profiles(user.id)
-            if await _repo().get_active_profile(user.id) is None:
-                await _repo().seed_default_profile(user.id, default_keywords_seed())
-            return user
-        username = os.environ.get("ZAKUPKI_ADMIN_USERNAME") or "admin"
-        password = os.environ.get("ZAKUPKI_ADMIN_PASSWORD") or secrets.token_urlsafe(24)
-        user = await _repo().create_user(
-            username, await asyncio.to_thread(hash_password, password), ROLE_ADMIN
-        )
-        logger.warning(
-            "Создан сервис-аккаунт %s (пароль %s)",
-            username,
-            "из env" if os.environ.get("ZAKUPKI_ADMIN_PASSWORD") else "сгенерирован",
-        )
-        await _repo().backfill_orphaned_profiles(user.id)
-        await _repo().seed_default_profile(user.id, default_keywords_seed())
+        else:
+            username = os.environ.get("ZAKUPKI_ADMIN_USERNAME") or "admin"
+            password = os.environ.get("ZAKUPKI_ADMIN_PASSWORD") or secrets.token_urlsafe(24)
+            user = await _repo().create_user(
+                username, await asyncio.to_thread(hash_password, password), ROLE_ADMIN
+            )
+            logger.warning(
+                "Создан сервис-аккаунт %s (пароль %s)",
+                username,
+                "из env" if os.environ.get("ZAKUPKI_ADMIN_PASSWORD") else "сгенерирован",
+            )
+            await _repo().backfill_orphaned_profiles(user.id)
+        # Профиль default создаётся пустым (слова загружаются скриптом seed-profile, R8).
+        await _repo().ensure_default_profile(user.id)
         return user
 
     async def _effective_user(user: User | None) -> User:
@@ -579,6 +577,14 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 detail="Активный профиль не найден (примените миграции)",
             )
         return eff_user, profile
+
+    async def _profile_out(profile: Profile) -> ProfileOut:
+        """Карточка профиля со словами из таблицы ``keywords`` (канонический источник)."""
+        data = ProfileOut.model_validate(profile).model_dump()
+        keywords = await _repo().get_profile_keywords(profile.id)
+        data["keywords"] = keywords["keywords"]
+        data["exclusion_words"] = keywords["exclusion_words"]
+        return ProfileOut(**data)
 
     # ------------------------------------------------------------------ #
     # Авторизация (вход по логину/паролю; позже — OAuth2 через Сбер ID).
@@ -737,9 +743,21 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 status_code=409, detail="Пользователь с таким логином уже есть"
             ) from exc
         # Каждому новому пользователю — активный профиль default (BR-07): без него
-        # список закупок недоступен (нет контекста фильтрации). Сид ключевых слов
-        # из data/key_words.md (R8).
-        await _repo().seed_default_profile(user.id, default_keywords_seed())
+        # список закупок недоступен (нет контекста фильтрации). Профиль создаётся
+        # пустым — ключевые слова/компетенции загружаются скриптом seed-profile (R8).
+        await _repo().seed_default_profile(
+            user.id,
+            {
+                "name": "default",
+                "enabled": True,
+                "is_active": True,
+                "competencies": "",
+                "keywords": [],
+                "exclusion_words": [],
+                "keyword_context_regexes": {},
+                "questions": [],
+            },
+        )
         ttl = state.cfg.ops.auth.token_ttl_seconds
         token = create_token(user.id, user.role, state.cfg.ops.auth.secret or "", ttl)
         logger.info("Зарегистрирован пользователь %s (роль %s)", user.username, user.role)
@@ -992,7 +1010,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     ) -> ProfileOut:
         """Активный профиль эффективного пользователя (внутренний токен — сервис-аккаунт)."""
         _, profile = await _active_context(user)
-        return ProfileOut.model_validate(profile)
+        return await _profile_out(profile)
 
     @app.get(
         "/api/clients",
@@ -1006,7 +1024,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     ) -> ProfileListOut:
         eff_user = await _effective_user(user)
         rows, total = await _repo().list_profiles(user_id=eff_user.id, limit=limit, offset=offset)
-        return ProfileListOut(total=total, items=[ProfileOut.model_validate(r) for r in rows])
+        return ProfileListOut(total=total, items=[await _profile_out(r) for r in rows])
 
     @app.get(
         "/api/clients/{client_id}",
@@ -1018,7 +1036,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         row = await _repo().get_profile(eff_user.id, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
-        return ProfileOut.model_validate(row)
+        return await _profile_out(row)
 
     @app.post(
         "/api/clients",
@@ -1029,7 +1047,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         body: ProfileIn, user: User | None = Depends(require_user)
     ) -> ProfileOut:
         eff_user = await _effective_user(user)
-        return ProfileOut.model_validate(
+        return await _profile_out(
             await _repo().upsert_profile(body.model_dump(exclude_none=True), eff_user.id)
         )
 
@@ -1048,7 +1066,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         data = body.model_dump(exclude_none=True)
         data["name"] = existing.name if body.name == existing.name else body.name
         updated = await _repo().upsert_profile(data, eff_user.id)
-        return ProfileOut.model_validate(updated)
+        return await _profile_out(updated)
 
     @app.post(
         "/api/clients/{client_id}/activate",
@@ -1064,7 +1082,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             profile = await _repo().set_active_profile(eff_user.id, client_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return ProfileOut.model_validate(profile)
+        return await _profile_out(profile)
 
     @app.get(
         "/api/customers",

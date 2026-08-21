@@ -5,6 +5,7 @@
 - run-once       — один проход по всем площадкам
 - run-service    — периодический запуск по таймеру
 - stop           — остановить запущенные процессы парсера
+- seed-profile   — заполнить default-профиль пользователя словами/компетенциями из файла
 - capture-fixture— сохранить HTML страниц (список/деталь) в tests/fixtures
 """
 
@@ -46,6 +47,14 @@ def _build_parser() -> argparse.ArgumentParser:
     cap = sub.add_parser("capture-fixture", help="Сохранение HTML-фикстур")
     cap.add_argument("--platform", default="zakupki_mos", help="platform_id из config_dom")
     cap.add_argument("--out", default="tests/fixtures", help="каталог вывода")
+
+    seed = sub.add_parser("seed-profile", help="Заполнить default-профиль пользователя из файла")
+    seed.add_argument("--user", default="admin", help="логин пользователя (по умолчанию: admin)")
+    seed.add_argument(
+        "--file",
+        default="data/profile.md",
+        help="файл с секциями **keywords**/**exclussion_words**/**competencies**",
+    )
     return parser
 
 
@@ -62,6 +71,9 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
     if cmd == "check-config":
         _print_summary(cfg)
         return 0
+
+    if cmd == "seed-profile":
+        return await _seed_profile(cfg, cfg_dir, args.user, Path(args.file))
 
     # Авто-миграции БД (Liquibase через CLI/подпроцесс) перед работой с БД.
     if cmd in ("run-once", "run-service"):
@@ -83,6 +95,54 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
         await scheduler.run_service()
         return 0
     return 1
+
+
+async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: Path) -> int:
+    """Заполняет default-профиль пользователя словами/компетенциями из файла (R8).
+
+    Файл (по умолчанию ``data/profile.md``) содержит секции ``**keywords**``,
+    ``**exclussion_words**``, ``**competencies**`` (см. ``keywords_parser``).
+    """
+    from zakupki_parser.migrations import run_migrations
+    from zakupki_parser.storage.db import Database
+    from zakupki_parser.storage.keywords_parser import parse_keywords_file
+    from zakupki_parser.storage.repository import ProcurementRepository
+
+    if not file_path.is_file():
+        print(f"Файл не найден: {file_path}", file=sys.stderr)
+        return 1
+    parsed = parse_keywords_file(file_path)
+    run_migrations(cfg_dir, cfg.ops.db)
+    db = Database(cfg.ops.db)
+    await db.connect()
+    try:
+        repo = ProcurementRepository(db)
+        user = await repo.get_user_by_username(username)
+        if user is None:
+            print(f"Пользователь {username!r} не найден", file=sys.stderr)
+            return 1
+        profile_name = parsed.get("name") or "default"
+        await repo.upsert_profile(
+            {
+                "name": profile_name,
+                "enabled": True,
+                "is_active": True,
+                "competencies": parsed.get("competencies", ""),
+                "keywords": parsed.get("keywords", []),
+                "exclusion_words": parsed.get("exclusion_words", []),
+            },
+            user.id,
+        )
+    finally:
+        await db.dispose()
+    n_kw = len(parsed.get("keywords", []))
+    n_ex = len(parsed.get("exclusion_words", []))
+    print(
+        f"Профиль {profile_name!r} пользователя {username!r}: ключевых слов — {n_kw}, "
+        f"минус-слов — {n_ex}, компетенции — "
+        f"{'заданы' if parsed.get('competencies') else 'не заданы'}"
+    )
+    return 0
 
 
 def _yn(value: bool) -> str:

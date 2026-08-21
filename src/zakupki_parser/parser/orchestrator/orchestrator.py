@@ -92,6 +92,10 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
         # (relevance-режим): детальные страницы известных закупок не открываем.
         self._known_numbers: set[str] | None = None
+        # Ключевые слова активного профиля (таблица keywords, канонический источник,
+        # R9). Задаются в ``run`` при наличии репозитория.
+        self._client_keywords: list[str] = []
+        self._client_exclusion_words: list[str] = []
         # Агрегированная статистика прохода площадки (получено/сохранено/известно).
         self._platform_stats: dict[str, int] = {"received": 0, "saved": 0, "known": 0}
 
@@ -310,15 +314,18 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # 4) клиентская пост-фильтрация словами (R9): позитивные ключевые слова и
         #    слова-исключения применяются к записи СРАЗУ после получения списка и
         #    ДО записи в БД (серверная фильтрация — только по кодам ОКПД2).
+        #    Слова берутся из таблицы keywords активного профиля.
         if self._client_profile is not None:
             profile = self._client_profile
-            if not keywords_match(record, profile.keywords, profile.keyword_context_regexes):
+            if not keywords_match(record, self._client_keywords, profile.keyword_context_regexes):
                 logger.info(
                     "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
                     number,
                 )
                 return False, number, False
-            if exclusions_present(record, profile.exclusion_words, profile.keyword_context_regexes):
+            if exclusions_present(
+                record, self._client_exclusion_words, profile.keyword_context_regexes
+            ):
                 logger.info(
                     "Закупка %s отброшена: слова-исключения в описании",
                     number,
@@ -430,14 +437,24 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         search = self._platform.search
         # Активный профиль сервис-аккаунта — контекст КЛИЕНТСКОЙ пост-фильтрации (R9):
         # ключевые слова НЕ передаются на площадку; серверная фильтрация — только по
-        # кодам ОКПД2 (+ обход «без кода»).
+        # кодам ОКПД2 (+ обход «без кода»). Слова читаются из таблицы keywords
+        # (канонический источник, ER: PROFILE -> KEYWORD).
         if self._repository is not None:
             user = await self._repository.first_user()
             profile = (
                 await self._repository.get_active_profile(user.id) if user is not None else None
             )
+            if profile is not None:
+                kw = await self._repository.get_profile_keywords(profile.id)
+                self._client_keywords = kw["keywords"]
+                self._client_exclusion_words = kw["exclusion_words"]
+            else:
+                self._client_keywords = []
+                self._client_exclusion_words = []
         else:
             profile = None
+            self._client_keywords = []
+            self._client_exclusion_words = []
         self._client_profile = profile
 
         # R9: ключевые слова не участвуют в серверном запросе — обходы строятся
@@ -449,7 +466,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
         # Обход «без кода» (R9): только при наличии позитивных ключевых слов в профиле
         # и поддержке площадкой (no_code_search); иначе пропускаем с записью в лог.
-        has_positive_keywords = bool(profile is not None and profile.keywords)
+        has_positive_keywords = bool(self._client_keywords)
         no_code_supported = bool(search and search.no_code_search)
         if not has_positive_keywords:
             logger.info(

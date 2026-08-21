@@ -1,17 +1,23 @@
-"""Разбор файла ключевых слов ``data/key_words.md`` (сид для профилей, R8).
+"""Разбор файла ключевых слов/компетенций профиля (сид, R8).
 
-Формат (см. ``data/key_words.md``): секции, начинающиеся с ``**Заголовок**``.
-Разбираются две секции:
-- ``Ключевые слова`` — позитивные выражения (попадают в ``Profile.keywords``);
-- ``Минус слова`` — слова-исключения (``Profile.exclusion_words``).
+Формат — markdown с секциями ``**Заголовок**``. Поддерживаются имена секций в
+двух вариантах (русском и в стиле агрегаторов ТендерПлан/ТендерЛэнд):
+- ``name`` — имя профиля (например ``bbk-it``);
+- ``Ключевые слова`` / ``keywords`` — позитивные выражения (type=keyword);
+- ``Минус слова`` / ``exclussion_words`` / ``exclusion_words`` — слова-исключения
+  (type=exclusion);
+- ``Компетенции`` / ``competencies`` — текст компетенций (блок) ЛИБО путь к файлу
+  с текстом компетенций (например ``docs/references/bbk-it-site.md``) — в этом
+  случае содержимое файла подставляется при разборе ``parse_keywords_file``.
 
-Каждая секция — список выражений через запятую. Допустимые формы:
+Каждая секция слов — список выражений через запятую. Допустимые формы:
 - ``слов*`` — слово с усечением;
-- ``(фраза* фраза*)~N`` — близость слов (порядок в пределах N слов);
+- ``(фраза* фраза*)~N`` — не более N слов между токенами (проксимити);
 - ``точная фраза`` / ``"точная фраза"`` — фраза как есть.
 
 Парсер нормализует выражения (снимает кавычки, обрезает пробелы) и сохраняет
 исходный синтаксис ``*``/``~N`` — интерпретация происходит в фильтрации (Этап 3).
+Слова попадают в таблицу ``keywords`` (канонический источник, ER: PROFILE -> KEYWORD).
 """
 
 from __future__ import annotations
@@ -23,62 +29,105 @@ from typing import Any
 
 SECTION_KEYWORDS = "Ключевые слова"
 SECTION_EXCLUSIONS = "Минус слова"
+SECTION_COMPETENCIES = "Компетенции"
+
+# Канонический ключ -> имена секций (сравнение по заголовку, регистронезависимо).
+_SECTION_ALIASES: dict[str, tuple[str, ...]] = {
+    "name": ("name",),
+    "keywords": (SECTION_KEYWORDS, "keywords"),
+    "exclusion_words": (SECTION_EXCLUSIONS, "exclussion_words", "exclusion_words"),
+    "competencies": (SECTION_COMPETENCIES, "competencies"),
+}
 
 _HEADING_RE = re.compile(r"^\s*\*\*(.+?)\*\*\s*$")
 # Токены в секции разделяются запятой; скобочные выражения (…~N) запятых не содержат.
 _TOKEN_RE = re.compile(r"[^\s,]+(?:\s+[^\s,]+)*")
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
 def _default_path() -> Path:
-    """Путь к ``data/key_words.md`` относительно корня репозитория (или env-оверрайд)."""
-    override = os.environ.get("ZAKUPKI_KEYWORDS_FILE")
+    """Путь к ``data/profile.md`` относительно корня репозитория (или env-оверрайд)."""
+    override = os.environ.get("ZAKUPKI_PROFILE_FILE")
     if override:
         return Path(override)
-    repo_root = Path(__file__).resolve().parents[3]
-    return repo_root / "data" / "key_words.md"
+    return _repo_root() / "data" / "profile.md"
 
 
-def parse_keywords_text(text: str) -> dict[str, list[str]]:
-    """Разбирает текст файла на позитивные слова и слова-исключения.
+def _canonical_section(title: str) -> str | None:
+    norm = title.strip().casefold()
+    for key, aliases in _SECTION_ALIASES.items():
+        if any(alias.casefold() == norm for alias in aliases):
+            return key
+    return None
 
-    Возвращает ``{"keywords": [...], "exclusion_words": [...]}``.
+
+def parse_keywords_text(text: str) -> dict[str, Any]:
+    """Разбирает текст файла на имя, слова и компетенции.
+
+    Возвращает ``{"name": str, "keywords": [...], "exclusion_words": [...],
+    "competencies": str}``.
     """
-    sections: dict[str, list[str]] = {}
+    sections: dict[str, Any] = {}
     current: str | None = None
     for line in text.splitlines():
         stripped = line.strip()
         heading = _HEADING_RE.match(stripped)
         if heading:
-            current = heading.group(1).strip()
-            sections.setdefault(current, [])
+            current = _canonical_section(heading.group(1).strip())
+            sections.setdefault(current or "", [])
             continue
         if current is None or not stripped:
+            continue
+        if current in ("name", "competencies"):
+            # Имя — первая строка; компетенции — блок строк.
+            sections[current].append(line.rstrip())
             continue
         # Убираем кавычки у токенов; пустые отбрасываем.
         tokens = [t.strip().strip("\"'") for t in _TOKEN_RE.findall(stripped)]
         sections[current].extend(t for t in tokens if t)
 
-    keywords = _dedupe(sections.get(SECTION_KEYWORDS, []))
-    exclusion_words = _dedupe(sections.get(SECTION_EXCLUSIONS, []))
-    return {"keywords": keywords, "exclusion_words": exclusion_words}
+    name = (sections.get("name") or [""])[0].strip()
+    keywords = _dedupe(sections.get("keywords", []))
+    exclusion_words = _dedupe(sections.get("exclusion_words", []))
+    competencies = "\n".join(sections.get("competencies", [])).strip()
+    return {
+        "name": name,
+        "keywords": keywords,
+        "exclusion_words": exclusion_words,
+        "competencies": competencies,
+    }
 
 
-def parse_keywords_file(path: Path | None = None) -> dict[str, list[str]]:
-    """Читает и разбирает файл ключевых слов."""
+def parse_keywords_file(path: Path | None = None) -> dict[str, Any]:
+    """Читает и разбирает файл; компетенции-ссылку резолвит в содержимое файла."""
     target = path or _default_path()
-    return parse_keywords_text(target.read_text(encoding="utf-8"))
+    parsed = parse_keywords_text(target.read_text(encoding="utf-8"))
+    comp = parsed.get("competencies", "")
+    # Если компетенции — однострочная ссылка на файл, подставляем его содержимое
+    # (относительно каталога исходного файла или корня репозитория).
+    if comp and "\n" not in comp.strip():
+        candidate = Path(comp.strip())
+        for base in (target.parent, _repo_root()):
+            ref = base / candidate
+            if ref.is_file():
+                parsed["competencies"] = ref.read_text(encoding="utf-8")
+                break
+    return parsed
 
 
 def default_keywords_seed(path: Path | None = None) -> dict[str, Any]:
-    """Сид профиля по умолчанию из ``data/key_words.md`` (R8)."""
+    """Сид профиля из файла (R8): имя, слова и компетенции."""
     parsed = parse_keywords_file(path)
     return {
-        "name": "default",
+        "name": parsed.get("name") or "default",
         "enabled": True,
         "is_active": True,
-        "competencies": "",
-        "keywords": parsed["keywords"],
-        "exclusion_words": parsed["exclusion_words"],
+        "competencies": parsed.get("competencies", ""),
+        "keywords": parsed.get("keywords", []),
+        "exclusion_words": parsed.get("exclusion_words", []),
         "keyword_context_regexes": {},
         "questions": [],
     }

@@ -56,8 +56,11 @@
 - ✅ CRUD профилей per-user (name, keywords, exclusion_words, competencies, questions,
       target_etp, target_laws, min_fit_threshold, enabled, is_active); активный профиль
       пользователя (единственный; `POST /api/clients/{id}/activate`).
-- ✅ Таблица `keywords`: парсер формата `data/key_words.md` (R8), сид default-профиля
-      (сервис-аккаунт + каждый новый пользователь), синхронизация JSONB↔keywords.
+- ✅ Таблица `keywords` — канонический источник (ER: PROFILE→KEYWORD; JSONB-поля профиля
+      убраны миграцией 1.30); парсер `data/profile.md` (R8, секции keywords/
+      exclussion_words/competencies), чтение/запись через таблицу.
+- ✅ Заполнение профиля словами — скрипт `zp seed-profile --user admin --file data/profile.md`
+      (по умолчанию admin + data/profile.md); при регистрации создаётся пустой профиль.
 - ✅ Парсер использует активный профиль сервис-аккаунта.
 - ✅ Тесты: парсер key_words.md, сид нового пользователя, единственный активный профиль,
       синхронизация keywords (unit 282+).

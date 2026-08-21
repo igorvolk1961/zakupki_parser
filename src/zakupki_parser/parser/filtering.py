@@ -1,9 +1,9 @@
 """Клиентская пост-фильтрация закупок по ключевым словам профиля (R9).
 
-Выражения приходят из ``data/key_words.md`` (через ``Profile.keywords`` /
-``Profile.exclusion_words``) и сохраняют исходный синтаксис:
+Выражения приходят из таблицы ``keywords`` (канонический источник; сид —
+``data/key_words.md``, см. ``Profile.keywords_rel``) и сохраняют исходный синтаксис:
 - ``слов*`` — слово с усечением (стеб-префикс, регистронезависимо);
-- ``(фраза* фраза*)~N`` — оба токена в пределах N слов друг от друга;
+- ``(фраза* фраза*)~N`` — не более N слов между токенами (проксимити);
 - ``точная фраза`` / ``"фраза"`` — точное совпадение (по границам слова для
   одиночного слова);
 - regex-паттерн из ``Profile.keyword_context_regexes`` — приоритетно.
@@ -46,7 +46,12 @@ def _token_match(subject: str, token: str) -> bool:
 
 
 def _proximity_match(subject: str, inner: str, distance: int) -> bool:
-    """Токены ``inner`` встречаются последовательно в пределах ``distance`` слов."""
+    """Токены ``inner``: каждый следующий — не далее ``distance`` слов ПОСЛЕ предыдущего.
+
+    ``~N`` = не более N слов МЕЖДУ токенами (семантика как у Lucene-slack):
+    «система коммерческого учета» ловится ``(систем* учет*)~1`` (1 слово между),
+    но не ``~0``; «система автоматизированного коммерческого учета» — только ``~2``.
+    """
     tokens = [t for t in inner.split() if t]
     if not tokens:
         return False
@@ -57,7 +62,9 @@ def _proximity_match(subject: str, inner: str, distance: int) -> bool:
         pos = i
         ok = True
         for token in tokens[1:]:
-            window = words[pos + 1 : pos + 1 + distance]
+            # ~N = не более N слов МЕЖДУ токенами (Lucene-slack): следующий токен
+            # ищем в окне из N+1 слов после текущей позиции.
+            window = words[pos + 1 : pos + 1 + distance + 1]
             found = next((j for j, w in enumerate(window) if _token_match(w, token)), None)
             if found is None:
                 ok = False

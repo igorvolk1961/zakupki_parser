@@ -813,48 +813,114 @@ class ProcurementRepository:
             await session.commit()
             return profile
 
-    async def sync_profile_keywords(self, profile_id: int) -> None:
-        """Переписывает строки ``keywords`` из JSONB-массивов профиля (R8).
+    async def set_profile_keywords(
+        self, profile_id: int, keywords: list[str], exclusion_words: list[str]
+    ) -> None:
+        """Переписывает ключевые слова профиля в таблицу ``keywords`` (канонический источник).
 
-        ``type`` = ``keyword`` (Profile.keywords) или ``exclusion``
-        (Profile.exclusion_words). Таблица — нормализованное представление для
-        UI/индексации; рабочий набор парсера — JSONB-массивы.
+        ``type`` = ``keyword`` (позитивные) или ``exclusion`` (слова-исключения).
+        Слова НЕ хранятся в JSONB-полях профиля (ER: PROFILE -> KEYWORD).
+        Уникальность (profile_id, word, type) — как в миграции 1.30.
         """
         async with self._db.session() as session:
-            profile = await session.get(Profile, profile_id)
-            if profile is None:
-                return
             await session.execute(delete(Keyword).where(Keyword.profile_id == profile_id))
             rows: list[Keyword] = [
                 Keyword(profile_id=profile_id, word=word, type=kind)
                 for kind, words in (
-                    ("keyword", profile.keywords or []),
-                    ("exclusion", profile.exclusion_words or []),
+                    ("keyword", keywords or []),
+                    ("exclusion", exclusion_words or []),
                 )
-                for word in words
+                for word in dict.fromkeys(words)
             ]
             session.add_all(rows)
             await session.commit()
 
+    async def get_profile_keywords(self, profile_id: int) -> dict[str, list[str]]:
+        """Возвращает ключевые слова профиля из таблицы ``keywords`` (канонический источник)."""
+        stmt = select(Keyword).where(Keyword.profile_id == profile_id).order_by(Keyword.id)
+        async with self._db.session() as session:
+            rows = list((await session.execute(stmt)).scalars().all())
+        return {
+            "keywords": [r.word for r in rows if r.type == "keyword"],
+            "exclusion_words": [r.word for r in rows if r.type == "exclusion"],
+        }
+
+    async def ensure_default_profile(self, user_id: int) -> Profile:
+        """Возвращает default-профиль пользователя, создавая пустой, если его нет.
+
+        Ключевые слова НЕ заполняются автоматически — их загружает скрипт
+        ``seed-profile`` (R8) по явной команде оператора (data/profile.md).
+        """
+        async with self._db.session() as session:
+            profile = (
+                await session.execute(
+                    select(Profile).where(
+                        Profile.user_id == user_id, Profile.name == self.DEFAULT_PROFILE_NAME
+                    )
+                )
+            ).scalar_one_or_none()
+            if profile is None:
+                profile = Profile(
+                    name=self.DEFAULT_PROFILE_NAME,
+                    user_id=user_id,
+                    enabled=True,
+                    is_active=True,
+                    competencies="",
+                )
+                session.add(profile)
+                await session.commit()
+        return profile
+
     async def seed_default_profile(self, user_id: int, seed: dict[str, Any]) -> Profile:
         """Создаёт/обновляет активный профиль ``default`` пользователя (R8).
 
-        ``seed`` — как в ``upsert_profile`` (+ ``keywords``/``exclusion_words``).
-        После сохранения синхронизирует таблицу ``keywords``.
+        ``seed`` — как в ``upsert_profile`` (+ ``keywords``/``exclusion_words``,
+        которые пишутся в таблицу ``keywords``).
         """
         profile = await self.upsert_profile({**seed, "name": "default"}, user_id)
-        await self.sync_profile_keywords(profile.id)
+        return profile
+
+    async def ensure_default_keywords(
+        self, user_id: int, keywords: list[str], exclusion_words: list[str]
+    ) -> Profile:
+        """Заполняет таблицу ``keywords`` default-профиля пользователя данными из файла (R8).
+
+        Не трогает остальные поля профиля (компетенции, вопросы) — только слова.
+        Профиль создаётся минимальным, если его ещё нет.
+        """
+        async with self._db.session() as session:
+            profile = (
+                await session.execute(
+                    select(Profile).where(
+                        Profile.user_id == user_id, Profile.name == self.DEFAULT_PROFILE_NAME
+                    )
+                )
+            ).scalar_one_or_none()
+            if profile is None:
+                profile = Profile(
+                    name=self.DEFAULT_PROFILE_NAME,
+                    user_id=user_id,
+                    enabled=True,
+                    is_active=True,
+                    competencies="",
+                )
+                session.add(profile)
+                await session.commit()
+        await self.set_profile_keywords(profile.id, keywords, exclusion_words)
         return profile
 
     async def upsert_profile(self, data: dict[str, Any], user_id: int) -> Profile:
         """Создаёт или обновляет профиль пользователя (ключ — user_id + name).
 
+        Ключевые слова/слова-исключения из ``data`` записываются в таблицу
+        ``keywords`` (канонический источник), а не в JSONB-поля профиля.
         При ``is_active=true`` остальные профили пользователя деактивируются
         (гарантия единственного активного профиля).
         """
         name = data.get("name")
         if not name:
             raise ValueError("profiles.name обязателен")
+        wants_keywords = "keywords" in data or "exclusion_words" in data
         async with self._db.session() as session:
             profile = (
                 await session.execute(
@@ -868,10 +934,6 @@ class ProcurementRepository:
                 profile.enabled = bool(data["enabled"])
             if "competencies" in data:
                 profile.competencies = str(data["competencies"])
-            if "keywords" in data:
-                profile.keywords = list(data["keywords"])
-            if "exclusion_words" in data:
-                profile.exclusion_words = list(data["exclusion_words"])
             if "keyword_context_regexes" in data:
                 profile.keyword_context_regexes = dict(data["keyword_context_regexes"])
             if "questions" in data:
@@ -891,7 +953,12 @@ class ProcurementRepository:
                 )
                 profile.is_active = True
             await session.commit()
-        await self.sync_profile_keywords(profile.id)
+        if wants_keywords:
+            await self.set_profile_keywords(
+                profile.id,
+                data.get("keywords", []),
+                data.get("exclusion_words", []),
+            )
         logger.info("Сохранён профиль %s (id=%s, user_id=%s)", name, profile.id, user_id)
         return profile
 
