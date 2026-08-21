@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from zakupki_parser.storage.keywords_parser import (
-    default_keywords_seed,
-    parse_keywords_file,
-    parse_keywords_text,
-)
+from zakupki_parser.storage.keywords_parser import parse_keywords_file, parse_keywords_text
 
 SAMPLE = """
 **Ключевые слова**
@@ -87,6 +83,10 @@ def test_parse_keywords_empty() -> None:
         "keywords": [],
         "exclusion_words": [],
         "competencies": "",
+        "okpd_codes": [],
+        "nmck_min": None,
+        "nmck_max": None,
+        "active_only": False,
     }
 
 
@@ -106,10 +106,37 @@ def test_parse_real_profile_file() -> None:
     assert any("~" in w for w in parsed["exclusion_words"])
 
 
-def test_default_keywords_seed() -> None:
-    seed = default_keywords_seed()
-    assert seed["name"] == "bbk-it"
-    assert seed["is_active"] is True
-    assert isinstance(seed["keywords"], list)
-    assert isinstance(seed["exclusion_words"], list)
-    assert "BBK IT" in seed["competencies"]
+def test_parse_search_criteria_sections() -> None:
+    """Критерии поиска профиля: okpd_codes/nmck_min/nmck_max/active_only."""
+    text = """
+**name**
+bbk-it
+
+**okpd_codes**
+62.02, 62.01
+
+**nmck_min**
+100 000
+
+**nmck_max**
+5 000 000
+
+**active_only**
+true
+"""
+    parsed = parse_keywords_text(text)
+    assert parsed["okpd_codes"] == ["62.02", "62.01"]
+    assert parsed["nmck_min"] == 100000.0
+    assert parsed["nmck_max"] == 5000000.0
+    assert parsed["active_only"] is True
+    assert parsed["name"] == "bbk-it"
+
+
+def test_parse_profile_file_seedable() -> None:
+    """Сид из profile.md: имя, слова и компетенции извлекаются напрямую (R8)."""
+    repo_root = Path(__file__).resolve().parents[2]
+    parsed = parse_keywords_file(repo_root / "data" / "profile.md")
+    assert parsed["name"] == "bbk-it"
+    assert isinstance(parsed["keywords"], list)
+    assert isinstance(parsed["exclusion_words"], list)
+    assert isinstance(parsed["competencies"], str)

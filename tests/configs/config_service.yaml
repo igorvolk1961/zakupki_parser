@@ -9,7 +9,6 @@ default_cutoff_days: 7
 search_criteria:
   okpd_codes:
     - "62.02"
-  keywords: []
   nmck_min: null
   nmck_max: null
   active_only: false

@@ -21,14 +21,6 @@ sites:
   enabled: false
 default_cutoff_days: 14
 sort_by_date_only: true
-search_criteria:
-  okpd_codes:
-  - '62.02'
-  keywords:
-  - искусственный интеллект
-  - ИИ
-  - автоматизация
-  active_only: true
 stop_conditions:
   deadline_not_expired: true
   min_deadline_days: 0

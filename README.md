@@ -59,9 +59,9 @@ per-user аккаунты и профили фильтрации, изоляци
   после сохранения закупки парсер автоматически передаёт задание в `scoring_transport`,
   тот ставит его в Redis-очередь по дефолтному скору, `scoring_service` считает **Fit**
   по **LLM-пайплайну** (Fit → Judge → refine → уточнение по ТЗ → ветка Giga-эмбеддингов);
-  если `fit_score ≥ pwin_fit_threshold` — закупка ставится в очередь **P(win)**
-  (`pwin_service`), если `p_win ≥ margin_pwin_threshold` — в очередь **Margin**
-  (`margin_service`); результат каждой стадии возвращается через транспорт.
+  автокаскад Fit → P(win) → Margin отключён — P(win)/Margin вычисляются только по
+  явному запросу тендеролога (on-demand, `POST /api/procurements/pwin-margin`);
+  результат каждой стадии возвращается через транспорт.
   Уведомление подписчиков — **после каждой стадии** (fit/pwin/margin) с порогом по
   возвращаемому значению стадии (`notify_min_fit_score` / `notify_min_pwin` /
   `notify_min_margin`, флаги `notify_*_enabled` в `config_ops.yaml`).
@@ -229,7 +229,7 @@ uv run zp --configs configs capture-fixture --platform zakupki_mos
 
 ## Уведомления
 
-Доставка новых закупок подписчикам настраивается в `config_service.yaml ->
+Доставка новых закупок подписчикам настраивается в `config_ops.yaml ->
 notifications` (`backend: telegram | max | webhook`). Подробности — в
 [docs/max-subscriber.md](docs/max-subscriber.md) и
 [docs/telegram-subscriber.md](docs/telegram-subscriber.md).
@@ -252,19 +252,20 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
   а также селекторы сортировки и фильтров (блоки `sort`/`filters`) и URL-фильтр `search`
   (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
 - `config_service.yaml` — **аналитические** настройки: список сайтов, порог дат,
-  критерии поиска, stop-условия (редактируется через web-интерфейс).
+  stop-условия (редактируется через web-интерфейс). Критерии поиска (ОКПД2, НМЦК,
+  состояние) задаются в ПРОФИЛЕ (таблица `profiles`; сид — `data/profile.md`,
+  команда `zp seed-profile`), а не в этом конфиге.
 - `config_ops.yaml` — **эксплуатационные** настройки (devops): таймер, БД, уведомления
   (telegram/max/webhook, постадийные пороги и флаги `notify_min_fit_score`/
   `notify_min_pwin`/`notify_min_margin`, `notify_{fit,pwin,margin}_enabled`), каталог
   выгрузки CSV, circuit breaker.
 - `config_score.yaml` — скоринг: fit-таблица ОКПД2, параметры каскада внешнего скоринга
   (`scoring_transport` + `scoring_service` + `pwin_service` + `margin_service` + Redis, ADR-7/ADR-9):
-  пороги переходов `pwin_fit_threshold`/`margin_pwin_threshold`, флаги `pwin_enabled`/
-  `margin_enabled`; приоритет очереди = дефолтный score парсера.
+  флаги `pwin_enabled`/`margin_enabled`; приоритет очереди = дефолтный score парсера.
 - `config_log.yaml` — логирование.
 
 Переменные окружения (для Docker/CI):
-- `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_service.yaml -> db.dsn`);
+- `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_ops.yaml -> db.dsn`);
 - `ZAKUPKI_SCORING_TRANSPORT_URL` — адрес `scoring_transport` (в Docker — имя сервиса
   `http://scoring-transport:8200`, в локальном запуске — `http://localhost:8200`);
 - `ZAKUPKI_NOTIFY_BACKEND` — бэкенд уведомлений; `none` полностью отключает

@@ -13,11 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
-from zakupki_parser.config.models import (
-    SCORE_METHOD_DEFAULT,
-    SCORE_METHOD_FIT,
-    SCORE_METHOD_STAGES,
-)
+from zakupki_parser.config.models import SCORE_METHOD_STAGES
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import (
     Customer,
@@ -54,6 +50,19 @@ def effective_is_active(
     if deadline is None:
         return True
     return deadline >= (now or datetime.now(UTC))
+
+
+def _profile_score_subquery(profile_id: int) -> Any:
+    """Per-profile подзапрос скоринга (фильтр/сортировка по fit_score и score_method)."""
+    return (
+        select(
+            ProcurementEvaluation.procurement_id.label("procurement_id"),
+            ProcurementEvaluation.fit_score.label("fit_score"),
+            ProcurementEvaluation.score_method.label("score_method"),
+        )
+        .where(ProcurementEvaluation.profile_id == profile_id)
+        .subquery()
+    )
 
 
 def _apply_profile_score(
@@ -163,15 +172,7 @@ class ProcurementRepository:
         # базовым колонкам procurements (дефолтный скор широкого отбора).
         score_sub = None
         if profile_id is not None:
-            score_sub = (
-                select(
-                    ProcurementEvaluation.procurement_id.label("procurement_id"),
-                    ProcurementEvaluation.fit_score.label("fit_score"),
-                    ProcurementEvaluation.score_method.label("score_method"),
-                )
-                .where(ProcurementEvaluation.profile_id == profile_id)
-                .subquery()
-            )
+            score_sub = _profile_score_subquery(profile_id)
         if number:
             conditions.append(Procurement.number.ilike(f"%{number}%"))
         if platform_id:
@@ -202,21 +203,15 @@ class ProcurementRepository:
                         ),
                     )
                 )
-        if min_fit_score is not None:
-            if score_sub is not None:
-                conditions.append(score_sub.c.fit_score >= min_fit_score)
-                conditions.append(score_sub.c.score_method.in_(SCORE_METHOD_STAGES))
-            else:
-                conditions.append(Procurement.fit_score >= min_fit_score)
-                # Учитываем только скор, полученный стадиями внешнего каскада скоринга
-                # (fit/pwin/margin): дефолтный (эвристика до обработки) и deadline_expired
-                # не являются «релевантными».
-                conditions.append(Procurement.score_method.in_(SCORE_METHOD_STAGES))
-        if scored:
+        if min_fit_score is not None and score_sub is not None:
+            # Релевантность — только по per-profile скорингу (score_sub);
+            # без профиля фильтровать нечем (дефолтный скор удалён).
+            conditions.append(score_sub.c.fit_score >= min_fit_score)
+            conditions.append(score_sub.c.score_method.in_(SCORE_METHOD_STAGES))
+        if scored and score_sub is not None:
             # Только закупки с выставленным fit-score (внешний скоринг выполнен):
             # NULL — ещё не обработаны конвейером и в таблицу не попадают.
-            fit_col = score_sub.c.fit_score if score_sub is not None else Procurement.fit_score
-            conditions.append(fit_col.is_not(None))
+            conditions.append(score_sub.c.fit_score.is_not(None))
 
         stmt = select(Procurement).options(
             selectinload(Procurement.customer_rel),
@@ -229,10 +224,10 @@ class ProcurementRepository:
             ).options(selectinload(Procurement.evaluations))
         if customer:
             stmt = stmt.join(Customer, Procurement.customer_id == Customer.id)
-        if sort == "fit_score":
-            order_col = score_sub.c.fit_score if score_sub is not None else Procurement.fit_score
+        if sort == "fit_score" and score_sub is not None:
+            # Сортировка по Fit — только по per-profile скорингу.
             stmt = stmt.where(*conditions).order_by(
-                order_col.desc().nullslast(),
+                score_sub.c.fit_score.desc().nullslast(),
                 Procurement.id.asc(),
             )
         elif sort == "publication_date":
@@ -329,11 +324,6 @@ class ProcurementRepository:
             okpd2_codes=data.get("okpd2_codes") or data.get("okpd2_code"),
             kpgz_codes=data.get("kpgz_codes") or data.get("kpgz_code"),
             files_json=data.get("files_json"),
-            score=_round_score(data.get("score")),
-            fit_score=_round_score(data.get("fit_score")),
-            p_win=_round_score(data.get("p_win")),
-            margin=_round_score(data.get("margin")),
-            score_method=data.get("score_method"),
             is_active=bool(data.get("is_active", True)),
             detail_json=data.get("detail_json"),
         )
@@ -458,43 +448,6 @@ class ProcurementRepository:
         ).scalar_one()
         return obj.id
 
-    async def update_score(
-        self,
-        procurement_id: int,
-        score: float,
-        fit_score: float | None = None,
-        method: str = SCORE_METHOD_FIT,
-        embedding_similarity: float | None = None,
-        p_win: float | None = None,
-        margin: float | None = None,
-    ) -> None:
-        async with self._db.session() as session:
-            obj = await session.get(Procurement, procurement_id)
-            if obj is not None:
-                rounded = _round_score(score)
-                obj.score = rounded
-                obj.fit_score = _round_score(fit_score) if fit_score is not None else None
-                obj.p_win = _round_score(p_win) if p_win is not None else None
-                obj.margin = _round_score(margin) if margin is not None else None
-                obj.score_method = method
-                obj.embedding_similarity = (
-                    round(float(embedding_similarity), 4)
-                    if embedding_similarity is not None
-                    else None
-                )
-                await session.commit()
-                logger.info(
-                    "Обновлён score закупки id=%s (№ %s): %s "
-                    "(fit %s, p_win %s, margin %s, метод %s)",
-                    obj.id,
-                    obj.number,
-                    rounded,
-                    obj.fit_score,
-                    obj.p_win,
-                    obj.margin,
-                    method,
-                )
-
     async def mark_scoring_queued(self, procurement_id: int, queued_at: datetime) -> bool:
         """Отмечает закупку как успешно поставленную в очередь внешнего скоринга.
 
@@ -510,20 +463,40 @@ class ProcurementRepository:
             await session.commit()
             return True
 
-    async def find_unscored(self, limit: int | None = None) -> list[dict[str, Any]]:
+    async def find_unscored(
+        self, limit: int | None = None, now: datetime | None = None
+    ) -> list[dict[str, Any]]:
         """Закупки, которым требуется (повторная) постановка в очередь скоринга.
 
         Критерий (recovery после восстановления связи с транспортом):
-        - внешний скоринг не выполнен (``fit_score IS NULL``) — задача не дошла до
-          стадии fit или её результат не записан;
-        - ``score_method`` — дефолтный (deadline_expired в очередь не ставится);
+        - внешний скоринг не выполнен: нет оценки в ``procurement_evaluations``
+          с ``fit_score IS NOT NULL`` — задача не дошла до стадии fit или её
+          результат не записан;
         - задача не была поставлена (``scoring_queued_at IS NULL``) ИЛИ запись
           обновлялась после постановки (``update_date > scoring_queued_at``) —
-          «по времени обновления».
+          «по времени обновления»;
+        - просроченные (``deadline < now``) в очередь не ставятся.
 
         Возвращает список dict'ов: id, number, platform_id, update_date,
         publication_date (для приоритета по времени).
         """
+        scored_exists = (
+            select(ProcurementEvaluation.id)
+            .where(
+                ProcurementEvaluation.procurement_id == Procurement.id,
+                ProcurementEvaluation.fit_score.is_not(None),
+            )
+            .exists()
+        )
+        conditions: list[ColumnElement[bool]] = [
+            ~scored_exists,
+            or_(
+                Procurement.scoring_queued_at.is_(None),
+                Procurement.update_date > Procurement.scoring_queued_at,
+            ),
+        ]
+        if now is not None:
+            conditions.append(or_(Procurement.deadline.is_(None), Procurement.deadline >= now))
         stmt = (
             select(
                 Procurement.id,
@@ -532,17 +505,7 @@ class ProcurementRepository:
                 Procurement.update_date,
                 Procurement.publication_date,
             )
-            .where(
-                Procurement.fit_score.is_(None),
-                or_(
-                    Procurement.score_method.is_(None),
-                    Procurement.score_method == SCORE_METHOD_DEFAULT,
-                ),
-                or_(
-                    Procurement.scoring_queued_at.is_(None),
-                    Procurement.update_date > Procurement.scoring_queued_at,
-                ),
-            )
+            .where(*conditions)
             .order_by(Procurement.id.asc())
         )
         if limit is not None:
@@ -645,15 +608,7 @@ class ProcurementRepository:
         При ``profile_id`` фильтр применяется к per-profile скорингу профиля.
         """
         if profile_id is not None:
-            score_sub = (
-                select(
-                    ProcurementEvaluation.procurement_id,
-                    ProcurementEvaluation.fit_score,
-                    ProcurementEvaluation.score_method,
-                )
-                .where(ProcurementEvaluation.profile_id == profile_id)
-                .subquery()
-            )
+            score_sub = _profile_score_subquery(profile_id)
             stmt = delete(Procurement).where(
                 Procurement.id.in_(
                     select(score_sub.c.procurement_id).where(
@@ -666,13 +621,8 @@ class ProcurementRepository:
                 )
             )
         else:
-            stmt = delete(Procurement).where(
-                Procurement.score_method.in_(SCORE_METHOD_STAGES),
-                or_(
-                    Procurement.fit_score.is_(None),
-                    Procurement.fit_score < min_fit_score,
-                ),
-            )
+            # Без профиля определять релевантность нечем (дефолтный скор удалён).
+            return 0
         async with self._db.session() as session:
             result = cast("CursorResult[Any]", await session.execute(stmt))
             await session.commit()
@@ -718,7 +668,8 @@ class ProcurementRepository:
         """Первый пользователь (сервис-аккаунт для dev-режима и конвейера)."""
         stmt = select(User).order_by(User.id.asc()).limit(1)
         async with self._db.session() as session:
-            return (await session.execute(stmt)).scalar_one_or_none()
+            result: User | None = (await session.execute(stmt)).scalar_one_or_none()
+            return result
 
     async def backfill_orphaned_profiles(self, user_id: int) -> int:
         """Присваивает профили без ``user_id`` указанному пользователю (идемпотентно).
@@ -772,32 +723,29 @@ class ProcurementRepository:
     async def get_active_profile(self, user_id: int) -> Profile | None:
         """Активный профиль пользователя (per-user состояние).
 
-        1) профиль с ``is_active=true``; 2) fallback — профиль ``default``;
-        3) fallback — первый включённый профиль. Иначе None.
+        Приоритет: 1) ``is_active=true``; 2) профиль ``default``; 3) первый включённый.
+        Один запрос (ORDER BY + LIMIT 1). Полностью отключённые профили, не
+        являющиеся default, не возвращаются.
         """
+        stmt = (
+            select(Profile)
+            .where(
+                Profile.user_id == user_id,
+                or_(
+                    Profile.is_active.is_(True),
+                    Profile.name == self.DEFAULT_PROFILE_NAME,
+                    Profile.enabled.is_(True),
+                ),
+            )
+            .order_by(
+                Profile.is_active.desc(),
+                (Profile.name == self.DEFAULT_PROFILE_NAME).desc(),
+                Profile.id.asc(),
+            )
+            .limit(1)
+        )
         async with self._db.session() as session:
-            stmt = select(Profile).where(Profile.user_id == user_id, Profile.is_active.is_(True))
-            profile = (await session.execute(stmt.limit(1))).scalar_one_or_none()
-            if profile is not None:
-                return profile
-            profile = (
-                await session.execute(
-                    select(Profile).where(
-                        Profile.user_id == user_id,
-                        Profile.name == self.DEFAULT_PROFILE_NAME,
-                    )
-                )
-            ).scalar_one_or_none()
-            if profile is not None:
-                return profile
-            return (
-                await session.execute(
-                    select(Profile)
-                    .where(Profile.user_id == user_id, Profile.enabled.is_(True))
-                    .order_by(Profile.id.asc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+            return (await session.execute(stmt)).scalar_one_or_none()
 
     async def set_active_profile(self, user_id: int, profile_id: int) -> Profile:
         """Делает профиль активным (сбрасывает остальные у пользователя)."""
@@ -845,6 +793,26 @@ class ProcurementRepository:
             "exclusion_words": [r.word for r in rows if r.type == "exclusion"],
         }
 
+    async def list_profiles_keywords(
+        self, profile_ids: list[int]
+    ) -> dict[int, dict[str, list[str]]]:
+        """Батч-чтение слов нескольких профилей одним запросом (без N+1)."""
+        if not profile_ids:
+            return {}
+        stmt = (
+            select(Keyword)
+            .where(Keyword.profile_id.in_(profile_ids))
+            .order_by(Keyword.profile_id, Keyword.id)
+        )
+        async with self._db.session() as session:
+            rows = list((await session.execute(stmt)).scalars().all())
+        result: dict[int, dict[str, list[str]]] = {}
+        for row in rows:
+            bucket = result.setdefault(row.profile_id, {"keywords": [], "exclusion_words": []})
+            key = "keywords" if row.type == "keyword" else "exclusion_words"
+            bucket[key].append(row.word)
+        return result
+
     async def ensure_default_profile(self, user_id: int) -> Profile:
         """Возвращает default-профиль пользователя, создавая пустой, если его нет.
 
@@ -880,35 +848,6 @@ class ProcurementRepository:
         profile = await self.upsert_profile({**seed, "name": "default"}, user_id)
         return profile
 
-    async def ensure_default_keywords(
-        self, user_id: int, keywords: list[str], exclusion_words: list[str]
-    ) -> Profile:
-        """Заполняет таблицу ``keywords`` default-профиля пользователя данными из файла (R8).
-
-        Не трогает остальные поля профиля (компетенции, вопросы) — только слова.
-        Профиль создаётся минимальным, если его ещё нет.
-        """
-        async with self._db.session() as session:
-            profile = (
-                await session.execute(
-                    select(Profile).where(
-                        Profile.user_id == user_id, Profile.name == self.DEFAULT_PROFILE_NAME
-                    )
-                )
-            ).scalar_one_or_none()
-            if profile is None:
-                profile = Profile(
-                    name=self.DEFAULT_PROFILE_NAME,
-                    user_id=user_id,
-                    enabled=True,
-                    is_active=True,
-                    competencies="",
-                )
-                session.add(profile)
-                await session.commit()
-        await self.set_profile_keywords(profile.id, keywords, exclusion_words)
-        return profile
-
     async def upsert_profile(self, data: dict[str, Any], user_id: int) -> Profile:
         """Создаёт или обновляет профиль пользователя (ключ — user_id + name).
 
@@ -942,6 +881,14 @@ class ProcurementRepository:
                 profile.target_laws = list(data["target_laws"])
             if "min_fit_threshold" in data:
                 profile.min_fit_threshold = data["min_fit_threshold"]
+            if "okpd_codes" in data:
+                profile.okpd_codes = list(data["okpd_codes"])
+            if "nmck_min" in data:
+                profile.nmck_min = data["nmck_min"]
+            if "nmck_max" in data:
+                profile.nmck_max = data["nmck_max"]
+            if "active_only" in data:
+                profile.active_only = bool(data["active_only"])
             # Профиль становится активным: явно (is_active=true) или по умолчанию
             # для профиля «default» (per-user состояние, BR-07).
             wants_active = data.get("is_active")
@@ -963,6 +910,24 @@ class ProcurementRepository:
     # ------------------------------------------------------------------ #
     # Per-profile результаты скоринга (BR-07)
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _find_or_create_evaluation(
+        session: Any, procurement_id: int, profile_id: int
+    ) -> ProcurementEvaluation:
+        """Find-or-create per-profile оценки в ОТКРЫТОЙ сессии (без commit)."""
+        existing: ProcurementEvaluation | None = (
+            session.execute(
+                select(ProcurementEvaluation).where(
+                    ProcurementEvaluation.procurement_id == procurement_id,
+                    ProcurementEvaluation.profile_id == profile_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            existing = ProcurementEvaluation(procurement_id=procurement_id, profile_id=profile_id)
+            session.add(existing)
+        return existing
+
     async def upsert_score(
         self,
         procurement_id: int,
@@ -977,32 +942,20 @@ class ProcurementRepository:
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки."""
         async with self._db.session() as session:
-            existing = (
-                await session.execute(
-                    select(ProcurementEvaluation).where(
-                        ProcurementEvaluation.procurement_id == procurement_id,
-                        ProcurementEvaluation.profile_id == profile_id,
-                    )
-                )
-            ).scalar_one_or_none()
-            if existing is None:
-                existing = ProcurementEvaluation(
-                    procurement_id=procurement_id, profile_id=profile_id
-                )
-                session.add(existing)
+            evaluation = self._find_or_create_evaluation(session, procurement_id, profile_id)
             if score is not None:
-                existing.score = _round_score(score)
+                evaluation.score = _round_score(score)
             if fit_score is not None:
-                existing.fit_score = _round_score(fit_score)
+                evaluation.fit_score = _round_score(fit_score)
             if p_win is not None:
-                existing.p_win = _round_score(p_win)
+                evaluation.p_win = _round_score(p_win)
             if margin is not None:
-                existing.margin = _round_score(margin)
-            existing.score_method = score_method
+                evaluation.margin = _round_score(margin)
+            evaluation.score_method = score_method
             if rag_report is not None:
-                existing.rag_report = rag_report
+                evaluation.rag_report = rag_report
             await session.commit()
-            return existing
+            return evaluation
 
     async def get_score(self, procurement_id: int, profile_id: int) -> ProcurementEvaluation | None:
         stmt = select(ProcurementEvaluation).where(
@@ -1017,19 +970,7 @@ class ProcurementRepository:
     ) -> ProcurementEvaluation:
         """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method)."""
         async with self._db.session() as session:
-            existing = (
-                await session.execute(
-                    select(ProcurementEvaluation).where(
-                        ProcurementEvaluation.procurement_id == procurement_id,
-                        ProcurementEvaluation.profile_id == profile_id,
-                    )
-                )
-            ).scalar_one_or_none()
-            if existing is None:
-                existing = ProcurementEvaluation(
-                    procurement_id=procurement_id, profile_id=profile_id
-                )
-                session.add(existing)
-            existing.rag_report = rag_report
+            evaluation = self._find_or_create_evaluation(session, procurement_id, profile_id)
+            evaluation.rag_report = rag_report
             await session.commit()
-        return existing
+        return evaluation

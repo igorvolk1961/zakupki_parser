@@ -30,6 +30,8 @@ async def apply_filters(page: Page, filters: list[PurchaseFilter]) -> None:
             elif step.action == "press" and step.value is not None:
                 await locator.first.press(step.value)
             elif step.action == "set_checkbox":
-                await locator.first.set_checked(bool(step.value))
+                # Строковые значения «false»/«0» не должны приводиться к True.
+                checked = str(step.value).strip().lower() not in ("false", "0", "")
+                await locator.first.set_checked(checked)
             if step.wait_ms:
                 await page.wait_for_timeout(step.wait_ms)

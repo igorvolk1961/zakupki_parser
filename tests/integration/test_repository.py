@@ -373,63 +373,30 @@ async def test_delete_inactive(db: Database) -> None:
 
 @pytest.mark.asyncio
 async def test_delete_irrelevant(db: Database) -> None:
-    """delete_irrelevant удаляет только обработанные скорингом записи с fit_score < порога."""
+    """delete_irrelevant удаляет записи с per-profile fit_score < порога (стадии каскада)."""
     repo = ProcurementRepository(db)
+    user = await repo.create_user("del-user", "hash", "admin")
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
     # Внешний скоринг, fit_score >= порога — релевантна, остаётся.
-    await repo.upsert(
-        {
-            "number": "RI-1",
-            "platform_id": "zakupki_mos",
-            "subject": "x",
-            "fit_score": 0.8,
-            "score_method": "fit",
-        }
-    )
+    pid_ri1 = await _upsert(repo, "RI-1")
+    await repo.upsert_score(pid_ri1, profile.id, fit_score=0.8, score_method="fit")
     # Внешний скоринг, fit_score ниже порога — нерелевантна, удаляется.
-    await repo.upsert(
-        {
-            "number": "RI-2",
-            "platform_id": "zakupki_mos",
-            "subject": "y",
-            "fit_score": 0.2,
-            "score_method": "fit",
-        }
-    )
-    # Дефолтный скоринг (внешний не проходил) — НЕ учитывается, остаётся.
-    await repo.upsert(
-        {
-            "number": "RI-3",
-            "platform_id": "zakupki_mos",
-            "subject": "z",
-            "fit_score": 0.1,
-            "score_method": "default",
-        }
-    )
-    # Отсечка по векторной близости (ADR-8): внешний скоринг, fit_score ниже
-    # порога (обычно 0) — нерелевантна, удаляется.
-    await repo.upsert(
-        {
-            "number": "RI-4",
-            "platform_id": "zakupki_mos",
-            "subject": "w",
-            "fit_score": 0.0,
-            "score_method": "sim",
-        }
-    )
+    pid_ri2 = await _upsert(repo, "RI-2")
+    await repo.upsert_score(pid_ri2, profile.id, fit_score=0.2, score_method="fit")
+    # Отсечка по векторной близости (ADR-8): fit_score ниже порога — удаляется.
+    pid_ri3 = await _upsert(repo, "RI-3")
+    await repo.upsert_score(pid_ri3, profile.id, fit_score=0.0, score_method="sim")
     # Отсечка по векторной близости, но fit_score выше порога — остаётся.
-    await repo.upsert(
-        {
-            "number": "RI-5",
-            "platform_id": "zakupki_mos",
-            "subject": "v",
-            "fit_score": 0.7,
-            "score_method": "sim",
-        }
-    )
-    deleted = await repo.delete_irrelevant(min_fit_score=0.4)
+    pid_ri4 = await _upsert(repo, "RI-4")
+    await repo.upsert_score(pid_ri4, profile.id, fit_score=0.7, score_method="sim")
+    # Без оценки (внешний скоринг не проходил) — НЕ учитывается, остаётся.
+    await _upsert(repo, "RI-5")
+
+    deleted = await repo.delete_irrelevant(min_fit_score=0.4, profile_id=profile.id)
     assert deleted == 2
     rows, _ = await repo.list_procurements()
-    assert {p.number for p in rows} == {"RI-1", "RI-3", "RI-5"}
+    assert {p.number for p in rows} == {"RI-1", "RI-4", "RI-5"}
 
 
 async def _upsert(repo: ProcurementRepository, number: str, **extra: object) -> int:
@@ -465,14 +432,18 @@ async def test_find_unscored_returns_unscored_and_mark_excludes(db: Database) ->
 
 @pytest.mark.asyncio
 async def test_find_unscored_excludes_scored_and_deadline_expired(db: Database) -> None:
-    """Записи с fit_score и score_method=deadline_expired в очередь не ставятся."""
+    """Оценённые и просроченные закупки в очередь recovery не ставятся."""
     repo = ProcurementRepository(db)
+    user = await repo.create_user("q-user", "hash", "admin")
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
     scored = await _upsert(repo, "Q-3")
-    await _upsert(repo, "Q-4", score_method="deadline_expired", score=0.0)
+    await repo.upsert_score(scored, profile.id, fit_score=0.8, score_method="fit")
+    # Просроченная (deadline < now) в очередь не ставится.
+    await _upsert(repo, "Q-4", deadline=datetime(2026, 8, 1, tzinfo=UTC))
 
-    await repo.update_score(scored, score=10.0, fit_score=0.8, method="fit")
-
-    found = await repo.find_unscored()
+    now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+    found = await repo.find_unscored(now=now)
     assert found == []
 
 
@@ -515,21 +486,24 @@ async def test_find_unscored_priority_fields(db: Database) -> None:
 
 @pytest.mark.asyncio
 async def test_list_procurements_scored_filter(db: Database) -> None:
-    """scored=True возвращает только закупки с выставленным fit_score."""
+    """scored=True возвращает только закупки с per-profile fit_score."""
     repo = ProcurementRepository(db)
+    user = await repo.create_user("s-user", "hash", "admin")
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
     unscored = await _upsert(repo, "S-1")
     scored_id = await _upsert(repo, "S-2")
-    await repo.update_score(scored_id, score=8.0, fit_score=0.8, method="fit")
+    await repo.upsert_score(scored_id, profile.id, fit_score=0.8, score_method="fit")
 
-    all_rows, total = await repo.list_procurements()
+    all_rows, total = await repo.list_procurements(profile_id=profile.id)
     assert total == 2
 
-    rows, total = await repo.list_procurements(scored=True)
+    rows, total = await repo.list_procurements(scored=True, profile_id=profile.id)
     assert total == 1
     assert [p.number for p in rows] == ["S-2"]
     assert all(p.fit_score is not None for p in rows)
 
-    rows, total = await repo.list_procurements(scored=False)
+    rows, total = await repo.list_procurements(scored=False, profile_id=profile.id)
     assert total == 2
     assert {p.number for p in rows} == {"S-1", "S-2"}
     assert unscored != scored_id

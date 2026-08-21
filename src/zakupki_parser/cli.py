@@ -130,6 +130,10 @@ async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: 
                 "competencies": parsed.get("competencies", ""),
                 "keywords": parsed.get("keywords", []),
                 "exclusion_words": parsed.get("exclusion_words", []),
+                "okpd_codes": parsed.get("okpd_codes", []),
+                "nmck_min": parsed.get("nmck_min"),
+                "nmck_max": parsed.get("nmck_max"),
+                "active_only": parsed.get("active_only", False),
             },
             user.id,
         )
@@ -137,10 +141,13 @@ async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: 
         await db.dispose()
     n_kw = len(parsed.get("keywords", []))
     n_ex = len(parsed.get("exclusion_words", []))
+    okpd = ", ".join(parsed.get("okpd_codes", [])) or "–"
     print(
         f"Профиль {profile_name!r} пользователя {username!r}: ключевых слов — {n_kw}, "
         f"минус-слов — {n_ex}, компетенции — "
-        f"{'заданы' if parsed.get('competencies') else 'не заданы'}"
+        f"{'заданы' if parsed.get('competencies') else 'не заданы'}; "
+        f"критерии: ОКПД2={okpd}, НМЦК {parsed.get('nmck_min') or '–'}…"
+        f"{parsed.get('nmck_max') or '–'}, активные={parsed.get('active_only', False)}"
     )
     return 0
 
@@ -200,14 +207,10 @@ def _print_summary(cfg: AppConfig) -> None:
         name = plat.name if plat else "?"
         url = plat.url if plat else "?"
         print(f"    - {site.platform_id:<14} [{mark}]  {name} ({url})")
-    sc = cfg.service.search_criteria
-    okpd = ", ".join(sc.okpd_codes) if sc.okpd_codes else "–"
-    kw = ", ".join(sc.keywords) if sc.keywords else "–"
     print(
-        f"  Критерии поиска: ОКПД2={okpd}; "
-        f"НМЦК {sc.nmck_min or '–'}…{sc.nmck_max or '–'}; "
-        f"ключевые слова={kw}; "
-        f"состояние={'только активные' if sc.active_only else 'все'}"
+        "  Критерии поиска — из активного профиля (таблица profiles: okpd_codes/"
+        "nmck_min/nmck_max/active_only; слова — таблица keywords, R9)."
+        " Сид: zp seed-profile (data/profile.md)"
     )
     mode = "все площадки по дате" if cfg.service.sort_by_date_only else "по конфигурации площадок"
     print(f"  Порог дат (дней): {cfg.service.default_cutoff_days} (режим: {mode})")
@@ -224,16 +227,10 @@ def _print_summary(cfg: AppConfig) -> None:
     print()
 
     # --- Скоринг ---------------------------------------------------------
-    score = cfg.score
     print("Скоринг (config_score.yaml):")
     print(
-        f"  P(win): {score.p_win}; default_fit: {score.default_fit}; "
-        f"empty_code_fit: {score.empty_code_fit}"
-    )
-    n_fit = len(score.fit_table)
-    print(
-        f"  fit-таблица (ОКПД2 → коэффициент): {n_fit} "
-        f"{_plural(n_fit, 'запись', 'записи', 'записей')}"
+        "  Дефолтный скор удалён; внешний каскад (fit/pwin/margin) — "
+        "в procurement_evaluations (per-profile), приоритет очереди — время обновления."
     )
     print()
 

@@ -61,3 +61,6 @@ search:
   keywords_one_at_a_time: false
   keywords_separator: " или "
   keywords_quote_phrases: true
+  # ОКПД2-фильтр у площадки не подключён (criteria_map без okpd2): единственный
+  # способ отбора — обход «без кода» (R9) с клиентской фильтрацией словами.
+  no_code_search: true

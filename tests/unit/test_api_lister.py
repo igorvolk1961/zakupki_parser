@@ -293,12 +293,9 @@ class _Recorder(Orchestrator):
         list_vars: dict[str, Any],
         detail_url: str | None,
         number: Any,
-        keywords: list[str] | None = None,
         api_fields: dict[str, Any] | None = None,
     ) -> tuple[bool, Any, bool]:
-        self.processed.append(
-            {"vars": list_vars, "url": detail_url, "number": number, "keywords": keywords}
-        )
+        self.processed.append({"vars": list_vars, "url": detail_url, "number": number})
         return False, number, True
 
 

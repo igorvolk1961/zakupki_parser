@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Any
 
 _WORD_RE = re.compile(r"[\wа-яёА-ЯЁ-]+", re.UNICODE)
@@ -35,13 +36,19 @@ def _stem_pattern(token: str) -> str:
     return r"(?<!\w)" + re.escape(stem) + r"[а-яёa-z]*"
 
 
+@lru_cache(maxsize=4096)
+def _token_regex(token: str) -> re.Pattern[str]:
+    """Компилирует паттерн токена один раз (кеш; ``слов*`` -> стем, иначе — граница слова)."""
+    if token.endswith("*"):
+        return re.compile(_stem_pattern(token), re.IGNORECASE)
+    return re.compile(r"(?<!\w)" + re.escape(token) + r"(?!\w)", re.IGNORECASE)
+
+
 def _token_match(subject: str, token: str) -> bool:
     """Совпадение одного токена (``слов*`` или точного слова)."""
     if not token:
         return False
-    if token.endswith("*"):
-        return re.search(_stem_pattern(token), subject, re.IGNORECASE) is not None
-    return re.search(r"(?<!\w)" + re.escape(token) + r"(?!\w)", subject, re.IGNORECASE) is not None
+    return _token_regex(token).search(subject) is not None
 
 
 def _proximity_match(subject: str, inner: str, distance: int) -> bool:

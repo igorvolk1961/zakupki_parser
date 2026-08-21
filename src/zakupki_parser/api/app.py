@@ -250,6 +250,10 @@ class ProfileIn(BaseModel):
     target_etp: list[str] | None = None
     target_laws: list[str] | None = None
     min_fit_threshold: float | None = None
+    okpd_codes: list[str] | None = None
+    nmck_min: float | None = None
+    nmck_max: float | None = None
+    active_only: bool | None = None
 
 
 class ProfileOut(BaseModel):
@@ -268,6 +272,10 @@ class ProfileOut(BaseModel):
     target_etp: list[str]
     target_laws: list[str]
     min_fit_threshold: float | None = None
+    okpd_codes: list[str]
+    nmck_min: float | None = None
+    nmck_max: float | None = None
+    active_only: bool
     created_at: datetime
     updated_at: datetime
 
@@ -286,6 +294,9 @@ class AppState:
         self.configs_dir = configs_dir
         self.db: Database | None = None
         self.repository: ProcurementRepository | None = None
+        # Кеш сервис-аккаунта (первый пользователь): backfill осиротевших профилей и
+        # сид default-профиля выполняются один раз, а не на каждый запрос.
+        self.service_account: User | None = None
         # Управление парсером (запуск/остановка из web-демо).
         self.parser_lock = asyncio.Lock()
         self.parser_task: asyncio.Task[None] | None = None
@@ -536,6 +547,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         пользователя, если таблица пуста (env-сид ZAKUPKI_ADMIN_* или fallback
         «admin» со сгенерированным паролем), и присваивает профили без user_id.
         """
+        cached: User | None = getattr(state, "service_account", None)
+        if cached is not None:
+            return cached
         user = await _repo().first_user()
         if user is not None:
             await _repo().backfill_orphaned_profiles(user.id)
@@ -553,6 +567,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             await _repo().backfill_orphaned_profiles(user.id)
         # Профиль default создаётся пустым (слова загружаются скриптом seed-profile, R8).
         await _repo().ensure_default_profile(user.id)
+        state.service_account = user
         return user
 
     async def _effective_user(user: User | None) -> User:
@@ -577,10 +592,13 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             )
         return eff_user, profile
 
-    async def _profile_out(profile: Profile) -> ProfileOut:
+    async def _profile_out(
+        profile: Profile, keywords: dict[str, list[str]] | None = None
+    ) -> ProfileOut:
         """Карточка профиля со словами из таблицы ``keywords`` (канонический источник)."""
         data = ProfileOut.model_validate(profile).model_dump()
-        keywords = await _repo().get_profile_keywords(profile.id)
+        if keywords is None:
+            keywords = await _repo().get_profile_keywords(profile.id)
         data["keywords"] = keywords["keywords"]
         data["exclusion_words"] = keywords["exclusion_words"]
         return ProfileOut(**data)
@@ -922,16 +940,6 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 margin=body.margin,
                 score_method=body.score_method,
             )
-        # Базовые колонки — дефолтный скор (совместимость, ветка sim/эмбеддинги).
-        await _repo().update_score(
-            procurement_id,
-            body.score,
-            body.fit_score,
-            body.score_method,
-            embedding_similarity=body.embedding_similarity,
-            p_win=body.p_win,
-            margin=body.margin,
-        )
         await _broadcast(state)
         row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
         if row is None:  # pragma: no cover - проверено выше
@@ -1023,7 +1031,11 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     ) -> ProfileListOut:
         eff_user = await _effective_user(user)
         rows, total = await _repo().list_profiles(user_id=eff_user.id, limit=limit, offset=offset)
-        return ProfileListOut(total=total, items=[await _profile_out(r) for r in rows])
+        # Батч-чтение слов профилей (без N+1 по таблице keywords).
+        keywords = await _repo().list_profiles_keywords([r.id for r in rows])
+        return ProfileListOut(
+            total=total, items=[await _profile_out(r, keywords.get(r.id)) for r in rows]
+        )
 
     @app.get(
         "/api/clients/{client_id}",

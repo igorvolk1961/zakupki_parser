@@ -1,0 +1,15 @@
+databaseChangeLog:
+- changeSet:
+    id: 34
+    author: zakupki-parser
+    comment: 'Критерии поиска переехали из config_service.yaml в профиль: profiles.okpd_codes/nmck_min/nmck_max/active_only'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE profiles ADD COLUMN okpd_codes jsonb NOT NULL DEFAULT '[]'::jsonb;
+          ALTER TABLE profiles ADD COLUMN nmck_min float;
+          ALTER TABLE profiles ADD COLUMN nmck_max float;
+          ALTER TABLE profiles ADD COLUMN active_only boolean NOT NULL DEFAULT false;
+
+          COMMENT ON TABLE profiles IS 'Профили фильтрации пользователей (слова — keywords, критерии поиска — okpd_codes/nmck_min/nmck_max/active_only)';

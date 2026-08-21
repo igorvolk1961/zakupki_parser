@@ -31,14 +31,14 @@ def test_check_config_summary(app_config: AppConfig) -> None:
     assert "Площадок в списке сайтов" in out
     assert "zakupki_mos" in out
     assert "Критерии поиска" in out
-    assert "ключевые слова" in out
-    assert "состояние=" in out
+    assert "keywords" in out
+    assert "Сид: zp seed-profile" in out
     assert "Порог дат (дней):" in out
     assert "режим:" in out
 
     # Скоринг.
-    assert "P(win):" in out
-    assert "fit-таблица" in out
+    assert "Дефолтный скор удалён" in out
+    assert "внешний каскад" in out
 
     # Парсер.
     assert "Задержки между действиями" in out

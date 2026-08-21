@@ -179,8 +179,18 @@ class Profile(Base):
         Boolean, nullable=False, server_default=text("false"), default=False
     )
     min_fit_threshold: Mapped[float | None] = mapped_column(Float)
+    # target_etp/target_laws/min_fit_threshold зарезервированы (CRUD в API, влияние
+    # на парсинг/пороги — пост-MVP, этапы 4/5).
     target_etp: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     target_laws: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    # Критерии поиска принадлежат ПРОФИЛЮ (не глобальному конфигу): коды ОКПД2,
+    # диапазон НМЦК, выбор по состоянию. Используются парсером при обходе ЭТП.
+    okpd_codes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    nmck_min: Mapped[float | None] = mapped_column(Float)
+    nmck_max: Mapped[float | None] = mapped_column(Float)
+    active_only: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     competencies: Mapped[str] = mapped_column(Text, nullable=False)
     questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -202,10 +212,13 @@ class Keyword(Base):
     ``type`` — ``keyword`` (позитивное) или ``exclusion`` (слово-исключение).
     Слова НЕ дублируются в JSONB-полях профиля (ER: PROFILE -> KEYWORD); рабочий
     набор парсера/фильтрации читается из этой таблицы (см. ``Profile.keywords_rel``).
-    Сид для default-профиля — ``data/key_words.md`` (R8).
+    Сид для профиля — скрипт ``zp seed-profile`` из ``data/profile.md`` (R8).
     """
 
     __tablename__ = "keywords"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "word", "type", name="uq_keywords_profile_word_type"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     profile_id: Mapped[int] = mapped_column(
@@ -260,6 +273,8 @@ class ProcurementEvaluation(Base):
     margin: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # status/rejection_reason зарезервированы под Эпик 5 («В работу»/«Отклонить») —
+    # пост-MVP (этап 7); сейчас всегда status='new', rejection_reason=NULL.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -271,12 +286,19 @@ class ProcurementEvaluation(Base):
 
 
 class Procurement(Base):
-    """Запись о закупке."""
+    """Запись о закупке (публичные данные ЭТП).
+
+    Оценок (score/fit_score/p_win/margin/score_method) здесь НЕТ: результаты
+    скоринга живут только в ``procurement_evaluations`` (per-profile). Динамические
+    атрибуты ``score``/``fit_score``/``p_win``/``margin``/``score_method``/
+    ``rag_report`` подкладываются репозиторием при выдаче (``_apply_profile_score``).
+    """
 
     __tablename__ = "procurements"
     __table_args__ = (
         UniqueConstraint("number", "platform_id", name="uq_procurement_number_platform"),
     )
+    __allow_unmapped__ = True
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     number: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -304,22 +326,10 @@ class Procurement(Base):
     okpd2_codes: Mapped[str | None] = mapped_column(Text)
     kpgz_codes: Mapped[str | None] = mapped_column(Text)
     files_json: Mapped[list[Any] | None] = mapped_column(JSONB)
-    score: Mapped[float | None] = mapped_column(Float)
-    fit_score: Mapped[float | None] = mapped_column(Float)
-    p_win: Mapped[float | None] = mapped_column(Float)
-    margin: Mapped[float | None] = mapped_column(Float)
-    score_method: Mapped[str | None] = mapped_column(String(64))
     # Отметка успешной постановки закупки в очередь внешнего скоринга (fit).
     # NULL — задача не поставлена (в т.ч. транспорт был недоступен при сохранении);
     # recovery по ней догоняет пропущенные закупки (см. repository.find_unscored).
     scoring_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Per-user RAG-отчёт (procurement_evaluations.rag_report) подкладывается репозиторием
-    # при выдаче под активного клиента (см. _apply_client_score): колонки в
-    # procurements нет, поэтому атрибут не маппится (__allow_unmapped__).
-    rag_report: dict[str, Any] | None = None
-    # Ветка векторной близости (Giga Embedder): косинусная близость 0..1 текста
-    # компетенций и описания закупки. None, если ветка выключена/не настроена/сбой.
-    embedding_similarity: Mapped[float | None] = mapped_column(Float)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
@@ -328,6 +338,17 @@ class Procurement(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    # Динамические атрибуты скоринга (НЕ колонки, __allow_unmapped__): подкладываются
+    # репозиторием (_apply_profile_score) при выдаче под активный профиль из
+    # procurement_evaluations. В БД оценок в procurements нет.
+    score: float | None = None
+    fit_score: float | None = None
+    p_win: float | None = None
+    margin: float | None = None
+    score_method: str | None = None
+    embedding_similarity: float | None = None
+    rag_report: dict[str, Any] | None = None
 
     customer_rel: Mapped[Customer | None] = relationship(back_populates="procurements")
     procedure_type_rel: Mapped[ProcedureType | None] = relationship(back_populates="procurements")

@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Активный профиль меняется редко: кешируем ответ /api/clients/active на TTL,
+# чтобы воркеры каскада не дёргали парсер на каждую закупку.
+_ACTIVE_CLIENT_TTL_SECONDS = 60.0
+_active_client_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 class ParserApiClient:
@@ -32,14 +38,21 @@ class ParserApiClient:
 
         ``internal_token`` — внутренний токен парсера (заголовок X-Internal-Token):
         эндпоинт /api/clients/active открыт и для конвейера, и для пользователей.
+        Ответ кешируется на ``_ACTIVE_CLIENT_TTL_SECONDS`` (профиль меняется редко).
         """
+        cache_key = internal_token or ""
+        now = time.monotonic()
+        cached = _active_client_cache.get(cache_key)
+        if cached is not None and now - cached[0] < _ACTIVE_CLIENT_TTL_SECONDS:
+            return cached[1]
         url = f"{self._base}/api/clients/active"
         headers = {"X-Internal-Token": internal_token} if internal_token else None
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
-            return data
+        _active_client_cache[cache_key] = (time.monotonic(), data)
+        return data
 
     async def post_score(
         self,

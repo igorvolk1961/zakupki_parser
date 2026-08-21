@@ -1,0 +1,17 @@
+databaseChangeLog:
+- changeSet:
+    id: 35
+    author: zakupki-parser
+    comment: 'Дефолтный скор удалён: дроп колонок скоринга из procurements (score/fit_score/p_win/margin/score_method/embedding_similarity); оценки живут только в procurement_evaluations'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurements DROP COLUMN IF EXISTS score;
+          ALTER TABLE procurements DROP COLUMN IF EXISTS fit_score;
+          ALTER TABLE procurements DROP COLUMN IF EXISTS p_win;
+          ALTER TABLE procurements DROP COLUMN IF EXISTS margin;
+          ALTER TABLE procurements DROP COLUMN IF EXISTS score_method;
+          ALTER TABLE procurements DROP COLUMN IF EXISTS embedding_similarity;
+
+          COMMENT ON TABLE procurements IS 'Закупки (публичные данные ЭТП). Оценки — только в procurement_evaluations (per-profile)';

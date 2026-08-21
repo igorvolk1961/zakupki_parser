@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -45,7 +46,8 @@ from zakupki_parser.parser.orchestrator.persistence import PersistenceMixin
 from zakupki_parser.parser.orchestrator.stop import StopMixin
 from zakupki_parser.parser.organization import capture_customer_link, resolve_inn
 from zakupki_parser.retry import run_with_retry
-from zakupki_parser.scoring import ScoringTransportClient, score_for_record
+from zakupki_parser.scoring import ScoringTransportClient
+from zakupki_parser.storage.db import Profile
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -92,8 +94,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
         # (relevance-режим): детальные страницы известных закупок не открываем.
         self._known_numbers: set[str] | None = None
-        # Ключевые слова активного профиля (таблица keywords, канонический источник,
-        # R9). Задаются в ``run`` при наличии репозитория.
+        # Активный профиль (контекст клиентской фильтрации) и его слова
+        # (таблица keywords, канонический источник, R9). Задаются в ``run``.
+        self._client_profile: Profile | None = None
         self._client_keywords: list[str] = []
         self._client_exclusion_words: list[str] = []
         # Агрегированная статистика прохода площадки (получено/сохранено/известно).
@@ -124,14 +127,11 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         self,
         page: Page,
         container: Locator,
-        keywords: list[str] | None = None,
     ) -> tuple[bool, Any, bool]:
         """Обрабатывает один контейнер записи о закупке (DOM-листер).
 
         Возвращает (известна ли запись как уже сохранённая в БД, номер закупки,
         сохранена ли запись в БД на этом шаге).
-        ``keywords`` — ключевые слова текущего поискового обхода (в R9 всегда пусто:
-        серверная фильтрация только по ОКПД2, слова применяются клиентски).
         """
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
@@ -170,7 +170,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     url_re,
                 )
 
-        return await self._process_list_record(page, list_vars, detail_url, number, keywords)
+        return await self._process_list_record(page, list_vars, detail_url, number)
 
     async def _process_list_record(
         self,
@@ -178,7 +178,6 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         list_vars: dict[str, Any],
         detail_url: str | None,
         number: Any,
-        keywords: list[str] | None = None,
         api_fields: dict[str, Any] | None = None,
     ) -> tuple[bool, Any, bool]:
         """Общая обработка записи из списка (DOM или API): детали, stop, скоринг, запись.
@@ -337,21 +336,11 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         if files:
             record["files_json"] = files
 
-        # 6) скоринг закупки (Score = Fit × P(win) × Margin).
-        #    Просроченный срок подачи заявок -> score=0, score_method=deadline_expired.
-        #    Финальный внешний score проставит конвейер скоринга через POST /score (ADR-7).
-        if "score" not in record:
-            score, fit_score, method = await score_for_record(
-                record,
-                self._cfg.score,
-                self._now,
-                active_only=self._cfg.service.search_criteria.active_only,
-            )
-            record["score"] = score
-            record["fit_score"] = fit_score
-            record["score_method"] = method
+        # 6) дефолтный скоринг УДАЛЁН: закупка сохраняется без оценки; результат
+        #    внешнего каскада приходит через POST /score и пишется в
+        #    procurement_evaluations (per-profile, ADR-7).
 
-        # 8) JSONB-карточка формируется из ФИНАЛЬНОЙ записи (включая файлы, score,
+        # 8) JSONB-карточка формируется из ФИНАЛЬНОЙ записи (включая файлы и
         #    результаты доп. обработки), чтобы снимок соответствовал сохранённому.
         record["detail_json"] = json_safe(record)
 
@@ -360,17 +349,26 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         if saved and self._known_numbers is not None:
             self._known_numbers.add(str(number))
 
-        # 10) авто-пуш задания на внешний скоринг (ADR-7): закупка сохранена с дефолтным
-        #     скором; transport ставит её в приоритетную очередь. Уведомление подписчиков
-        #     отправляется позже — в POST /score, после прихода внешнего скора и проверки
-        #     порога notify_min_fit_score (см. api/app.py). deadline_expired не скорим (скор=0).
-        if saved and self._transport is not None and record.get("score_method") == "default":
+        # 10) авто-пуш задания на внешний скоринг (ADR-7): приоритет очереди — время
+        #     обновления/публикации закупки (новые обрабатываются раньше, ZPOPMAX берёт
+        #     больший score), как и в recovery (scheduler._recover_scoring_queue).
+        #     Уведомление подписчиков отправляется позже — в POST /score, после прихода
+        #     внешнего скора и проверки порога notify_min_fit_score (см. api/app.py).
+        #     Просроченные (deadline < now) в очередь не ставим.
+        deadline = record.get("deadline")
+        expired = isinstance(deadline, datetime) and deadline < self._now
+        if saved and self._transport is not None and not expired:
             procurement_id = record.get("id")
             if procurement_id is not None:
                 try:
-                    await self._transport.enqueue(
-                        int(procurement_id), float(record.get("score") or 0.0)
-                    )
+                    ts = record.get("update_date") or record.get("publication_date")
+                    priority = self._now.timestamp()
+                    if isinstance(ts, datetime):
+                        priority = ts.timestamp()
+                    elif isinstance(ts, str):
+                        with contextlib.suppress(ValueError):
+                            priority = datetime.fromisoformat(ts).timestamp()
+                    await self._transport.enqueue(int(procurement_id), priority)
                     # Метка успешной постановки (recovery по ней догоняет закупки,
                     # не попавшие в очередь — например, транспорт был недоступен).
                     if self._repository is not None:
@@ -455,8 +453,18 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         self._client_profile = profile
 
         # R9: ключевые слова не участвуют в серверном запросе — обходы строятся
-        # только по кодам ОКПД2 (+ обход «без кода»).
-        base = self._cfg.service.search_criteria.model_copy(update={"keywords": []})
+        # только по кодам ОКПД2 (+ обход «без кода»). Критерии поиска берутся из
+        # активного профиля (профиль → колонки okpd_codes/nmck_min/nmck_max/active_only);
+        # без профиля (dev/тесты) — fallback на глобальный config_service.yaml.
+        if self._client_profile is not None:
+            base = SearchCriteria(
+                okpd_codes=self._client_profile.okpd_codes or [],
+                nmck_min=self._client_profile.nmck_min,
+                nmck_max=self._client_profile.nmck_max,
+                active_only=self._client_profile.active_only,
+            )
+        else:
+            base = self._cfg.service.search_criteria.model_copy(update={"keywords": []})
         # Обход по кодам ОКПД2 имеет смысл, только если площадка реально фильтрует
         # по кодам (есть маппинг okpd2): иначе коды-only обход вернул бы весь список
         # (например roseltorg, где okpd2 не подключён).
@@ -579,19 +587,20 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
             page_total = 0
             page_known = 0
             page_numbers: list[Any] = []
+            # Переменная даты публикации — одна на страницу (вне цикла по контейнерам).
+            pub_var = next(
+                (
+                    v
+                    for v in self._platform.list_config.variables
+                    if v.name == self._platform.list_config.publication_date
+                ),
+                None,
+            )
             async for container in iter_container_records(page, self._platform, self._delayer):
                 page_total += 1
                 # Выход по порогу даты публикации (только если порог задан). Обрабатываем
                 # записи с датой >= дня порога и останавливаемся при записи со строго
                 # более ранним днём.
-                pub_var = next(
-                    (
-                        v
-                        for v in self._platform.list_config.variables
-                        if v.name == self._platform.list_config.publication_date
-                    ),
-                    None,
-                )
                 if pub_var is not None and cutoff is not None:
                     pub = await extract_from_scope(container, [pub_var])
                     pub_val = pub.get(self._platform.list_config.publication_date)
@@ -604,9 +613,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                         )
                         reached_cutoff = True
                         break
-                known, number, saved = await self._process_container(
-                    page, container, keywords=criteria.keywords
-                )
+                known, number, saved = await self._process_container(page, container)
                 if number is not None and number != "":
                     page_numbers.append(number)
                 if known:
@@ -778,7 +785,6 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     list_vars,
                     detail_url,
                     number,
-                    keywords=criteria.keywords,
                     api_fields=api_fields,
                 )
                 if number is not None and number != "":

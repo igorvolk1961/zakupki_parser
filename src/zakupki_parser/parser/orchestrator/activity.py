@@ -23,6 +23,15 @@ class ActivityMixin:
     # Задаётся в ``Orchestrator.__init__``.
     _platform: PlatformDom
 
+    def _active_status_set(self) -> set[str]:
+        """Нормализованные активные статусы площадки (кеш на проход)."""
+        cached = getattr(self, "_normalized_active_statuses", None)
+        if cached is None:
+            statuses = self._platform.list_config.active_statuses or []
+            cached = {self._normalize_status(s) for s in statuses}
+            self._normalized_active_statuses = cached
+        return cached
+
     def _is_active(self, record: dict[str, Any]) -> bool:
         """Определяет активность закупки по статусу.
 
@@ -33,10 +42,9 @@ class ActivityMixin:
         Если ``active_statuses`` не задан — по статусу не фильтруем (любой статус
         считается активным).
         """
-        statuses = self._platform.list_config.active_statuses
-        if statuses:
+        if self._platform.list_config.active_statuses:
             status = (record.get("status") or "").strip()
-            if self._normalize_status(status) not in {self._normalize_status(s) for s in statuses}:
+            if self._normalize_status(status) not in self._active_status_set():
                 return False
         return True
 
