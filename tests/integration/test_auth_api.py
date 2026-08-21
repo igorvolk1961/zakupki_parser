@@ -57,7 +57,6 @@ def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient
                     "competencies": "Тестовые компетенции",
                     "keywords": [],
                     "exclusion_words": [],
-                    "keyword_context_regexes": {},
                     "questions": [],
                 },
                 user.id,

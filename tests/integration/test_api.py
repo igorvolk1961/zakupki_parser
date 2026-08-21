@@ -49,7 +49,6 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
                     "competencies": "Тестовые компетенции",
                     "keywords": [],
                     "exclusion_words": [],
-                    "keyword_context_regexes": {},
                     "questions": [],
                 },
                 user.id,

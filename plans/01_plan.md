@@ -23,7 +23,7 @@ active_client_id`) на мультитенантную: профили и оце
    + `target_etp jsonb default '[]'`, + `target_laws jsonb default '[]'`.
 4. `profiles`: drop `uq_client_profiles_name`, add `uq_profiles_user_name (user_id, name)`.
 5. `renameTable` `procurement_scores` → `procurement_evaluations`;
-   drop `uq_procurement_scores_proc_client`, add `uq_evaluations_proc_user (procurement_id, user_id)`;
+   drop `uq_procurement_scores_proc_client`, add `uq_evaluations_proc_profile (procurement_id, profile_id)`;
    + `user_id` FK→`users.id` (nullable — app-гарантия);
    + `status varchar(32) default 'new'`, + `rejection_reason text` (nullable).
 6. Новые таблицы: `keywords` (id, profile_id FK→profiles CASCADE, word, type
@@ -31,7 +31,7 @@ active_client_id`) на мультитенантную: профили и оце
    pwin_coefficient, timestamps — заглушка).
 7. `procurements` + `category_id` FK→`procedure_categories` (nullable, заглушка).
 
-> `user_id` в `profiles`/`procurement_evaluations` в БД nullable: приложение на старте
+> `user_id` в `profiles` и `profile_id` в `procurement_evaluations` в БД nullable: приложение на старте
 > вызывает `ensure_service_account()` (создаёт сервис-аккаунт при отсутствии пользователей
 > и присваивает осиротевшие строки) — идемпотентно. Все операции репозитория всегда
 > передают явный `user_id` (BR-07).
@@ -41,7 +41,7 @@ active_client_id`) на мультитенантную: профили и оце
 - `ClientProfile` → **`Profile`** (таблица `profiles`): + `user_id`, + `is_active`,
   + `min_fit_threshold`, + `target_etp`, + `target_laws`; UNIQUE `(user_id, name)`.
 - `ProcurementScore` → **`ProcurementEvaluation`** (таблица `procurement_evaluations`):
-  `client_id` → `user_id`, + `status`, + `rejection_reason`; UNIQUE `(procurement_id, user_id)`.
+  `client_id` → `profile_id`, + `status`, + `rejection_reason`; UNIQUE `(procurement_id, profile_id)`.
 - Новые: `Keyword`, `ProcedureCategory`; `Procurement` + `category_id`.
 - Обновить relationships.
 
@@ -57,7 +57,7 @@ active_client_id`) на мультитенантную: профили и оце
 - `upsert_score`/`get_score`/`update_rag_report`/`_apply_client_score`/`list_procurements(client_id=)`
   → ключ по `user_id`.
 - `delete_irrelevant(client_id=)` → `user_id=`.
-- Осиротевшие строки: репозиторий не создаёт профили/оценки без `user_id`.
+- Осиротевшие строки: репозиторий не создаёт профили без `user_id` и оценки без `profile_id`.
 
 ### 1.4. API (`api/app.py`)
 - `_effective_user(user)` → при auth off возвращает сервис-аккаунт (admin/first user);
@@ -101,7 +101,7 @@ active_client_id`) на мультитенантную: профили и оце
 
 ## Критерии приёмки
 1. Миграция 1.29 применима на чистой БД и на существующих данных (rename+backfill).
-2. Профили/оценки создаются и читаются только в скоупе `user_id` (BR-07).
+2. Профили — в скоупе `user_id`, оценки — в скоупе `profile_id` (BR-07).
 3. `manual-score`/`reject` удалены; web-демо их не вызывает.
 4. Конвейер скоринга (score/active) работает под сервис-аккаунтом без изменений в воркерах.
 5. unit 277+ без регрессий, integration зелёные (при DSN), ruff/mypy/check-config — чисто.

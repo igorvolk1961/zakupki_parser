@@ -46,7 +46,7 @@
 - [ ] Добавить раздел «Целевая архитектура (TenderSearch)»:
   - ссылка на мастер-план (`plans/00_plan.md` → `.kilo/plans/…-master-plan.md`);
   - целевая модель данных (эволюция существующей: `users`+status/email/trial_end_date,
-    `client_profiles`→`profiles`+user_id, `procurement_scores`→`procurement_evaluations`+user_id,
+    `client_profiles`→`profiles`+user_id, `procurement_scores`→`procurement_evaluations`+profile_id,
     новые `keywords`/`audit_log`/`subscriptions`/`procedure_categories`);
   - краткая сводка решений R1–R9;
   - roadmap этапов 0–10 с привязкой к трекеру `plans/plan.md`.

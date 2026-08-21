@@ -182,9 +182,6 @@ class Profile(Base):
     target_etp: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     target_laws: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     competencies: Mapped[str] = mapped_column(Text, nullable=False)
-    keyword_context_regexes: Mapped[dict[str, str]] = mapped_column(
-        JSONB, nullable=False, default=dict
-    )
     questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -237,24 +234,25 @@ class ProcedureCategory(Base):
 
 
 class ProcurementEvaluation(Base):
-    """Per-user результат скоринга закупки (fit/pwin/margin/rag_report).
+    """Per-profile результат скоринга закупки (fit/pwin/margin/rag_report).
 
-    Ключ ``(procurement_id, user_id)`` (BR-07): одна закупка оценивается под
-    каждого пользователя (тендеролога). Результаты формируются автоматически
-    (auto-Fit); ручная корректировка — вне MVP (этап 6/7).
+    Ключ ``(procurement_id, profile_id)`` (BR-07): одна закупка оценивается под
+    каждый профиль фильтрации (контекст компетенций/вопросов принадлежит профилю;
+    профиль — пользователю). Результаты формируются автоматически (auto-Fit);
+    ручная корректировка — вне MVP (этап 7).
     """
 
     __tablename__ = "procurement_evaluations"
     __table_args__ = (
-        UniqueConstraint("procurement_id", "user_id", name="uq_evaluations_proc_user"),
+        UniqueConstraint("procurement_id", "profile_id", name="uq_evaluations_proc_profile"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     procurement_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("procurements.id", ondelete="CASCADE"), nullable=False
     )
-    user_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE")
+    profile_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("profiles.id", ondelete="CASCADE")
     )
     fit_score: Mapped[float | None] = mapped_column(Float)
     score: Mapped[float | None] = mapped_column(Float)

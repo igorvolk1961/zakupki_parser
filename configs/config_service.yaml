@@ -32,8 +32,3 @@ search_criteria:
 stop_conditions:
   deadline_not_expired: true
   min_deadline_days: 0
-  keyword_context_required: true
-  keyword_context_regexes:
-    ИИ: (?<!\w)ИИ(?!\w)
-    автоматизация: автоматизаци\w*
-  exclusion_words_present: false

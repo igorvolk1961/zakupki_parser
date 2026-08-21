@@ -31,7 +31,7 @@ def test_load_config_ok(app_config: AppConfig) -> None:
 def test_stop_conditions_defaults(app_config: AppConfig) -> None:
     sc = app_config.service.stop_conditions
     assert sc.deadline_not_expired is True
-    assert sc.keyword_context_required is False
+    assert sc.min_deadline_days is None
 
 
 def test_load_dom_configs_from_dir(tmp_path: Path) -> None:

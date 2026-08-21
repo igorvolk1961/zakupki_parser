@@ -527,7 +527,7 @@ score_method/rag_report`, UNIQUE `(procurement_id, client_id)`). Базовая 
 
 | Требование (docs) | Статус | Место в коде | Закрывает этап |
 | :---------------- | :----- | :----------- | :------------- |
-| US-7.1–7.5 Регистрация, trial **10 лет** (оплата не обязательна), заморозка, удаление через 90 дней | 🟡 `users` + регистрация/логин есть; нет email/status/trial_end_date/заморозки/удаления; подтверждение email — целевая модель, в MVP не реализуется | `auth.py`, `api/app.py`, `storage/db.py` | 6 || US-7.6/7.7 Админ-управление пользователями, создание админов | ❌ (только env-сид первого админа) | `api/app.py` | 6, 10 || US-7.8/7.9, BR-07 Изоляция по user_id на уровне БД | 🟡 оценки per-client (`client_id`), активный профиль глобальный; нет user_id-скоупа | `storage/db.py`, `repository.py` | 1 |
+| US-7.1–7.5 Регистрация, trial **10 лет** (оплата не обязательна), заморозка, удаление через 90 дней | 🟡 `users` + регистрация/логин есть; нет email/status/trial_end_date/заморозки/удаления; подтверждение email — целевая модель, в MVP не реализуется | `auth.py`, `api/app.py`, `storage/db.py` | 6 || US-7.6/7.7 Админ-управление пользователями, создание админов | ❌ (только env-сид первого админа) | `api/app.py` | 6, 10 || US-7.8/7.9, BR-07 Изоляция на уровне БД | 🟡 оценки per-client (`client_id`), активный профиль глобальный; нет per-profile скоупа | `storage/db.py`, `repository.py` | 1 |
 | ER: `subscriptions` | ❌ (заглушка; оплата вне MVP) | — | 1 |
 | ER: `audit_log` | ❌ | — | 1, 6, 9 || ER: `procedure_categories` (pwin_coefficient) | ❌ (заглушка) | — | 1 |
 | BR-01 Кэширование/пропуск неизменного | 🟡 `known_numbers`, `total_results` early-exit, unique-constraint; кэша ответов ЭТП нет | `orchestrator.py`, `repository.py` | 4 || BR-02 Первичный скоринг Fit (стоп-слова, веса, порог) | ✅ | `scoring_service/`, `config_score.yaml` | — |
@@ -552,7 +552,7 @@ score_method/rag_report`, UNIQUE `(procurement_id, client_id)`). Базовая 
 ```mermaid
 erDiagram
     USERS ||--o{ PROFILES : "владеет"
-    USERS ||--o{ EVALUATIONS : "оценивает"
+    PROFILES ||--o{ EVALUATIONS : "оценивает"
     USERS ||--o{ SUBSCRIPTIONS : "оформляет"
     USERS ||--o{ AUDIT_LOG : "генерирует"
     PROFILES ||--o{ KEYWORDS : "содержит"
@@ -598,7 +598,7 @@ erDiagram
     }
     EVALUATIONS {
         int id PK
-        int user_id FK
+        int profile_id FK
         int procurement_id FK
         float fit_score
         float p_win
@@ -636,7 +636,7 @@ erDiagram
   `last_activity_at`, `delete_notified_at`; подтверждение email (`email_verified_at`) — целевая
   модель, в MVP не заполняется;
 - `client_profiles` → `profiles` (+ `user_id`, `name` UNIQUE в пределах пользователя, `target_etp`/`target_laws`/`min_fit_threshold`);
-- `procurement_scores` → `procurement_evaluations` (+ `user_id`, `status`, `rejection_reason`, UNIQUE `(user_id, procurement_id)`);
+- `procurement_scores` → `procurement_evaluations` (+ `profile_id`, `status`, `rejection_reason`, UNIQUE `(profile_id, procurement_id)`);
 - новые `keywords`, `audit_log`, `subscriptions` (заглушка), `procedure_categories` (заглушка).
 
 ### 14.3 Зафиксированные архитектурные решения (кратко)
@@ -668,7 +668,7 @@ erDiagram
 | 0 | MVP ✅ | Базовая линия и документация (данный раздел) | `plans/00_plan.md` |
 | 1 | MVP | Мультитенантная модель данных (BR-07): миграция 1.29, `profiles`/`evaluations`/`keywords`/`categories`, tenant-скоуп репозитория; `users`+email (колонки жизненного цикла, `audit_log`, `subscriptions` — пост-MVP) | `plans/plan.md` |
 | 2 | MVP | Профили фильтрации (Эпик 1): per-user CRUD, сид `keywords` из `data/key_words.md` | `plans/plan.md` |
-| 3 | MVP | Парсинг по ОКПД2 + клиентская фильтрация словами + auto-оценки per-user (R1, R9); ручная корректировка — вне MVP | `plans/plan.md` |
+| 3 | MVP | Парсинг по ОКПД2 + клиентская фильтрация словами + auto-оценки per-profile (R1, R9); ручная корректировка — вне MVP | `plans/plan.md` |
 | 4 | MVP: 4A+4B | Кэш ЭТП (R4, Redis) и параллельные площадки (R5): 4A кэш, 4B asyncio; 4C (очередь `parser:jobs`/RabbitMQ + воркеры) — пост-MVP | `plans/plan.md` |
 | 5 | MVP | Глубокая проверка ТЗ с маркерами 🔴/🟡/🟢 (Эпик 4, BR-03/04): опыт 2571, Минпромторг, лицензии | `plans/plan.md` |
 | 6 | пост-MVP | Жизненный цикл аккаунта (BR-05): регистрация, trial 10 лет/заморозка/удаление, админ-управление, аудит | `plans/plan.md` |

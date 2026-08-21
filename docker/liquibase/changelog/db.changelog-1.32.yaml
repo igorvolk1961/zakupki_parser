@@ -1,0 +1,32 @@
+databaseChangeLog:
+- changeSet:
+    id: 33
+    author: zakupki-parser
+    comment: 'Оценки относятся к ПРОФИЛЮ, а не пользователю: procurement_evaluations.user_id -> profile_id (контекст компетенций/вопросов принадлежит профилю)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          -- 1) profile_id: привязка оценки к профилю (активный профиль пользователя
+          --    или первый по приоритету: active -> default -> наименьший id)
+          ALTER TABLE procurement_evaluations ADD COLUMN profile_id bigint REFERENCES profiles(id) ON DELETE CASCADE;
+
+          UPDATE procurement_evaluations pe
+          SET profile_id = (
+              SELECT pr.id FROM profiles pr
+              WHERE pr.user_id = pe.user_id
+              ORDER BY pr.is_active DESC, pr.id ASC
+              LIMIT 1
+          )
+          WHERE pe.profile_id IS NULL;
+
+          -- 2) старый ключ (procurement_id, user_id) заменяется на (procurement_id, profile_id)
+          ALTER TABLE procurement_evaluations DROP CONSTRAINT uq_evaluations_proc_user;
+          DROP INDEX IF EXISTS ix_procurement_evaluations_user;
+          ALTER TABLE procurement_evaluations DROP COLUMN user_id;
+          ALTER TABLE procurement_evaluations ADD CONSTRAINT uq_evaluations_proc_profile
+              UNIQUE (procurement_id, profile_id);
+          CREATE INDEX ix_procurement_evaluations_profile ON procurement_evaluations (profile_id);
+          CREATE INDEX ix_procurement_evaluations_procurement ON procurement_evaluations (procurement_id);
+
+          COMMENT ON TABLE procurement_evaluations IS 'Per-profile результаты скоринга (ключ: procurement_id, profile_id)';

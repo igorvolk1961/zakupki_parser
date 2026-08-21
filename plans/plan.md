@@ -29,7 +29,7 @@
 ## Этап 1. Мультитенантная модель данных (BR-07, ядро) — **MVP** ✅
 - ✅ Миграция 1.29: `users` (+email), `client_profiles`→`profiles` (+user_id, is_active,
       target_etp/target_laws, min_fit_threshold), `procurement_scores`→`procurement_evaluations`
-      (+user_id/status/rejection_reason), новые `keywords`, `procedure_categories` (заглушка),
+      (+profile_id/status/rejection_reason), новые `keywords`, `procedure_categories` (заглушка),
       `procurements.category_id`. Колонки жизненного цикла и `audit_log`/`subscriptions` —
       Этап 6 (пост-MVP).
 - ✅ Backfill существующих профилей/оценок на сервис-аккаунт (миграция + `backfill_orphaned_profiles`).
@@ -65,15 +65,15 @@
 - ✅ Тесты: парсер key_words.md, сид нового пользователя, единственный активный профиль,
       синхронизация keywords (unit 282+).
 
-## Этап 3. Парсинг по ОКПД2 + клиентская фильтрация словами + per-user оценки (R1, R9) — **MVP** ✅
+## Этап 3. Парсинг по ОКПД2 + клиентская фильтрация словами + per-profile оценки (R1, R9) — **MVP** ✅
 - ✅ Убрана серверная подстановка ключевых слов (`criteria_map.keywords`,
       `keywords_one_at_a_time`, `profile.keywords` в запрос). Сервер — только ОКПД2
       (+ обход «без кода», конфиг-флаг `no_code_search`; при отсутствии позитивных слов —
       пропуск с логом).
-- ✅ Клиентская пост-фильтрация (`parser/filtering.py`): позитивные слова (regex, `~N`,
-      `слов*`, точные фразы) + слова-исключения — ДО записи в БД; stop-условия по словам
-      влиты в этот шаг.
-- ✅ Оценки в `procurement_evaluations` с user_id автоматически (auto-Fit); ручная
+- ✅ Клиентская пост-фильтрация (`parser/filtering.py`): позитивные слова (стеб `*`,
+      проксимити `~N`, точные фразы) + слова-исключения — ДО записи в БД. Удалена
+      нестандартная эвристика `keyword_context_regexes` (миграция 1.31).
+- ✅ Оценки в `procurement_evaluations` с profile_id автоматически (auto-Fit); ручная
       корректировка оценок — вне MVP. Per-user планировщик по профилям — пост-MVP (4C/10).
 - ✅ Тесты: filtering.py (regex/~N/стеб/фразы/минус), отсутствие слов в серверном запросе,
       пропуск обхода «без кода» без позитивных слов; устаревшие тесты заменены.

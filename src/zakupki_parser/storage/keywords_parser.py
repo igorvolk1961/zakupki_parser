@@ -128,7 +128,6 @@ def default_keywords_seed(path: Path | None = None) -> dict[str, Any]:
         "competencies": parsed.get("competencies", ""),
         "keywords": parsed.get("keywords", []),
         "exclusion_words": parsed.get("exclusion_words", []),
-        "keyword_context_regexes": {},
         "questions": [],
     }
 

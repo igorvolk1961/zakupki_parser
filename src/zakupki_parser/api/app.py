@@ -246,7 +246,6 @@ class ProfileIn(BaseModel):
     competencies: str | None = None
     keywords: list[str] | None = None
     exclusion_words: list[str] | None = None
-    keyword_context_regexes: dict[str, str] | None = None
     questions: list[dict[str, Any]] | None = None
     target_etp: list[str] | None = None
     target_laws: list[str] | None = None
@@ -265,7 +264,6 @@ class ProfileOut(BaseModel):
     competencies: str
     keywords: list[str]
     exclusion_words: list[str]
-    keyword_context_regexes: dict[str, str]
     questions: list[dict[str, Any]]
     target_etp: list[str]
     target_laws: list[str]
@@ -566,8 +564,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     async def _active_context(user: User | None) -> tuple[User, Profile]:
         """Эффективный пользователь и его активный профиль (BR-07).
 
-        Оценки (procurement_evaluations) ключуются по ``user_id``, профиль —
-        контекст фильтрации. Возвращает пару, чтобы не резолвить пользователя дважды.
+        Оценки (procurement_evaluations) ключуются по ``profile_id`` (оценки относятся
+        к профилю), профиль — контекст фильтрации. Возвращает пару, чтобы не резолвить
+        пользователя дважды.
         """
         eff_user = await _effective_user(user)
         profile = await _repo().get_active_profile(eff_user.id)
@@ -754,7 +753,6 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 "competencies": "",
                 "keywords": [],
                 "exclusion_words": [],
-                "keyword_context_regexes": {},
                 "questions": [],
             },
         )
@@ -781,8 +779,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         offset: int = Query(default=0, ge=0),
         user: User | None = Depends(require_user),
     ) -> ProcurementListOut:
-        # Per-user скоринг эффективного пользователя (мультитенантность, BR-07).
-        eff_user, _ = await _active_context(user)
+        # Per-profile скоринг активного профиля пользователя (BR-07).
+        _, profile = await _active_context(user)
         rows, total = await _repo().list_procurements(
             number=number,
             platform_id=platform_id,
@@ -794,7 +792,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             sort=sort,
             limit=limit,
             offset=offset,
-            user_id=eff_user.id,
+            profile_id=profile.id,
         )
         return ProcurementListOut(total=total, items=[_procurement_out(r) for r in rows])
 
@@ -844,12 +842,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         необходимости). Операция read-only — безопасна при работающем парсере.
         """
         threshold = body.min_fit_score if body is not None else 0.4
-        eff_user, _ = await _active_context(user)
+        _, profile = await _active_context(user)
         rows, _ = await _repo().list_procurements(
             active=True,
             min_fit_score=threshold,
             limit=10**9,
-            user_id=eff_user.id,
+            profile_id=profile.id,
         )
 
         buf = io.StringIO()
@@ -882,8 +880,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     async def get_procurement(
         procurement_id: int, user: User | None = Depends(require_user)
     ) -> ProcurementDetailOut:
-        eff_user, _ = await _active_context(user)
-        row = await _repo().get_by_id(procurement_id, user_id=eff_user.id)
+        _, profile = await _active_context(user)
+        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return _procurement_detail_out(row)
@@ -908,15 +906,16 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         existing = await _repo().get_by_id(procurement_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
-        # Внутренний вызов конвейера: результат пишется под сервис-аккаунт (BR-07).
-        eff_user, _ = await _active_context(None)
+        # Внутренний вызов конвейера: результат пишется под активный профиль
+        # сервис-аккаунта (оценки относятся к профилю, BR-07).
+        _, profile = await _active_context(None)
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт, результат скоринга не меняем.
-            await _repo().update_rag_report(procurement_id, eff_user.id, body.rag_report)
+            await _repo().update_rag_report(procurement_id, profile.id, body.rag_report)
         else:
             await _repo().upsert_score(
                 procurement_id,
-                eff_user.id,
+                profile.id,
                 score=body.score,
                 fit_score=body.fit_score,
                 p_win=body.p_win,
@@ -934,7 +933,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             margin=body.margin,
         )
         await _broadcast(state)
-        row = await _repo().get_by_id(procurement_id, user_id=eff_user.id)
+        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
 
@@ -960,15 +959,15 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         """Обработать выбранные закупки: авто-Fit (если нет) + RAG-анализ ТЗ.
 
         Внутренние стадии скрыты от заказчика: для каждой закупки ставится
-        задание fit (если per-user fit ещё не посчитан) и затем analysis.
+        задание fit (если per-profile fit ещё не посчитан) и затем analysis.
         Ручная корректировка оценок — вне MVP (Эпик 5, пост-MVP).
         """
         if state.score_transport is None:
             raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
-        eff_user, _ = await _active_context(user)
+        _, profile = await _active_context(user)
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
-            current = await _repo().get_score(procurement_id, eff_user.id)
+            current = await _repo().get_score(procurement_id, profile.id)
             if current is None or current.fit_score is None:
                 await _enqueue_next_stage(state, procurement_id, "fit", 0.5)
             await _enqueue_next_stage(state, procurement_id, "analysis", 0.5)
@@ -1224,8 +1223,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         if state.parser_task is not None and not state.parser_task.done():
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         threshold = body.min_fit_score if body is not None else 0.4
-        eff_user, _ = await _active_context(user)
-        deleted = await _repo().delete_irrelevant(threshold, user_id=eff_user.id)
+        _, profile = await _active_context(user)
+        deleted = await _repo().delete_irrelevant(threshold, profile_id=profile.id)
         logger.info("Удалены нерелевантные закупки из web-демо: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}

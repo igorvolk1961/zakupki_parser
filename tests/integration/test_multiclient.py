@@ -39,7 +39,6 @@ async def _seed_default_profile(repo: ProcurementRepository) -> int:
             "competencies": "Тестовые компетенции",
             "keywords": [],
             "exclusion_words": ["медицинский"],
-            "keyword_context_regexes": {},
             "questions": [{"id": "q1", "text": "Требуется ли лицензия?"}],
         },
         user.id,
@@ -190,15 +189,16 @@ def test_repository_isolation_br07() -> None:
             _, total_b = await repo.list_profiles(user_b.id)
             assert total_a >= 1 and total_b >= 1
 
-            # Оценки изолированы (уникальный ключ (procurement_id, user_id)).
+            # Оценки изолированы (уникальный ключ (procurement_id, profile_id),
+            # профиль принадлежит пользователю).
             await repo.upsert(
                 {"number": "ISO-1", "platform_id": "zakupki_mos", "subject": "Изоляция"}
             )
             rows, _ = await repo.list_procurements(number="ISO-1")
             procurement_id = rows[0].id
-            await repo.upsert_score(procurement_id, user_a.id, fit_score=0.7, score_method="fit")
-            assert await repo.get_score(procurement_id, user_b.id) is None
-            score_a = await repo.get_score(procurement_id, user_a.id)
+            await repo.upsert_score(procurement_id, profile_a.id, fit_score=0.7, score_method="fit")
+            assert await repo.get_score(procurement_id, profile_b.id) is None
+            score_a = await repo.get_score(procurement_id, profile_a.id)
             assert score_a is not None and score_a.fit_score == 0.7
         finally:
             await db.dispose()

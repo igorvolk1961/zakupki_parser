@@ -53,12 +53,6 @@ def test_proximity_window_examples() -> None:
         assert keywords_match(_record(subject), [expr]) is expected, (expr, subject)
 
 
-def test_keywords_match_regex_priority() -> None:
-    regexes = {"ИИ": r"(?<!\w)ИИ(?!\w)"}
-    assert keywords_match(_record("Внедрение ИИ"), ["ИИ"], regexes)
-    assert not keywords_match(_record("Внедрение ИИИ-модуля"), ["ИИ"], regexes)
-
-
 def test_keywords_match_exact_phrase() -> None:
     assert keywords_match(_record("поставка 1С Документооборот"), ["1С Документооборот"])
     assert not keywords_match(_record("поставка 1С Зарплата"), ["1С Документооборот"])

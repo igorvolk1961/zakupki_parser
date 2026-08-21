@@ -1,12 +1,11 @@
 """Клиентская пост-фильтрация закупок по ключевым словам профиля (R9).
 
 Выражения приходят из таблицы ``keywords`` (канонический источник; сид —
-``data/key_words.md``, см. ``Profile.keywords_rel``) и сохраняют исходный синтаксис:
+``data/profile.md``, см. ``Profile.keywords_rel``) и сохраняют исходный синтаксис:
 - ``слов*`` — слово с усечением (стеб-префикс, регистронезависимо);
 - ``(фраза* фраза*)~N`` — не более N слов между токенами (проксимити);
 - ``точная фраза`` / ``"фраза"`` — точное совпадение (по границам слова для
-  одиночного слова);
-- regex-паттерн из ``Profile.keyword_context_regexes`` — приоритетно.
+  одиночного слова).
 
 Позитивные слова: закупка проходит, если совпало хотя бы одно (пустой список —
 фильтра нет). Слова-исключения: любое совпадение отбрасывает закупку.
@@ -75,10 +74,8 @@ def _proximity_match(subject: str, inner: str, distance: int) -> bool:
     return False
 
 
-def _expression_match(subject: str, expression: str, regex: str | None = None) -> bool:
-    """Совпадение выражения (regex -> ~N -> стеб/точная фраза)."""
-    if regex:
-        return re.search(regex, subject, re.IGNORECASE) is not None
+def _expression_match(subject: str, expression: str) -> bool:
+    """Совпадение выражения (~N -> стеб/точная фраза)."""
     prox = _PROXIMITY_RE.match(expression)
     if prox:
         return _proximity_match(subject, prox.group(1), int(prox.group(2)))
@@ -89,31 +86,21 @@ def _expression_match(subject: str, expression: str, regex: str | None = None) -
     return all(_token_match(subject, token) for token in tokens)
 
 
-def keywords_match(
-    record: dict[str, Any],
-    keywords: list[str],
-    regexes: dict[str, str] | None = None,
-) -> bool:
+def keywords_match(record: dict[str, Any], keywords: list[str]) -> bool:
     """True, если хотя бы одно позитивное слово совпало (пустой список — True)."""
     if not keywords:
         return True
     subject = _subject(record)
     if not subject:
         return False
-    regexes = regexes or {}
-    return any(_expression_match(subject, keyword, regexes.get(keyword)) for keyword in keywords)
+    return any(_expression_match(subject, keyword) for keyword in keywords)
 
 
-def exclusions_present(
-    record: dict[str, Any],
-    exclusion_words: list[str],
-    regexes: dict[str, str] | None = None,
-) -> bool:
+def exclusions_present(record: dict[str, Any], exclusion_words: list[str]) -> bool:
     """True, если любое слово-исключение совпало с описанием закупки."""
     if not exclusion_words:
         return False
     subject = _subject(record)
     if not subject:
         return False
-    regexes = regexes or {}
-    return any(_expression_match(subject, word, regexes.get(word)) for word in exclusion_words)
+    return any(_expression_match(subject, word) for word in exclusion_words)

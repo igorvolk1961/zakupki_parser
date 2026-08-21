@@ -1,0 +1,11 @@
+databaseChangeLog:
+- changeSet:
+    id: 32
+    author: zakupki-parser
+    comment: 'Удаление нестандартной эвристики keyword_context_regexes (R9: слова обрабатываются стандартным синтаксисом слов*/~N клиентской фильтрацией)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE profiles DROP COLUMN IF EXISTS keyword_context_regexes;
+          COMMENT ON TABLE profiles IS 'Профили фильтрации пользователей (слова — в таблице keywords, стандартный синтаксис */~N)';

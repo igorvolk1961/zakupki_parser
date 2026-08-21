@@ -130,8 +130,8 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
 
         Возвращает (известна ли запись как уже сохранённая в БД, номер закупки,
         сохранена ли запись в БД на этом шаге).
-        ``keywords`` — ключевые слова текущего поискового обхода (для stop-условия
-        keyword_context_required; пусто при обходе по ОКПД2).
+        ``keywords`` — ключевые слова текущего поискового обхода (в R9 всегда пусто:
+        серверная фильтрация только по ОКПД2, слова применяются клиентски).
         """
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
@@ -316,16 +316,13 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         #    ДО записи в БД (серверная фильтрация — только по кодам ОКПД2).
         #    Слова берутся из таблицы keywords активного профиля.
         if self._client_profile is not None:
-            profile = self._client_profile
-            if not keywords_match(record, self._client_keywords, profile.keyword_context_regexes):
+            if not keywords_match(record, self._client_keywords):
                 logger.info(
                     "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
                     number,
                 )
                 return False, number, False
-            if exclusions_present(
-                record, self._client_exclusion_words, profile.keyword_context_regexes
-            ):
+            if exclusions_present(record, self._client_exclusion_words):
                 logger.info(
                     "Закупка %s отброшена: слова-исключения в описании",
                     number,

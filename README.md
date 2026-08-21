@@ -75,7 +75,7 @@ per-user аккаунты и профили фильтрации, изоляци
 ```
 configs/                       # YAML-конфигурация парсера
 src/zakupki_parser/
-  cli.py                       # CLI (check-config, run-once, run-service, serve, capture-fixture)
+  cli.py                       # CLI (check-config, run-once, run-service, serve, capture-fixture, seed-profile)
   scheduler.py                 # таймерный цикл по сайтам
   api/                         # FastAPI-сервис (health, procurements, ТЗ)
   parser/                      # оркестратор, lister, extractor, detail, filters
@@ -196,6 +196,18 @@ uv run zp --configs configs check-config
 uv run zp --configs configs run-once        # один проход по всем площадкам
 uv run zp --configs configs run-service     # периодически по таймеру (timeout_seconds)
 ```
+
+Заполнить default-профиль пользователя ключевыми словами/компетенциями из файла
+(по умолчанию — `data/profile.md`, пользователь `admin`):
+
+```bash
+uv run zp --configs configs seed-profile --user admin --file data/profile.md
+```
+
+Файл `data/profile.md` содержит секции `**name**`, `**keywords**`, `**exclussion_words**`,
+`**competencies**` (компетенции могут быть ссылкой на файл, например
+`docs/references/bbk-it-site.md`). Ключевые слова записываются в таблицу `keywords`
+(канонический источник; синтаксис `слов*` / `(фраза* фраза*)~N`).
 
 Пересоздать HTML-фикстуры для тестов:
 
