@@ -132,12 +132,10 @@ class User(Base):
     """Пользователь сервиса: администратор или тендеролог.
 
     Роли: ``admin`` — управление сервисом (парсер, конфиги, пользователи, очистка БД);
-    ``tenderologist`` — работа с закупками (просмотр, ручные оценки, анализ).
+    ``tenderologist`` — работа с закупками (просмотр, анализ). Каждый пользователь —
+    отдельный tenant (BR-07): профили фильтрации и оценки принадлежат ``user_id``.
     Пока вход по логину/паролю (пароль — PBKDF2-хэш, см. ``zakupki_parser.auth``);
     позже — OAuth2 через Сбер ID.
-
-    Связь «у каждого тендеролога свои клиенты» (клиентские профили тендеролога)
-    появится вместе с таблицей ``client_profiles`` (план многоклиентного скоринга).
     """
 
     __tablename__ = "users"
@@ -145,6 +143,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(128), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255))
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -152,24 +151,36 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    profiles: Mapped[list[Profile]] = relationship(back_populates="user_rel")
 
-class ClientProfile(Base):
-    """Клиентский профиль тендеролога (заказчик услуг тендеролога).
+
+class Profile(Base):
+    """Профиль фильтрации пользователя (тендеролога).
 
     Поля: компетенции (текст для LLM-скоринга), ключевые слова и слова-исключения
     для предварительной фильтрации, regex-паттерны контекста ключевых слов,
-    вопросы к ТЗ для RAG-анализа стоп-условий (``{id, text}``).
-    Активный профиль задаётся ``config_score.yaml -> active_client_id``.
+    вопросы к ТЗ для RAG-анализа стоп-условий (``{id, text}``), целевые ЭТП и законы,
+    порог Fit. Принадлежит ``user_id`` (BR-07); ``is_active`` — выбранный пользователем
+    активный профиль (per-user состояние).
     """
 
-    __tablename__ = "client_profiles"
-    __table_args__ = (UniqueConstraint("name", name="uq_client_profiles_name"),)
+    __tablename__ = "profiles"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_profiles_user_name"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE")
+    )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    min_fit_threshold: Mapped[float | None] = mapped_column(Float)
+    target_etp: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    target_laws: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     competencies: Mapped[str] = mapped_column(Text, nullable=False)
     keywords: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     exclusion_words: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
@@ -182,27 +193,65 @@ class ClientProfile(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    scores: Mapped[list[ProcurementScore]] = relationship(back_populates="client_rel")
+    user_rel: Mapped[User | None] = relationship(back_populates="profiles")
 
 
-class ProcurementScore(Base):
-    """Per-client результат скоринга закупки (fit/pwin/margin/rag_report).
+class Keyword(Base):
+    """Нормализованные ключевые слова профиля (таблица для UI/индексации).
 
-    Ключ ``(procurement_id, client_id)``: одна закупка может оцениваться под
-    нескольких клиентов тендеролога (на практике — обычно под одного).
+    ``type`` — ``keyword`` (позитивное) или ``exclusion`` (слово-исключение).
+    Рабочий набор парсера — JSONB-массивы ``Profile.keywords``/``exclusion_words``;
+    таблица ``keywords`` — каноническое представление (сид из ``data/key_words.md``,
+    этап 2).
     """
 
-    __tablename__ = "procurement_scores"
+    __tablename__ = "keywords"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    word: Mapped[str] = mapped_column(Text, nullable=False)
+    type: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("keyword"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProcedureCategory(Base):
+    """Категория закупки по ОКПД2 (заглушка; ``pwin_coefficient`` не используется)."""
+
+    __tablename__ = "procedure_categories"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    pwin_coefficient: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProcurementEvaluation(Base):
+    """Per-user результат скоринга закупки (fit/pwin/margin/rag_report).
+
+    Ключ ``(procurement_id, user_id)`` (BR-07): одна закупка оценивается под
+    каждого пользователя (тендеролога). Результаты формируются автоматически
+    (auto-Fit); ручная корректировка — вне MVP (этап 6/7).
+    """
+
+    __tablename__ = "procurement_evaluations"
     __table_args__ = (
-        UniqueConstraint("procurement_id", "client_id", name="uq_procurement_scores_proc_client"),
+        UniqueConstraint("procurement_id", "user_id", name="uq_evaluations_proc_user"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     procurement_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("procurements.id", ondelete="CASCADE"), nullable=False
     )
-    client_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("client_profiles.id", ondelete="CASCADE"), nullable=False
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE")
     )
     fit_score: Mapped[float | None] = mapped_column(Float)
     score: Mapped[float | None] = mapped_column(Float)
@@ -210,13 +259,14 @@ class ProcurementScore(Base):
     margin: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    procurement_rel: Mapped[Procurement] = relationship(back_populates="scores")
-    client_rel: Mapped[ClientProfile] = relationship(back_populates="scores")
+    procurement_rel: Mapped[Procurement] = relationship(back_populates="evaluations")
 
 
 class Procurement(Base):
@@ -236,6 +286,9 @@ class Procurement(Base):
     )
     procedure_type_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("procedure_types.id", ondelete="SET NULL")
+    )
+    category_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("procedure_categories.id", ondelete="SET NULL")
     )
     law: Mapped[str | None] = mapped_column(String(16))
     subject: Mapped[str | None] = mapped_column(Text)
@@ -259,7 +312,7 @@ class Procurement(Base):
     # NULL — задача не поставлена (в т.ч. транспорт был недоступен при сохранении);
     # recovery по ней догоняет пропущенные закупки (см. repository.find_unscored).
     scoring_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Per-client RAG-отчёт (procurement_scores.rag_report) подкладывается репозиторием
+    # Per-user RAG-отчёт (procurement_evaluations.rag_report) подкладывается репозиторием
     # при выдаче под активного клиента (см. _apply_client_score): колонки в
     # procurements нет, поэтому атрибут не маппится (__allow_unmapped__).
     rag_report: dict[str, Any] | None = None
@@ -281,7 +334,7 @@ class Procurement(Base):
         primaryjoin="Procurement.platform_id == foreign(Platform.platform_id)",
         viewonly=True,
     )
-    scores: Mapped[list[ProcurementScore]] = relationship(
+    evaluations: Mapped[list[ProcurementEvaluation]] = relationship(
         back_populates="procurement_rel", cascade="all, delete-orphan"
     )
 

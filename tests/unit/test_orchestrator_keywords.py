@@ -1,4 +1,9 @@
-"""Unit-тесты обработки ключевых слов в обходе площадки (min_keyword_len)."""
+"""Unit-тесты серверного обхода по ОКПД2 и клиентской фильтрации словами (R9).
+
+По требованию заказчика ключевые слова НЕ передаются на площадку: серверная
+фильтрация — только по кодам ОКПД2 (+ обход «без кода»); позитивные/негативные
+слова применяются клиентски до записи в БД (см. test_filtering.py).
+"""
 
 from __future__ import annotations
 
@@ -55,32 +60,26 @@ def _make_recorder(app_config: AppConfig) -> _Recorder:
 
 
 @pytest.mark.asyncio
-async def test_min_keyword_len_drops_short_words(app_config: AppConfig) -> None:
-    """Площадка с min_keyword_len не ищет по коротким словам (fabrikant: «ИИ»)."""
+async def test_server_crawl_has_no_keywords(app_config: AppConfig) -> None:
+    """R9: в серверных запросах нет ключевых слов — только коды ОКПД2."""
     recorder = _make_recorder(app_config)
-    search = recorder._platform.search  # noqa: SLF001
-    assert search is not None
-    search.min_keyword_len = 3
-
     await recorder.run(page=object())  # type: ignore[arg-type]
 
-    assert [c.keywords for c in recorder.crawled] == [
-        ["искусственный интеллект"],
-        ["автоматизация"],
-        [],  # отдельный обход по кодам ОКПД2
-    ]
+    assert recorder.crawled
+    assert all(c.keywords == [] for c in recorder.crawled)
+    # Обход выполняется по кодам ОКПД2 из search_criteria.
+    assert all(c.okpd_codes == ["62.02"] for c in recorder.crawled)
 
 
 @pytest.mark.asyncio
-async def test_no_min_keyword_len_keeps_short_words(app_config: AppConfig) -> None:
-    """Без min_keyword_len (площадка не игнорирует короткие слова) — как раньше."""
-    recorder = _make_recorder(app_config)
+async def test_no_code_crawl_skipped_without_profile(app_config: AppConfig) -> None:
+    """Без активного профиля (repository=None) обход «без кода» не выполняется.
 
+    Обход «без кода» нужен только при наличии позитивных ключевых слов в профиле —
+    иначе он бессмыслен (отбирать не по чему): пропускается с записью в лог.
+    """
+    recorder = _make_recorder(app_config)
     await recorder.run(page=object())  # type: ignore[arg-type]
 
-    assert [c.keywords for c in recorder.crawled] == [
-        ["искусственный интеллект"],
-        ["ИИ"],
-        ["автоматизация"],
-        [],  # отдельный обход по кодам ОКПД2
-    ]
+    # Только обход по кодам; никаких обходов с пустым набором кодов.
+    assert [c.okpd_codes for c in recorder.crawled] == [["62.02"]]

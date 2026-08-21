@@ -28,6 +28,7 @@ from zakupki_parser.parser.detail import (
 )
 from zakupki_parser.parser.detail_api import fetch_api_details
 from zakupki_parser.parser.extractor import extract_from_scope
+from zakupki_parser.parser.filtering import exclusions_present, keywords_match
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
     _increment_url_page,
@@ -306,11 +307,25 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # выполняется на стороне клиента (репозиторий/API), а не при записи.
         record["is_active"] = self._is_active(record)
 
-        # 4) условия прекращения обработки
-        exclusion_words = (
-            self._client_profile.exclusion_words if self._client_profile is not None else None
-        )
-        if self._check_stop_conditions(record, keywords=keywords, exclusion_words=exclusion_words):
+        # 4) клиентская пост-фильтрация словами (R9): позитивные ключевые слова и
+        #    слова-исключения применяются к записи СРАЗУ после получения списка и
+        #    ДО записи в БД (серверная фильтрация — только по кодам ОКПД2).
+        if self._client_profile is not None:
+            profile = self._client_profile
+            if not keywords_match(record, profile.keywords, profile.keyword_context_regexes):
+                logger.info(
+                    "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
+                    number,
+                )
+                return False, number, False
+            if exclusions_present(record, profile.exclusion_words, profile.keyword_context_regexes):
+                logger.info(
+                    "Закупка %s отброшена: слова-исключения в описании",
+                    number,
+                )
+                return False, number, False
+        # Stop-условия по срокам (deadline); слова/исключения уже обработаны выше.
+        if self._check_stop_conditions(record):
             return False, number, False
 
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
@@ -413,91 +428,59 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
 
         retry_cfg = self._cfg.parser.retry
         search = self._platform.search
-        # Ключевые слова активного клиентского профиля подставляются в серверный
-        # текстовый поиск (многоклиентный скоринг); fallback — глобальные
-        # search_criteria.keywords (профиль не задан/нет слов).
+        # Активный профиль сервис-аккаунта — контекст КЛИЕНТСКОЙ пост-фильтрации (R9):
+        # ключевые слова НЕ передаются на площадку; серверная фильтрация — только по
+        # кодам ОКПД2 (+ обход «без кода»).
         if self._repository is not None:
-            profile = await self._repository.get_active_client(self._cfg.score.active_client_id)
+            user = await self._repository.first_user()
+            profile = (
+                await self._repository.get_active_profile(user.id) if user is not None else None
+            )
         else:
             profile = None
-        # Активный профиль для стоп-условий (слова-исключения, regex-паттерны).
         self._client_profile = profile
-        if profile is not None and profile.keywords:
-            base = self._cfg.service.search_criteria.model_copy(
-                update={"keywords": list(profile.keywords)}
-            )
-        else:
-            base = self._cfg.service.search_criteria
-        # Площадка может игнорировать короткие поисковые запросы (например fabrikant:
-        # слова короче 3 символов не фильтруют и возвращают весь список закупок).
-        # min_keyword_len задан в search-конфиге площадки — слова короче порога
-        # отбрасываем, чтобы не открывать заведомо всеобъемлющий поиск.
-        min_keyword_len = search.min_keyword_len if search else None
-        if min_keyword_len:
-            dropped = [w for w in base.keywords if len(w) < min_keyword_len]
-            if dropped:
-                logger.warning(
-                    "Площадка %s: отброшены ключевые слова короче %d символов "
-                    "(поиск площадки их игнорирует): %s",
-                    self._platform_id,
-                    min_keyword_len,
-                    dropped,
-                )
-                base = base.model_copy(
-                    update={"keywords": [w for w in base.keywords if len(w) >= min_keyword_len]}
-                )
-        keywords = base.keywords
-        # Слова по «ИЛИ» — только если площадка реально использует keywords
-        # (есть маппинг критерия keywords): иначе перебор слов дал бы одинаковые обходы
-        # (например etpgpb, где procedure[name] не фильтрует).
-        keywords_mapped = bool(search and "keywords" in (search.criteria_map or {}))
-        # Отдельный обход по кодам ОКПД2 имеет смысл, только если площадка реально
-        # фильтрует по кодам (есть маппинг okpd2): иначе коды-only обход вернул бы весь
-        # список (например roseltorg, где okpd2 не подключён).
-        okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
-        one_at_a_time = bool(
-            search and search.keywords_one_at_a_time and keywords and keywords_mapped
-        )
 
-        if one_at_a_time:
-            # Площадка объединяет слова по «И» (AND), OR-оператора нет (B2B-Center,
-            # fabrikant): перебираем слова по одному, результаты объединяются (дедуп по
-            # номеру закупки через self._known_numbers, пополняемый при сохранении).
-            # Коды ОКПД2 всегда обрабатываются отдельно (keywords_codes удалён —
-            # слова и коды ищутся независимо, OR).
+        # R9: ключевые слова не участвуют в серверном запросе — обходы строятся
+        # только по кодам ОКПД2 (+ обход «без кода»).
+        base = self._cfg.service.search_criteria.model_copy(update={"keywords": []})
+        # Обход по кодам ОКПД2 имеет смысл, только если площадка реально фильтрует
+        # по кодам (есть маппинг okpd2): иначе коды-only обход вернул бы весь список
+        # (например roseltorg, где okpd2 не подключён).
+        okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
+        # Обход «без кода» (R9): только при наличии позитивных ключевых слов в профиле
+        # и поддержке площадкой (no_code_search); иначе пропускаем с записью в лог.
+        has_positive_keywords = bool(profile is not None and profile.keywords)
+        no_code_supported = bool(search and search.no_code_search)
+        if not has_positive_keywords:
             logger.info(
-                "Площадка %s: поиск по словам по одному (AND на площадке) — %d слов, коды: %s",
+                "Площадка %s: в активном профиле нет позитивных ключевых слов — "
+                "обход «без кода» пропущен",
                 self._platform_id,
-                len(keywords),
-                base.okpd_codes,
             )
-            for word in keywords:
-                criteria = base.model_copy(update={"keywords": [word], "okpd_codes": []})
-                await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
-            if base.okpd_codes and okpd_mapped:
-                criteria = base.model_copy(update={"keywords": []})
-                await self._crawl(page, cutoff, criteria, by_relevance, retry_cfg)
-        else:
-            if base.keywords and base.okpd_codes and okpd_mapped:
-                # Расширение (OR): слова (без кодов) + коды (без слов) — объединение.
-                logger.info(
-                    "Площадка %s: слова и коды ищутся независимо — словами %s, кодами %s",
-                    self._platform_id,
-                    base.keywords,
-                    base.okpd_codes,
-                )
-                await self._crawl(
-                    page,
-                    cutoff,
-                    base.model_copy(update={"okpd_codes": []}),
-                    by_relevance,
-                    retry_cfg,
-                )
-                await self._crawl(
-                    page, cutoff, base.model_copy(update={"keywords": []}), by_relevance, retry_cfg
-                )
-            else:
-                await self._crawl(page, cutoff, base, by_relevance, retry_cfg)
+        elif not no_code_supported:
+            logger.info(
+                "Площадка %s: обход «без кода» не поддерживается (no_code_search=false) — пропущен",
+                self._platform_id,
+            )
+
+        crawled = False
+        if base.okpd_codes and okpd_mapped:
+            await self._crawl(page, cutoff, base, by_relevance, retry_cfg)
+            crawled = True
+        if has_positive_keywords and no_code_supported:
+            no_code = base.model_copy(update={"okpd_codes": []})
+            logger.info(
+                "Площадка %s: обход «без кода» (клиентская фильтрация словами профиля)",
+                self._platform_id,
+            )
+            await self._crawl(page, cutoff, no_code, by_relevance, retry_cfg)
+            crawled = True
+        if not crawled:
+            logger.warning(
+                "Площадка %s: нет серверного фильтра (коды ОКПД2 не заданы/не подключены) "
+                "и обход «без кода» недоступен — проход пропущен",
+                self._platform_id,
+            )
 
         logger.info(
             "Площадка %s: итог прохода — получено закупок: %d, сохранено: %d, уже было в БД: %d",

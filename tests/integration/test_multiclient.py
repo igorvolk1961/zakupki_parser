@@ -1,7 +1,8 @@
-"""Интеграционные тесты многоклиентного скоринга (требуют PostgreSQL).
+"""Интеграционные тесты мультитенантного скоринга (требуют PostgreSQL).
 
-Проверяют: CRUD клиентских профилей, per-client скоринг через POST /score,
-rag_report, ручные оценки manual/reject, on-demand analyze/pwin-margin.
+Проверяют: CRUD профилей в tenant-скоупе, per-user скоринг через POST /score,
+rag_report, изоляцию данных между пользователями (BR-07), on-demand analyze/pwin-margin.
+Ручные оценки manual/reject — вне MVP (этап 6, пост-MVP).
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.api.app import create_app
+from zakupki_parser.auth import ROLE_ADMIN
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -22,6 +24,28 @@ from zakupki_parser.storage.repository import ProcurementRepository
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
+
+
+async def _seed_default_profile(repo: ProcurementRepository) -> int:
+    """Создаёт сервис-аккаунт (admin) и его активный профиль default; возвращает user_id."""
+    user = await repo.first_user()
+    if user is None:
+        user = await repo.create_user("admin", "test-hash", ROLE_ADMIN)
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "enabled": True,
+            "is_active": True,
+            "competencies": "Тестовые компетенции",
+            "keywords": [],
+            "exclusion_words": ["медицинский"],
+            "keyword_context_regexes": {},
+            "questions": [{"id": "q1", "text": "Требуется ли лицензия?"}],
+        },
+        user.id,
+    )
+    assert profile.id is not None
+    return user.id
 
 
 @pytest.fixture(scope="module")
@@ -36,17 +60,7 @@ def mc_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            await repo.upsert_client(
-                {
-                    "name": "default",
-                    "enabled": True,
-                    "competencies": "Тестовые компетенции",
-                    "keywords": [],
-                    "exclusion_words": ["медицинский"],
-                    "keyword_context_regexes": {},
-                    "questions": [{"id": "q1", "text": "Требуется ли лицензия?"}],
-                }
-            )
+            await _seed_default_profile(repo)
         finally:
             await db.dispose()
 
@@ -83,7 +97,7 @@ def test_clients_crud(mc_client: TestClient) -> None:
     assert active.json()["exclusion_words"] == ["медицинский"]
     assert active.json()["questions"] == [{"id": "q1", "text": "Требуется ли лицензия?"}]
 
-    # Создание профиля (POST /api/clients — upsert по name).
+    # Создание профиля (POST /api/clients — upsert по user_id + name).
     created = client.post(
         "/api/clients",
         json={"name": "client-b", "competencies": "Компетенции B", "keywords": ["ИИ"]},
@@ -96,29 +110,6 @@ def test_clients_crud(mc_client: TestClient) -> None:
     listed = client.get("/api/clients")
     assert listed.status_code == 200
     assert listed.json()["total"] >= 2
-
-
-def test_manual_score_and_reject(mc_client: TestClient) -> None:
-    client = mc_client
-    procurement_id = _seed_procurement()
-
-    r = client.post(f"/api/procurements/{procurement_id}/manual-score", json={"value": 0.8})
-    assert r.status_code == 200
-    card = r.json()
-    assert card["score_method"] == "manual"
-    assert card["fit_score"] == 0.8
-    assert card["score"] == pytest.approx(0.8)  # p_win/margin отсутствуют -> 1.0
-
-    # Недопустимый пресет — 422.
-    assert (
-        client.post(f"/api/procurements/{procurement_id}/manual-score", json={"value": 0.55})
-    ).status_code == 422
-
-    r = client.post(f"/api/procurements/{procurement_id}/reject")
-    assert r.status_code == 200
-    card = r.json()
-    assert card["score_method"] == "reject"
-    assert card["fit_score"] == 0.1
 
 
 def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
@@ -152,22 +143,120 @@ def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
 
 
 def test_analyze_and_pwin_margin_queue(mc_client: TestClient) -> None:
-    """Эндпоинты on-demand требуют настроенного транспорта (409 в тестах)."""
+    """On-demand эндпоинты: транспорт задан в конфиге — постановка best-effort (200 queued)."""
     client = mc_client
     procurement_id = _seed_procurement()
-    # В тестовом конфиге scoring_transport_url не задан -> 409.
     r = client.post("/api/procurements/analyze", json={"procurement_ids": [procurement_id]})
-    assert r.status_code == 409
+    assert r.status_code == 200
+    assert r.json()["status"] == "queued"
     r = client.post("/api/procurements/pwin-margin", json={"procurement_ids": [procurement_id]})
-    assert r.status_code == 409
+    assert r.status_code == 200
+    assert r.json()["status"] == "queued"
 
 
-def test_list_uses_active_client_scores(mc_client: TestClient) -> None:
+def test_list_uses_active_user_scores(mc_client: TestClient) -> None:
     client = mc_client
     procurement_id = _seed_procurement()
-    client.post(f"/api/procurements/{procurement_id}/manual-score", json={"value": 0.9})
+    client.post(
+        f"/api/procurements/{procurement_id}/score",
+        json={"score": 10.0, "fit_score": 0.9, "score_method": "fit"},
+    )
     data = client.get("/api/procurements").json()
     item = next((i for i in data["items"] if i["id"] == procurement_id), None)
     assert item is not None
     assert item["fit_score"] == 0.9
-    assert item["score_method"] == "manual"
+    assert item["score_method"] == "fit"
+
+
+def test_repository_isolation_br07() -> None:
+    """Изоляция BR-07: профили и оценки одного пользователя не видны другому."""
+
+    async def _run() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            user_a = await repo.create_user("user-a", "hash-a", ROLE_ADMIN)
+            user_b = await repo.create_user("user-b", "hash-b", ROLE_ADMIN)
+            profile_a = await repo.upsert_profile({"name": "A1", "competencies": "C"}, user_a.id)
+            profile_b = await repo.upsert_profile({"name": "B1", "competencies": "C"}, user_b.id)
+            assert profile_a.id is not None and profile_b.id is not None
+
+            # Профили изолированы.
+            assert await repo.get_profile(user_a.id, profile_b.id) is None
+            assert await repo.get_profile(user_b.id, profile_a.id) is None
+            assert await repo.get_profile_by_name(user_b.id, "A1") is None
+            _, total_a = await repo.list_profiles(user_a.id)
+            _, total_b = await repo.list_profiles(user_b.id)
+            assert total_a >= 1 and total_b >= 1
+
+            # Оценки изолированы (уникальный ключ (procurement_id, user_id)).
+            await repo.upsert(
+                {"number": "ISO-1", "platform_id": "zakupki_mos", "subject": "Изоляция"}
+            )
+            rows, _ = await repo.list_procurements(number="ISO-1")
+            procurement_id = rows[0].id
+            await repo.upsert_score(procurement_id, user_a.id, fit_score=0.7, score_method="fit")
+            assert await repo.get_score(procurement_id, user_b.id) is None
+            score_a = await repo.get_score(procurement_id, user_a.id)
+            assert score_a is not None and score_a.fit_score == 0.7
+        finally:
+            await db.dispose()
+
+    asyncio.run(_run())
+
+
+def test_keywords_sync_and_single_active_profile() -> None:
+    """Синхронизация таблицы keywords и единственный активный профиль."""
+
+    async def _run() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            user = await repo.create_user("kw-user", "hash", ROLE_ADMIN)
+            p1 = await repo.seed_default_profile(
+                user.id,
+                {
+                    "name": "default",
+                    "competencies": "C",
+                    "keywords": ["ИИ", "автоматизация"],
+                    "exclusion_words": ["ремонт"],
+                },
+            )
+            assert p1.id is not None
+            p2 = await repo.upsert_profile(
+                {"name": "other", "competencies": "C", "is_active": True}, user.id
+            )
+            assert p2.id is not None
+
+            # Таблица keywords: keyword + exclusion, перезапись.
+            async with db.session() as session:
+                from sqlalchemy import select
+
+                from zakupki_parser.storage.db import Keyword
+
+                rows = (
+                    (
+                        await session.execute(
+                            select(Keyword)
+                            .where(Keyword.profile_id == p1.id)
+                            .order_by(Keyword.type)
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                kinds = {(r.type, r.word) for r in rows}
+                assert ("keyword", "ИИ") in kinds
+                assert ("keyword", "автоматизация") in kinds
+                assert ("exclusion", "ремонт") in kinds
+
+            # Единственный активный профиль: default деактивирован.
+            active = await repo.get_active_profile(user.id)
+            assert active is not None and active.id == p2.id
+            assert active.is_active is True
+        finally:
+            await db.dispose()
+
+    asyncio.run(_run())

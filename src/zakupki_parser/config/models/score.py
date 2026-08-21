@@ -90,9 +90,9 @@ class ScoreConfig(BaseModel):
     active_client_id: int | None = Field(
         default=None,
         description=(
-            "идентификатор активного клиентского профиля (client_profiles.id). "
-            "Под ним выполняются авто-Fit, анализ, ручные оценки и P(win)/Margin; "
-            "если не задан — профиль по имени 'default'"
+            "DEPRECATED: глобальный активный клиентский профиль (client_profiles.id). "
+            "После перехода на мультитенантность (BR-07) не используется — активный "
+            "профиль выбирается per-user (profiles.is_active / 'default')."
         ),
     )
     scoring_transport_url: str | None = Field(

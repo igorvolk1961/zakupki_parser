@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,13 +20,14 @@ from zakupki_parser.config.models import (
 )
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import (
-    ClientProfile,
     Customer,
     Database,
+    Keyword,
     ProcedureType,
     ProcedureTypeMapping,
     Procurement,
-    ProcurementScore,
+    ProcurementEvaluation,
+    Profile,
     User,
 )
 
@@ -55,23 +56,25 @@ def effective_is_active(
     return deadline >= (now or datetime.now(UTC))
 
 
-def _apply_client_score(row: Procurement, scores: list[ProcurementScore], client_id: int) -> None:
-    """Налагает per-client результат скоринга на карточку для API-ответа.
+def _apply_user_score(
+    row: Procurement, evaluations: list[ProcurementEvaluation], user_id: int
+) -> None:
+    """Налагает per-user результат скоринга на карточку для API-ответа.
 
-    Если для закупки есть оценка под указанного клиента — базовые колонки
-    ``procurements`` (дефолтный скор) заменяются per-client значениями, а
+    Если для закупки есть оценка под указанного пользователя — базовые колонки
+    ``procurements`` (дефолтный скор) заменяются per-user значениями, а
     ``rag_report`` подкладывается динамическим атрибутом.
     """
-    for score in scores:
-        if score.client_id == client_id:
-            row.score = score.score
-            row.fit_score = score.fit_score
-            row.p_win = score.p_win
-            row.margin = score.margin
-            row.score_method = score.score_method
-            # rag_report — per-client, колонки в procurements нет: подкладываем
+    for evaluation in evaluations:
+        if evaluation.user_id == user_id:
+            row.score = evaluation.score
+            row.fit_score = evaluation.fit_score
+            row.p_win = evaluation.p_win
+            row.margin = evaluation.margin
+            row.score_method = evaluation.score_method
+            # rag_report — per-user, колонки в procurements нет: подкладываем
             # динамическим атрибутом для API-ответа (ClassVar на Procurement).
-            row.rag_report = score.rag_report
+            row.rag_report = evaluation.rag_report
             return
 
 
@@ -104,7 +107,7 @@ class ProcurementRepository:
         return max_date
 
     async def get_by_id(
-        self, procurement_id: int, client_id: int | None = None
+        self, procurement_id: int, user_id: int | None = None
     ) -> Procurement | None:
         stmt = (
             select(Procurement)
@@ -115,13 +118,13 @@ class ProcurementRepository:
                 selectinload(Procurement.platform_rel),
             )
         )
-        if client_id is not None:
-            stmt = stmt.options(selectinload(Procurement.scores))
+        if user_id is not None:
+            stmt = stmt.options(selectinload(Procurement.evaluations))
         async with self._db.session() as session:
             result = await session.execute(stmt)
             row = result.scalar_one_or_none()
-        if row is not None and client_id is not None:
-            _apply_client_score(row, row.scores, client_id)
+        if row is not None and user_id is not None:
+            _apply_user_score(row, row.evaluations, user_id)
         return row
 
     async def list_procurements(
@@ -138,7 +141,7 @@ class ProcurementRepository:
         limit: int = 20,
         offset: int = 0,
         now: datetime | None = None,
-        client_id: int | None = None,
+        user_id: int | None = None,
     ) -> tuple[list[Procurement], int]:
         """Возвращает записи и их общее количество по фильтрам.
 
@@ -150,20 +153,23 @@ class ProcurementRepository:
         убывание, NULL-скор в конце) или ``publication_date`` (по дате
         публикации, убывание, NULL в конце). Прочие значения игнорируются —
         используется порядок по id (как в БД).
+
+        ``user_id`` — tenant-скоуп (BR-07): фильтр/сортировка по fit_score и
+        score_method применяются к per-user ``procurement_evaluations``.
         """
         conditions: list[ColumnElement[bool]] = []
-        # Per-client подзапрос скоринга активного клиента: фильтр/сортировка по
-        # fit_score и score_method применяются к procurement_scores, а не к базовым
-        # колонкам procurements (дефолтный скор широкого отбора).
+        # Per-user подзапрос скоринга пользователя: фильтр/сортировка по
+        # fit_score и score_method применяются к procurement_evaluations, а не к
+        # базовым колонкам procurements (дефолтный скор широкого отбора).
         score_sub = None
-        if client_id is not None:
+        if user_id is not None:
             score_sub = (
                 select(
-                    ProcurementScore.procurement_id.label("procurement_id"),
-                    ProcurementScore.fit_score.label("fit_score"),
-                    ProcurementScore.score_method.label("score_method"),
+                    ProcurementEvaluation.procurement_id.label("procurement_id"),
+                    ProcurementEvaluation.fit_score.label("fit_score"),
+                    ProcurementEvaluation.score_method.label("score_method"),
                 )
-                .where(ProcurementScore.client_id == client_id)
+                .where(ProcurementEvaluation.user_id == user_id)
                 .subquery()
             )
         if number:
@@ -220,7 +226,7 @@ class ProcurementRepository:
         if score_sub is not None:
             stmt = stmt.join(
                 score_sub, Procurement.id == score_sub.c.procurement_id, isouter=True
-            ).options(selectinload(Procurement.scores))
+            ).options(selectinload(Procurement.evaluations))
         if customer:
             stmt = stmt.join(Customer, Procurement.customer_id == Customer.id)
         if sort == "fit_score":
@@ -249,9 +255,9 @@ class ProcurementRepository:
             result = await session.execute(stmt.limit(limit).offset(offset))
             rows = list(result.scalars().all())
             total = (await session.execute(count_stmt)).scalar_one()
-        if client_id is not None:
+        if user_id is not None:
             for row in rows:
-                _apply_client_score(row, row.scores, client_id)
+                _apply_user_score(row, row.evaluations, user_id)
         return rows, total
 
     async def exists(self, number: str, platform_id: str) -> bool:
@@ -629,23 +635,23 @@ class ProcurementRepository:
         logger.info("Удалено неактивных закупок: %s", deleted)
         return deleted
 
-    async def delete_irrelevant(self, min_fit_score: float, client_id: int | None = None) -> int:
+    async def delete_irrelevant(self, min_fit_score: float, user_id: int | None = None) -> int:
         """Удаляет нерелевантные закупки среди обработанных внешним каскадом скоринга.
 
         Учитываются ТОЛЬКО записи, прошедшие внешний скоринг (score_method — одна
         из стадий каскада fit/pwin/margin): релевантна закупка с fit_score >= порога,
         нерелевантна — с fit_score < порога (или NULL). Записи без внешнего скоринга
         (default/deadline_expired) не затрагиваются. Заказчики не затрагиваются.
-        При ``client_id`` фильтр применяется к per-client скорингу активного клиента.
+        При ``user_id`` фильтр применяется к per-user скорингу пользователя.
         """
-        if client_id is not None:
+        if user_id is not None:
             score_sub = (
                 select(
-                    ProcurementScore.procurement_id,
-                    ProcurementScore.fit_score,
-                    ProcurementScore.score_method,
+                    ProcurementEvaluation.procurement_id,
+                    ProcurementEvaluation.fit_score,
+                    ProcurementEvaluation.score_method,
                 )
-                .where(ProcurementScore.client_id == client_id)
+                .where(ProcurementEvaluation.user_id == user_id)
                 .subquery()
             )
             stmt = delete(Procurement).where(
@@ -693,8 +699,10 @@ class ProcurementRepository:
         async with self._db.session() as session:
             return int((await session.execute(stmt)).scalar_one())
 
-    async def create_user(self, username: str, password_hash: str, role: str) -> User:
-        user = User(username=username, password_hash=password_hash, role=role)
+    async def create_user(
+        self, username: str, password_hash: str, role: str, email: str | None = None
+    ) -> User:
+        user = User(username=username, password_hash=password_hash, role=role, email=email)
         async with self._db.session() as session:
             session.add(user)
             await session.commit()
@@ -702,52 +710,159 @@ class ProcurementRepository:
         return user
 
     # ------------------------------------------------------------------ #
-    # Клиентские профили тендеролога (многоклиентный скоринг)
+    # Профили фильтрации пользователя (tenant-скоуп BR-07)
     # ------------------------------------------------------------------ #
-    DEFAULT_CLIENT_NAME = "default"
+    DEFAULT_PROFILE_NAME = "default"
 
-    async def get_client(self, client_id: int) -> ClientProfile | None:
-        async with self._db.session() as session:
-            return await session.get(ClientProfile, client_id)
-
-    async def get_client_by_name(self, name: str) -> ClientProfile | None:
-        stmt = select(ClientProfile).where(ClientProfile.name == name)
+    async def first_user(self) -> User | None:
+        """Первый пользователь (сервис-аккаунт для dev-режима и конвейера)."""
+        stmt = select(User).order_by(User.id.asc()).limit(1)
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
 
-    async def list_clients(
-        self, limit: int = 100, offset: int = 0
-    ) -> tuple[list[ClientProfile], int]:
-        stmt = select(ClientProfile).order_by(ClientProfile.id.asc()).limit(limit).offset(offset)
-        count_stmt = select(func.count(ClientProfile.id))
+    async def backfill_orphaned_profiles(self, user_id: int) -> int:
+        """Присваивает профили без ``user_id`` указанному пользователю (идемпотентно).
+
+        Нужно для миграции 1.29: существующие профили (глобальные) после перехода
+        на мультитенантность не имеют владельца — сервис-аккаунт забирает их на старте.
+        """
+        async with self._db.session() as session:
+            result = cast(
+                "CursorResult[Any]",
+                await session.execute(
+                    update(Profile).where(Profile.user_id.is_(None)).values(user_id=user_id)
+                ),
+            )
+            await session.commit()
+        count = int(result.rowcount or 0)
+        if count:
+            logger.info(
+                "Осиротевшие профили (user_id IS NULL) присвоены пользователю %s: %s",
+                user_id,
+                count,
+            )
+        return count
+
+    async def get_profile(self, user_id: int, profile_id: int) -> Profile | None:
+        stmt = select(Profile).where(Profile.id == profile_id, Profile.user_id == user_id)
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def get_profile_by_name(self, user_id: int, name: str) -> Profile | None:
+        stmt = select(Profile).where(Profile.user_id == user_id, Profile.name == name)
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def list_profiles(
+        self, user_id: int, limit: int = 100, offset: int = 0
+    ) -> tuple[list[Profile], int]:
+        stmt = (
+            select(Profile)
+            .where(Profile.user_id == user_id)
+            .order_by(Profile.id.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        count_stmt = select(func.count(Profile.id)).where(Profile.user_id == user_id)
         async with self._db.session() as session:
             rows = list((await session.execute(stmt)).scalars().all())
             total = int((await session.execute(count_stmt)).scalar_one())
         return rows, total
 
-    async def get_active_client(self, active_client_id: int | None) -> ClientProfile | None:
-        """Активный профиль клиента.
+    async def get_active_profile(self, user_id: int) -> Profile | None:
+        """Активный профиль пользователя (per-user состояние).
 
-        По ``active_client_id`` из config_score.yaml; если не задан (или профиль
-        удалён) — профиль по имени ``default``. Иначе None.
+        1) профиль с ``is_active=true``; 2) fallback — профиль ``default``;
+        3) fallback — первый включённый профиль. Иначе None.
         """
-        if active_client_id is not None:
-            profile = await self.get_client(active_client_id)
+        async with self._db.session() as session:
+            stmt = select(Profile).where(Profile.user_id == user_id, Profile.is_active.is_(True))
+            profile = (await session.execute(stmt.limit(1))).scalar_one_or_none()
             if profile is not None:
                 return profile
-        return await self.get_client_by_name(self.DEFAULT_CLIENT_NAME)
+            profile = (
+                await session.execute(
+                    select(Profile).where(
+                        Profile.user_id == user_id,
+                        Profile.name == self.DEFAULT_PROFILE_NAME,
+                    )
+                )
+            ).scalar_one_or_none()
+            if profile is not None:
+                return profile
+            return (
+                await session.execute(
+                    select(Profile)
+                    .where(Profile.user_id == user_id, Profile.enabled.is_(True))
+                    .order_by(Profile.id.asc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
 
-    async def upsert_client(self, data: dict[str, Any]) -> ClientProfile:
-        """Создаёт или обновляет профиль клиента (ключ — name)."""
+    async def set_active_profile(self, user_id: int, profile_id: int) -> Profile:
+        """Делает профиль активным (сбрасывает остальные у пользователя)."""
+        async with self._db.session() as session:
+            stmt = select(Profile).where(Profile.user_id == user_id, Profile.id == profile_id)
+            profile = (await session.execute(stmt)).scalar_one_or_none()
+            if profile is None:
+                raise ValueError("Профиль не найден у пользователя")
+            await session.execute(
+                update(Profile).where(Profile.user_id == user_id).values(is_active=False)
+            )
+            profile.is_active = True
+            await session.commit()
+            return profile
+
+    async def sync_profile_keywords(self, profile_id: int) -> None:
+        """Переписывает строки ``keywords`` из JSONB-массивов профиля (R8).
+
+        ``type`` = ``keyword`` (Profile.keywords) или ``exclusion``
+        (Profile.exclusion_words). Таблица — нормализованное представление для
+        UI/индексации; рабочий набор парсера — JSONB-массивы.
+        """
+        async with self._db.session() as session:
+            profile = await session.get(Profile, profile_id)
+            if profile is None:
+                return
+            await session.execute(delete(Keyword).where(Keyword.profile_id == profile_id))
+            rows: list[Keyword] = [
+                Keyword(profile_id=profile_id, word=word, type=kind)
+                for kind, words in (
+                    ("keyword", profile.keywords or []),
+                    ("exclusion", profile.exclusion_words or []),
+                )
+                for word in words
+            ]
+            session.add_all(rows)
+            await session.commit()
+
+    async def seed_default_profile(self, user_id: int, seed: dict[str, Any]) -> Profile:
+        """Создаёт/обновляет активный профиль ``default`` пользователя (R8).
+
+        ``seed`` — как в ``upsert_profile`` (+ ``keywords``/``exclusion_words``).
+        После сохранения синхронизирует таблицу ``keywords``.
+        """
+        profile = await self.upsert_profile({**seed, "name": "default"}, user_id)
+        await self.sync_profile_keywords(profile.id)
+        return profile
+
+    async def upsert_profile(self, data: dict[str, Any], user_id: int) -> Profile:
+        """Создаёт или обновляет профиль пользователя (ключ — user_id + name).
+
+        При ``is_active=true`` остальные профили пользователя деактивируются
+        (гарантия единственного активного профиля).
+        """
         name = data.get("name")
         if not name:
-            raise ValueError("client_profiles.name обязателен")
+            raise ValueError("profiles.name обязателен")
         async with self._db.session() as session:
             profile = (
-                await session.execute(select(ClientProfile).where(ClientProfile.name == name))
+                await session.execute(
+                    select(Profile).where(Profile.user_id == user_id, Profile.name == name)
+                )
             ).scalar_one_or_none()
             if profile is None:
-                profile = ClientProfile(name=name)
+                profile = Profile(name=name, user_id=user_id)
                 session.add(profile)
             if "enabled" in data:
                 profile.enabled = bool(data["enabled"])
@@ -761,17 +876,32 @@ class ProcurementRepository:
                 profile.keyword_context_regexes = dict(data["keyword_context_regexes"])
             if "questions" in data:
                 profile.questions = list(data["questions"])
+            if "target_etp" in data:
+                profile.target_etp = list(data["target_etp"])
+            if "target_laws" in data:
+                profile.target_laws = list(data["target_laws"])
+            if "min_fit_threshold" in data:
+                profile.min_fit_threshold = data["min_fit_threshold"]
+            # Профиль становится активным: явно (is_active=true) или по умолчанию
+            # для профиля «default» (per-user состояние, BR-07).
+            wants_active = data.get("is_active")
+            if wants_active or (wants_active is None and name == self.DEFAULT_PROFILE_NAME):
+                await session.execute(
+                    update(Profile).where(Profile.user_id == user_id).values(is_active=False)
+                )
+                profile.is_active = True
             await session.commit()
-        logger.info("Сохранён клиентский профиль %s (id=%s)", name, profile.id)
+        await self.sync_profile_keywords(profile.id)
+        logger.info("Сохранён профиль %s (id=%s, user_id=%s)", name, profile.id, user_id)
         return profile
 
     # ------------------------------------------------------------------ #
-    # Per-client результаты скоринга
+    # Per-user результаты скоринга (BR-07)
     # ------------------------------------------------------------------ #
     async def upsert_score(
         self,
         procurement_id: int,
-        client_id: int,
+        user_id: int,
         *,
         score: float | None = None,
         fit_score: float | None = None,
@@ -779,19 +909,19 @@ class ProcurementRepository:
         margin: float | None = None,
         score_method: str = "default",
         rag_report: dict[str, Any] | None = None,
-    ) -> ProcurementScore:
-        """Обновляет/создаёт per-client результат скоринга закупки."""
+    ) -> ProcurementEvaluation:
+        """Обновляет/создаёт per-user результат скоринга закупки."""
         async with self._db.session() as session:
             existing = (
                 await session.execute(
-                    select(ProcurementScore).where(
-                        ProcurementScore.procurement_id == procurement_id,
-                        ProcurementScore.client_id == client_id,
+                    select(ProcurementEvaluation).where(
+                        ProcurementEvaluation.procurement_id == procurement_id,
+                        ProcurementEvaluation.user_id == user_id,
                     )
                 )
             ).scalar_one_or_none()
             if existing is None:
-                existing = ProcurementScore(procurement_id=procurement_id, client_id=client_id)
+                existing = ProcurementEvaluation(procurement_id=procurement_id, user_id=user_id)
                 session.add(existing)
             if score is not None:
                 existing.score = _round_score(score)
@@ -807,29 +937,29 @@ class ProcurementRepository:
             await session.commit()
             return existing
 
-    async def get_score(self, procurement_id: int, client_id: int) -> ProcurementScore | None:
-        stmt = select(ProcurementScore).where(
-            ProcurementScore.procurement_id == procurement_id,
-            ProcurementScore.client_id == client_id,
+    async def get_score(self, procurement_id: int, user_id: int) -> ProcurementEvaluation | None:
+        stmt = select(ProcurementEvaluation).where(
+            ProcurementEvaluation.procurement_id == procurement_id,
+            ProcurementEvaluation.user_id == user_id,
         )
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
 
     async def update_rag_report(
-        self, procurement_id: int, client_id: int, rag_report: dict[str, Any]
-    ) -> ProcurementScore:
+        self, procurement_id: int, user_id: int, rag_report: dict[str, Any]
+    ) -> ProcurementEvaluation:
         """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method)."""
         async with self._db.session() as session:
             existing = (
                 await session.execute(
-                    select(ProcurementScore).where(
-                        ProcurementScore.procurement_id == procurement_id,
-                        ProcurementScore.client_id == client_id,
+                    select(ProcurementEvaluation).where(
+                        ProcurementEvaluation.procurement_id == procurement_id,
+                        ProcurementEvaluation.user_id == user_id,
                     )
                 )
             ).scalar_one_or_none()
             if existing is None:
-                existing = ProcurementScore(procurement_id=procurement_id, client_id=client_id)
+                existing = ProcurementEvaluation(procurement_id=procurement_id, user_id=user_id)
                 session.add(existing)
             existing.rag_report = rag_report
             await session.commit()

@@ -512,15 +512,6 @@ function procRow(row) {
     <td class="row-actions">
       <button class="ghost" data-action="analyze" title="RAG-анализ стоп-условий по вопросам клиента">Анализ</button>
       <button class="ghost" data-action="pwin" title="Оценить P(win)/Margin">P/M</button>
-      <select class="manual-sel" title="Ручная оценка fit (пресет)">
-        <option value="">Ручная</option>
-        <option value="0.1">0.1 — не релевантна</option>
-        <option value="0.4">0.4 — низкий приоритет</option>
-        <option value="0.8">0.8 — перспективная</option>
-        <option value="0.9">0.9 — высокий приоритет</option>
-        <option value="1.0">1.0 — идеально</option>
-      </select>
-      <button class="ghost" data-action="reject" title="Отклонить (fit=0.1)">Откл</button>
     </td>
   </tr>`;
 }
@@ -783,22 +774,7 @@ async function rowAction(tr, action) {
     });
     if (r.ok) $("#parser-status").textContent = `Закупка #${id}: поставлена оценка P(win)/Margin…`;
     else $("#parser-status").textContent = "не удалось поставить P(win)/Margin";
-  } else if (action === "reject") {
-    const r = await apiJSON(`/api/procurements/${id}/reject`, { method: "POST" });
-    if (r.ok) { $("#parser-status").textContent = `Закупка #${id} отклонена`; loadProc(); }
-    else $("#parser-status").textContent = "не удалось отклонить";
   }
-}
-
-async function manualScore(tr, value) {
-  const id = Number(tr.dataset.id);
-  const r = await apiJSON(`/api/procurements/${id}/manual-score`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ value: parseFloat(value) }),
-  });
-  if (r.ok) { $("#parser-status").textContent = `Закупка #${id}: ручная оценка ${value}`; loadProc(); }
-  else $("#parser-status").textContent = "не удалось выставить ручную оценку";
 }
 
 function updateSelUi() {
@@ -832,14 +808,6 @@ $("#proc-rows").addEventListener("click", (e) => {
   }
   renderDetail();
   updateSelUi();
-});
-$("#proc-rows").addEventListener("change", (e) => {
-  const sel = e.target.closest(".manual-sel");
-  if (sel && sel.value) {
-    const tr = sel.closest("tr[data-id]");
-    manualScore(tr, sel.value);
-    sel.value = "";
-  }
 });
 $("#sel-all").addEventListener("change", (e) => {
   allItems.forEach((r) => {

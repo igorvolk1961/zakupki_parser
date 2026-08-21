@@ -8,6 +8,7 @@ import io
 import json
 import logging
 import os
+import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
@@ -39,17 +40,16 @@ from zakupki_parser.auth import (
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import (
     SCORE_METHOD_FIT,
-    SCORE_METHOD_MANUAL,
     SCORE_METHOD_MARGIN,
     SCORE_METHOD_PWIN,
-    SCORE_METHOD_REJECT,
     SCORE_METHOD_STAGES,
     AppConfig,
     ServiceConfig,
 )
 from zakupki_parser.notify import Notifier
 from zakupki_parser.scoring import ScoringTransportClient
-from zakupki_parser.storage.db import ClientProfile, Database, Procurement, User
+from zakupki_parser.storage.db import Database, Procurement, Profile, User
+from zakupki_parser.storage.keywords_parser import default_keywords_seed
 from zakupki_parser.storage.repository import ProcurementRepository, effective_is_active
 
 logger = logging.getLogger(__name__)
@@ -168,6 +168,7 @@ class UserOut(BaseModel):
 
     id: int
     username: str
+    email: str | None = None
     role: str
     created_at: datetime
     updated_at: datetime
@@ -181,6 +182,7 @@ class RegisterIn(BaseModel):
     """
 
     username: str = Field(min_length=1, max_length=128)
+    email: str | None = Field(default=None, max_length=255)
     password: str = Field(min_length=8)
     password_confirm: str = Field(min_length=8)
 
@@ -230,58 +232,52 @@ class ScoreUpdate(BaseModel):
         return value
 
 
-class ManualScoreIn(BaseModel):
-    """Ручная оценка релевантности тендерологом (пресеты)."""
-
-    value: float = Field(ge=0.0, le=1.0)
-
-    @field_validator("value")
-    @classmethod
-    def _preset_allowed(cls, value: float) -> float:
-        allowed = {0.1, 0.4, 0.8, 0.9, 1.0}
-        if value not in allowed:
-            raise ValueError(f"value должен быть одним из пресетов: {sorted(allowed)}")
-        return value
-
-
 class ProcurementIdsIn(BaseModel):
     """Пакетная обработка выбранных закупок (on-demand)."""
 
     procurement_ids: list[int] = Field(min_length=1)
 
 
-class ClientProfileIn(BaseModel):
-    """Создание/обновление клиентского профиля тендеролога (ключ — name)."""
+class ProfileIn(BaseModel):
+    """Создание/обновление профиля фильтрации пользователя (ключ — user_id + name)."""
 
     name: str = Field(min_length=1, max_length=128)
     enabled: bool | None = None
+    is_active: bool | None = None
     competencies: str | None = None
     keywords: list[str] | None = None
     exclusion_words: list[str] | None = None
     keyword_context_regexes: dict[str, str] | None = None
     questions: list[dict[str, Any]] | None = None
+    target_etp: list[str] | None = None
+    target_laws: list[str] | None = None
+    min_fit_threshold: float | None = None
 
 
-class ClientProfileOut(BaseModel):
-    """Карточка клиентского профиля."""
+class ProfileOut(BaseModel):
+    """Карточка профиля фильтрации."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
     enabled: bool
+    is_active: bool
     competencies: str
     keywords: list[str]
     exclusion_words: list[str]
     keyword_context_regexes: dict[str, str]
     questions: list[dict[str, Any]]
+    target_etp: list[str]
+    target_laws: list[str]
+    min_fit_threshold: float | None = None
     created_at: datetime
     updated_at: datetime
 
 
-class ClientProfileListOut(BaseModel):
+class ProfileListOut(BaseModel):
     total: int
-    items: list[ClientProfileOut]
+    items: list[ProfileOut]
 
 
 # --------------------------------------------------------------------------- #
@@ -535,15 +531,54 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=503, detail="БД недоступна")
         return state.repository
 
-    async def _active_client() -> ClientProfile:
-        """Активный клиентский профиль (для per-client скоринга)."""
-        profile = await _repo().get_active_client(state.cfg.score.active_client_id)
+    async def _ensure_service_account() -> User:
+        """Сервис-аккаунт: первый пользователь (admin), осиротевшие профили — его.
+
+        Используется в dev-режиме (auth off) и конвейером скоринга: профиль
+        «активного клиента» теперь принадлежит пользователю (BR-07). Создаёт
+        пользователя, если таблица пуста (env-сид ZAKUPKI_ADMIN_* или fallback
+        «admin» со сгенерированным паролем), и присваивает профили без user_id.
+        """
+        user = await _repo().first_user()
+        if user is not None:
+            await _repo().backfill_orphaned_profiles(user.id)
+            if await _repo().get_active_profile(user.id) is None:
+                await _repo().seed_default_profile(user.id, default_keywords_seed())
+            return user
+        username = os.environ.get("ZAKUPKI_ADMIN_USERNAME") or "admin"
+        password = os.environ.get("ZAKUPKI_ADMIN_PASSWORD") or secrets.token_urlsafe(24)
+        user = await _repo().create_user(
+            username, await asyncio.to_thread(hash_password, password), ROLE_ADMIN
+        )
+        logger.warning(
+            "Создан сервис-аккаунт %s (пароль %s)",
+            username,
+            "из env" if os.environ.get("ZAKUPKI_ADMIN_PASSWORD") else "сгенерирован",
+        )
+        await _repo().backfill_orphaned_profiles(user.id)
+        await _repo().seed_default_profile(user.id, default_keywords_seed())
+        return user
+
+    async def _effective_user(user: User | None) -> User:
+        """Текущий пользователь; при выключенной авторизации — сервис-аккаунт."""
+        if user is not None:
+            return user
+        return await _ensure_service_account()
+
+    async def _active_context(user: User | None) -> tuple[User, Profile]:
+        """Эффективный пользователь и его активный профиль (BR-07).
+
+        Оценки (procurement_evaluations) ключуются по ``user_id``, профиль —
+        контекст фильтрации. Возвращает пару, чтобы не резолвить пользователя дважды.
+        """
+        eff_user = await _effective_user(user)
+        profile = await _repo().get_active_profile(eff_user.id)
         if profile is None:
             raise HTTPException(
                 status_code=503,
-                detail="Активный клиентский профиль не найден (примените миграции)",
+                detail="Активный профиль не найден (примените миграции)",
             )
-        return profile
+        return eff_user, profile
 
     # ------------------------------------------------------------------ #
     # Авторизация (вход по логину/паролю; позже — OAuth2 через Сбер ID).
@@ -692,13 +727,19 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
         password_hash = await asyncio.to_thread(hash_password, body.password)
         try:
-            user = await _repo().create_user(body.username, password_hash, ROLE_TENDEROLOGIST)
+            user = await _repo().create_user(
+                body.username, password_hash, ROLE_TENDEROLOGIST, email=body.email
+            )
         except IntegrityError as exc:
             # Гонка двух одновременных регистраций с одним логином: констрейнт
             # uq_users_username срабатывает позже pre-check — отдаём 409, а не 500.
             raise HTTPException(
                 status_code=409, detail="Пользователь с таким логином уже есть"
             ) from exc
+        # Каждому новому пользователю — активный профиль default (BR-07): без него
+        # список закупок недоступен (нет контекста фильтрации). Сид ключевых слов
+        # из data/key_words.md (R8).
+        await _repo().seed_default_profile(user.id, default_keywords_seed())
         ttl = state.cfg.ops.auth.token_ttl_seconds
         token = create_token(user.id, user.role, state.cfg.ops.auth.secret or "", ttl)
         logger.info("Зарегистрирован пользователь %s (роль %s)", user.username, user.role)
@@ -720,9 +761,10 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         sort: str | None = Query(default=None),
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        user: User | None = Depends(require_user),
     ) -> ProcurementListOut:
-        # Per-client скоринг активного клиента (многоклиентный режим).
-        profile = await _active_client()
+        # Per-user скоринг эффективного пользователя (мультитенантность, BR-07).
+        eff_user, _ = await _active_context(user)
         rows, total = await _repo().list_procurements(
             number=number,
             platform_id=platform_id,
@@ -734,7 +776,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             sort=sort,
             limit=limit,
             offset=offset,
-            client_id=profile.id,
+            user_id=eff_user.id,
         )
         return ProcurementListOut(total=total, items=[_procurement_out(r) for r in rows])
 
@@ -771,7 +813,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         include_in_schema=False,
         dependencies=[Depends(require_user)],
     )
-    async def export_procurements(body: ExportIn | None = None) -> dict[str, Any]:
+    async def export_procurements(
+        body: ExportIn | None = None, user: User | None = Depends(require_user)
+    ) -> dict[str, Any]:
         """Выгружает активные релевантные закупки из БД в CSV (каталог export_dir).
 
         В выгрузку попадают ТОЛЬКО активные (по статусу и сроку актуальности) и
@@ -782,12 +826,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         необходимости). Операция read-only — безопасна при работающем парсере.
         """
         threshold = body.min_fit_score if body is not None else 0.4
-        profile = await _active_client()
+        eff_user, _ = await _active_context(user)
         rows, _ = await _repo().list_procurements(
             active=True,
             min_fit_score=threshold,
             limit=10**9,
-            client_id=profile.id,
+            user_id=eff_user.id,
         )
 
         buf = io.StringIO()
@@ -817,9 +861,11 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         response_model=ProcurementDetailOut,
         dependencies=[Depends(require_user)],
     )
-    async def get_procurement(procurement_id: int) -> ProcurementDetailOut:
-        profile = await _active_client()
-        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
+    async def get_procurement(
+        procurement_id: int, user: User | None = Depends(require_user)
+    ) -> ProcurementDetailOut:
+        eff_user, _ = await _active_context(user)
+        row = await _repo().get_by_id(procurement_id, user_id=eff_user.id)
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return _procurement_detail_out(row)
@@ -832,10 +878,10 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     async def set_score(procurement_id: int, body: ScoreUpdate) -> ProcurementDetailOut:
         """Обновление score внешним сервисом по его инициативе.
 
-        Результат пишется в per-client скоринг (``procurement_scores``) активного
-        клиентского профиля; базовые колонки ``procurements`` обновляются для
-        совместимости (дефолтный скор). Автокаскад Fit -> P(win) -> Margin
-        отключён: P(win)/Margin вычисляются только по явному запросу тендеролога.
+        Результат пишется в per-user скоринг (``procurement_evaluations``) сервис-аккаунта;
+        базовые колонки ``procurements`` обновляются для совместимости (дефолтный скор).
+        Автокаскад Fit -> P(win) -> Margin отключён: P(win)/Margin вычисляются только по
+        явному запросу тендеролога.
 
         RAG-отчёт (``rag_report``) сохраняется отдельно и не меняет score_method.
         Уведомляет подписчиков ПОСЛЕ стадии (fit/pwin/margin), когда результат
@@ -844,14 +890,15 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         existing = await _repo().get_by_id(procurement_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
-        profile = await _active_client()
+        # Внутренний вызов конвейера: результат пишется под сервис-аккаунт (BR-07).
+        eff_user, _ = await _active_context(None)
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт, результат скоринга не меняем.
-            await _repo().update_rag_report(procurement_id, profile.id, body.rag_report)
+            await _repo().update_rag_report(procurement_id, eff_user.id, body.rag_report)
         else:
             await _repo().upsert_score(
                 procurement_id,
-                profile.id,
+                eff_user.id,
                 score=body.score,
                 fit_score=body.fit_score,
                 p_win=body.p_win,
@@ -869,7 +916,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             margin=body.margin,
         )
         await _broadcast(state)
-        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
+        row = await _repo().get_by_id(procurement_id, user_id=eff_user.id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
 
@@ -885,78 +932,25 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         return _procurement_detail_out(row)
 
     @app.post(
-        "/api/procurements/{procurement_id}/manual-score",
-        response_model=ProcurementDetailOut,
-        dependencies=[Depends(require_user)],
-    )
-    async def manual_score(procurement_id: int, body: ManualScoreIn) -> ProcurementDetailOut:
-        """Ручная оценка релевантности тендерологом (пресеты 0.1/0.4/0.8/0.9/1.0).
-
-        Сохраняется в per-client скоринг активного клиента с score_method=manual;
-        score = value × p_win × margin (текущие значения, дефолт 1.0).
-        """
-        if await _repo().get_by_id(procurement_id) is None:
-            raise HTTPException(status_code=404, detail="Закупка не найдена")
-        profile = await _active_client()
-        current = await _repo().get_score(procurement_id, profile.id)
-        p_win = (current.p_win if current else None) or 1.0
-        margin = (current.margin if current else None) or 1.0
-        await _repo().upsert_score(
-            procurement_id,
-            profile.id,
-            fit_score=body.value,
-            score=body.value * p_win * margin,
-            score_method=SCORE_METHOD_MANUAL,
-        )
-        logger.info("Закупка %s: ручная оценка fit=%.2f (тендеролог)", procurement_id, body.value)
-        await _broadcast(state)
-        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
-        assert row is not None
-        return _procurement_detail_out(row)
-
-    @app.post(
-        "/api/procurements/{procurement_id}/reject",
-        response_model=ProcurementDetailOut,
-        dependencies=[Depends(require_user)],
-    )
-    async def reject_procurement(procurement_id: int) -> ProcurementDetailOut:
-        """Отклонить закупку (fit=0.1, score_method=reject)."""
-        if await _repo().get_by_id(procurement_id) is None:
-            raise HTTPException(status_code=404, detail="Закупка не найдена")
-        profile = await _active_client()
-        current = await _repo().get_score(procurement_id, profile.id)
-        p_win = (current.p_win if current else None) or 1.0
-        margin = (current.margin if current else None) or 1.0
-        await _repo().upsert_score(
-            procurement_id,
-            profile.id,
-            fit_score=0.1,
-            score=0.1 * p_win * margin,
-            score_method=SCORE_METHOD_REJECT,
-        )
-        logger.info("Закупка %s отклонена тендерологом", procurement_id)
-        await _broadcast(state)
-        row = await _repo().get_by_id(procurement_id, client_id=profile.id)
-        assert row is not None
-        return _procurement_detail_out(row)
-
-    @app.post(
         "/api/procurements/analyze",
         include_in_schema=False,
         dependencies=[Depends(require_user)],
     )
-    async def analyze_procurements(body: ProcurementIdsIn) -> dict[str, Any]:
+    async def analyze_procurements(
+        body: ProcurementIdsIn, user: User | None = Depends(require_user)
+    ) -> dict[str, Any]:
         """Обработать выбранные закупки: авто-Fit (если нет) + RAG-анализ ТЗ.
 
         Внутренние стадии скрыты от заказчика: для каждой закупки ставится
-        задание fit (если per-client fit ещё не посчитан) и затем analysis.
+        задание fit (если per-user fit ещё не посчитан) и затем analysis.
+        Ручная корректировка оценок — вне MVP (Эпик 5, пост-MVP).
         """
         if state.score_transport is None:
             raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
-        profile = await _active_client()
+        eff_user, _ = await _active_context(user)
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
-            current = await _repo().get_score(procurement_id, profile.id)
+            current = await _repo().get_score(procurement_id, eff_user.id)
             if current is None or current.fit_score is None:
                 await _enqueue_next_stage(state, procurement_id, "fit", 0.5)
             await _enqueue_next_stage(state, procurement_id, "analysis", 0.5)
@@ -969,11 +963,14 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         include_in_schema=False,
         dependencies=[Depends(require_user)],
     )
-    async def pwin_margin_procurements(body: ProcurementIdsIn) -> dict[str, Any]:
+    async def pwin_margin_procurements(
+        body: ProcurementIdsIn, user: User | None = Depends(require_user)
+    ) -> dict[str, Any]:
         """Оценить P(win) и Margin для выбранных закупок (on-demand, обе стадии)."""
         if state.score_transport is None:
             raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
         cfg = state.cfg.score
+        await _active_context(user)
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
             if cfg.pwin_enabled:
@@ -984,63 +981,90 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         logger.info("Поставлено на оценку P(win)/Margin: %s", queued)
         return {"status": "queued", "procurement_ids": queued}
 
-    # --- Клиентские профили (многоклиентный скоринг) --------------------
+    # --- Профили фильтрации (tenant-скоуп BR-07; пути /api/clients — для совместимости) ---
     @app.get(
         "/api/clients/active",
-        response_model=ClientProfileOut,
+        response_model=ProfileOut,
         dependencies=[Depends(require_user_or_internal)],
     )
-    async def active_client() -> ClientProfileOut:
-        return ClientProfileOut.model_validate(await _active_client())
+    async def active_client(
+        user: User | None = Depends(require_user_or_internal),
+    ) -> ProfileOut:
+        """Активный профиль эффективного пользователя (внутренний токен — сервис-аккаунт)."""
+        _, profile = await _active_context(user)
+        return ProfileOut.model_validate(profile)
 
     @app.get(
         "/api/clients",
-        response_model=ClientProfileListOut,
+        response_model=ProfileListOut,
         dependencies=[Depends(require_user)],
     )
     async def list_clients(
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
-    ) -> ClientProfileListOut:
-        rows, total = await _repo().list_clients(limit=limit, offset=offset)
-        return ClientProfileListOut(
-            total=total, items=[ClientProfileOut.model_validate(r) for r in rows]
-        )
+        user: User | None = Depends(require_user),
+    ) -> ProfileListOut:
+        eff_user = await _effective_user(user)
+        rows, total = await _repo().list_profiles(user_id=eff_user.id, limit=limit, offset=offset)
+        return ProfileListOut(total=total, items=[ProfileOut.model_validate(r) for r in rows])
 
     @app.get(
         "/api/clients/{client_id}",
-        response_model=ClientProfileOut,
+        response_model=ProfileOut,
         dependencies=[Depends(require_user)],
     )
-    async def get_client(client_id: int) -> ClientProfileOut:
-        row = await _repo().get_client(client_id)
+    async def get_client(client_id: int, user: User | None = Depends(require_user)) -> ProfileOut:
+        eff_user = await _effective_user(user)
+        row = await _repo().get_profile(eff_user.id, client_id)
         if row is None:
-            raise HTTPException(status_code=404, detail="Профиль клиента не найден")
-        return ClientProfileOut.model_validate(row)
+            raise HTTPException(status_code=404, detail="Профиль не найден")
+        return ProfileOut.model_validate(row)
 
     @app.post(
         "/api/clients",
-        response_model=ClientProfileOut,
-        dependencies=[Depends(require_admin)],
+        response_model=ProfileOut,
+        dependencies=[Depends(require_user)],
     )
-    async def create_client(body: ClientProfileIn) -> ClientProfileOut:
-        return ClientProfileOut.model_validate(
-            await _repo().upsert_client(body.model_dump(exclude_none=True))
+    async def create_client(
+        body: ProfileIn, user: User | None = Depends(require_user)
+    ) -> ProfileOut:
+        eff_user = await _effective_user(user)
+        return ProfileOut.model_validate(
+            await _repo().upsert_profile(body.model_dump(exclude_none=True), eff_user.id)
         )
 
     @app.put(
         "/api/clients/{client_id}",
-        response_model=ClientProfileOut,
-        dependencies=[Depends(require_admin)],
+        response_model=ProfileOut,
+        dependencies=[Depends(require_user)],
     )
-    async def update_client(client_id: int, body: ClientProfileIn) -> ClientProfileOut:
-        existing = await _repo().get_client(client_id)
+    async def update_client(
+        client_id: int, body: ProfileIn, user: User | None = Depends(require_user)
+    ) -> ProfileOut:
+        eff_user = await _effective_user(user)
+        existing = await _repo().get_profile(eff_user.id, client_id)
         if existing is None:
-            raise HTTPException(status_code=404, detail="Профиль клиента не найден")
+            raise HTTPException(status_code=404, detail="Профиль не найден")
         data = body.model_dump(exclude_none=True)
         data["name"] = existing.name if body.name == existing.name else body.name
-        updated = await _repo().upsert_client(data)
-        return ClientProfileOut.model_validate(updated)
+        updated = await _repo().upsert_profile(data, eff_user.id)
+        return ProfileOut.model_validate(updated)
+
+    @app.post(
+        "/api/clients/{client_id}/activate",
+        response_model=ProfileOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def activate_client(
+        client_id: int, user: User | None = Depends(require_user)
+    ) -> ProfileOut:
+        """Делает профиль активным (per-user состояние; остальные деактивируются)."""
+        eff_user = await _effective_user(user)
+        try:
+            profile = await _repo().set_active_profile(eff_user.id, client_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return ProfileOut.model_validate(profile)
 
     @app.get(
         "/api/customers",
@@ -1170,7 +1194,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         include_in_schema=False,
         dependencies=[Depends(require_admin)],
     )
-    async def clear_irrelevant(body: ClearIrrelevantIn | None = None) -> dict[str, Any]:
+    async def clear_irrelevant(
+        body: ClearIrrelevantIn | None = None, user: User | None = Depends(require_user)
+    ) -> dict[str, Any]:
         """Удаляет нерелевантные закупки среди обработанных сервисом скоринга.
 
         Учитываются только записи с score_method=external и fit_score < порога.
@@ -1180,8 +1206,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         if state.parser_task is not None and not state.parser_task.done():
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         threshold = body.min_fit_score if body is not None else 0.4
-        profile = await _active_client()
-        deleted = await _repo().delete_irrelevant(threshold, client_id=profile.id)
+        eff_user, _ = await _active_context(user)
+        deleted = await _repo().delete_irrelevant(threshold, user_id=eff_user.id)
         logger.info("Удалены нерелевантные закупки из web-демо: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}

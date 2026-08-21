@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from zakupki_parser.config.models import AppConfig
-from zakupki_parser.storage.db import ClientProfile
+from zakupki_parser.storage.db import Profile
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,8 @@ class StopMixin:
     # Задаётся в ``Orchestrator.__init__``.
     _now: datetime
     _cfg: AppConfig
-    # Активный клиентский профиль (многоклиентный скоринг); задаётся оркестратором.
-    _client_profile: ClientProfile | None = None
+    # Активный профиль пользователя (BR-07); задаётся оркестратором.
+    _client_profile: Profile | None = None
 
     def _check_stop_conditions(
         self,

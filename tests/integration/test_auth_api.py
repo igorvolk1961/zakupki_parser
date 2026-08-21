@@ -40,21 +40,27 @@ def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient
             await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()
-        # Сид default-клиентского профиля (в проде его создаёт миграция 1.27).
+        # Сид сервис-аккаунта и default-профиля под ним (в проде — миграция 1.27/1.29
+        # и ensure_service_account на старте).
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            await repo.upsert_client(
+            user = await repo.first_user()
+            if user is None:
+                user = await repo.create_user("admin", "test-hash", "admin")
+            await repo.upsert_profile(
                 {
                     "name": "default",
                     "enabled": True,
+                    "is_active": True,
                     "competencies": "Тестовые компетенции",
                     "keywords": [],
                     "exclusion_words": [],
                     "keyword_context_regexes": {},
                     "questions": [],
-                }
+                },
+                user.id,
             )
         finally:
             await db.dispose()

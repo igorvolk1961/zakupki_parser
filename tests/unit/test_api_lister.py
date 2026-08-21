@@ -471,10 +471,10 @@ async def test_crawl_api_skips_known_procurements(app_config: AppConfig) -> None
 
 @pytest.mark.asyncio
 async def test_run_splits_keywords_and_drops_short(app_config: AppConfig) -> None:
-    """etpgpb: слова перебираются по одному, короткие (< min_keyword_len) отбрасываются.
+    """R9: слова не передаются на площадку — серверный обход только по кодам ОКПД2.
 
-    «ИИ» (2 символа) не должен попасть в поисковые обходы — поиск etpgpb по коротким
-    словам возвращает нерелевантные закупки (проверено 2026-08-18).
+    Ранее (до R9) слова перебирались по одному (etpgpb), короткие отбрасывались;
+    теперь ключевые слова не участвуют в серверном запросе вообще.
     """
     platform = _make_api_platform()
     assert platform.search is not None
@@ -495,11 +495,8 @@ async def test_run_splits_keywords_and_drops_short(app_config: AppConfig) -> Non
     )
     await recorder.run(page=object())  # type: ignore[arg-type]
 
-    assert [c.keywords for c in recorder.crawled] == [
-        ["искусственный интеллект"],
-        ["автоматизация"],
-        [],  # отдельный обход по кодам ОКПД2
-    ]
+    assert [c.keywords for c in recorder.crawled] == [[]]
+    assert [c.okpd_codes for c in recorder.crawled] == [["62.02"]]
 
 
 def _make_mos_platform(page_size: int = 2) -> PlatformDom:

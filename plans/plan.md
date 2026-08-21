@@ -26,19 +26,21 @@
       ruff check/format — чисто; mypy (по конфигу, как в CI) — без ошибок.
 - ⬜ Финальная проверка этапа: повторный прогон, `check-config`, коммит документации.
 
-## Этап 1. Мультитенантная модель данных (BR-07, ядро) — **MVP**
-- ☐ Миграция 1.29: `users` (+email; колонки жизненного цикла status/trial_end_date/
-      last_activity_at и `audit_log`/`subscriptions` — переносятся на Этап 6, пост-MVP),
-      `client_profiles`→`profiles` (+user_id, name UNIQUE (user_id,name)),
-      `procurement_scores`→`procurement_evaluations` (+user_id/status/rejection_reason),
-      новые `keywords`, `procedure_categories` (заглушка).
-- ☐ Backfill существующих профилей/оценок на сервис-аккаунт (админ).
-- ☐ Репозиторий: tenant-скоуп по `user_id` (BR-07); `get_active_profile(user_id)`,
-      `ensure_service_account()`.
-- ☐ API: `effective_user` (auth off → сервис-аккаунт); внутренние эндпоинты — только
-      X-Internal-Token. Ручные `manual-score`/`reject` — вне MVP (удаляются/отключаются).
-- ☐ Тесты: изоляция (BR-07, 403), backfill, fallback профиля, совместимость старых
-      эндпоинтов; устаревшие тесты на `active_client_id` и ручные оценки — заменить/удалить.
+## Этап 1. Мультитенантная модель данных (BR-07, ядро) — **MVP** ✅
+- ✅ Миграция 1.29: `users` (+email), `client_profiles`→`profiles` (+user_id, is_active,
+      target_etp/target_laws, min_fit_threshold), `procurement_scores`→`procurement_evaluations`
+      (+user_id/status/rejection_reason), новые `keywords`, `procedure_categories` (заглушка),
+      `procurements.category_id`. Колонки жизненного цикла и `audit_log`/`subscriptions` —
+      Этап 6 (пост-MVP).
+- ✅ Backfill существующих профилей/оценок на сервис-аккаунт (миграция + `backfill_orphaned_profiles`).
+- ✅ Репозиторий: tenant-скоуп по `user_id` (BR-07); `get_active_profile(user_id)`,
+      `get_profile`/`list_profiles`/`upsert_profile`/`set_active_profile`, `first_user`.
+- ✅ API: `_effective_user`/`_ensure_service_account` (auth off → сервис-аккаунт);
+      внутренние эндпоинты — только X-Internal-Token; `/api/clients/*` — tenant-скоуп.
+      Ручные `manual-score`/`reject` удалены (+ web-демо).
+- ✅ Тесты: изоляция BR-07 (репозиторий), CRUD профилей в tenant-скоупе, сид default-профиля
+      при регистрации; устаревшие тесты `active_client_id`/ручные оценки заменены.
+      Пайплайн: unit 277 ✅, ruff ✅, mypy ✅, check-config ✅.
 
 ## Этап 6. Жизненный цикл аккаунта (BR-05, Эпик 7) — **пост-MVP**
 - ☐ Регистрация: email + пароль, статус `trial`, `trial_end_date=+10 лет` (подтверждение
@@ -50,24 +52,29 @@
 - ☐ `audit_log` критичных действий (US-9.4 частично).
 - ☐ Тесты: регистрация+trial, вход frozen/deleted, job истечения/удаления, админ-операции, аудит.
 
-## Этап 2. Профили фильтрации (Эпик 1) — **MVP**
-- ☐ CRUD профилей per-user (name, keywords, exclusion_words, competencies, questions,
-      target_etp, target_laws, min_fit_threshold, enabled); активный профиль пользователя.
-- ☐ Таблица `keywords`: парсер формата `data/key_words.md` (R8); сид для профилей
-      по умолчанию (сервис-аккаунт + каждый новый пользователь); синхронизация JSONB↔keywords.
-- ☐ Парсер до этапа 3 использует активный профиль сервис-аккаунта (поведение не меняется).
-- ☐ Тесты: CRUD+изоляция, парсер key_words.md, сид нового пользователя, fallback активного профиля.
+## Этап 2. Профили фильтрации (Эпик 1) — **MVP** ✅
+- ✅ CRUD профилей per-user (name, keywords, exclusion_words, competencies, questions,
+      target_etp, target_laws, min_fit_threshold, enabled, is_active); активный профиль
+      пользователя (единственный; `POST /api/clients/{id}/activate`).
+- ✅ Таблица `keywords`: парсер формата `data/key_words.md` (R8), сид default-профиля
+      (сервис-аккаунт + каждый новый пользователь), синхронизация JSONB↔keywords.
+- ✅ Парсер использует активный профиль сервис-аккаунта.
+- ✅ Тесты: парсер key_words.md, сид нового пользователя, единственный активный профиль,
+      синхронизация keywords (unit 282+).
 
-## Этап 3. Парсинг по ОКПД2 + клиентская фильтрация словами + per-user оценки (R1, R9) — **MVP**
-- ☐ Убрать серверную подстановку ключевых слов (`criteria_map.keywords`,
+## Этап 3. Парсинг по ОКПД2 + клиентская фильтрация словами + per-user оценки (R1, R9) — **MVP** ✅
+- ✅ Убрана серверная подстановка ключевых слов (`criteria_map.keywords`,
       `keywords_one_at_a_time`, `profile.keywords` в запрос). Сервер — только ОКПД2
-      (+ обход «без кода», конфиг-флаг; при отсутствии позитивных слов — пропуск с логом).
-- ☐ Клиентская пост-фильтрация: позитивные слова + слова-исключения до записи в БД
-      (вливаются `keyword_context_required`/`exclusion_words_present`).
-- ☐ Планировщик: сбор активных (профиль, ОКПД2)-наборов × целевые ЭТП/законы; обходы
-      (площадка × ОКПД2) общие и кэшируемые; пост-фильтрация каждого подходящего профиля.
-- ☐ Оценки в `procurement_evaluations` с user_id автоматически (auto-Fit) под профиль
-      пользователя. Ручная корректировка оценок (manual-score/reject) — вне MVP.
+      (+ обход «без кода», конфиг-флаг `no_code_search`; при отсутствии позитивных слов —
+      пропуск с логом).
+- ✅ Клиентская пост-фильтрация (`parser/filtering.py`): позитивные слова (regex, `~N`,
+      `слов*`, точные фразы) + слова-исключения — ДО записи в БД; stop-условия по словам
+      влиты в этот шаг.
+- ✅ Оценки в `procurement_evaluations` с user_id автоматически (auto-Fit); ручная
+      корректировка оценок — вне MVP. Per-user планировщик по профилям — пост-MVP (4C/10).
+- ✅ Тесты: filtering.py (regex/~N/стеб/фразы/минус), отсутствие слов в серверном запросе,
+      пропуск обхода «без кода» без позитивных слов; устаревшие тесты заменены.
+      Пайплайн: unit 290 ✅, ruff ✅, mypy ✅, check-config ✅.
 - ☐ Тесты: запрос без слов, пост-фильтрация до записи, одинаковые ОКПД2-результаты,
       обход «без кода» (в т.ч. пропуск без слов), изоляция оценок.
 
@@ -122,7 +129,8 @@
 ---
 
 ## Текущий фокус
-- **MVP:** детальный план **Этапа 1** (мультитенантная модель данных, BR-07) и согласование.
-- Дальше по MVP: Этап 2 (профили) → Этап 3 (парсинг ОКПД2 + клиентская фильтрация) →
-  Этап 4 (кэш/параллельность) → Этап 5 (маркеры ТЗ).
+- **MVP выполнено:** Этапы 1 (данные/изоляция BR-07), 2 (профили + сид keywords),
+  3 (парсинг по ОКПД2 + клиентская фильтрация слов, R9). Детальные планы —
+  `plans/01_plan.md`, `plans/02_plan.md`, `plans/03_plan.md`.
+- Дальше по MVP: Этап 4 (кэш ЭТП R4 + параллельные площадки R5: 4A, 4B) → Этап 5 (маркеры ТЗ).
 - Пост-MVP: Этапы 6, 4C, 7, 8, 9, 10.
