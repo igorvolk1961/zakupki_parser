@@ -266,8 +266,11 @@ class ProfileOut(BaseModel):
     enabled: bool
     is_active: bool
     competencies: str
-    keywords: list[str]
-    exclusion_words: list[str]
+    # Слова профиля живут в таблице keywords (канонический источник) и подставляются
+    # в _profile_out после валидации модели — дефолт нужен, чтобы model_validate(profile)
+    # не падал на отсутствующих атрибутах ORM-объекта.
+    keywords: list[str] = Field(default_factory=list)
+    exclusion_words: list[str] = Field(default_factory=list)
     questions: list[dict[str, Any]]
     target_etp: list[str]
     target_laws: list[str]
@@ -1093,6 +1096,43 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             profile = await _repo().set_active_profile(eff_user.id, client_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return await _profile_out(profile)
+
+    @app.delete(
+        "/api/clients/{client_id}",
+        status_code=204,
+        dependencies=[Depends(require_user)],
+    )
+    async def delete_client(client_id: int, user: User | None = Depends(require_user)) -> None:
+        """Удаляет профиль (нельзя удалить активный или последний)."""
+        eff_user = await _effective_user(user)
+        try:
+            await _repo().delete_profile(eff_user.id, client_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await _broadcast(state)
+
+    @app.post(
+        "/api/clients/seed",
+        response_model=ProfileOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def seed_client(user: User | None = Depends(require_user)) -> ProfileOut:
+        """Загружает/обновляет профиль из ``data/profile.md`` (как CLI ``zp seed-profile``).
+
+        Имя профиля берётся из файла (секция ``**name**``); при отсутствии —
+        ``default``. Активный профиль пользователя становится засиженным.
+        """
+        from zakupki_parser.storage.keywords_parser import parse_keywords_file
+
+        eff_user = await _effective_user(user)
+        seed = parse_keywords_file()
+        name = seed.get("name") or "default"
+        profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
+        logger.info(
+            "Профиль %s (id=%s) засижен из web-демо (файл data/profile.md)", name, profile.id
+        )
+        await _broadcast(state)
         return await _profile_out(profile)
 
     @app.get(

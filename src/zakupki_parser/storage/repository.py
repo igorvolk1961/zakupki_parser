@@ -759,7 +759,37 @@ class ProcurementRepository:
             )
             profile.is_active = True
             await session.commit()
+            # updated_at (server onupdate) генерируется в БД: с expire_on_commit=False
+            # SQLAlchemy не подставляет его в объект без refresh. После выхода из
+            # сессии объект detached, и _profile_out упадёт с DetachedInstanceError.
+            await session.refresh(profile)
             return profile
+
+    async def delete_profile(self, user_id: int, profile_id: int) -> None:
+        """Удаляет профиль пользователя.
+
+        Нельзя удалить последний профиль пользователя или активный (сначала
+        активируйте другой). Оценки профиля (procurement_evaluations) и слова
+        (keywords) удаляются каскадом (FK ON DELETE CASCADE).
+        """
+        async with self._db.session() as session:
+            profile = (
+                await session.execute(
+                    select(Profile).where(Profile.user_id == user_id, Profile.id == profile_id)
+                )
+            ).scalar_one_or_none()
+            if profile is None:
+                raise ValueError("Профиль не найден у пользователя")
+            total = await session.scalar(
+                select(func.count()).select_from(Profile).where(Profile.user_id == user_id)
+            )
+            if total is not None and total <= 1:
+                raise ValueError("Нельзя удалить последний профиль пользователя")
+            if profile.is_active:
+                raise ValueError("Сначала активируйте другой профиль")
+            await session.delete(profile)
+            await session.commit()
+            logger.info("Удалён профиль %s (id=%s, user_id=%s)", profile.name, profile_id, user_id)
 
     async def set_profile_keywords(
         self, profile_id: int, keywords: list[str], exclusion_words: list[str]

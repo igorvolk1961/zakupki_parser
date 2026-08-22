@@ -89,6 +89,15 @@
   .pill.inactive { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
   html[data-theme="dark"] .pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .pill.inactive { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
+  .client-switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
+  .client-switch select { padding:4px 6px; font-size:13px; }
+  .profile-form { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+  .profile-form label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
+  .profile-form input[type="text"], .profile-form input[type="number"], .profile-form textarea {
+    font-family:ui-monospace,monospace; font-size:13px; background:var(--panel2); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .profile-checks { display:flex; gap:16px; flex-wrap:wrap; }
+  .profile-checks label { flex-direction:row; align-items:center; gap:6px; }
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
@@ -122,7 +131,10 @@
     <h1>Парсер закупок</h1>
   </div>
   <div class="header-right">
-    <span class="pill" id="client-pill" style="display:none;" title="Активный клиентский профиль"></span>
+    <span class="client-switch" id="client-switch" style="display:none;" title="Активный клиентский профиль">
+      <label for="client-select">клиент:</label>
+      <select id="client-select"><option value="">— загрузка… —</option></select>
+    </span>
     <select id="theme" title="Цветовая схема">
       <option value="light">Светлая</option>
       <option value="dark">Тёмная</option>
@@ -150,6 +162,7 @@
     <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
     <button id="tab-cfg">Параметры</button>
     <button id="tab-prompts">Промпты</button>
+    <button id="tab-profiles">Профили</button>
   </div>
 
   <div id="view-proc">
@@ -241,6 +254,41 @@
       <button class="primary" id="prompt-save">Сохранить</button>
       <button id="prompt-reload">Отменить изменения</button>
       <span id="prompt-status" class="muted"></span>
+    </div>
+  </div>
+
+  <div id="view-profiles" style="display:none;">
+    <div class="toolbar">
+      <button class="primary" id="profile-new">Создать профиль</button>
+      <button class="ghost" id="profile-seed" title="Загрузить слова и компетенции из data/profile.md">Загрузить из profile.md</button>
+      <span id="profile-status" class="muted"></span>
+    </div>
+    <div class="table-wrap" id="profiles"></div>
+    <div id="profile-editor" style="display:none; margin-top:12px;">
+      <div class="panel">
+        <div class="panel-title">Профиль <span id="profile-editor-name" class="muted"></span></div>
+        <div class="profile-form">
+          <label>Имя <input id="pf-name"></label>
+          <div class="profile-checks">
+            <label><input type="checkbox" id="pf-enabled"> включён</label>
+            <label><input type="checkbox" id="pf-active"> активный</label>
+            <label><input type="checkbox" id="pf-active-only"> только активные</label>
+          </div>
+          <label>ОКПД2 (через запятую) <input id="pf-okpd"></label>
+          <div class="profile-checks">
+            <label>НМЦК мин <input type="number" step="0.01" id="pf-nmck-min"></label>
+            <label>НМЦК макс <input type="number" step="0.01" id="pf-nmck-max"></label>
+          </div>
+          <label>Ключевые слова (через запятую) <textarea id="pf-keywords" rows="5"></textarea></label>
+          <label>Слова-исключения (через запятую) <textarea id="pf-excl" rows="5"></textarea></label>
+          <label>Компетенции <textarea id="pf-competencies" rows="6"></textarea></label>
+          <div class="toolbar">
+            <button class="primary" id="profile-save">Сохранить</button>
+            <button id="profile-cancel">Отмена</button>
+            <button class="danger" id="profile-delete" style="display:none;">Удалить</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </main>
@@ -744,13 +792,162 @@ async function loadPlatforms() {
   });
 }
 
-// Индикатор активного клиентского профиля (многоклиентный скоринг).
+// Селектор активного клиентского профиля в шапке (мультиклиентный скоринг).
 async function loadActiveClient() {
   try {
+    const list = await api("clients", { limit: 500 });
+    const sel = $("#client-select");
+    const cur = sel.value;
+    sel.innerHTML = "";
+    for (const p of list.items) {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name + (p.is_active ? " (активный)" : "");
+      sel.appendChild(opt);
+    }
     const c = await api("clients/active");
-    $("#client-pill").style.display = "inline-block";
-    $("#client-pill").textContent = "клиент: " + c.name;
-  } catch (err) { $("#client-pill").style.display = "none"; }
+    sel.value = String(c.id);
+    $("#client-switch").style.display = "inline-flex";
+    if (cur && cur !== String(c.id)) loadProfiles();
+  } catch (err) { $("#client-switch").style.display = "none"; }
+}
+
+async function switchClient(profileId) {
+  try {
+    const r = await apiJSON(`/api/clients/${profileId}/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!r.ok) throw new Error(await r.text());
+    await loadActiveClient();
+    await loadProfiles();
+    await loadProc(); await loadCustomers(); await loadPlatforms();
+  } catch (e) { alert("Не удалось переключить профиль: " + e.message); }
+}
+
+// --- Страница «Профили» -------------------------------------------------
+let profileEditorId = null;
+
+function splitWords(text) {
+  return text.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function renderProfiles(list) {
+  const wrap = $("#profiles");
+  if (!list.items.length) { wrap.innerHTML = '<p class="muted">Профилей нет.</p>'; return; }
+  const rows = list.items.map((p) => {
+    const active = p.is_active ? '<span class="pill active">активный</span>' : '<span class="pill inactive">не активный</span>';
+    const enabled = p.enabled ? "да" : "нет";
+    const okpd = (p.okpd_codes || []).join(", ") || "—";
+    const nmck = `${p.nmck_min ?? "—"}–${p.nmck_max ?? "—"}`;
+    const words = (p.keywords || []).length;
+    return `<tr data-id="${p.id}">
+      <td>${escapeHtml(p.name)}</td>
+      <td>${active}</td>
+      <td>${enabled}</td>
+      <td>${words}</td>
+      <td>${escapeHtml(okpd)}</td>
+      <td>${escapeHtml(nmck)}</td>
+      <td>
+        ${p.is_active ? "" : `<button class="ghost" data-action="activate">Активировать</button>`}
+        <button class="ghost" data-action="edit">Редактировать</button>
+      </td>
+    </tr>`;
+  }).join("");
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Имя</th><th>Активность</th><th>Включён</th><th>Слов</th><th>ОКПД2</th><th>НМЦК</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+  wrap.querySelectorAll("button[data-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const tr = btn.closest("tr");
+      const id = Number(tr.dataset.id);
+      if (btn.dataset.action === "activate") await switchClient(id);
+      else if (btn.dataset.action === "edit") await openProfileEditor(id);
+    });
+  });
+}
+
+async function loadProfiles() {
+  try {
+    const list = await api("clients", { limit: 500 });
+    renderProfiles(list);
+  } catch (err) { $("#profiles").innerHTML = `<p class="muted">Не удалось загрузить профили: ${escapeHtml(err.message)}</p>`; }
+}
+
+function setProfileStatus(msg) { $("#profile-status").textContent = msg; }
+
+function fillProfileForm(p) {
+  $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
+  $("#pf-name").value = p ? p.name : "";
+  $("#pf-enabled").checked = p ? p.enabled : true;
+  $("#pf-active").checked = p ? p.is_active : false;
+  $("#pf-active-only").checked = p ? p.active_only : false;
+  $("#pf-okpd").value = (p ? p.okpd_codes || [] : []).join(", ");
+  $("#pf-nmck-min").value = p && p.nmck_min != null ? p.nmck_min : "";
+  $("#pf-nmck-max").value = p && p.nmck_max != null ? p.nmck_max : "";
+  $("#pf-keywords").value = (p ? p.keywords || [] : []).join(", ");
+  $("#pf-excl").value = (p ? p.exclusion_words || [] : []).join(", ");
+  $("#pf-competencies").value = p ? p.competencies || "" : "";
+  $("#profile-delete").style.display = p ? "inline-block" : "none";
+}
+
+function profileFormData() {
+  return {
+    name: $("#pf-name").value.trim(),
+    enabled: $("#pf-enabled").checked,
+    is_active: $("#pf-active").checked,
+    active_only: $("#pf-active-only").checked,
+    okpd_codes: splitWords($("#pf-okpd").value),
+    nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
+    nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),
+    keywords: splitWords($("#pf-keywords").value),
+    exclusion_words: splitWords($("#pf-excl").value),
+    competencies: $("#pf-competencies").value,
+  };
+}
+
+async function openProfileEditor(id) {
+  profileEditorId = id || null;
+  let p = null;
+  if (id) {
+    try { p = await api(`clients/${id}`); } catch (e) { setProfileStatus("Ошибка загрузки профиля: " + e.message); return; }
+  }
+  fillProfileForm(p);
+  $("#profile-editor").style.display = "block";
+}
+
+async function saveProfile() {
+  const data = profileFormData();
+  if (!data.name) { setProfileStatus("Укажите имя профиля"); return; }
+  try {
+    const url = profileEditorId ? `/api/clients/${profileEditorId}` : "/api/clients";
+    const method = profileEditorId ? "PUT" : "POST";
+    const r = await apiJSON(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    if (!r.ok) throw new Error(await r.text());
+    setProfileStatus(profileEditorId ? "Профиль сохранён" : "Профиль создан");
+    $("#profile-editor").style.display = "none";
+    await loadProfiles(); await loadActiveClient();
+  } catch (e) { setProfileStatus("Ошибка сохранения: " + e.message); }
+}
+
+async function deleteProfile() {
+  if (!profileEditorId || !confirm("Удалить профиль?")) return;
+  try {
+    const r = await apiJSON(`/api/clients/${profileEditorId}`, { method: "DELETE" });
+    if (!r.ok) throw new Error(await r.text());
+    setProfileStatus("Профиль удалён");
+    $("#profile-editor").style.display = "none";
+    await loadProfiles(); await loadActiveClient();
+  } catch (e) { setProfileStatus("Ошибка удаления: " + e.message); }
+}
+
+async function seedProfile() {
+  try {
+    const r = await apiJSON("/api/clients/seed", { method: "POST", headers: { "Content-Type": "application/json" } });
+    if (!r.ok) throw new Error(await r.text());
+    setProfileStatus("Профиль загружен из data/profile.md");
+    await loadProfiles(); await loadActiveClient();
+  } catch (e) { setProfileStatus("Ошибка загрузки: " + e.message); }
 }
 
 function closeModal() { $("#modal-bg").classList.remove("open"); }
@@ -867,12 +1064,12 @@ $("#fit-dn").addEventListener("click", () => stepFit(-0.1));
 $("#proc-platform").addEventListener("change", () => { procPage = 1; loadProc(); });
 $("#proc-active").addEventListener("change", () => { procPage = 1; loadProc(); });
 $("#tab-proc").addEventListener("click", () => {
-  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active");
-  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none";
+  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active"); $("#tab-profiles").classList.remove("active");
+  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none"; $("#view-profiles").style.display = "none";
 });
 $("#tab-cust").addEventListener("click", () => {
-  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active");
-  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none";
+  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active"); $("#tab-profiles").classList.remove("active");
+  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none"; $("#view-profiles").style.display = "none";
   loadCustomers();
 });
 
@@ -906,8 +1103,8 @@ $("#cfg-editor").addEventListener("input", () => { cfgDirty = true; $("#cfg-stat
 $("#cfg-save").addEventListener("click", saveConfig);
 $("#cfg-reload").addEventListener("click", loadConfig);
 $("#tab-cfg").addEventListener("click", () => {
-  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-prompts").classList.remove("active");
-  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-prompts").style.display = "none";
+  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-prompts").classList.remove("active"); $("#tab-profiles").classList.remove("active");
+  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-prompts").style.display = "none"; $("#view-profiles").style.display = "none";
   if (!cfgDirty) loadConfig();
 });
 window.addEventListener("beforeunload", (e) => { if (cfgDirty || promptDirty) { e.preventDefault(); e.returnValue = ""; } });
@@ -999,9 +1196,24 @@ $("#prompt-sel").addEventListener("change", () => {
   loadPrompt();
 });
 $("#tab-prompts").addEventListener("click", () => {
-  $("#tab-prompts").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active");
-  $("#view-prompts").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none";
+  $("#tab-prompts").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-profiles").classList.remove("active");
+  $("#view-prompts").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-profiles").style.display = "none";
   if (!promptDirty) loadPromptList();
+});
+
+$("#tab-profiles").addEventListener("click", () => {
+  $("#tab-profiles").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active");
+  $("#view-profiles").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none";
+  loadProfiles();
+});
+
+$("#profile-new").addEventListener("click", () => openProfileEditor(null));
+$("#profile-seed").addEventListener("click", seedProfile);
+$("#profile-save").addEventListener("click", saveProfile);
+$("#profile-cancel").addEventListener("click", () => { $("#profile-editor").style.display = "none"; });
+$("#profile-delete").addEventListener("click", deleteProfile);
+$("#client-select").addEventListener("change", (ev) => {
+  if (ev.target.value) switchClient(Number(ev.target.value));
 });
 
 // --- Парсер ------------------------------------------------------------
