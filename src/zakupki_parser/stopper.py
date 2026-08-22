@@ -4,6 +4,11 @@
 по командной строке, останавливает их мягко (SIGINT — корректное закрытие браузера),
 при необходимости доводя SIGTERM/SIGKILL. Также добивает осиротевшие
 Playwright-драйвер и headless-Chromium, запущенные парсером.
+
+Кроссплатформенно:
+- Linux — ``pgrep`` (procps), сигналы через ``os.kill``;
+- Windows — поиск через PowerShell ``Get-CimInstance Win32_Process`` по командной
+  строке, остановка через ``taskkill`` (мягко/принудительно).
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 
 # Раздельные паттерны (pgrep не поддерживает (?:...); подкоманда идёт ПОСЛЕ
@@ -29,17 +35,26 @@ _LEFTOVER_PATTERNS = [
     r"chrome.+--user-data-dir=/tmp/playwright",
 ]
 
+# Паттерны для поиска через PowerShell (Windows): подкоманда идёт после опций.
+# \b — границы слов, чтобы "serve" не совпадал с "server.py".
+_WIN_PATTERNS = [
+    r"\b(run-once|run-service|serve)\b",
+]
 
-def _require_pgrep() -> None:
-    """Бросает RuntimeError, если pgrep недоступен в системе."""
+# Альтернативные имена python-исполняемых файлов (запуск через uv-обёртки).
+_PYTHON_NAMES = ("python.exe", "python", "uv.exe", "uv")
+
+
+def _on_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def _find_pids_linux(patterns: list[str]) -> list[int]:
     if shutil.which("pgrep") is None:
         raise RuntimeError(
             "pgrep не найден в PATH — остановка парсера невозможна. "
             "Установите procps (Linux) или используйте pkill напрямую."
         )
-
-
-def _pids_for(patterns: list[str]) -> list[int]:
     pids: list[int] = []
     for pattern in patterns:
         result = subprocess.run(
@@ -54,7 +69,54 @@ def _pids_for(patterns: list[str]) -> list[int]:
     return list(dict.fromkeys(pids))
 
 
+def _find_pids_windows(patterns: list[str]) -> list[int]:
+    """Поиск python/uv-процессов по командной строке через PowerShell.
+
+    Ищем процессы, чья CommandLine содержит подкоманду парсера и путь/имя
+    пакета ``zakupki_parser`` (отсекает чужие python-процессы). Ограничение по
+    имени процесса не делаем: запуск идёт и через ``python.exe``, и через
+    uv-обёртки.
+    """
+    name_filter = " -or ".join(f"$_.Name -eq '{name}'" for name in _PYTHON_NAMES)
+    pattern_or = " -or ".join(f"($_.CommandLine -match '{p}')" for p in patterns)
+    script = (
+        "Get-CimInstance Win32_Process "
+        f"| Where-Object {{ ({name_filter}) -and ({pattern_or}) "
+        "-and ($_.CommandLine -match 'zakupki_parser') } "
+        "| ForEach-Object { $_.ProcessId }"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        if line.strip().isdigit():
+            pids.append(int(line.strip()))
+    return list(dict.fromkeys(pids))
+
+
+def _pids_for(patterns: list[str]) -> list[int]:
+    if _on_windows():
+        return _find_pids_windows(_WIN_PATTERNS)
+    return _find_pids_linux(patterns)
+
+
 def _alive(pid: int) -> bool:
+    if _on_windows():
+        # os.kill(pid, 0) на Windows для чужих процессов бросает SystemError —
+        # используем tasklist (нативный способ проверки существования процесса).
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        return str(pid) in result.stdout
     try:
         os.kill(pid, 0)
         return True
@@ -86,6 +148,8 @@ def _kill_graceful(pids: list[int], force: bool) -> list[int]:
     """Останавливает процессы; возвращает список всё ещё живых PIDs."""
     if not pids:
         return []
+    if _on_windows():
+        return _kill_graceful_windows(pids, force)
     if force:
         for pid in pids:
             _signal(pid, signal.SIGKILL)
@@ -103,12 +167,38 @@ def _kill_graceful(pids: list[int], force: bool) -> list[int]:
     return [p for p in alive if _alive(p)]
 
 
+def _kill_graceful_windows(pids: list[int], force: int | bool) -> list[int]:
+    """Windows: taskkill (мягко — без /F, принудительно — с /F)."""
+    args = ["taskkill"]
+    if force:
+        args.append("/F")
+    remaining: list[int] = []
+    for pid in pids:
+        result = subprocess.run(
+            [*args, "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        # taskkill /T — добиваем дочерние процессы (браузер и т.п.).
+        subprocess.run(
+            [*args, "/T", "/PID", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        if result.returncode != 0 and _alive(pid):
+            remaining.append(pid)
+    return remaining
+
+
 def stop_parser(force: bool = False) -> list[int]:
     """Останавливает парсер и его браузерные процессы.
 
     Возвращает список PIDs, которые не удалось завершить (пусто — успех).
     """
-    _require_pgrep()
     target = _pids_for(_RUN_PATTERNS)
     leftover = _pids_for(_LEFTOVER_PATTERNS)
     remaining: list[int] = []

@@ -43,6 +43,44 @@ container_running() {
     docker ps --format '{{.Names}}' | grep -qx -- "$CONTAINER"
 }
 
+# Проверка, что порт 5432 опубликован контейнером И доступен с хоста.
+# После сбоя «Bind ... port is already allocated» контейнер может стартовать без
+# сети (docker start создаёт его без публикации порта): внутри `pg_isready` отвечает,
+# а с хоста localhost:5432 недоступен — Liquibase/SQLAlchemy потом висят.
+port_published_and_reachable() {
+    docker port "$CONTAINER" 5432 >/dev/null 2>&1 || return 1
+    if command -v nc >/dev/null 2>&1; then
+        nc -z localhost 5432 >/dev/null 2>&1 || return 1
+    elif command -v bash >/dev/null 2>&1 && [ -e /dev/tcp ]; then
+        (echo > /dev/tcp/localhost/5432) >/dev/null 2>&1 || return 1
+    else
+        # Windows (Git Bash): проверяем, что сокет слушается на хосте.
+        netstat -ano 2>/dev/null | grep -qE ":5432[[:space:]].*LISTENING" || return 1
+    fi
+    return 0
+}
+
+# Владелец порта 5432 (для диагностики при конфликте).
+port_owner_5432() {
+    local owner
+    owner="$(docker ps -a --format '{{.Names}}|{{.Ports}}' 2>/dev/null | grep -E "\b5432->" | head -n1 | cut -d'|' -f1)"
+    if [[ -n "$owner" ]]; then
+        echo "контейнер $owner"
+        return 0
+    fi
+    if command -v ss >/dev/null 2>&1; then
+        ss -ltnp 2>/dev/null | grep -E ":5432\b" | head -n1 | sed -E 's/.*users:\(\("//; s/".*//' | grep -v '^$' && return 0 || true
+    else
+        local pid
+        pid="$(netstat -ano 2>/dev/null | grep -E ":5432[[:space:]].*LISTENING" | head -n1 | awk '{print $NF}')"
+        if [[ -n "$pid" ]]; then
+            echo "PID $pid"
+            return 0
+        fi
+    fi
+    echo "неизвестный процесс"
+}
+
 wait_db() {
     echo "Ожидание готовности БД..."
     for i in $(seq 1 "$RETRY_LIMIT"); do
@@ -110,6 +148,21 @@ if container_exists; then
         echo "Запуск контейнера $CONTAINER..."
         docker start "$CONTAINER"
     fi
+    # После старта проверяем реальную доступность порта с хоста. Если контейнер
+    # остался без сети (следствие прошлого «Bind ... port is already allocated») —
+    # пересоздаём его с корректной публикацией порта (volume zakupki_pgdata
+    # сохраняется, миграции идемпотентны).
+    if ! port_published_and_reachable; then
+        echo "Контейнер $CONTAINER не публикует/не отдаёт порт 5432 с хоста — пересоздаю (volume сохранится)."
+        docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+        docker run -d --name "$CONTAINER" \
+            -p 5432:5432 \
+            -e POSTGRES_USER="$DB_USER" \
+            -e POSTGRES_PASSWORD="$DB_PASS" \
+            -e POSTGRES_DB="$DB_NAME" \
+            -v "$VOLUME_NAME:/var/lib/postgresql/data" \
+            "$POSTGRES_IMAGE"
+    fi
     wait_db
     if migrations_applied; then
         echo "БД готова к использованию (миграции уже применены)."
@@ -119,6 +172,19 @@ if container_exists; then
     fi
 else
     echo "Контейнера $CONTAINER нет — создаю новый..."
+    if ! docker ps -a --format '{{.Names}}|{{.Ports}}' 2>/dev/null | grep -qE "\b5432->"; then
+        if command -v nc >/dev/null 2>&1; then
+            if nc -z localhost 5432 >/dev/null 2>&1; then
+                echo "Ошибка: порт 5432 уже занят ($(port_owner_5432)) — БД не может стартовать." >&2
+                echo "Остановите владельца порта (например: docker compose -f <путь> down) и повторите." >&2
+                exit 1
+            fi
+        elif netstat -ano 2>/dev/null | grep -qE ":5432[[:space:]].*LISTENING"; then
+            echo "Ошибка: порт 5432 уже занят ($(port_owner_5432)) — БД не может стартовать." >&2
+            echo "Остановите владельца порта (например: docker compose -f <путь> down) и повторите." >&2
+            exit 1
+        fi
+    fi
     docker run -d --name "$CONTAINER" \
         -p 5432:5432 \
         -e POSTGRES_USER="$DB_USER" \

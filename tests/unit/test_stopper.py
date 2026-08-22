@@ -3,8 +3,17 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
-from zakupki_parser.stopper import _RUN_PATTERNS
+import pytest
+
+from zakupki_parser.stopper import (
+    _RUN_PATTERNS,
+    _WIN_PATTERNS,
+    _find_pids_linux,
+    _find_pids_windows,
+    _kill_graceful_windows,
+)
 
 
 def _any_match(cmdline: str) -> bool:
@@ -43,3 +52,122 @@ def test_no_non_capturing_groups() -> None:
 def test_does_not_match_unrelated() -> None:
     assert not _any_match("python3 server.py run-once")
     assert not _any_match("bash run-service.sh")
+
+
+def _win_match(cmdline: str) -> bool:
+    return any(re.search(p, cmdline) for p in _WIN_PATTERNS)
+
+
+def test_win_patterns_match_serve_with_options() -> None:
+    assert _win_match(".venv\\Scripts\\zp.exe --configs configs serve")
+
+
+def test_win_patterns_match_subcommands() -> None:
+    assert _win_match("python.exe -m zakupki_parser run-once")
+    assert _win_match("python.exe -m zakupki_parser run-service")
+
+
+def test_win_patterns_reject_unrelated() -> None:
+    assert not _win_match("python.exe server.py")
+    assert not _win_match("python.exe -m pwin_service worker")
+
+
+def test_find_pids_linux_raises_without_pgrep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    try:
+        _find_pids_linux(["serve"])
+    except RuntimeError as exc:
+        assert "pgrep" in str(exc)
+    else:  # pragma: no cover - тест должен упасть без исключения
+        raise AssertionError("ожидалось RuntimeError")
+
+
+def test_find_pids_linux_parses_pgrep_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    calls: list[str] = []
+
+    class _Result:
+        stdout = "12\n34\n"
+        returncode = 0
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> _Result:
+        calls.append(cmd[0])
+        return _Result()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/pgrep" if name == "pgrep" else None)
+    assert _find_pids_linux(["run-once"]) == [12, 34]
+    assert calls == ["pgrep"]
+
+
+def test_find_pids_windows_uses_powershell(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    class _Result:
+        stdout = "101\n202\n"
+        returncode = 0
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> _Result:
+        assert cmd[0] == "powershell"
+        assert "-Command" in cmd
+        return _Result()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert _find_pids_windows(["serve"]) == [101, 202]
+
+
+def test_find_pids_windows_ignores_garbage(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    class _Result:
+        stdout = "7\nnot-a-pid\n99\n"
+        returncode = 0
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> _Result:
+        return _Result()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert _find_pids_windows(["serve"]) == [7, 99]
+
+
+def test_kill_graceful_windows_uses_taskkill(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    calls: list[list[str]] = []
+
+    class _Ok:
+        returncode = 0
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> _Ok:
+        calls.append(cmd)
+        return _Ok()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    monkeypatch.setattr("zakupki_parser.stopper._alive", lambda pid: False)
+    remaining = _kill_graceful_windows([11, 22], force=True)
+    assert remaining == []
+    # По каждому PID: taskkill /F /PID + taskkill /F /T /PID.
+    assert len(calls) == 4
+    assert calls[0][0] == "taskkill"
+    assert "/F" in calls[0]
+    assert calls[0][-1] == "11"
+
+
+def test_kill_graceful_windows_reports_remaining(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    calls: list[list[str]] = []
+
+    class _Fail:
+        returncode = 1
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> _Fail:
+        calls.append(cmd)
+        return _Fail()
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    # Процесс считается живым после неудачной taskkill.
+    monkeypatch.setattr("zakupki_parser.stopper._alive", lambda pid: True)
+    remaining = _kill_graceful_windows([5], force=True)
+    assert remaining == [5]

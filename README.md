@@ -97,6 +97,10 @@ docs/c4/                       # C4-диаграммы (Mermaid)
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/) (менеджер зависимостей)
 - PostgreSQL (для записи; при отсутствии — сервис работает без БД)
+- Docker: локальный запуск (scripts/run_all.sh) поднимает БД, Redis и LangFuse
+  контейнерами. **На Windows перед run_all.bat/run_all.sh сначала запустите
+  Docker Desktop** и дождитесь, пока он станет готов (иконка в трее). Под Linux —
+  обычный docker + docker compose.
 
 ## Установка
 ```bash
