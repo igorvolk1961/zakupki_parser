@@ -89,11 +89,13 @@ def _find_pids_windows(patterns: list[str]) -> list[int]:
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
         timeout=30,
     )
     pids: list[int] = []
-    for line in result.stdout.splitlines():
+    for line in (result.stdout or "").splitlines():
         if line.strip().isdigit():
             pids.append(int(line.strip()))
     return list(dict.fromkeys(pids))
@@ -109,14 +111,18 @@ def _alive(pid: int) -> bool:
     if _on_windows():
         # os.kill(pid, 0) на Windows для чужих процессов бросает SystemError —
         # используем tasklist (нативный способ проверки существования процесса).
+        # Вывод tasklist идёт в OEM-кодировке (cp866): text=True без errors
+        # падает на декодировании (UnicodeDecodeError) и stdout становится None.
         result = subprocess.run(
             ["tasklist", "/FI", f"PID eq {pid}"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=30,
         )
-        return str(pid) in result.stdout
+        return str(pid) in (result.stdout or "")
     try:
         os.kill(pid, 0)
         return True
@@ -178,6 +184,8 @@ def _kill_graceful_windows(pids: list[int], force: int | bool) -> list[int]:
             [*args, "/PID", str(pid)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=30,
         )
@@ -186,6 +194,8 @@ def _kill_graceful_windows(pids: list[int], force: int | bool) -> list[int]:
             [*args, "/T", "/PID", str(pid)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=30,
         )
