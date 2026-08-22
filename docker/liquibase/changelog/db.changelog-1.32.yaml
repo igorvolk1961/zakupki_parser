@@ -27,6 +27,8 @@ databaseChangeLog:
           ALTER TABLE procurement_evaluations ADD CONSTRAINT uq_evaluations_proc_profile
               UNIQUE (procurement_id, profile_id);
           CREATE INDEX ix_procurement_evaluations_profile ON procurement_evaluations (profile_id);
-          CREATE INDEX ix_procurement_evaluations_procurement ON procurement_evaluations (procurement_id);
+          -- Индекс по procurement_id уже создан в db.changelog-1.29 (changeSet id 30) —
+          -- создаём только если отсутствует.
+          CREATE INDEX IF NOT EXISTS ix_procurement_evaluations_procurement ON procurement_evaluations (procurement_id);
 
           COMMENT ON TABLE procurement_evaluations IS 'Per-profile результаты скоринга (ключ: procurement_id, profile_id)';
