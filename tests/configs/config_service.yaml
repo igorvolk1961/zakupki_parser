@@ -7,11 +7,5 @@ sites:
     enabled: true
 default_cutoff_days: 7
 search_criteria:
-  okpd_codes:
-    - "62.02"
-  nmck_min: null
-  nmck_max: null
   active_only: false
-stop_conditions:
   deadline_not_expired: true
-  min_deadline_days: null

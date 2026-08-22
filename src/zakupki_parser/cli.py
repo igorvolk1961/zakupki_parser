@@ -214,12 +214,8 @@ def _print_summary(cfg: AppConfig) -> None:
     )
     mode = "все площадки по дате" if cfg.service.sort_by_date_only else "по конфигурации площадок"
     print(f"  Порог дат (дней): {cfg.service.default_cutoff_days} (режим: {mode})")
-    sc_cond = cfg.service.stop_conditions
-    min_days = sc_cond.min_deadline_days if sc_cond.min_deadline_days is not None else "–"
-    print(
-        f"  Stop-условия: deadline истёк: {_yn(sc_cond.deadline_not_expired)}; "
-        f"мин. дней до срока: {min_days}"
-    )
+    sc_cond = cfg.service.search_criteria
+    print(f"  Stop-условия: deadline истёк: {_yn(sc_cond.deadline_not_expired)}")
     print(
         f"  Circuit breaker: порог сбоев {cfg.ops.circuit_breaker_failure_threshold}, "
         f"сброс {cfg.ops.circuit_breaker_reset_timeout_seconds} сек"

@@ -928,6 +928,10 @@ class ProcurementRepository:
                 )
                 profile.is_active = True
             await session.commit()
+            # updated_at (server onupdate) генерируется в БД: с expire_on_commit=False
+            # SQLAlchemy не подставляет его в объект без refresh. После выхода из
+            # сессии объект detached, и _profile_out упадёт с DetachedInstanceError.
+            await session.refresh(profile)
         if wants_keywords:
             await self.set_profile_keywords(
                 profile.id,

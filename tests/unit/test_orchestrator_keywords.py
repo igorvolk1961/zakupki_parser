@@ -61,14 +61,15 @@ def _make_recorder(app_config: AppConfig) -> _Recorder:
 
 @pytest.mark.asyncio
 async def test_server_crawl_has_no_keywords(app_config: AppConfig) -> None:
-    """R9: в серверных запросах нет ключевых слов — только коды ОКПД2."""
+    """R9: в серверных запросах нет ключевых слов — только коды ОКПД2 из профиля.
+
+    Без активного профиля (repository=None) критерии из глобального конфига
+    НЕ используются (fallback удалён): обход по кодам не выполняется.
+    """
     recorder = _make_recorder(app_config)
     await recorder.run(page=object())  # type: ignore[arg-type]
 
-    assert recorder.crawled
-    assert all(c.keywords == [] for c in recorder.crawled)
-    # Обход выполняется по кодам ОКПД2 из search_criteria.
-    assert all(c.okpd_codes == ["62.02"] for c in recorder.crawled)
+    assert recorder.crawled == []
 
 
 @pytest.mark.asyncio
@@ -81,5 +82,5 @@ async def test_no_code_crawl_skipped_without_profile(app_config: AppConfig) -> N
     recorder = _make_recorder(app_config)
     await recorder.run(page=object())  # type: ignore[arg-type]
 
-    # Только обход по кодам; никаких обходов с пустым набором кодов.
-    assert [c.okpd_codes for c in recorder.crawled] == [["62.02"]]
+    # Без профиля (repository=None) ни обход по кодам, ни «без кода» не выполняются.
+    assert recorder.crawled == []

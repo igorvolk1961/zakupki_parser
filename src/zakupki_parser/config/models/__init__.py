@@ -55,7 +55,6 @@ from zakupki_parser.config.models.service import (
     SearchCriteria,
     ServiceConfig,
     SiteServiceEntry,
-    StopConditions,
 )
 
 __all__ = [
@@ -91,7 +90,6 @@ __all__ = [
     "ServiceConfig",
     "SiteServiceEntry",
     "SortConfig",
-    "StopConditions",
     "TelegramConfig",
     "WebhookConfig",
 ]

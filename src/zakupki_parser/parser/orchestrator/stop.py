@@ -1,7 +1,7 @@
 """Условия прекращения обработки закупки (stop-условия) — сроки.
 
-Миксин, используемый классом ``Orchestrator``. Набор флагов задаётся в
-``config_service.yaml -> stop_conditions``.
+Миксин, используемый классом ``Orchestrator``. Флаг задаётся в
+``config_service.yaml -> search_criteria.deadline_not_expired``.
 
 Ключевые слова и слова-исключения здесь НЕ обрабатываются: по R9 они применяются
 обязательной клиентской пост-фильтрацией ДО записи в БД (см. ``parser.filtering``)
@@ -31,7 +31,7 @@ class StopMixin:
 
         Возвращает True, если закупку следует ПРОПУСТИТЬ (обработка прекращается).
         """
-        sc = self._cfg.service.stop_conditions
+        sc = self._cfg.service.search_criteria
         if sc.deadline_not_expired:
             deadline = record.get("deadline")
             if not isinstance(deadline, datetime):
@@ -43,14 +43,4 @@ class StopMixin:
                     deadline,
                 )
                 return True
-            if sc.min_deadline_days is not None:
-                days_left = (deadline - self._now).total_seconds() / 86400
-                if days_left < sc.min_deadline_days:
-                    logger.info(
-                        "Закупка %s пропущена: до срока подачи %.1f дн. < %d",
-                        record.get("number"),
-                        days_left,
-                        sc.min_deadline_days,
-                    )
-                    return True
         return False

@@ -24,31 +24,6 @@ class SiteServiceEntry(_BaseConfig):
     enabled: bool = Field(default=True)
 
 
-class StopConditions(_BaseConfig):
-    """Набор флагов-условий прекращения обработки очередной закупки.
-
-    Каждый флаг — это условие, при котором закупка пропускается (не сохраняется
-    и не уведомляется). Набор расширяется добавлением новых флагов.
-    """
-
-    deadline_not_expired: bool = Field(
-        default=True,
-        description=(
-            "не обрабатывать закупку, если срок приёма заявок (переменная 'deadline' "
-            "из configs/dom/<platform_id>.yaml) истёк к текущей дате"
-        ),
-    )
-    min_deadline_days: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "если задано — не обрабатывать закупку, до срока подачи которой осталось "
-            "меньше указанного числа календарных дней (нужно время на подготовку заявки); "
-            "применяется ТОЛЬКО если deadline_not_expired=true"
-        ),
-    )
-
-
 class SearchCriteria(_BaseConfig):
     """Бизнес-критерии поиска — задаются в config_service.yaml в ОБОБЩЁННЫХ терминах.
 
@@ -93,6 +68,13 @@ class SearchCriteria(_BaseConfig):
             "(применяется на площадках, где это поддерживается, через stateIdIn)"
         ),
     )
+    deadline_not_expired: bool = Field(
+        default=True,
+        description=(
+            "не обрабатывать закупку, если срок приёма заявок (переменная 'deadline' "
+            "из configs/dom/<platform_id>.yaml) истёк к текущей дате"
+        ),
+    )
 
 
 class ServiceConfig(_BaseConfig):
@@ -114,4 +96,3 @@ class ServiceConfig(_BaseConfig):
     search_criteria: SearchCriteria = Field(
         default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
     )
-    stop_conditions: StopConditions = Field(default_factory=StopConditions)

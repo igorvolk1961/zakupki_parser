@@ -19,8 +19,8 @@ sites:
   enabled: false
 - platform_id: lot_online_223
   enabled: false
-default_cutoff_days: 14
+default_cutoff_days: 90
 sort_by_date_only: true
-stop_conditions:
-  deadline_not_expired: true
-  min_deadline_days: 0
+search_criteria:
+  active_only: false
+  deadline_not_expired: false

@@ -168,7 +168,7 @@ def _criteria_value(
         return cutoff.astimezone(MSK).strftime(search.date_great_equal_format)
     if key == "deadline_from":
         # Срок подачи заявок не раньше сегодня (закупки с просроченным дедлайном
-        # отсекаются сервером — дополняет stop_conditions.deadline_not_expired).
+        # отсекаются сервером — дополняет search_criteria.deadline_not_expired).
         return datetime.now(MSK).strftime(search.date_great_equal_format)
     if key == "okpd2":
         if not criteria.okpd_codes:

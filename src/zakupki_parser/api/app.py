@@ -389,6 +389,23 @@ def _create_state(configs_dir: str) -> AppState:
     return state
 
 
+def _service_config_public(service: ServiceConfig) -> dict[str, Any]:
+    """Сериализация config_service.yaml для веб-редактора.
+
+    ``search_criteria`` хранит только ``active_only`` и ``deadline_not_expired``:
+    критерии ОКПД2/НМЦК/слова задаются активным профилем (таблица ``keywords``,
+    канонический источник), глобальный конфиг их не содержит.
+    """
+    data = service.model_dump()
+    sc = data.get("search_criteria")
+    if isinstance(sc, dict):
+        data["search_criteria"] = {
+            "active_only": bool(sc.get("active_only", False)),
+            "deadline_not_expired": bool(sc.get("deadline_not_expired", True)),
+        }
+    return data
+
+
 def _prompt_file(state: AppState, name: str) -> Path:
     """Файл промпта: только существующий .md/.json внутри prompts_dir.
 
@@ -1310,7 +1327,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         Секреты и эксплуатационные параметры (БД, уведомления, таймер) живут в
         config_ops.yaml и не редактируются через этот API.
         """
-        return state.cfg.service.model_dump()
+        return _service_config_public(state.cfg.service)
 
     @app.put(
         "/api/config",
@@ -1332,7 +1349,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         try:
             target.write_text(
                 yaml.safe_dump(
-                    new_service.model_dump(exclude_none=True),
+                    _service_config_public(new_service),
                     allow_unicode=True,
                     sort_keys=False,
                 ),
@@ -1343,7 +1360,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             raise HTTPException(status_code=500, detail=detail) from exc
         state.cfg.service = new_service
         logger.info("Сохранён config_service.yaml (%s)", target)
-        return new_service.model_dump()
+        return _service_config_public(new_service)
 
     # ------------------------------------------------------------------ #
     # Промпты scoring_service — просмотр/редактирование (вкладка «Промпты»)

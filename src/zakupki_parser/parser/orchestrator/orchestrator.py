@@ -191,6 +191,26 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         if not detail_url:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
             return False, number, False
+
+        # Ранняя клиентская фильтрация (R9): subject уже есть в карточке списка —
+        # применяем ключевые слова ДО запроса деталей, чтобы не тратить лимиты API
+        # площадки на заведомо неподходящие закупки (например mos.ru HTTP 402).
+        # Если subject в списке пуст — детали открываем, фильтр применится после.
+        early_subject = str(list_vars.get("subject") or "")
+        if early_subject and self._client_profile is not None:
+            if not keywords_match(list_vars, self._client_keywords):
+                logger.info(
+                    "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
+                    number,
+                )
+                return False, number, False
+            if exclusions_present(list_vars, self._client_exclusion_words):
+                logger.info(
+                    "Закупка %s отброшена: слова-исключения в описании",
+                    number,
+                )
+                return False, number, False
+
         # stop-условия по данным из деталей проверяются после извлечения деталей.
         # 3) детали: либо через открытый API площадки (детальная страница не
         #    открывается), либо переход на детальную страницу в отдельной вкладке,
@@ -310,11 +330,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # выполняется на стороне клиента (репозиторий/API), а не при записи.
         record["is_active"] = self._is_active(record)
 
-        # 4) клиентская пост-фильтрация словами (R9): позитивные ключевые слова и
-        #    слова-исключения применяются к записи СРАЗУ после получения списка и
-        #    ДО записи в БД (серверная фильтрация — только по кодам ОКПД2).
-        #    Слова берутся из таблицы keywords активного профиля.
-        if self._client_profile is not None:
+        # Клиентская фильтрация (R9) для закупок, где subject в списке был пуст:
+        # фильтр по детальным данным (полное описание из карточки деталей).
+        if not early_subject and self._client_profile is not None:
             if not keywords_match(record, self._client_keywords):
                 logger.info(
                     "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
@@ -327,7 +345,8 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     number,
                 )
                 return False, number, False
-        # Stop-условия по срокам (deadline); слова/исключения уже обработаны выше.
+
+        # Stop-условия по срокам (deadline).
         if self._check_stop_conditions(record):
             return False, number, False
 

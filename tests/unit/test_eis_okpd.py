@@ -59,8 +59,8 @@ def test_files_page_url() -> None:
 def test_build_list_url_includes_okpd_lists() -> None:
     cfg = load_config(CONFIGS_DIR)
     platform = cfg.dom.platforms["zakupki_gov"]
-    url = build_list_url(
-        platform, datetime.now() - timedelta(days=7), criteria=cfg.service.search_criteria
-    )
+    # Критерии ОКПД2 берутся из профиля (fallback на конфиг удалён) — задаём явно.
+    criteria = cfg.service.search_criteria.model_copy(update={"okpd_codes": ["62.02"]})
+    url = build_list_url(platform, datetime.now() - timedelta(days=7), criteria=criteria)
     assert "okpd2Ids=8874707" in url
     assert "okpd2IdsWithNested=on" in url
