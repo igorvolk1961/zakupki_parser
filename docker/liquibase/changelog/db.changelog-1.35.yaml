@@ -1,0 +1,11 @@
+databaseChangeLog:
+- changeSet:
+    id: 36
+    author: zakupki-parser
+    comment: 'procurement_evaluations.matched_keywords — ключевые слова профиля, по которым была отобрана закупка (клиентская фильтрация R9)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_evaluations ADD COLUMN matched_keywords JSONB;
+          COMMENT ON COLUMN procurement_evaluations.matched_keywords IS 'Ключевые слова профиля (таблица keywords), по которым закупка прошла клиентскую фильтрацию R9';

@@ -29,7 +29,7 @@ from zakupki_parser.parser.detail import (
 )
 from zakupki_parser.parser.detail_api import fetch_api_details
 from zakupki_parser.parser.extractor import extract_from_scope
-from zakupki_parser.parser.filtering import exclusions_present, keywords_match
+from zakupki_parser.parser.filtering import exclusions_present, keywords_match, matched_keywords
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.lister import (
     _increment_url_page,
@@ -367,6 +367,27 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         saved = await self._persist(record)
         if saved and self._known_numbers is not None:
             self._known_numbers.add(str(number))
+
+        # 9-бис) сохраняем ключевые слова, по которым закупка отобрана профилем (R9):
+        # они записываются в procurement_evaluations.matched_keywords ещё до внешнего
+        # скоринга (оценка find-or-create обновляется стадиями каскада).
+        if (
+            saved
+            and self._repository is not None
+            and self._client_profile is not None
+        ):
+            hit = matched_keywords(record, self._client_keywords)
+            if hit:
+                try:
+                    await self._repository.record_matched_keywords(
+                        int(record["id"]), self._client_profile.id, hit
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Не удалось записать matched_keywords закупки %s: %s",
+                        record.get("number"),
+                        exc,
+                    )
 
         # 10) авто-пуш задания на внешний скоринг (ADR-7): приоритет очереди — время
         #     обновления/публикации закупки (новые обрабатываются раньше, ZPOPMAX берёт

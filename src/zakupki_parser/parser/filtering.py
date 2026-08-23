@@ -103,6 +103,20 @@ def keywords_match(record: dict[str, Any], keywords: list[str]) -> bool:
     return any(_expression_match(subject, keyword) for keyword in keywords)
 
 
+def matched_keywords(record: dict[str, Any], keywords: list[str]) -> list[str]:
+    """Список ключевых слов, по которым закупка прошла фильтр (R9).
+
+    Возвращает совпавшие выражения (из ``keywords``) для записи в
+    ``procurement_evaluations.matched_keywords``. Пустой список — не совпало.
+    """
+    if not keywords:
+        return []
+    subject = _subject(record)
+    if not subject:
+        return []
+    return [keyword for keyword in keywords if _expression_match(subject, keyword)]
+
+
 def exclusions_present(record: dict[str, Any], exclusion_words: list[str]) -> bool:
     """True, если любое слово-исключение совпало с описанием закупки."""
     if not exclusion_words:

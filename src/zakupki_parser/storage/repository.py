@@ -946,12 +946,12 @@ class ProcurementRepository:
     # Per-profile результаты скоринга (BR-07)
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _find_or_create_evaluation(
+    async def _find_or_create_evaluation(
         session: Any, procurement_id: int, profile_id: int
     ) -> ProcurementEvaluation:
         """Find-or-create per-profile оценки в ОТКРЫТОЙ сессии (без commit)."""
         existing: ProcurementEvaluation | None = (
-            session.execute(
+            await session.execute(
                 select(ProcurementEvaluation).where(
                     ProcurementEvaluation.procurement_id == procurement_id,
                     ProcurementEvaluation.profile_id == profile_id,
@@ -962,6 +962,32 @@ class ProcurementRepository:
             existing = ProcurementEvaluation(procurement_id=procurement_id, profile_id=profile_id)
             session.add(existing)
         return existing
+
+    async def record_matched_keywords(
+        self,
+        procurement_id: int,
+        profile_id: int,
+        matched: list[str],
+    ) -> None:
+        """Записывает ключевые слова, по которым закупка отобрана профилем (R9).
+
+        Оценка создаётся/обновляется find-or-create: поле ``matched_keywords``
+        заполняется при сохранении закупки парсером (до внешнего скоринга).
+        """
+        if not matched:
+            return
+        async with self._db.session() as session:
+            evaluation = await self._find_or_create_evaluation(
+                session, procurement_id, profile_id
+            )
+            evaluation.matched_keywords = list(matched)
+            await session.commit()
+            logger.info(
+                "Закупка %s: записаны matched_keywords профиля %s (%d)",
+                procurement_id,
+                profile_id,
+                len(matched),
+            )
 
     async def upsert_score(
         self,
@@ -977,7 +1003,9 @@ class ProcurementRepository:
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки."""
         async with self._db.session() as session:
-            evaluation = self._find_or_create_evaluation(session, procurement_id, profile_id)
+            evaluation = await self._find_or_create_evaluation(
+                session, procurement_id, profile_id
+            )
             if score is not None:
                 evaluation.score = _round_score(score)
             if fit_score is not None:
@@ -1005,7 +1033,9 @@ class ProcurementRepository:
     ) -> ProcurementEvaluation:
         """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method)."""
         async with self._db.session() as session:
-            evaluation = self._find_or_create_evaluation(session, procurement_id, profile_id)
+            evaluation = await self._find_or_create_evaluation(
+                session, procurement_id, profile_id
+            )
             evaluation.rag_report = rag_report
             await session.commit()
         return evaluation

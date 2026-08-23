@@ -273,6 +273,8 @@ class ProcurementEvaluation(Base):
     margin: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Ключевые слова профиля, по которым закупка прошла клиентскую фильтрацию (R9).
+    matched_keywords: Mapped[list[str] | None] = mapped_column(JSONB)
     # status/rejection_reason зарезервированы под Эпик 5 («В работу»/«Отклонить») —
     # пост-MVP (этап 7); сейчас всегда status='new', rejection_reason=NULL.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")

@@ -71,3 +71,26 @@ def test_empty_subject() -> None:
     # слова-исключения — не срабатывают.
     assert not keywords_match({"number": "N", "subject": ""}, ["ИИ"])
     assert not exclusions_present({"number": "N", "subject": ""}, ["ремонт"])
+
+
+def test_matched_keywords_returns_hits() -> None:
+    from zakupki_parser.parser.filtering import matched_keywords
+
+    record = {"number": "N", "subject": "Разработка программного обеспечения и внедрение ИИ"}
+    assert matched_keywords(record, ["разработк* программ*", "внедрен* ИИ", "ремонт"]) == [
+        "разработк* программ*",
+        "внедрен* ИИ",
+    ]
+
+
+def test_matched_keywords_empty_for_no_hits() -> None:
+    from zakupki_parser.parser.filtering import matched_keywords
+
+    record = {"number": "N", "subject": "Оказание услуг по уборке"}
+    assert matched_keywords(record, ["разработк* программ*", "ИИ"]) == []
+
+
+def test_matched_keywords_empty_subject() -> None:
+    from zakupki_parser.parser.filtering import matched_keywords
+
+    assert matched_keywords({"number": "N", "subject": ""}, ["ИИ"]) == []
