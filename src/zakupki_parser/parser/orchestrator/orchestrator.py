@@ -508,19 +508,18 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # по кодам (есть маппинг okpd2): иначе коды-only обход вернул бы весь список
         # (например roseltorg, где okpd2 не подключён).
         okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
-        # Обход «без кода» (R9): только при наличии позитивных ключевых слов в профиле
-        # и поддержке площадкой (no_code_search); иначе пропускаем с записью в лог.
+        # Обход «без кода» (R9): клиентская фильтрация словами профиля. Выполняется
+        # ОТДЕЛЬНЫМ проходом по всему реестру площадки (фильтр okpdPaths не ставится —
+        # пустой список кодов площадка воспринимает как «любой код»), чтобы не терять
+        # закупки, подходящие по словам, но вне заданных кодов ОКПД2. Кодовый и
+        # «без кода» проходы дополняют друг друга: оба запускаются при наличии
+        # позитивных ключевых слов и поиска на площадке.
         has_positive_keywords = bool(self._client_keywords)
-        no_code_supported = bool(search and search.no_code_search)
+        no_code_walk = has_positive_keywords and search is not None
         if not has_positive_keywords:
             logger.info(
                 "Площадка %s: в активном профиле нет позитивных ключевых слов — "
                 "обход «без кода» пропущен",
-                self._platform_id,
-            )
-        elif not no_code_supported:
-            logger.info(
-                "Площадка %s: обход «без кода» не поддерживается (no_code_search=false) — пропущен",
                 self._platform_id,
             )
 
@@ -528,7 +527,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         if base.okpd_codes and okpd_mapped:
             await self._crawl(page, cutoff, base, by_relevance, retry_cfg)
             crawled = True
-        if has_positive_keywords and no_code_supported:
+        if no_code_walk:
             no_code = base.model_copy(update={"okpd_codes": []})
             logger.info(
                 "Площадка %s: обход «без кода» (клиентская фильтрация словами профиля)",
