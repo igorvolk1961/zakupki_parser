@@ -225,7 +225,7 @@ class Keyword(Base):
         BigInteger, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
     )
     word: Mapped[str] = mapped_column(Text, nullable=False)
-    type: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("keyword"))
+    type: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'keyword'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
