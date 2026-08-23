@@ -431,20 +431,21 @@ async def test_find_unscored_returns_unscored_and_mark_excludes(db: Database) ->
 
 
 @pytest.mark.asyncio
-async def test_find_unscored_excludes_scored_and_deadline_expired(db: Database) -> None:
-    """Оценённые и просроченные закупки в очередь recovery не ставятся."""
+async def test_find_unscored_excludes_scored_only(db: Database) -> None:
+    """Оценённые в очередь recovery не ставятся; просроченные (не оценённые) — ставятся."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("q-user", "hash", "admin")
     profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
     assert profile.id is not None
     scored = await _upsert(repo, "Q-3")
     await repo.upsert_score(scored, profile.id, fit_score=0.8, score_method="fit")
-    # Просроченная (deadline < now) в очередь не ставится.
-    await _upsert(repo, "Q-4", deadline=datetime(2026, 8, 1, tzinfo=UTC))
+    # Просроченная (deadline < now) попадает в очередь: правила постановки такие же,
+    # как при записи в БД (deadline_not_expired=false в config_service.yaml).
+    expired = await _upsert(repo, "Q-4", deadline=datetime(2026, 8, 1, tzinfo=UTC))
 
-    now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
-    found = await repo.find_unscored(now=now)
-    assert found == []
+    found = await repo.find_unscored()
+    assert [item["number"] for item in found] == ["Q-4"]
+    assert found[0]["id"] == expired
 
 
 @pytest.mark.asyncio

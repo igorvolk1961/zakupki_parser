@@ -464,7 +464,7 @@ class ProcurementRepository:
             return True
 
     async def find_unscored(
-        self, limit: int | None = None, now: datetime | None = None
+        self, limit: int | None = None
     ) -> list[dict[str, Any]]:
         """Закупки, которым требуется (повторная) постановка в очередь скоринга.
 
@@ -474,8 +474,11 @@ class ProcurementRepository:
           результат не записан;
         - задача не была поставлена (``scoring_queued_at IS NULL``) ИЛИ запись
           обновлялась после постановки (``update_date > scoring_queued_at``) —
-          «по времени обновления»;
-        - просроченные (``deadline < now``) в очередь не ставятся.
+          «по времени обновления».
+
+        Просроченные закупки (deadline < now) НЕ исключаются: правила постановки
+        в очередь совпадают с правилами записи закупок в БД (см. config_service.yaml
+        search_criteria.deadline_not_expired).
 
         Возвращает список dict'ов: id, number, platform_id, update_date,
         publication_date (для приоритета по времени).
@@ -495,8 +498,6 @@ class ProcurementRepository:
                 Procurement.update_date > Procurement.scoring_queued_at,
             ),
         ]
-        if now is not None:
-            conditions.append(or_(Procurement.deadline.is_(None), Procurement.deadline >= now))
         stmt = (
             select(
                 Procurement.id,

@@ -373,10 +373,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         #     больший score), как и в recovery (scheduler._recover_scoring_queue).
         #     Уведомление подписчиков отправляется позже — в POST /score, после прихода
         #     внешнего скора и проверки порога notify_min_fit_score (см. api/app.py).
-        #     Просроченные (deadline < now) в очередь не ставим.
-        deadline = record.get("deadline")
-        expired = isinstance(deadline, datetime) and deadline < self._now
-        if saved and self._transport is not None and not expired:
+        #     Правила постановки совпадают с правилами записи в БД: в очередь попадает
+        #     любая сохранённая закупка, включая просроченные (deadline_not_expired=false).
+        if saved and self._transport is not None:
             procurement_id = record.get("id")
             if procurement_id is not None:
                 try:

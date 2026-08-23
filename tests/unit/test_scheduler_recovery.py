@@ -31,13 +31,9 @@ class _FakeRepo:
         self.marked: list[int] = []
 
     async def find_unscored(
-        self, limit: int | None = None, now: datetime | None = None
+        self, limit: int | None = None
     ) -> list[dict[str, Any]]:
         items = [item for item in self._items if item["id"] not in self.marked]
-        if now is not None:
-            items = [
-                item for item in items if item.get("deadline") is None or item["deadline"] >= now
-            ]
         return items[: limit or len(items)]
 
     async def mark_scoring_queued(self, procurement_id: int, queued_at: datetime) -> bool:

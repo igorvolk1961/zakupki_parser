@@ -10,6 +10,9 @@
 #   5. margin_service — воркер стадии Margin (Margin = НМЦК × margin_rate);
 #   6. scoring_transport — gateway скоринга (ingest + возврат результата);
 #
+# Каждый сервис пишет в собственный файл лога (data/logs/<сервис>.log);
+# парсер пишет в data/parser.log (config_log.yaml).
+#
 # Парсер запускается отдельной командой (не внутри этого скрипта):
 #   uv run zp --configs configs serve --host 0.0.0.0 --port <PORT_PARSER>
 #
@@ -28,6 +31,9 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Каталог логов сервисов скоринга (у каждого сервиса свой файл).
+LOG_DIR="$ROOT_DIR/data/logs"
 
 PORT_PARSER="${PORT_PARSER:-8000}"
 PORT_TRANSPORT="${PORT_TRANSPORT:-8200}"
@@ -317,23 +323,24 @@ SCORING_PYTHONPATH="$COMMON_PATH${PYTHONPATH:+:$PYTHONPATH}"
 
 # --- scoring_service (воркер стадии Fit, LLM-пайплайн) ---------------------
 echo "Запуск scoring_service (воркер Fit)..."
+mkdir -p "$LOG_DIR"
 ( cd "$ROOT_DIR/src/scoring_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     SCORE_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
-    uv run python -m scoring_service worker ) &
+    uv run python -m scoring_service worker ) >> "$LOG_DIR/scoring_service.log" 2>&1 &
 BGPIDS+=($!)
 
 # --- pwin_service (воркер стадии P(win), заглушка) -------------------------
 echo "Запуск pwin_service (воркер P(win), заглушка)..."
 ( cd "$ROOT_DIR/src/pwin_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     PWIN_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" PWIN_USE_STUB=true \
-    uv run python -m pwin_service worker ) &
+    uv run python -m pwin_service worker ) >> "$LOG_DIR/pwin_service.log" 2>&1 &
 BGPIDS+=($!)
 
 # --- margin_service (воркер стадии Margin) ---------------------------------
 echo "Запуск margin_service (воркер Margin)..."
 ( cd "$ROOT_DIR/src/margin_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     MARGIN_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
-    uv run python -m margin_service worker ) &
+    uv run python -m margin_service worker ) >> "$LOG_DIR/margin_service.log" 2>&1 &
 BGPIDS+=($!)
 
 # --- scoring_transport ------------------------------------------------------
@@ -341,7 +348,8 @@ echo "Запуск scoring_transport на :$PORT_TRANSPORT..."
 ( cd "$ROOT_DIR/src/scoring_transport" \
     && PYTHONPATH="$SCORING_PYTHONPATH" \
     TRANSPORT_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
-    uv run python -m scoring_transport serve --host 127.0.0.1 --port "$PORT_TRANSPORT" ) &
+    uv run python -m scoring_transport serve --host 127.0.0.1 --port "$PORT_TRANSPORT" ) \
+    >> "$LOG_DIR/scoring_transport.log" 2>&1 &
 BGPIDS+=($!)
 
 # Ждём готовности транспорта, чтобы парсер при авто-пуше не терял задания.

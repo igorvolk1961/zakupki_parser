@@ -111,7 +111,7 @@ class Scheduler:
         transport = ScoringTransportClient(self._cfg.score.scoring_transport_url)
         now = datetime.now(UTC)
         for _ in range(50):  # не более 50 партий по 200 за цикл
-            items = await self._repository.find_unscored(limit=200, now=now)
+            items = await self._repository.find_unscored(limit=200)
             if not items:
                 return
             for item in items:
