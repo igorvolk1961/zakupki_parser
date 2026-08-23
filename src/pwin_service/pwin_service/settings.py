@@ -51,6 +51,8 @@ class Settings(BaseSettings, PwinCoefficients):
     processing_ttl_seconds: int = 600
     processing_recovery_priority: float = 0.0
     queue_poll_seconds: float = 2.0
+    # Счётчик ретраев задач (HASH): см. scoring_service.settings (общий StageQueue).
+    jobs_retry_key: str = "pwin:jobs_retries"
 
     # Пайплайн
     score_round_digits: int = 4

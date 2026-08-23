@@ -26,14 +26,33 @@ class _FakeTransport:
 class _FakeRepo:
     """Фейковый репозиторий: find_unscored исключает отмеченные как поставленные."""
 
-    def __init__(self, items: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        items: list[dict[str, Any]],
+        queued_at: dict[int, datetime] | None = None,
+    ) -> None:
         self._items = items
+        self._queued_at = queued_at or {}
         self.marked: list[int] = []
 
     async def find_unscored(
-        self, limit: int | None = None
+        self, limit: int | None = None, queued_before: datetime | None = None
     ) -> list[dict[str, Any]]:
-        items = [item for item in self._items if item["id"] not in self.marked]
+        items: list[dict[str, Any]] = []
+        for item in self._items:
+            if item["id"] in self.marked:
+                continue
+            queued = self._queued_at.get(item["id"])
+            if queued is not None:
+                if queued_before is None:
+                    # Без порога старения — как в репозитории: только если запись
+                    # обновлялась после постановки (иначе «уже поставлена»).
+                    upd = item.get("update_date")
+                    if not (upd is not None and upd > queued):
+                        continue
+                elif queued >= queued_before:
+                    continue
+            items.append(item)
         return items[: limit or len(items)]
 
     async def mark_scoring_queued(self, procurement_id: int, queued_at: datetime) -> bool:
@@ -118,4 +137,55 @@ async def test_recover_noop_without_transport(app_config: Any) -> None:
 
     await scheduler._recover_scoring_queue()  # noqa: SLF001
 
+    assert repo.marked == []
+
+
+@pytest.mark.asyncio
+async def test_recover_reenqueues_stale_queued(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Задание потеряно (метка постановки старше TTL): закупка снова в очереди."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.score.recovery_ttl_seconds = 3600.0
+    scheduler = Scheduler(cfg)
+    # Поставлена в очередь «давно», заново не обновлялась, но так и не отскорингована.
+    stale = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    fake_transport = _FakeTransport()
+    repo = _FakeRepo(
+        [_item(1, publication_date=datetime(2026, 8, 10, 12, 0, tzinfo=UTC))],
+        queued_at={1: stale},
+    )
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    monkeypatch.setattr(
+        "zakupki_parser.scheduler.ScoringTransportClient", lambda url: fake_transport
+    )
+
+    await scheduler._recover_scoring_queue()  # noqa: SLF001
+
+    assert [item[0] for item in fake_transport.enqueued] == [1]
+    assert repo.marked == [1]
+
+
+@pytest.mark.asyncio
+async def test_recover_skips_fresh_queued_when_ttl_disabled(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """TTL=0 (самовосстановление выключено): «давно поставленная» закупка не дублируется."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.score.recovery_ttl_seconds = 0.0
+    scheduler = Scheduler(cfg)
+    stale = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+    fake_transport = _FakeTransport()
+    repo = _FakeRepo(
+        [_item(1, publication_date=datetime(2026, 8, 10, 12, 0, tzinfo=UTC))],
+        queued_at={1: stale},
+    )
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    monkeypatch.setattr(
+        "zakupki_parser.scheduler.ScoringTransportClient", lambda url: fake_transport
+    )
+
+    await scheduler._recover_scoring_queue()  # noqa: SLF001
+
+    assert fake_transport.enqueued == []
     assert repo.marked == []

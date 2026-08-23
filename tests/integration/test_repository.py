@@ -471,7 +471,21 @@ async def test_find_unscored_reenqueues_after_update(db: Database) -> None:
 
 
 @pytest.mark.asyncio
-async def test_find_unscored_priority_fields(db: Database) -> None:
+async def test_find_unscored_reenqueues_stale_queued(db: Database) -> None:
+    """Метка постановки старше порога (queued_before) — закупка снова в очереди."""
+    repo = ProcurementRepository(db)
+    pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 8, 10, 10, 0, tzinfo=UTC))
+    # Поставлена в очередь «давно», запись не обновлялась — без порога не возвращается.
+    await repo.mark_scoring_queued(pid, datetime(2026, 8, 1, 12, 0, tzinfo=UTC))
+    assert await repo.find_unscored() == []
+
+    found = await repo.find_unscored(queued_before=datetime(2026, 8, 15, 12, 0, tzinfo=UTC))
+    assert [item["number"] for item in found] == ["Q-5"]
+
+    # Свежая метка (новее порога) — закупка НЕ дублируется.
+    await repo.mark_scoring_queued(pid, datetime(2026, 8, 16, 12, 0, tzinfo=UTC))
+    found = await repo.find_unscored(queued_before=datetime(2026, 8, 15, 12, 0, tzinfo=UTC))
+    assert found == []
     """find_unscored отдаёт update_date/publication_date для приоритета по времени."""
     repo = ProcurementRepository(db)
     pub = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)

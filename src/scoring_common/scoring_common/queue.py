@@ -25,6 +25,9 @@ class StageQueueSettings(Protocol):
     processing_ttl_seconds: int
     processing_recovery_priority: float
     queue_poll_seconds: float
+    # Счётчик ретраев задач (HASH member -> int): ограничивает число возвратов
+    # в очередь при транзиентных сбоях стадии (например, таймаут LLM-провайдера).
+    jobs_retry_key: str
 
 
 class StageQueue:
@@ -104,3 +107,15 @@ class StageQueue:
         await self._client.lpush(
             self._settings.results_key, json.dumps(payload, ensure_ascii=False)
         )
+
+    async def increment_retries(self, procurement_id: int) -> int:
+        """Инкремент счётчика ретраев задачи; возвращает новое значение."""
+        assert self._client is not None
+        member = self._member(procurement_id)
+        return int(await self._client.hincrby(self._settings.jobs_retry_key, member, 1))
+
+    async def reset_retries(self, procurement_id: int) -> None:
+        """Обнулить счётчик ретраев задачи (успех либо окончательный сброс)."""
+        assert self._client is not None
+        member = self._member(procurement_id)
+        await self._client.hdel(self._settings.jobs_retry_key, member)

@@ -24,6 +24,13 @@ processing_meta_key: "scoring:processing_meta"
 processing_ttl_seconds: 600
 processing_recovery_priority: 0.0
 queue_poll_seconds: 2.0
+# Счётчик ретраев задач (HASH): лимит возвратов в очередь при сбоях LLM-провайдера.
+jobs_retry_key: "scoring:jobs_retries"
+
+# Повторы при транзиентных ошибках LLM-провайдера (таймаут/5xx): задача
+# возвращается в очередь с backoff, но не более llm_retry_max_attempts раз подряд.
+llm_retry_max_attempts: 3
+llm_retry_backoff_seconds: 5.0
 
 # Компетенции поставщика
 competencies_file: "data/competencies.md"

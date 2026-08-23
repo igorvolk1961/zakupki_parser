@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
@@ -97,9 +97,11 @@ class Scheduler:
         """Догоняющая постановка закупок в очередь скоринга (после сбоев транспорта).
 
         Ищет в БД закупки с невыполненным внешним скорингом (``fit_score IS NULL``),
-        не поставленные в очередь (``scoring_queued_at IS NULL``) или обновлённые
-        после постановки, и ставит их в очередь fit с приоритетом по времени
-        обновления/публикации (новые — раньше, ZPOPMAX берёт больший score).
+        не поставленные в очередь (``scoring_queued_at IS NULL``), обновлённые
+        после постановки либо с меткой постановки старше ``recovery_ttl_seconds``
+        (задание потеряно — воркер снял задачу, очередь очищена), и ставит их в
+        очередь fit с приоритетом по времени обновления/публикации (новые —
+        раньше, ZPOPMAX берёт больший score).
 
         Идемпотентно: метка проставляется только после успешного enqueue, поэтому
         повторно уже поставленные закупки не дублируются. При первом же сбое
@@ -110,8 +112,10 @@ class Scheduler:
             return
         transport = ScoringTransportClient(self._cfg.score.scoring_transport_url)
         now = datetime.now(UTC)
+        ttl = self._cfg.score.recovery_ttl_seconds
+        queued_before = now - timedelta(seconds=ttl) if ttl > 0 else None
         for _ in range(50):  # не более 50 партий по 200 за цикл
-            items = await self._repository.find_unscored(limit=200)
+            items = await self._repository.find_unscored(limit=200, queued_before=queued_before)
             if not items:
                 return
             for item in items:

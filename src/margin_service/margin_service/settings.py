@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     processing_ttl_seconds: int = 600
     processing_recovery_priority: float = 0.0
     queue_poll_seconds: float = 2.0
+    # Счётчик ретраев задач (HASH): см. scoring_service.settings (общий StageQueue).
+    jobs_retry_key: str = "margin:jobs_retries"
 
     # Норма прибыли: Margin = НМЦК × margin_rate
     margin_rate: float = 1.0

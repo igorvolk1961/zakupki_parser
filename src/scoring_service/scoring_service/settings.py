@@ -69,6 +69,18 @@ class Settings(BaseSettings):
     processing_ttl_seconds: int = 600
     processing_recovery_priority: float = 0.0
     queue_poll_seconds: float = 2.0
+    # Счётчик ретраев задач (HASH): ограничивает число возвратов в очередь при
+    # транзиентных сбоях LLM-провайдера (таймаут/5xx). После превышения — сброс.
+    jobs_retry_key: str = "scoring:jobs_retries"
+
+    # Повторы при транзиентных ошибках LLM-провайдера (openai.APIConnectionError,
+    # 429/5xx): задача возвращается в очередь с прежним приоритетом, но не более
+    # llm_retry_max_attempts раз подряд, чтобы не крутить её вечно при стабильном
+    # падении провайдера. Таймаут/повторы на уровне SDK задаются
+    # llm_request_timeout / llm_max_retries.
+    llm_retry_max_attempts: int = 3
+    # Пауза перед повторной обработкой задачи после сбоя LLM (сек).
+    llm_retry_backoff_seconds: float = 5.0
 
     # Компетенции поставщика
     competencies_file: Path = Path("data/competencies.md")

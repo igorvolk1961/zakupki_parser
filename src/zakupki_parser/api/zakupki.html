@@ -626,17 +626,20 @@ function goProcPage(page) {
   loadProc();
 }
 
-async function loadProc() {
-  clampPage();
+function procParams() {
   const params = { limit: PROC_PAGE_SIZE, offset: (procPage - 1) * PROC_PAGE_SIZE };
   if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
   if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
   if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
-  // ВРЕМЕННО (отладка): показываем ВСЕ закупки, включая неотскорингованные
-  // (без fit-score). Вернуть прежнее поведение — params.scored = true.
-  // params.scored = true;
-  const data = await api("procurements", params);
+  // Закупки без fit-score (ещё не обработаны конвейером скоринга) в таблице не показываем.
+  params.scored = true;
+  return params;
+}
+
+async function loadProc() {
+  clampPage();
+  const data = await api("procurements", procParams());
   procTotal = data.total;
   const pages = Math.max(1, Math.ceil(procTotal / PROC_PAGE_SIZE));
   if (procPage > pages) {
@@ -654,14 +657,7 @@ async function loadProc() {
 async function pollProc() {
   try {
     clampPage();
-    const params = { limit: PROC_PAGE_SIZE, offset: (procPage - 1) * PROC_PAGE_SIZE };
-    if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
-    if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
-    if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
-    if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
-    // Закупки без fit-score (ещё не обработаны конвейером скоринга) в таблице не показываем.
-    params.scored = true;
-    const data = await api("procurements", params);
+    const data = await api("procurements", procParams());
     const pages = Math.max(1, Math.ceil(data.total / PROC_PAGE_SIZE));
     if (procPage > pages) {
       procPage = pages;

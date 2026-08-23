@@ -12,6 +12,7 @@ import logging
 import uuid
 
 import httpx
+import openai
 
 from scoring_common.parser_api import ParserApiClient
 from scoring_common.queue import StageQueue
@@ -41,7 +42,7 @@ class ScoringWorker:
                 internal_token=self._settings.parser_internal_token
             )
             competencies = (client or {}).get("competencies")
-            if competencies:
+            if isinstance(competencies, str) and competencies:
                 return competencies
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             logger.warning(
@@ -81,6 +82,8 @@ class ScoringWorker:
                     "embedding_similarity": result.embedding_similarity,
                 }
             )
+            # Успех: обнуляем счётчик ретраев (если до этого были сбои LLM).
+            await self._queue.reset_retries(procurement_id)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code >= 500:
                 logger.warning(
@@ -108,10 +111,64 @@ class ScoringWorker:
             )
             await self._queue.enqueue(procurement_id, priority)
             await asyncio.sleep(self._settings.parser_retry_backoff_seconds)
+        except openai.APIConnectionError as exc:
+            # LLM-провайдер недоступен или не ответил в llm_request_timeout
+            # (openai.APITimeoutError — подкласс): возвращаем задачу в очередь
+            # с backoff, чтобы закупка не потерялась. Иначе она упала бы в
+            # общий except и была бы снята навсегда (см. лог «Request timed out»).
+            await self._retry_llm_or_drop(
+                procurement_id,
+                priority,
+                f"LLM-провайдер недоступен: {exc}",
+            )
+        except openai.APIStatusError as exc:
+            # HTTP-ошибка провайдера: 429/5xx — транзиентная, возвращаем в очередь;
+            # 4xx (неверный запрос/ключ) — постоянная, задача снимается.
+            if exc.status_code >= 500 or isinstance(exc, openai.RateLimitError):
+                await self._retry_llm_or_drop(
+                    procurement_id,
+                    priority,
+                    f"LLM-провайдер ответил HTTP {exc.status_code}",
+                )
+            else:
+                logger.warning(
+                    "LLM-провайдер отклонил запрос для закупки %s (HTTP %s) — "
+                    "задача снята с очереди",
+                    procurement_id,
+                    exc.status_code,
+                )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Scoring failed for %s: %s", procurement_id, exc)
         finally:
             await self._queue.finish_processing(procurement_id)
+
+    async def _retry_llm_or_drop(self, procurement_id: int, priority: float, reason: str) -> None:
+        """Вернуть задачу в очередь при транзиентном сбое LLM (с лимитом попыток).
+
+        Счётчик ретраев хранится в Redis (``jobs_retry_key``): после
+        ``llm_retry_max_attempts`` неудач подряд задача снимается навсегда, чтобы
+        не крутить её вечно при стабильном падении провайдера.
+        """
+        retries = await self._queue.increment_retries(procurement_id)
+        if retries > self._settings.llm_retry_max_attempts:
+            logger.error(
+                "LLM-провайдер стабильно недоступен для закупки %s после %d попыток "
+                "— задача снята с очереди: %s",
+                procurement_id,
+                retries,
+                reason,
+            )
+            await self._queue.reset_retries(procurement_id)
+            return
+        logger.warning(
+            "Закупка %s возвращена в очередь из-за сбоя LLM (попытка %d/%d): %s",
+            procurement_id,
+            retries,
+            self._settings.llm_retry_max_attempts,
+            reason,
+        )
+        await self._queue.enqueue(procurement_id, priority)
+        await asyncio.sleep(self._settings.llm_retry_backoff_seconds)
 
 
 async def run_worker(settings: Settings) -> None:

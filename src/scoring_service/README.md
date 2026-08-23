@@ -134,13 +134,19 @@ env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 | `SCORE_USE_STUB` | заглушка: возвращать score, уже присутствующий в данных закупки, без LLM-пайплайна (по умолчанию `false`) |
 | `SCORE_NORMALIZE_FIT_FOR_SCORE` | приводить Fit (0–10) к шкале 0–1 при расчёте Score (по умолчанию `true`) |
 | `SCORE_EMBEDDING_FILTER_THRESHOLD` | порог предварительной фильтрации по векторной близости (по умолчанию `0.66`; `<= 0` — фильтрация выключена) |
+| `SCORE_LLM_REQUEST_TIMEOUT` / `SCORE_LLM_MAX_RETRIES` | таймаут одного LLM-запроса (сек) и число повторов на уровне SDK |
+| `SCORE_LLM_RETRY_MAX_ATTEMPTS` / `SCORE_LLM_RETRY_BACKOFF_SECONDS` | лимит возвратов задачи в очередь при транзиентном сбое LLM-провайдера и пауза перед повтором (по умолчанию `3` / `5.0`) |
 | `SCORE_AUTH_TOKEN` | опциональный Bearer-токен для `POST /score` (пусто = открыто) |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | LangFuse |
 
 Надёжность очереди: Redis даёт at-most-once; воркер при старте/в цикле возвращает
 в `scoring:jobs` «зависшие» задачи из `scoring:processing` (аренда истекла,
 `SCORE_PROCESSING_TTL_SECONDS`, восстановление с приоритетом
-`SCORE_PROCESSING_RECOVERY_PRIORITY`). Скоринг идемпотентен через `POST /score`.
+`SCORE_PROCESSING_RECOVERY_PRIORITY`). Транзиентные сбои LLM-провайдера
+(таймаут/недоступность, 429/5xx) не теряют задачу: она возвращается в очередь
+с backoff, но не более `SCORE_LLM_RETRY_MAX_ATTEMPTS` раз подряд (счётчик —
+`scoring:jobs_retries`); 4xx-отказы и прочие ошибки снимают задачу навсегда.
+Скоринг идемпотентен через `POST /score`.
 
 ## Тесты / линтеры
 ```bash
