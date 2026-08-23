@@ -322,25 +322,28 @@ COMMON_PATH="$ROOT_DIR/src/scoring_common"
 SCORING_PYTHONPATH="$COMMON_PATH${PYTHONPATH:+:$PYTHONPATH}"
 
 # --- scoring_service (воркер стадии Fit, LLM-пайплайн) ---------------------
+# Логи сервисов очищаются при старте (`>` вместо `>>`), как у парсера
+# (config_log.yaml truncate_on_start=true): при рестарте виден только текущий
+# прогон, а не история предыдущих запусков.
 echo "Запуск scoring_service (воркер Fit)..."
 mkdir -p "$LOG_DIR"
 ( cd "$ROOT_DIR/src/scoring_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     SCORE_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
-    uv run python -m scoring_service worker ) >> "$LOG_DIR/scoring_service.log" 2>&1 &
+    uv run python -m scoring_service worker ) > "$LOG_DIR/scoring_service.log" 2>&1 &
 BGPIDS+=($!)
 
 # --- pwin_service (воркер стадии P(win), заглушка) -------------------------
 echo "Запуск pwin_service (воркер P(win), заглушка)..."
 ( cd "$ROOT_DIR/src/pwin_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     PWIN_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" PWIN_USE_STUB=true \
-    uv run python -m pwin_service worker ) >> "$LOG_DIR/pwin_service.log" 2>&1 &
+    uv run python -m pwin_service worker ) > "$LOG_DIR/pwin_service.log" 2>&1 &
 BGPIDS+=($!)
 
 # --- margin_service (воркер стадии Margin) ---------------------------------
 echo "Запуск margin_service (воркер Margin)..."
 ( cd "$ROOT_DIR/src/margin_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     MARGIN_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
-    uv run python -m margin_service worker ) >> "$LOG_DIR/margin_service.log" 2>&1 &
+    uv run python -m margin_service worker ) > "$LOG_DIR/margin_service.log" 2>&1 &
 BGPIDS+=($!)
 
 # --- scoring_transport ------------------------------------------------------
@@ -349,7 +352,7 @@ echo "Запуск scoring_transport на :$PORT_TRANSPORT..."
     && PYTHONPATH="$SCORING_PYTHONPATH" \
     TRANSPORT_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
     uv run python -m scoring_transport serve --host 127.0.0.1 --port "$PORT_TRANSPORT" ) \
-    >> "$LOG_DIR/scoring_transport.log" 2>&1 &
+    > "$LOG_DIR/scoring_transport.log" 2>&1 &
 BGPIDS+=($!)
 
 # Ждём готовности транспорта, чтобы парсер при авто-пуше не терял задания.

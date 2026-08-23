@@ -947,6 +947,13 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         # Внутренний вызов конвейера: результат пишется под активный профиль
         # сервис-аккаунта (оценки относятся к профилю, BR-07).
         _, profile = await _active_context(None)
+        logger.info(
+            "Получен результат скоринга закупки %s: score=%s method=%s fit=%s",
+            procurement_id,
+            body.score,
+            body.score_method,
+            body.fit_score,
+        )
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт, результат скоринга не меняем.
             await _repo().update_rag_report(procurement_id, profile.id, body.rag_report)
