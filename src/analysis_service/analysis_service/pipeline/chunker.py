@@ -1,9 +1,10 @@
 """Разбиение текста ТЗ на структурированные чанки (RAG-анализ).
 
 Чанк не пересекает границу раздела ТЗ: текст делится по заголовкам разделов
-(нумерованные «N.», «N.N», маркеры «Раздел», «Общие положения», «Требования» …),
-длинные секции режутся по абзацам с ``max_chars``. Если заголовков нет —
-абзацный чанкинг.
+(Markdown-заголовки ``#/##/…`` — результат конвертации MarkItDown — либо
+эвристика по сырому тексту: нумерованные «N.», «N.N», маркеры «Раздел»,
+«Общие положения», «Требования» …), длинные секции режутся по абзацам
+с ``max_chars``. Если заголовков нет — абзацный чанкинг.
 """
 
 from __future__ import annotations
@@ -25,11 +26,23 @@ _HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Заголовок раздела в Markdown-представлении документа (MarkItDown): «#», «##», …
+# Такие заголовки появляются из стилей документа (Heading 1/2/3 в docx, layout в PDF)
+# и являются более надёжной границей раздела, чем эвристика по сырому тексту.
+_MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S")
+
 
 def _is_heading(line: str) -> bool:
     if not line or not line.strip():
         return False
     return _HEADING_RE.match(line) is not None
+
+
+def _is_section_heading(line: str) -> bool:
+    """Граница раздела: Markdown-заголовок либо эвристика по сырому тексту."""
+    if not line or not line.strip():
+        return False
+    return _MARKDOWN_HEADING_RE.match(line) is not None or _HEADING_RE.match(line) is not None
 
 
 def _split_by_paragraphs(block: str, max_chars: int) -> list[str]:
@@ -82,7 +95,7 @@ def split_tz_sections(text: str, max_chars: int = 1500) -> list[str]:
     heading: str | None = None
     body: list[str] = []
     for line in lines:
-        if _is_heading(line):
+        if _is_section_heading(line):
             if heading is not None or body:
                 sections.append((heading, body))
             heading = line.strip()

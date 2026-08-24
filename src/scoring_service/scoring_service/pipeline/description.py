@@ -88,11 +88,11 @@ def _collapse(text: str) -> str:
 def extend_description_from_tz(description: str, tz_text: str) -> str | None:
     """Алгоритмически расширить обрезанное описание фрагментом из текста ТЗ.
 
-    Ищем в полном тексте ТЗ фрагмент, совпадающий с обрезанной частью описания
-    закупки (subject). Если найден — возвращаем расширенный заголовок: полную
-    строку ТЗ, содержащую этот фрагмент (фрагмент + продолжение до переноса
-    строки). Если фрагмент не найден — возвращаем ``None`` (тогда используется
-    весь текст ТЗ).
+    Ищем строку ТЗ, СОДЕРЖАЩУЮ префикс слов обрезанного описания закупки
+    (subject), перебирая префиксы от самого длинного к короткому. Если найдена —
+    возвращаем расширенный заголовок: полную строку ТЗ (префикс + продолжение
+    до переноса строки). Если ни один префикс не найден — возвращаем ``None``
+    (остаётся исходное описание из карточки).
     """
     if not description or not tz_text:
         return None
@@ -102,41 +102,13 @@ def extend_description_from_tz(description: str, tz_text: str) -> str | None:
     if not subject:
         return None
 
-    # Ищем фрагмент описания по строкам ТЗ (заголовок обычно одна строка).
+    # Ищем строку ТЗ, содержащую префикс слов subject (заголовок обычно одна
+    # строка и может начинаться с markdown-разметки «#»).
     subject_words = subject.split()
     for cut in range(len(subject_words), 0, -1):
         prefix = _collapse(" ".join(subject_words[:cut]))
         for raw_line in tz_text.splitlines():
             line = _collapse(raw_line)
-            if prefix and line.startswith(prefix):
+            if prefix and prefix in line:
                 return line
     return None
-
-
-# Маркеры начала разделов ТЗ (для выделения первой секции как описания закупки).
-_SECTION_MARKER_RE = re.compile(
-    r"^\s*(?:раздел[^\n]*|общие положения[^\n]*|требования[^\n]*|"
-    r"общие сведения[^\n]*|\d+(?:\.\d+)*[\.\)]?\s)",
-    re.IGNORECASE,
-)
-
-
-def first_tz_section(text: str, max_chars: int = 2000) -> str:
-    """Первая секция текста ТЗ как описание закупки (без глубокого чтения тела).
-
-    Полный текст ТЗ стадия Fit НЕ обрабатывает: берётся первая секция (до первого
-    маркера раздела — «Раздел», «Общие положения», «Требования», нумерация «1.»
-    и т.п.). При отсутствии маркеров — первые ``max_chars`` символов.
-    """
-    if not text:
-        return ""
-    lines = text.splitlines()
-    section: list[str] = []
-    for line in lines:
-        if section and _SECTION_MARKER_RE.match(line):
-            break
-        section.append(line)
-    head = "\n".join(section).strip()
-    if not head:
-        head = text.strip()
-    return head[:max_chars]

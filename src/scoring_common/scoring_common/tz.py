@@ -1,7 +1,9 @@
 """Поиск и извлечение текста технического задания.
 
 Общий код для стадий конвейера (scoring_service, analysis_service): поиск файла ТЗ
-в карточке закупки и извлечение очищенного текста (в т.ч. из архивов).
+в карточке закупки и извлечение текста (в т.ч. из архивов). docx/pdf конвертируются
+в Markdown через MarkItDown (Microsoft): сохраняются заголовки разделов и таблицы,
+что используется RAG-чанкером анализа стоп-условий.
 
 Стратегия поиска:
 1. прямой файл — имя содержит маркер ТЗ (``техническое задание`` / ``тз``);
@@ -188,7 +190,7 @@ def _download(url: str, timeout: float = 30.0, max_bytes: int = _MAX_FILE_BYTES)
 
 
 def _decode(raw: bytes, name: str) -> str | None:
-    """Извлечь текст из байт в зависимости от расширения."""
+    """Извлечь текст из байт по расширению (docx/pdf — Markdown через MarkItDown)."""
     ext = _normalize(name)
     for candidate in _PLAIN_TEXT_EXTENSIONS:
         if ext.endswith(candidate):
@@ -205,26 +207,45 @@ def _decode(raw: bytes, name: str) -> str | None:
     return None
 
 
-def _extract_docx(raw: bytes) -> str | None:
-    """Текст из DOCX (опционально python-docx)."""
-    try:
-        import docx
+# Ленивый MarkItDown (Microsoft): конвертация docx/pdf в Markdown с сохранением
+# структуры — заголовки разделов (Heading 1/2/3, layout PDF) и таблицы. Это даёт
+# RAG-чанкеру надёжные границы разделов и не теряет табличные требования ТЗ.
+_markitdown: Any | bool | None = None
 
-        document = docx.Document(io.BytesIO(raw))
-        return "\n".join(p.text for p in document.paragraphs)
-    except Exception:  # noqa: BLE001 - битый файл/нет библиотеки
+
+def _markitdown_instance() -> Any | None:
+    global _markitdown
+    if _markitdown is None:
+        try:
+            from markitdown import MarkItDown
+
+            _markitdown = MarkItDown()
+        except Exception:  # noqa: BLE001 - библиотека недоступна (best-effort)
+            _markitdown = False
+    return _markitdown if _markitdown is not False else None
+
+
+def _convert_markdown(raw: bytes, extension: str) -> str | None:
+    """Конвертировать документ в Markdown (заголовки/таблицы сохраняются)."""
+    md = _markitdown_instance()
+    if md is None:
         return None
+    try:
+        result = md.convert_stream(io.BytesIO(raw), file_extension=extension)
+        text = (result.text_content or "").strip()
+        return text or None
+    except Exception:  # noqa: BLE001 - битый файл/неизвестный формат
+        return None
+
+
+def _extract_docx(raw: bytes) -> str | None:
+    """Markdown из DOCX (mammoth: заголовки по стилям, таблицы сохраняются)."""
+    return _convert_markdown(raw, ".docx")
 
 
 def _extract_pdf(raw: bytes) -> str | None:
-    """Текст из PDF (опционально pypdf)."""
-    try:
-        from pypdf import PdfReader
-
-        reader = PdfReader(io.BytesIO(raw))
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
-    except Exception:  # noqa: BLE001 - битый файл/нет библиотеки
-        return None
+    """Markdown из PDF (pdfplumber: таблицы по layout, fallback pdfminer)."""
+    return _convert_markdown(raw, ".pdf")
 
 
 def _extract_from_zip(ref: FileRef, timeout: float = 30.0) -> str | None:
@@ -253,7 +274,7 @@ def _extract_from_zip(ref: FileRef, timeout: float = 30.0) -> str | None:
 
 
 def extract_text(ref: FileRef, timeout: float = 30.0) -> str | None:
-    """Извлечь очищенный текст из файла ТЗ (в т.ч. из zip-архива)."""
+    """Извлечь Markdown-текст из файла ТЗ (в т.ч. из zip-архива)."""
     url, _, _ = ref.url.partition("#")
     name = _normalize(ref.name)
     if ".zip#" in ref.url:

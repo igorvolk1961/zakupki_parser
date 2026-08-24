@@ -29,7 +29,6 @@ from scoring_service.modules import embedding as embedding_module
 from scoring_service.pipeline.description import (
     extend_description_from_tz,
     extract_description,
-    first_tz_section,
     is_truncated_description,
 )
 from scoring_service.pipeline.fit_chain import FitChain
@@ -374,7 +373,7 @@ class Scorer:
 
         # Уточнение по тексту ТЗ: если fit запросил (requires_tz_review), ищем файл ТЗ
         # в карточке и извлекаем его текст. Стадия Fit обрабатывает ТОЛЬКО описание
-        # закупки (первая секция ТЗ) для расширения обрезанного описания — глубокий
+        # закупки (восстановление обрезанного описания из текста ТЗ) — глубокий
         # анализ тела ТЗ (стоп-условия) вынесен в analysis_service (on-demand).
         tz_outcome: TzReviewOutcome | None = None
         effective_description = description
@@ -384,9 +383,7 @@ class Scorer:
             tz_outcome = self._tz_reviewer.invoke(record, parent_config, trace_meta, session_id)
             if tz_outcome.found and tz_outcome.description and tz_outcome.description.strip():
                 tz_refined = True
-                extended = extend_description_from_tz(
-                    description, tz_outcome.description
-                ) or first_tz_section(tz_outcome.description)
+                extended = extend_description_from_tz(description, tz_outcome.description)
                 if extended:
                     effective_description = extended
                     fit = self._fit.invoke(  # type: ignore[union-attr]

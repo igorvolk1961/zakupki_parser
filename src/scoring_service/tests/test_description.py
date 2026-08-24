@@ -71,6 +71,25 @@ def test_extend_description_finds_by_prefix() -> None:
     assert out == "Внедрение ПО для оптимизации потоков обработки информации в организации"
 
 
+def test_extend_description_finds_line_containing_prefix() -> None:
+    """Префикс не обязан стоять в начале строки: markdown-заголовок «# …» тоже подходит."""
+    tz = "# Разработка и внедрение системы автоматизации документооборота предприятия\n"
+    out = extend_description_from_tz(
+        "Разработка и внедрение системы автоматизации документооборота", tz
+    )
+    assert out == "# Разработка и внедрение системы автоматизации документооборота предприятия"
+
+
+def test_extend_description_matches_prefix_inside_line() -> None:
+    """Строка ТЗ, лишь содержащая префикс subject, возвращается целиком."""
+    tz = "Оказание услуг: Внедрение ПО для оптимизации потоков обработки информации в организации\n"
+    out = extend_description_from_tz("Внедрение ПО для оптимизации потоков", tz)
+    assert (
+        out
+        == "Оказание услуг: Внедрение ПО для оптимизации потоков обработки информации в организации"
+    )
+
+
 def test_extend_description_not_found_returns_none() -> None:
     assert extend_description_from_tz("Совершенно другое описание", "текст ТЗ") is None
     assert extend_description_from_tz("", "текст ТЗ") is None

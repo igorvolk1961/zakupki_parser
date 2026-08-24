@@ -7,6 +7,7 @@ import zipfile
 
 from scoring_common.tz import (
     _decode_member_name,
+    _extract_docx,
     clean_text,
     collect_files,
     find_tz_file,
@@ -117,3 +118,55 @@ def test_archive_names_decode_cp1251() -> None:
 
     assert "Техническое задание.docx" in names
     assert is_tz(names[0])
+
+
+def _minimal_docx() -> bytes:
+    """Минимальный DOCX: заголовки Heading1/Heading2 и таблица."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" '
+            'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/word/document.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            "</Types>",
+        )
+        z.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/'
+            '2006/relationships/officeDocument" '
+            'Target="word/document.xml"/>'
+            "</Relationships>",
+        )
+        z.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+            '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>'
+            "<w:r><w:t>Общие положения</w:t></w:r></w:p>"
+            "<w:p><w:r><w:t>Текст первого раздела.</w:t></w:r></w:p>"
+            '<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>'
+            "<w:r><w:t>Требования к качеству</w:t></w:r></w:p>"
+            "<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Параметр</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>Значение</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+            "</w:body></w:document>",
+        )
+    return buf.getvalue()
+
+
+def test_extract_docx_returns_markdown_with_headings() -> None:
+    """MarkItDown сохраняет заголовки стилей и таблицы как Markdown."""
+    md = _extract_docx(_minimal_docx())
+    assert md is not None
+    assert "# Общие положения" in md
+    assert "## Требования к качеству" in md
+    assert "Текст первого раздела." in md
+    # Таблица превращается в markdown-таблицу, а не теряется.
+    assert "| Параметр | Значение |" in md

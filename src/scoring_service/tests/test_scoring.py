@@ -339,26 +339,29 @@ def _fake_tz_reviewer(description: str | None) -> object:
 
 
 def test_score_uses_tz_text_when_requires_tz_review() -> None:
-    """Если requires_tz_review и найден текст ТЗ — fit повторяется по тексту ТЗ."""
+    """Если requires_tz_review и в ТЗ найден фрагмент subject — fit повторяется
+    по расширенному описанию из текста ТЗ."""
     fit = _RecordingFit([5.0, 8.0])
     judge = _FakeJudge([_judge("accept", 8.0)])
     scorer = Scorer(
         fit,
         judge,
         Settings(score_use_stub=False, tz_review_enabled=True),
-        tz_reviewer=_fake_tz_reviewer("ТЗ: автоматизация документооборота"),  # type: ignore[arg-type]
+        tz_reviewer=_fake_tz_reviewer(  # type: ignore[arg-type]
+            "ТЗ: Сопровождение ПО и автоматизация документооборота"
+        ),
     )
     out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
 
     assert len(fit.descriptions) == 2
     assert fit.descriptions[0] != fit.descriptions[1]
-    assert fit.descriptions[1] == "ТЗ: автоматизация документооборота"
+    assert fit.descriptions[1] == "ТЗ: Сопровождение ПО и автоматизация документооборота"
     assert fit.run_names == ["fit_scoring", "fit_tz"]
-    # Полное тело ТЗ не передаётся (только описание/первая секция) — full_text всегда False.
+    # Полное тело ТЗ не передаётся (только найденная строка) — full_text всегда False.
     assert fit.full_text_flags == [False, False]
     assert out.requires_tz_review is False
     assert out.final_fit_score == 8.0
-    assert out.description == "ТЗ: автоматизация документооборота"
+    assert out.description == "ТЗ: Сопровождение ПО и автоматизация документооборота"
 
 
 def test_score_keeps_score_when_tz_not_found() -> None:
@@ -489,8 +492,9 @@ def test_score_header_extends_description_from_tz() -> None:
     assert out.final_fit_score == 8.0
 
 
-def test_score_header_falls_back_to_first_tz_section_when_not_found() -> None:
-    """Фрагмент не найден — описание из первой секции ТЗ (тело целиком не читается)."""
+def test_score_header_not_found_keeps_original_description() -> None:
+    """Фрагмент subject не найден в ТЗ — повторный fit_tz не вызывается,
+    описание из карточки остаётся без изменений (тело ТЗ не читается)."""
     tz_text = "Совершенно другой текст технического задания\n"
     fit = _HeaderRecordingFit([5.0, 8.0])
     judge = _FakeJudge([_judge("accept", 8.0)])
@@ -501,8 +505,9 @@ def test_score_header_falls_back_to_first_tz_section_when_not_found() -> None:
         tz_reviewer=_fake_tz_reviewer(tz_text),  # type: ignore[arg-type]
     )
     out = scorer.score({"subject": "Разработка системы автоматизации", "nmck": 10.0}, "comp")
-    assert fit.descriptions[1] == tz_text.rstrip()
-    assert out.description == tz_text.rstrip()
+    assert fit.run_names == ["fit_scoring"]
+    assert fit.descriptions[0] == "Разработка системы автоматизации\nnmck: 10.0"
+    assert out.description == "Разработка системы автоматизации\nnmck: 10.0"
 
 
 class _FakeEmbedder:
