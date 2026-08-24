@@ -24,4 +24,3 @@ sort_by_date_only: true
 search_criteria:
   active_only: false
   deadline_not_expired: false
-  no_code_search: false
