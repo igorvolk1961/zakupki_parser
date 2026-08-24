@@ -547,9 +547,14 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     zakupki_html = Path(__file__).parent / "zakupki.html"
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def demo() -> str:
+    async def demo() -> HTMLResponse:
         """Простое web-приложение для демонстрации MVP (читает данные через API)."""
-        return zakupki_html.read_text(encoding="utf-8")
+        # Без кеширования: браузер всегда получает свежую версию HTML (ранее
+        # кешированная промежуточная версия показывала устаревший интерфейс).
+        return HTMLResponse(
+            zakupki_html.read_text(encoding="utf-8"),
+            headers={"Cache-Control": "no-store"},
+        )
 
     def _repo() -> ProcurementRepository:
         if state.repository is None:
