@@ -969,6 +969,8 @@ async function switchClient(profileId) {
 // --- Страница «Профили» -------------------------------------------------
 let profileEditorId = null;
 let profileEditorName = "";
+// Общее число профилей пользователя (для запрета удаления последнего).
+let profilesTotal = 0;
 let profileKeywords = [];
 let profileExcl = [];
 let profileQuestions = [];
@@ -1002,6 +1004,11 @@ function renderProfiles(list) {
     const okpd = (p.okpd_codes || []).join(", ") || "—";
     const nmck = `${p.nmck_min ?? "—"}–${p.nmck_max ?? "—"}`;
     const words = (p.keywords || []).length;
+    // Нельзя удалить активный профиль или единственный профиль пользователя.
+    let delDisabled = "";
+    let delTitle = "";
+    if (list.total <= 1) { delDisabled = " disabled"; delTitle = ' title="Нельзя удалить последний профиль"'; }
+    else if (p.is_active) { delDisabled = " disabled"; delTitle = ' title="Нельзя удалить активный профиль — сначала активируйте другой"'; }
     return `<tr data-id="${p.id}" data-name="${escapeHtml(p.name)}">
       <td>${escapeHtml(p.name)}</td>
       <td>${active}</td>
@@ -1011,7 +1018,7 @@ function renderProfiles(list) {
       <td>${escapeHtml(nmck)}</td>
       <td>
         <button class="ghost" data-action="edit">Редактировать</button>
-        <button class="ghost" data-action="delete">Удалить профиль</button>
+        <button class="ghost" data-action="delete"${delDisabled}${delTitle}>Удалить профиль</button>
         ${p.is_active ? "" : `<button class="ghost" data-action="activate">Активировать</button>`}
       </td>
     </tr>`;
@@ -1021,6 +1028,7 @@ function renderProfiles(list) {
     <tbody>${rows}</tbody></table></div>`;
   wrap.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
       const tr = btn.closest("tr");
       const id = Number(tr.dataset.id);
       if (btn.dataset.action === "activate") await switchClient(id);
@@ -1033,6 +1041,7 @@ function renderProfiles(list) {
 async function loadProfiles() {
   try {
     const list = await api("clients", { limit: 500 });
+    profilesTotal = list.total;
     renderProfiles(list);
   } catch (err) { $("#profiles").innerHTML = `<p class="muted">Не удалось загрузить профили: ${escapeHtml(err.message)}</p>`; }
 }
@@ -1062,7 +1071,14 @@ function fillProfileForm(p) {
   renderTags(profileExcl, "#pf-excl-tags");
   renderTags(profileQuestions, "#pf-questions-tags");
   $("#pf-competencies").value = p ? p.competencies || "" : "";
-  $("#profile-delete").style.display = p ? "inline-block" : "none";
+  const delBtn = $("#profile-delete");
+  delBtn.style.display = p ? "inline-block" : "none";
+  if (p) {
+    // Нельзя удалить активный профиль или единственный профиль пользователя.
+    if (profilesTotal <= 1) { delBtn.disabled = true; delBtn.title = "Нельзя удалить последний профиль"; }
+    else if (p.is_active) { delBtn.disabled = true; delBtn.title = "Нельзя удалить активный профиль — сначала активируйте другой"; }
+    else { delBtn.disabled = false; delBtn.title = ""; }
+  }
   switchProfileTab("keywords");
   wordCounts();
   snapshotProfile();
