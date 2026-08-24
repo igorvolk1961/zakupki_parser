@@ -6,10 +6,38 @@ import asyncio
 from typing import Any
 
 import pytest
+from analysis_service.pipeline.prompts import build_verdict_messages
 from analysis_service.pipeline.rag import RagAnalyzer
 from analysis_service.settings import Settings
 
 from scoring_common.embeddings import cosine_similarity
+
+# --- Промпты ------------------------------------------------------------
+
+
+def test_build_verdict_messages_substitutes() -> None:
+    system, user = build_verdict_messages("Лицензии?", "Чанк 1\n\nЧанк 2")
+    assert "Вопрос клиента: Лицензии?" in user
+    assert "Чанк 1\n\nЧанк 2" in user
+    assert "{question}" not in user and "{context}" not in user
+    assert "стоп-условие" in system
+
+
+def test_build_verdict_messages_braces_in_context() -> None:
+    # Фигурные скобки в тексте ТЗ не должны ломать подстановку шаблона.
+    system, user = build_verdict_messages("Вопрос", "Текст с {фигурными} скобками")
+    assert "Текст с {фигурными} скобками" in user
+    assert "{question}" not in user and "{context}" not in user
+
+
+def test_build_verdict_messages_no_rescan_of_inserted_values() -> None:
+    # Литерал {context} в тексте вопроса не должен быть пересканирован
+    # второй подстановкой (однопроходная замена).
+    system, user = build_verdict_messages("Что такое {context}?", "Контекст ТЗ")
+    assert "Что такое {context}?" in user
+    assert "Контекст ТЗ" in user
+    assert user.count("Контекст ТЗ") == 1
+
 
 # --- Косинусная близость --------------------------------------------------
 

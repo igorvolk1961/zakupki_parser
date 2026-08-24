@@ -46,5 +46,9 @@ export_dir: data/export
 # Относительный путь — от корня проекта; в Docker переопределяется
 # через ZAKUPKI_PROMPTS_DIR (общий том с scoring_service).
 prompts_dir: src/scoring_service/scoring_service/pipeline/prompts
+# Каталог промптов analysis_service (вкладка «Промпты» web-интерфейса).
+# Относительный путь — от корня проекта; в Docker переопределяется
+# через ZAKUPKI_ANALYSIS_PROMPTS_DIR (общий том с analysis_service).
+analysis_prompts_dir: src/analysis_service/analysis_service/pipeline/prompts
 circuit_breaker_failure_threshold: 5
 circuit_breaker_reset_timeout_seconds: 60.0

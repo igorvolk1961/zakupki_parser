@@ -752,3 +752,53 @@ def test_prompts_list_get_put_validate(tmp_path: Path) -> None:
         assert client.get("/api/prompts/secret.txt").status_code in (400, 404)
     os.environ.pop("ZAKUPKI_DB_DSN", None)
     os.environ.pop("ZAKUPKI_PROMPTS_DIR", None)
+
+
+def test_analysis_prompts_list_get_put(tmp_path: Path) -> None:
+    """Промпты analysis_service: список, чтение, сохранение.
+
+    Используем отдельный каталог промптов анализатора в tmp_path (env
+    ZAKUPKI_ANALYSIS_PROMPTS_DIR), чтобы не трогать реальные файлы.
+    """
+    from zakupki_parser.api.app import create_app
+
+    cfgdir = tmp_path / "configs"
+    shutil.copytree(Path(__file__).resolve().parents[2] / "tests" / "configs", cfgdir)
+    analysis_prompts_dir = tmp_path / "analysis_prompts"
+    analysis_prompts_dir.mkdir()
+    (analysis_prompts_dir / "verdict_system.md").write_text("СТАРЫЙ ПРОМПТ", encoding="utf-8")
+
+    os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
+    os.environ["ZAKUPKI_ANALYSIS_PROMPTS_DIR"] = str(analysis_prompts_dir)
+    app = create_app(str(cfgdir))
+    with TestClient(app) as client:
+        # Список: только md/json внутри каталога промптов анализатора.
+        files = client.get("/api/analysis-prompts").json()["files"]
+        names = [f["name"] for f in files]
+        assert "verdict_system.md" in names
+
+        # Чтение содержимого.
+        got = client.get("/api/analysis-prompts/verdict_system.md")
+        assert got.status_code == 200
+        assert got.json()["content"] == "СТАРЫЙ ПРОМПТ"
+        assert got.json()["kind"] == "markdown"
+
+        # Сохранение.
+        r = client.put("/api/analysis-prompts/verdict_system.md", json={"content": "НОВЫЙ ПРОМПТ"})
+        assert r.status_code == 200
+        assert r.json()["content"] == "НОВЫЙ ПРОМПТ"
+        assert (analysis_prompts_dir / "verdict_system.md").read_text(
+            encoding="utf-8"
+        ) == "НОВЫЙ ПРОМПТ"
+
+        # Каталоги скоринга и анализатора независимы: анализ-промпт не виден
+        # в /api/prompts и наоборот.
+        assert client.get("/api/analysis-prompts/fit_system.md").status_code == 404
+
+        # Path traversal отклоняется.
+        assert client.get("/api/analysis-prompts/..%2Fconfig_service.yaml").status_code in (
+            400,
+            404,
+        )
+    os.environ.pop("ZAKUPKI_DB_DSN", None)
+    os.environ.pop("ZAKUPKI_ANALYSIS_PROMPTS_DIR", None)

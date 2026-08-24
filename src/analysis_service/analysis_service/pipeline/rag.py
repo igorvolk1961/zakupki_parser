@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from analysis_service.llm import LlmClient
 from analysis_service.pipeline.chunker import split_tz_sections
+from analysis_service.pipeline.prompts import build_verdict_messages
 from analysis_service.settings import Settings
 from scoring_common.embeddings import EmbeddingClient, cosine_similarity
 from scoring_common.tz import clean_text, extract_text, find_tz_reference
@@ -39,19 +40,6 @@ class QuestionVerdict(BaseModel):
     severity: int = Field(ge=0, le=2)
     excerpt: str | None = Field(default=None, description="цитата фрагмента ТЗ")
     reasoning: str = Field(default="", description="краткое обоснование")
-
-
-_VERDICT_SYSTEM = """Ты — аналитик закупочной документации. Проверяешь, содержит ли фрагмент
-технического задания стоп-условие, невыполнимое для компании-исполнителя, по заданному вопросу.
-
-Верни строгий JSON: {"verdict": "no_stop_condition"|"soft"|"absolute",
-"excerpt": "<цитата из фрагмента>", "reasoning": "<краткое обоснование на русском>"}.
-- no_stop_condition — стоп-условие по вопросу в фрагменте отсутствует;
-- soft — условие присутствует, но понижает шансы/рейтинг участника (например, требование к опыту,
-  которое можно подтвердить сканами актов, «преимущественное право»);
-- absolute — условие является жёстким запретом для компании (обязательная лицензия/членство в СРО,
-  отсутствие которой исключает участие, или иное требование, которое компания не может выполнить).
-Если фрагмент не релевантен вопросу — no_stop_condition."""
 
 
 class RagAnalyzer:
@@ -159,12 +147,8 @@ class RagAnalyzer:
         top_idx = [idx for _, idx in scored[: self._settings.top_k]]
         context = "\n\n---\n\n".join(chunks[idx] for idx in top_idx)
 
-        user = (
-            f"Вопрос клиента: {question_text}\n\n"
-            f"Фрагменты технического задания:\n{context}\n\n"
-            "Проверь, содержится ли в фрагментах стоп-условие по вопросу."
-        )
-        data = await self._llm.chat_json(_VERDICT_SYSTEM, user)
+        system, user = build_verdict_messages(question_text, context)
+        data = await self._llm.chat_json(system, user)
         if data is None:
             return QuestionVerdict(
                 question_id=question_id,

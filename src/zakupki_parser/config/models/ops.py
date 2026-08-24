@@ -230,3 +230,11 @@ class OpsConfig(_BaseConfig):
             "переопределяется через ZAKUPKI_PROMPTS_DIR"
         ),
     )
+    analysis_prompts_dir: str = Field(
+        default="src/analysis_service/analysis_service/pipeline/prompts",
+        description=(
+            "каталог с файлами промптов analysis_service (вкладка «Промпты»); "
+            "относительный путь — от корня проекта; в Docker — общий том, "
+            "переопределяется через ZAKUPKI_ANALYSIS_PROMPTS_DIR"
+        ),
+    )

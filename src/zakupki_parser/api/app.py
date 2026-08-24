@@ -404,13 +404,13 @@ def _service_config_public(service: ServiceConfig) -> dict[str, Any]:
     return data
 
 
-def _prompt_file(state: AppState, name: str) -> Path:
+def _prompt_file(base: Path, name: str) -> Path:
     """Файл промпта: только существующий .md/.json внутри prompts_dir.
 
     Защита от path traversal: имя должно быть простым именем файла, а итоговый
     путь — прямым ребёнком prompts_dir (resolve + сравнение parent).
     """
-    base = Path(state.cfg.ops.prompts_dir).resolve()
+    base = base.resolve()
     candidate = (base / name).resolve()
     if candidate.parent != base:
         raise HTTPException(status_code=400, detail="Недопустимое имя файла")
@@ -424,13 +424,12 @@ def _prompt_kind(name: str) -> str:
     return "json" if name.endswith(".json") else "markdown"
 
 
-def _prompt_dir_rel(state: AppState) -> str:
+def _prompt_dir_rel(base: Path, state: AppState) -> str:
     """Каталог промптов для вкладки: относительный путь от корня проекта.
 
     В Docker каталог вне корня проекта (например, /app/prompts) — показываем
     как есть (абсолютный и короткий путь).
     """
-    base = Path(state.cfg.ops.prompts_dir)
     root = Path(state.configs_dir).parent
     try:
         return str(base.relative_to(root))
@@ -1368,68 +1367,88 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         return _service_config_public(new_service)
 
     # ------------------------------------------------------------------ #
-    # Промпты scoring_service — просмотр/редактирование (вкладка «Промпты»)
+    # Промпты scoring_service/analysis_service — просмотр/редактирование
+    # (вкладка «Промпты» web-интерфейса).
     # ------------------------------------------------------------------ #
-    @app.get(
-        "/api/prompts",
-        response_model=dict[str, Any],
-        include_in_schema=False,
-        dependencies=[Depends(require_user)],
-    )
-    async def list_prompts() -> dict[str, Any]:
-        """Список файлов промптов (md/json) для вкладки «Промпты»."""
-        base = Path(state.cfg.ops.prompts_dir)
-        files: list[dict[str, str]] = []
-        if base.is_dir():
-            for path in sorted(base.iterdir()):
-                if path.is_file() and path.suffix in (".md", ".json"):
-                    files.append({"name": path.name, "kind": _prompt_kind(path.name)})
-        return {"files": files, "dir": _prompt_dir_rel(state)}
+    def _register_prompt_routes(
+        prefix: str,
+        base: Path,
+        service_name: str,
+    ) -> None:
+        """Список/чтение/сохранение файлов промптов одного каталога."""
 
-    @app.get(
-        "/api/prompts/{name}",
-        response_model=dict[str, Any],
-        include_in_schema=False,
-        dependencies=[Depends(require_user)],
-    )
-    async def get_prompt(name: str) -> dict[str, Any]:
-        """Содержимое файла промпта."""
-        path = _prompt_file(state, name)
-        return {
-            "name": path.name,
-            "kind": _prompt_kind(path.name),
-            "content": path.read_text(encoding="utf-8"),
-            "dir": _prompt_dir_rel(state),
-        }
+        @app.get(
+            f"/api/{prefix}",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require_user)],
+        )
+        async def list_prompts() -> dict[str, Any]:
+            """Список файлов промптов (md/json) для вкладки «Промпты»."""
+            files: list[dict[str, str]] = []
+            if base.is_dir():
+                for path in sorted(base.iterdir()):
+                    if path.is_file() and path.suffix in (".md", ".json"):
+                        files.append({"name": path.name, "kind": _prompt_kind(path.name)})
+            return {"files": files, "dir": _prompt_dir_rel(base, state)}
 
-    @app.put(
-        "/api/prompts/{name}",
-        response_model=dict[str, Any],
-        include_in_schema=False,
-        dependencies=[Depends(require_admin)],
-    )
-    async def put_prompt(name: str, body: PromptUpdate) -> dict[str, Any]:
-        """Сохраняет промпт; JSON-файлы проверяются на корректность до записи."""
-        path = _prompt_file(state, name)
-        if path.suffix == ".json":
+        @app.get(
+            f"/api/{prefix}/{{name}}",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require_user)],
+        )
+        async def get_prompt(name: str) -> dict[str, Any]:
+            """Содержимое файла промпта."""
+            path = _prompt_file(base, name)
+            return {
+                "name": path.name,
+                "kind": _prompt_kind(path.name),
+                "content": path.read_text(encoding="utf-8"),
+                "dir": _prompt_dir_rel(base, state),
+            }
+
+        @app.put(
+            f"/api/{prefix}/{{name}}",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require_admin)],
+        )
+        async def put_prompt(name: str, body: PromptUpdate) -> dict[str, Any]:
+            """Сохраняет промпт; JSON-файлы проверяются на корректность до записи."""
+            path = _prompt_file(base, name)
+            if path.suffix == ".json":
+                try:
+                    json.loads(body.content)
+                except json.JSONDecodeError as exc:
+                    raise HTTPException(
+                        status_code=422, detail=f"Некорректный JSON: {exc}"
+                    ) from exc
+            tmp = path.with_name(path.name + ".tmp")
             try:
-                json.loads(body.content)
-            except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=422, detail=f"Некорректный JSON: {exc}") from exc
-        tmp = path.with_name(path.name + ".tmp")
-        try:
-            tmp.write_text(body.content, encoding="utf-8")
-            tmp.replace(path)
-        except OSError as exc:
-            raise HTTPException(
-                status_code=500, detail=f"Не удалось сохранить промпт: {exc}"
-            ) from exc
-        logger.info("Сохранён промпт %s", path)
-        return {
-            "name": path.name,
-            "kind": _prompt_kind(path.name),
-            "content": body.content,
-            "dir": _prompt_dir_rel(state),
-        }
+                tmp.write_text(body.content, encoding="utf-8")
+                tmp.replace(path)
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"Не удалось сохранить промпт: {exc}"
+                ) from exc
+            logger.info("Сохранён промпт %s (%s)", path, service_name)
+            return {
+                "name": path.name,
+                "kind": _prompt_kind(path.name),
+                "content": body.content,
+                "dir": _prompt_dir_rel(base, state),
+            }
+
+    _register_prompt_routes(
+        "prompts",
+        Path(state.cfg.ops.prompts_dir),
+        "scoring_service",
+    )
+    _register_prompt_routes(
+        "analysis-prompts",
+        Path(state.cfg.ops.analysis_prompts_dir),
+        "analysis_service",
+    )
 
     return app

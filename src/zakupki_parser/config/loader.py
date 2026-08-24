@@ -212,6 +212,17 @@ def load_config(configs_dir: str | Path) -> AppConfig:
         prompts_path = base.parent / prompts_path
     ops_model.prompts_dir = str(prompts_path)
 
+    # Каталог промптов analysis_service — из env (имеет приоритет над YAML).
+    # В Docker это общий том (например, /app/analysis-prompts), чтобы правки из
+    # web-интерфейса видел analysis_service при следующем старте.
+    analysis_prompts_dir = (
+        os.environ.get("ZAKUPKI_ANALYSIS_PROMPTS_DIR") or ops_model.analysis_prompts_dir
+    )
+    analysis_prompts_path = Path(analysis_prompts_dir)
+    if not analysis_prompts_path.is_absolute():
+        analysis_prompts_path = base.parent / analysis_prompts_path
+    ops_model.analysis_prompts_dir = str(analysis_prompts_path)
+
     return AppConfig(
         configs_dir=base,
         parser=ParserConfig.model_validate(parser_data),
