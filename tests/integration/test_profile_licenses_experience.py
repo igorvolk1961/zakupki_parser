@@ -233,6 +233,64 @@ def test_experience_validation(ple_client: TestClient) -> None:
     assert client.delete(f"/api/clients/{pid}").status_code == 204
 
 
+def test_profile_save_with_entries(ple_client: TestClient) -> None:
+    """Лицензии/опыт сохраняются полной заменой вместе с профилем (BR-03)."""
+    client = ple_client
+    fstek = next(t for t in client.get("/api/license-types").json() if t["code"] == "fstek")
+    platform = next(
+        t for t in client.get("/api/confirmation-types").json() if t["code"] == "platform"
+    )
+
+    # Создание профиля сразу со списками лицензий и опыта.
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "entries-profile",
+            "competencies": "C",
+            "keywords": [],
+            "licenses": [{"license_type_id": fstek["id"], "number": "Л-1"}],
+            "experience": [
+                {
+                    "title": "Опыт-1",
+                    "confirmation_type_id": platform["id"],
+                    "import_independent": True,
+                }
+            ],
+        },
+    )
+    assert created.status_code == 200
+    pid = created.json()["id"]
+
+    lic = client.get(f"/api/clients/{pid}/licenses").json()
+    assert lic["total"] == 1 and lic["items"][0]["number"] == "Л-1"
+    exp = client.get(f"/api/clients/{pid}/experience").json()
+    assert exp["total"] == 1 and exp["items"][0]["title"] == "Опыт-1"
+
+    # PUT — полная замена: пустые списки очищают, новые списки заменяют.
+    updated = client.put(
+        f"/api/clients/{pid}",
+        json={
+            "name": "entries-profile",
+            "competencies": "C2",
+            "licenses": [],
+            "experience": [{"title": "Опыт-2", "confirmation_type_id": platform["id"]}],
+        },
+    )
+    assert updated.status_code == 200
+    assert client.get(f"/api/clients/{pid}/licenses").json()["total"] == 0
+    exp = client.get(f"/api/clients/{pid}/experience").json()
+    assert exp["total"] == 1 and exp["items"][0]["title"] == "Опыт-2"
+
+    # Неизвестный тип лицензии в списке — 422.
+    r = client.put(
+        f"/api/clients/{pid}",
+        json={"name": "entries-profile", "licenses": [{"license_type_id": 999999}]},
+    )
+    assert r.status_code == 422
+
+    assert client.delete(f"/api/clients/{pid}").status_code == 204
+
+
 def test_tenant_isolation_and_cascade() -> None:
     """Изоляция BR-07 и каскадное удаление при удалении профиля."""
 

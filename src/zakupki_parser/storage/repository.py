@@ -806,28 +806,6 @@ class ProcurementRepository:
             await session.commit()
             logger.info("Удалён профиль %s (id=%s, user_id=%s)", profile.name, profile_id, user_id)
 
-    async def set_profile_keywords(
-        self, profile_id: int, keywords: list[str], exclusion_words: list[str]
-    ) -> None:
-        """Переписывает ключевые слова профиля в таблицу ``keywords`` (канонический источник).
-
-        ``type`` = ``keyword`` (позитивные) или ``exclusion`` (слова-исключения).
-        Слова НЕ хранятся в JSONB-полях профиля (ER: PROFILE -> KEYWORD).
-        Уникальность (profile_id, word, type) — как в миграции 1.30.
-        """
-        async with self._db.session() as session:
-            await session.execute(delete(Keyword).where(Keyword.profile_id == profile_id))
-            rows: list[Keyword] = [
-                Keyword(profile_id=profile_id, word=word, type=kind)
-                for kind, words in (
-                    ("keyword", keywords or []),
-                    ("exclusion", exclusion_words or []),
-                )
-                for word in dict.fromkeys(words)
-            ]
-            session.add_all(rows)
-            await session.commit()
-
     async def get_profile_keywords(self, profile_id: int) -> dict[str, list[str]]:
         """Возвращает ключевые слова профиля из таблицы ``keywords`` (канонический источник)."""
         stmt = select(Keyword).where(Keyword.profile_id == profile_id).order_by(Keyword.id)
@@ -1071,15 +1049,16 @@ class ProcurementRepository:
     async def upsert_profile(
         self, data: dict[str, Any], user_id: int, profile_id: int | None = None
     ) -> Profile:
-        """Создаёт или обновляет профиль пользователя.
+        """Создаёт или обновляет профиль пользователя (одной транзакцией).
 
         По умолчанию ключ — ``user_id + name``: смена имени в ``data`` создаст
         новый профиль (используется для create). Если передан ``profile_id`` —
         обновляется конкретный профиль пользователя, в т.ч. переименование
         (PUT /api/clients/{id}).
 
-        Ключевые слова/слова-исключения из ``data`` записываются в таблицу
-        ``keywords`` (канонический источник), а не в JSONB-поля профиля.
+        В одной транзакции сохраняется весь профиль: поля, ключевые слова/слова-
+        исключения (таблица ``keywords``, канонический источник), лицензии и опыт
+        (``profile_licenses``/``profile_experience``, полная замена — BR-03).
         При ``is_active=true`` остальные профили пользователя деактивируются
         (гарантия единственного активного профиля).
         """
@@ -1125,17 +1104,39 @@ class ProcurementRepository:
                     update(Profile).where(Profile.user_id == user_id).values(is_active=False)
                 )
                 profile.is_active = True
+            # Нужен id профиля до записи дочерних таблиц (новая строка ещё не в БД).
+            await session.flush()
+            # Ключевые слова — полная замена в той же транзакции.
+            if wants_keywords:
+                await session.execute(delete(Keyword).where(Keyword.profile_id == profile.id))
+                rows = [
+                    Keyword(profile_id=profile.id, word=word, type=kind)
+                    for kind, words in (
+                        ("keyword", data.get("keywords") or []),
+                        ("exclusion", data.get("exclusion_words") or []),
+                    )
+                    for word in dict.fromkeys(words)
+                ]
+                session.add_all(rows)
+            # Лицензии и опыт — часть профиля (BR-03): полная замена в той же
+            # транзакции (веб-редактор держит их в форме до «Сохранить профиль»).
+            if "licenses" in data:
+                await session.execute(
+                    delete(ProfileLicense).where(ProfileLicense.profile_id == profile.id)
+                )
+                for entry in data.get("licenses") or []:
+                    session.add(ProfileLicense(profile_id=profile.id, **entry))
+            if "experience" in data:
+                await session.execute(
+                    delete(ProfileExperience).where(ProfileExperience.profile_id == profile.id)
+                )
+                for entry in data.get("experience") or []:
+                    session.add(ProfileExperience(profile_id=profile.id, **entry))
             await session.commit()
             # updated_at (server onupdate) генерируется в БД: с expire_on_commit=False
             # SQLAlchemy не подставляет его в объект без refresh. После выхода из
             # сессии объект detached, и _profile_out упадёт с DetachedInstanceError.
             await session.refresh(profile)
-        if wants_keywords:
-            await self.set_profile_keywords(
-                profile.id,
-                data.get("keywords", []),
-                data.get("exclusion_words", []),
-            )
         logger.info("Сохранён профиль %s (id=%s, user_id=%s)", name, profile.id, user_id)
         return profile
 

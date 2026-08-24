@@ -237,8 +237,46 @@ class ProcurementIdsIn(BaseModel):
     procurement_ids: list[int] = Field(min_length=1)
 
 
+class LicenseIn(BaseModel):
+    """Создание/обновление лицензии компании (профиль).
+
+    Лицензия идентифицируется типом (``license_type_id``) и номером; ``expiry_date``
+    NULL — бессрочная лицензия.
+    """
+
+    license_type_id: int
+    number: str | None = Field(default=None, max_length=128)
+    authority: str | None = Field(default=None, max_length=256)
+    issue_date: date | None = None
+    expiry_date: date | None = None
+    notes: str | None = None
+
+
+class ExperienceIn(BaseModel):
+    """Создание/обновление записи подтверждённого опыта (профиль).
+
+    ``confirmation_type_id`` — справочник ``experience_confirmation_types`` (BR-03);
+    ``import_independent`` — соответствие требованию Минпромторга об импортонезависимости
+    (true/false, NULL — неизвестно/не применимо).
+    """
+
+    title: str = Field(min_length=1, max_length=512)
+    customer_name: str | None = Field(default=None, max_length=256)
+    contract_number: str | None = Field(default=None, max_length=128)
+    start_date: date | None = None
+    end_date: date | None = None
+    amount: float | None = None
+    confirmation_type_id: int
+    import_independent: bool | None = None
+    notes: str | None = None
+
+
 class ProfileIn(BaseModel):
-    """Создание/обновление профиля фильтрации пользователя (ключ — user_id + name)."""
+    """Создание/обновление профиля фильтрации пользователя (ключ — user_id + name).
+
+    ``licenses``/``experience`` — записи профиля (BR-03), сохраняются вместе с
+    профилем полной заменой: веб-редактор держит их в форме до «Сохранить профиль».
+    """
 
     name: str = Field(min_length=1, max_length=128)
     enabled: bool | None = None
@@ -253,6 +291,8 @@ class ProfileIn(BaseModel):
     okpd_codes: list[str] | None = None
     nmck_min: float | None = None
     nmck_max: float | None = None
+    licenses: list[LicenseIn] | None = None
+    experience: list[ExperienceIn] | None = None
 
 
 class ProfileOut(BaseModel):
@@ -306,21 +346,6 @@ class ConfirmationTypeOut(BaseModel):
     name: str
 
 
-class LicenseIn(BaseModel):
-    """Создание/обновление лицензии компании (профиль).
-
-    Лицензия идентифицируется типом (``license_type_id``) и номером; ``expiry_date``
-    NULL — бессрочная лицензия.
-    """
-
-    license_type_id: int
-    number: str | None = Field(default=None, max_length=128)
-    authority: str | None = Field(default=None, max_length=256)
-    issue_date: date | None = None
-    expiry_date: date | None = None
-    notes: str | None = None
-
-
 class LicenseOut(BaseModel):
     """Карточка лицензии компании."""
 
@@ -342,25 +367,6 @@ class LicenseOut(BaseModel):
 class LicenseListOut(BaseModel):
     total: int
     items: list[LicenseOut]
-
-
-class ExperienceIn(BaseModel):
-    """Создание/обновление записи подтверждённого опыта (профиль).
-
-    ``confirmation_type_id`` — справочник ``experience_confirmation_types`` (BR-03);
-    ``import_independent`` — соответствие требованию Минпромторга об импортонезависимости
-    (true/false, NULL — неизвестно/не применимо).
-    """
-
-    title: str = Field(min_length=1, max_length=512)
-    customer_name: str | None = Field(default=None, max_length=256)
-    contract_number: str | None = Field(default=None, max_length=128)
-    start_date: date | None = None
-    end_date: date | None = None
-    amount: float | None = None
-    confirmation_type_id: int
-    import_independent: bool | None = None
-    notes: str | None = None
 
 
 class ExperienceOut(BaseModel):
@@ -751,6 +757,17 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             t.id: ConfirmationTypeOut.model_validate(t)
             for t in await _repo().list_confirmation_types()
         }
+
+    async def _validate_profile_entries(body: ProfileIn) -> None:
+        """Проверяет ссылки на справочники в списках лицензий/опыта профиля."""
+        if body.licenses:
+            license_map = await _license_types_map()
+            if any(lic.license_type_id not in license_map for lic in body.licenses):
+                raise HTTPException(status_code=422, detail="Неизвестный тип лицензии")
+        if body.experience:
+            confirmation_map = await _confirmation_types_map()
+            if any(exp.confirmation_type_id not in confirmation_map for exp in body.experience):
+                raise HTTPException(status_code=422, detail="Неизвестный тип подтверждения")
 
     def _license_out(row: Any, types_map: dict[int, LicenseTypeOut]) -> LicenseOut:
         out = LicenseOut.model_validate(row)
@@ -1224,6 +1241,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         body: ProfileIn, user: User | None = Depends(require_user)
     ) -> ProfileOut:
         eff_user = await _effective_user(user)
+        await _validate_profile_entries(body)
         return await _profile_out(
             await _repo().upsert_profile(body.model_dump(exclude_none=True), eff_user.id)
         )
@@ -1243,6 +1261,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         # PUT — полная замена: обновляем существующий профиль по id (в т.ч. при
         # переименовании — раньше upsert по name создавал новый профиль), null
         # сохраняется как null (exclude_unset, а не exclude_none).
+        await _validate_profile_entries(body)
         updated = await _repo().upsert_profile(
             body.model_dump(exclude_unset=True), eff_user.id, profile_id=client_id
         )

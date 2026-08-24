@@ -36,6 +36,7 @@
   button { cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
   button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
+  button.dirty::after { content: " ●"; font-size:10px; vertical-align:top; color:#fde047; }
   button.ghost { background: transparent; }
   button.danger { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
   html[data-theme="dark"] button.danger { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
@@ -363,7 +364,7 @@
                 <label>Примечание <input id="lic-notes"></label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">
-                <button class="primary" id="license-save">Сохранить лицензию и профиль</button>
+                <button class="primary" id="license-save">Сохранить лицензию</button>
                 <button id="license-cancel">Отмена</button>
                 <span class="muted" id="license-status"></span>
               </div>
@@ -393,7 +394,7 @@
                 <label>Примечание <input id="exp-notes"></label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">
-                <button class="primary" id="experience-save">Сохранить опыт и профиль</button>
+                <button class="primary" id="experience-save">Сохранить опыт</button>
                 <button id="experience-cancel">Отмена</button>
                 <span class="muted" id="experience-status"></span>
               </div>
@@ -978,8 +979,8 @@ let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
 let profileQuestionsLoaded = 0;
 let questionSeq = 1;
-// Слепок формы профиля на момент загрузки/сохранения: для авто-сохранения профиля
-// при сохранении лицензии/опыта (несохранённые правки формы не должны теряться).
+// Слепок формы профиля (включая лицензии/опыт) на момент загрузки/сохранения:
+// индикатор несохранённых изменений на кнопке «Сохранить профиль».
 let profileSavedSnapshot = "";
 function snapshotProfile() { profileSavedSnapshot = JSON.stringify(profileFormData()); }
 function isProfileDirty() { return JSON.stringify(profileFormData()) !== profileSavedSnapshot; }
@@ -990,6 +991,8 @@ let licenseTypes = [];
 let confirmationTypes = [];
 let licenseEditorId = null;
 let experienceEditorId = null;
+// Временные id для новых записей лицензий/опыта в форме (до сохранения профиля).
+let localEntrySeq = 0;
 
 function splitWords(text) {
   return text.split(",").map((s) => s.trim()).filter(Boolean);
@@ -1109,6 +1112,7 @@ function renderTags(arr, wrapId) {
         arr.splice(i, 1);
         renderTags(arr, wrapId);
         wordCounts();
+        syncEntryFormState();
       });
       tag.appendChild(x);
       tagsEl.appendChild(tag);
@@ -1149,6 +1153,7 @@ function bindTagInput(wrapId, arr, makeItem) {
     input.value = "";
     renderTags(arr, wrapId);
     wordCounts();
+    syncEntryFormState();
   });
 }
 
@@ -1181,38 +1186,24 @@ function updateProfileExtrasVisibility() {
   });
 }
 
-// Пока открыта форма добавления/редактирования лицензии или опыта — все операции
-// с записями недоступны. Пока в форме профиля есть несохранённые изменения —
-// недоступны ЛЮБЫЕ операции с лицензиями/опытом: сначала «Сохранить профиль»
-// или «Отмена» (профиль автосохранением не пишется).
+// Пока открыта форма добавления/редактирования лицензии или опыта — остальные
+// операции с записями и «Сохранить профиль» недоступны (незаписанная запись
+// потерялась бы при сохранении профиля).
 function entryFormOpen() {
   return $("#license-form").style.display === "block" || $("#experience-form").style.display === "block";
 }
-function profileDirty() {
-  return !!profileEditorId && isProfileDirty();
-}
 function syncEntryFormState() {
   const formOpen = entryFormOpen();
-  const dirty = profileDirty();
-  const blockTitle = "Сначала сохраните или отмените изменения профиля";
-  // «Добавить …», «Редактировать», «Удалить» — недоступны при открытой форме
-  // ИЛИ при несохранённых правках профиля.
-  [$("#license-new"), $("#experience-new")].forEach((b) => {
-    b.disabled = formOpen || dirty;
-    b.title = dirty ? blockTitle : "";
-  });
+  [$("#license-new"), $("#experience-new")].forEach((b) => { b.disabled = formOpen; b.title = ""; });
   document.querySelectorAll("#licenses-table button[data-action], #experience-table button[data-action]")
-    .forEach((b) => {
-      b.disabled = formOpen || dirty;
-      b.title = dirty ? blockTitle : "";
-    });
-  // Пока редактируется лицензия/опыт, «Сохранить профиль» недоступен.
-  $("#profile-save").disabled = formOpen;
-}
-// Блокирует все кнопки записей на время DELETE (против повторных кликов).
-function disableEntryButtons() {
-  document.querySelectorAll("#licenses-table button[data-action], #experience-table button[data-action], #license-new, #experience-new")
-    .forEach((b) => { b.disabled = true; });
+    .forEach((b) => { b.disabled = formOpen; });
+  // Пока открыта форма записи — «Сохранить профиль» недоступен; при несохранённых
+  // изменениях на кнопке показывается маркер.
+  const saveBtn = $("#profile-save");
+  saveBtn.disabled = formOpen;
+  const dirty = !!profileEditorId && isProfileDirty();
+  saveBtn.classList.toggle("dirty", dirty);
+  saveBtn.title = dirty ? "Есть несохранённые изменения" : "";
 }
 
 async function ensureLicenseTypes() {
@@ -1332,33 +1323,19 @@ async function saveLicense() {
     notes: $("#lic-notes").value.trim() || null,
   };
   if (!data.license_type_id) { setLicenseStatus("Укажите тип лицензии"); return; }
-  // Профиль сохраняется только кнопкой «Сохранить профиль»: при несохранённых
-  // правках формы профиля сохранение лицензии запрещено.
-  if (profileDirty()) {
-    setLicenseStatus("Сначала сохраните или отмените изменения профиля");
-    return;
+  // Лицензия редактируется в форме профиля и сохраняется на сервер только
+  // кнопкой «Сохранить профиль» (единая модель: форма → «Сохранить профиль»).
+  if (licenseEditorId) {
+    const entry = profileLicenses.find((x) => x.id === licenseEditorId);
+    if (entry) Object.assign(entry, data);
+  } else {
+    profileLicenses.push({ ...data, id: "local-" + String(++localEntrySeq) });
   }
-  const saveBtn = $("#license-save");
-  saveBtn.disabled = true;
-  $("#license-cancel").disabled = true;
-  try {
-    const url = licenseEditorId
-      ? `/api/clients/${profileEditorId}/licenses/${licenseEditorId}`
-      : `/api/clients/${profileEditorId}/licenses`;
-    const r = await apiJSON(url, {
-      method: licenseEditorId ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!r.ok) throw new Error(await r.text());
-    $("#license-form").style.display = "none";
-    await loadProfileExtras(profileEditorId);
-  } catch (e) { setLicenseStatus("Ошибка сохранения: " + e.message); }
-  finally {
-    saveBtn.disabled = false;
-    $("#license-cancel").disabled = false;
-    syncEntryFormState();
-  }
+  $("#license-form").style.display = "none";
+  renderLicenses();
+  wordCounts();
+  syncEntryFormState();
+  setLicenseStatus("Сохранено — будет записано вместе с профилем");
 }
 
 function deleteLicense(lic) {
@@ -1366,14 +1343,12 @@ function deleteLicense(lic) {
   const label = lic && (type || lic.number)
     ? `Удалить лицензию${type ? " «" + type.name + "»" : ""}${lic.number ? " №" + lic.number : ""}?`
     : "Удалить лицензию?";
-  confirmDialog(label, async () => {
-    disableEntryButtons();
-    try {
-      const r = await apiJSON(`/api/clients/${profileEditorId}/licenses/${lic.id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await r.text());
-      await loadProfileExtras(profileEditorId);
-    } catch (e) { setLicenseStatus("Ошибка удаления: " + e.message); }
-    finally { syncEntryFormState(); }
+  confirmDialog(label, () => {
+    profileLicenses = profileLicenses.filter((x) => x.id !== lic.id);
+    renderLicenses();
+    wordCounts();
+    syncEntryFormState();
+    setLicenseStatus("Лицензия удалена — будет записано вместе с профилем");
   });
 }
 
@@ -1412,45 +1387,29 @@ async function saveExperience() {
   };
   if (!data.confirmation_type_id) { setExperienceStatus("Укажите тип подтверждения"); return; }
   if (!data.title) { setExperienceStatus("Укажите работы/контракт"); return; }
-  // Профиль сохраняется только кнопкой «Сохранить профиль»: при несохранённых
-  // правках формы профиля сохранение опыта запрещено.
-  if (profileDirty()) {
-    setExperienceStatus("Сначала сохраните или отмените изменения профиля");
-    return;
+  // Опыт редактируется в форме профиля и сохраняется на сервер только
+  // кнопкой «Сохранить профиль» (единая модель: форма → «Сохранить профиль»).
+  if (experienceEditorId) {
+    const entry = profileExperience.find((x) => x.id === experienceEditorId);
+    if (entry) Object.assign(entry, data);
+  } else {
+    profileExperience.push({ ...data, id: "local-" + String(++localEntrySeq) });
   }
-  const saveBtn = $("#experience-save");
-  saveBtn.disabled = true;
-  $("#experience-cancel").disabled = true;
-  try {
-    const url = experienceEditorId
-      ? `/api/clients/${profileEditorId}/experience/${experienceEditorId}`
-      : `/api/clients/${profileEditorId}/experience`;
-    const r = await apiJSON(url, {
-      method: experienceEditorId ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (!r.ok) throw new Error(await r.text());
-    $("#experience-form").style.display = "none";
-    await loadProfileExtras(profileEditorId);
-  } catch (e) { setExperienceStatus("Ошибка сохранения: " + e.message); }
-  finally {
-    saveBtn.disabled = false;
-    $("#experience-cancel").disabled = false;
-    syncEntryFormState();
-  }
+  $("#experience-form").style.display = "none";
+  renderExperience();
+  wordCounts();
+  syncEntryFormState();
+  setExperienceStatus("Сохранено — будет записано вместе с профилем");
 }
 
 function deleteExperience(exp) {
   const label = exp && exp.title ? `Удалить запись опыта «${exp.title}»?` : "Удалить запись опыта?";
-  confirmDialog(label, async () => {
-    disableEntryButtons();
-    try {
-      const r = await apiJSON(`/api/clients/${profileEditorId}/experience/${exp.id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error(await r.text());
-      await loadProfileExtras(profileEditorId);
-    } catch (e) { setExperienceStatus("Ошибка удаления: " + e.message); }
-    finally { syncEntryFormState(); }
+  confirmDialog(label, () => {
+    profileExperience = profileExperience.filter((x) => x.id !== exp.id);
+    renderExperience();
+    wordCounts();
+    syncEntryFormState();
+    setExperienceStatus("Опыт удалён — будет записано вместе с профилем");
   });
 }
 
@@ -1466,6 +1425,27 @@ function profileFormData() {
     exclusion_words: profileExcl.slice(),
     questions: profileQuestions.slice(),
     competencies: $("#pf-competencies").value,
+    // Лицензии/опыт — часть формы профиля (BR-03): сохраняются только вместе
+    // с профилем; лишние поля (id, license_type, …) сервер игнорирует.
+    licenses: profileLicenses.map((l) => ({
+      license_type_id: l.license_type_id,
+      number: l.number,
+      authority: l.authority,
+      issue_date: l.issue_date,
+      expiry_date: l.expiry_date,
+      notes: l.notes,
+    })),
+    experience: profileExperience.map((e) => ({
+      title: e.title,
+      customer_name: e.customer_name,
+      contract_number: e.contract_number,
+      start_date: e.start_date,
+      end_date: e.end_date,
+      amount: e.amount,
+      confirmation_type_id: e.confirmation_type_id,
+      import_independent: e.import_independent,
+      notes: e.notes,
+    })),
   };
 }
 
@@ -1668,15 +1648,21 @@ $("#fit-up").addEventListener("click", () => stepFit(0.1));
 $("#fit-dn").addEventListener("click", () => stepFit(-0.1));
 $("#proc-platform").addEventListener("change", () => { procPage = 1; loadProc(); });
 $("#proc-active").addEventListener("change", () => { procPage = 1; loadProc(); });
-$("#tab-proc").addEventListener("click", () => {
-  $("#tab-proc").classList.add("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active"); $("#tab-profiles").classList.remove("active");
-  $("#view-proc").style.display = "block"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none"; $("#view-profiles").style.display = "none";
-});
-$("#tab-cust").addEventListener("click", () => {
-  $("#tab-cust").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active"); $("#tab-profiles").classList.remove("active");
-  $("#view-cust").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none"; $("#view-profiles").style.display = "none";
-  loadCustomers();
-});
+
+// --- Переключение верхних вкладок --------------------------------------
+// При уходе с формы редактирования профиля с несохранёнными изменениями
+// предупреждаем: «Отмена» — confirmDialog ниже, закрытие страницы — beforeunload.
+function switchTab(name) {
+  ["proc", "cust", "cfg", "prompts", "profiles"].forEach((k) => {
+    $("#tab-" + k).classList.toggle("active", k === name);
+    $("#view-" + k).style.display = k === name ? "block" : "none";
+  });
+}
+function profileFormDirty() {
+  return $("#profile-editor").style.display === "block" && isProfileDirty();
+}
+$("#tab-proc").addEventListener("click", () => switchTab("proc"));
+$("#tab-cust").addEventListener("click", () => { switchTab("cust"); loadCustomers(); });
 
 // --- Параметры --------------------------------------------------------
 let cfgDirty = false;
@@ -1707,12 +1693,8 @@ async function saveConfig() {
 $("#cfg-editor").addEventListener("input", () => { cfgDirty = true; $("#cfg-status").textContent = "несохранённые изменения"; });
 $("#cfg-save").addEventListener("click", saveConfig);
 $("#cfg-reload").addEventListener("click", loadConfig);
-$("#tab-cfg").addEventListener("click", () => {
-  $("#tab-cfg").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-prompts").classList.remove("active"); $("#tab-profiles").classList.remove("active");
-  $("#view-cfg").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-prompts").style.display = "none"; $("#view-profiles").style.display = "none";
-  if (!cfgDirty) loadConfig();
-});
-window.addEventListener("beforeunload", (e) => { if (cfgDirty || promptDirty) { e.preventDefault(); e.returnValue = ""; } });
+$("#tab-cfg").addEventListener("click", () => { switchTab("cfg"); if (!cfgDirty) loadConfig(); });
+window.addEventListener("beforeunload", (e) => { if (cfgDirty || promptDirty || profileFormDirty()) { e.preventDefault(); e.returnValue = ""; } });
 
 // --- Промпты ----------------------------------------------------------
 // Человекочитаемые подписи для известных файлов промптов; неизвестные
@@ -1817,22 +1799,20 @@ $("#prompt-service").addEventListener("change", () => {
   $("#prompt-sel").dataset.last = "";
   loadPromptList();
 });
-$("#tab-prompts").addEventListener("click", () => {
-  $("#tab-prompts").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-profiles").classList.remove("active");
-  $("#view-prompts").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-profiles").style.display = "none";
-  if (!promptDirty) loadPromptList();
-});
+$("#tab-prompts").addEventListener("click", () => { switchTab("prompts"); if (!promptDirty) loadPromptList(); });
 
-$("#tab-profiles").addEventListener("click", () => {
-  $("#tab-profiles").classList.add("active"); $("#tab-proc").classList.remove("active"); $("#tab-cust").classList.remove("active"); $("#tab-cfg").classList.remove("active"); $("#tab-prompts").classList.remove("active");
-  $("#view-profiles").style.display = "block"; $("#view-proc").style.display = "none"; $("#view-cust").style.display = "none"; $("#view-cfg").style.display = "none"; $("#view-prompts").style.display = "none";
-  loadProfiles();
-});
+$("#tab-profiles").addEventListener("click", () => { switchTab("profiles"); loadProfiles(); });
 
 $("#profile-new").addEventListener("click", () => openProfileEditor(null));
 $("#profile-seed").addEventListener("click", seedProfile);
 $("#profile-save").addEventListener("click", saveProfile);
-$("#profile-cancel").addEventListener("click", closeProfileEditor);
+$("#profile-cancel").addEventListener("click", () => {
+  if (isProfileDirty()) {
+    confirmDialog("В форме профиля есть несохранённые изменения. Покинуть форму? Изменения будут потеряны.", closeProfileEditor);
+    return;
+  }
+  closeProfileEditor();
+});
 $("#profile-delete").addEventListener("click", () => confirmDeleteProfile(profileEditorId, profileEditorName));
 $("#delete-profile-cancel").addEventListener("click", closeDeleteProfileModal);
 $("#delete-profile-confirm").addEventListener("click", doDeleteProfile);
