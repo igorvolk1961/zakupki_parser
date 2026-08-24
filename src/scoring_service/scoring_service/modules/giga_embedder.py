@@ -15,6 +15,8 @@ from collections.abc import Mapping
 
 import httpx
 
+from scoring_common.langfuse import start_observation
+
 
 class GigaTokenError(RuntimeError):
     """Ошибка получения/обновления токена Giga."""
@@ -163,15 +165,29 @@ class GigaEmbedder:
             raise
 
     def _embed_once(self, payload: Mapping[str, object]) -> list[list[float]]:
-        with httpx.Client(timeout=60.0, verify=self._verify_ssl) as client:
-            resp = client.post(
-                f"{self._base}/embeddings",
-                headers={
-                    "Authorization": f"Bearer {self._tokens.get_token()}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        return [item["embedding"] for item in data["data"]]
+        obs = start_observation(
+            name="embeddings",
+            as_type="embedding",
+            input=payload.get("input"),
+            metadata={"model": payload.get("model")},
+        )
+        try:
+            with httpx.Client(timeout=60.0, verify=self._verify_ssl) as client:
+                resp = client.post(
+                    f"{self._base}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self._tokens.get_token()}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            vectors = [item["embedding"] for item in data["data"]]
+            obs.update(output=vectors)
+            obs.end()
+            return vectors
+        except Exception as exc:  # noqa: BLE001
+            obs.update(level="WARNING", status_message=f"сбой эмбеддингов Giga: {exc}")
+            obs.end()
+            raise

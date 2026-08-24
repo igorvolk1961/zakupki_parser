@@ -319,6 +319,20 @@ else
     echo "LangFuse пропущен (SKIP_LANGFUSE=1)."
 fi
 
+# --- LangFuse-трассировка локальных сервисов --------------------------------
+# Ключи self-hosted LangFuse живут в docker/.env (LANG_INIT_PUBLIC_KEY/SECRET_KEY);
+# пробрасываем их воркерам как стандартные LANGFUSE_*, чтобы LLM-вызовы и
+# эмбеддинги трассировались локально так же, как в Docker. Без ключей —
+# трассировка выключена (no-op).
+if [ -f "$ROOT_DIR/docker/.env" ]; then
+    LANGFUSE_PUBLIC_KEY="$(sed -n 's/^LANG_INIT_PUBLIC_KEY[[:space:]]*=[[:space:]]*//p' "$ROOT_DIR/docker/.env" | tail -n1)"
+    LANGFUSE_SECRET_KEY="$(sed -n 's/^LANG_INIT_SECRET_KEY[[:space:]]*=[[:space:]]*//p' "$ROOT_DIR/docker/.env" | tail -n1)"
+fi
+export LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY:-}"
+export LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY:-}"
+# Локально LangFuse доступен на хосте (в Docker — по имени сервиса langfuse-web).
+export LANGFUSE_HOST="http://localhost:3000"
+
 # Общие компоненты каскада (scoring_common) — локально не установлены как пакет,
 # поэтому добавляем их в PYTHONPATH (как это делают Dockerfile подпроектов).
 COMMON_PATH="$ROOT_DIR/src/scoring_common"

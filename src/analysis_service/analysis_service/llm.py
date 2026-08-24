@@ -12,6 +12,8 @@ from typing import Any
 
 import httpx
 
+from scoring_common.langfuse import start_observation
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,13 +49,24 @@ class LlmClient:
                 {"role": "user", "content": user},
             ],
         }
+        obs = start_observation(
+            name="verdict",
+            as_type="generation",
+            input=payload["messages"],
+            metadata={"model": self._model, "temperature": self._temperature},
+        )
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
             content = data["choices"][0]["message"]["content"]
-            return json.loads(content)
+            result: dict[str, Any] = json.loads(content)
+            obs.update(output=result, model=self._model)
+            obs.end()
+            return result
         except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
+            obs.update(level="WARNING", status_message=f"LLM-вердикт не получен: {exc}")
+            obs.end()
             logger.warning("LLM-вердикт не получен (%s): %s", self._model, exc)
             return None

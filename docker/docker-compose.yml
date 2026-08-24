@@ -310,6 +310,10 @@ services:
       ANALYSIS_LLM_BASE_URL: ${ANALYSIS_LLM_BASE_URL:-}
       ANALYSIS_LLM_MODEL: ${ANALYSIS_LLM_MODEL:-deepseek-chat}
       ANALYSIS_LLM_API_KEY: ${ANALYSIS_LLM_API_KEY:-}
+      # LangFuse-трассировка LLM-вердиктов и эмбеддингов (self-hosted в этом compose).
+      LANGFUSE_PUBLIC_KEY: ${LANG_INIT_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANG_INIT_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANG_HOST:-http://langfuse-web:3000}
       # Общий том промптов: правки из вкладки «Промпты» (api) видны при следующем старте.
       ANALYSIS_PROMPTS_DIR: /app/analysis-prompts
     volumes:
