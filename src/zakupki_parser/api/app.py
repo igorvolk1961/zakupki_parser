@@ -1240,9 +1240,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         existing = await _repo().get_profile(eff_user.id, client_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
-        data = body.model_dump(exclude_none=True)
-        data["name"] = existing.name if body.name == existing.name else body.name
-        updated = await _repo().upsert_profile(data, eff_user.id)
+        # PUT — полная замена: обновляем существующий профиль по id (в т.ч. при
+        # переименовании — раньше upsert по name создавал новый профиль), null
+        # сохраняется как null (exclude_unset, а не exclude_none).
+        updated = await _repo().upsert_profile(
+            body.model_dump(exclude_unset=True), eff_user.id, profile_id=client_id
+        )
         return await _profile_out(updated)
 
     @app.post(

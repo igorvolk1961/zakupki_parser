@@ -1068,8 +1068,15 @@ class ProcurementRepository:
         profile = await self.upsert_profile({**seed, "name": "default"}, user_id)
         return profile
 
-    async def upsert_profile(self, data: dict[str, Any], user_id: int) -> Profile:
-        """Создаёт или обновляет профиль пользователя (ключ — user_id + name).
+    async def upsert_profile(
+        self, data: dict[str, Any], user_id: int, profile_id: int | None = None
+    ) -> Profile:
+        """Создаёт или обновляет профиль пользователя.
+
+        По умолчанию ключ — ``user_id + name``: смена имени в ``data`` создаст
+        новый профиль (используется для create). Если передан ``profile_id`` —
+        обновляется конкретный профиль пользователя, в т.ч. переименование
+        (PUT /api/clients/{id}).
 
         Ключевые слова/слова-исключения из ``data`` записываются в таблицу
         ``keywords`` (канонический источник), а не в JSONB-поля профиля.
@@ -1081,14 +1088,17 @@ class ProcurementRepository:
             raise ValueError("profiles.name обязателен")
         wants_keywords = "keywords" in data or "exclusion_words" in data
         async with self._db.session() as session:
-            profile = (
-                await session.execute(
-                    select(Profile).where(Profile.user_id == user_id, Profile.name == name)
-                )
-            ).scalar_one_or_none()
+            stmt = (
+                select(Profile).where(Profile.user_id == user_id, Profile.id == profile_id)
+                if profile_id is not None
+                else select(Profile).where(Profile.user_id == user_id, Profile.name == name)
+            )
+            profile = (await session.execute(stmt)).scalar_one_or_none()
             if profile is None:
                 profile = Profile(name=name, user_id=user_id)
                 session.add(profile)
+            # Переименование: найденный по id профиль мог иметь другое имя.
+            profile.name = name
             if "enabled" in data:
                 profile.enabled = bool(data["enabled"])
             if "competencies" in data:

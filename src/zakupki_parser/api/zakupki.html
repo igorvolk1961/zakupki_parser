@@ -1160,7 +1160,7 @@ function updateProfileExtrasVisibility() {
   const hidden = !profileEditorId;
   ["licenses", "experience"].forEach((k) => {
     $("#pf-tab-" + k).style.display = hidden ? "none" : "";
-    $("#pf-cnt-" + k).textContent = "";
+    if (hidden) $("#pf-cnt-" + k).textContent = "";
   });
 }
 
