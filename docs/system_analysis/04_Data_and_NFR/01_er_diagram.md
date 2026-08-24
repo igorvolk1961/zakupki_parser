@@ -11,6 +11,10 @@
 erDiagram
     USERS ||--o{ PROFILES : "владеет"
     PROFILES ||--o{ KEYWORDS : "содержит"
+    PROFILES ||--o{ PROFILE_LICENSES : "имеет"
+    PROFILES ||--o{ PROFILE_EXPERIENCE : "имеет"
+    PROFILE_EXPERIENCE ||--o{ EXPERIENCE_CONFIRMATION_TYPES : "подтверждается (тип)"
+    PROFILE_LICENSES ||--o{ LICENSE_TYPES : "классифицируется (тип)"
     PROFILES ||--o{ PROCUREMENT_EVALUATIONS : "оценивает"
     PROCUREMENTS ||--o{ PROCUREMENT_EVALUATIONS : "оценивается в"
     CUSTOMERS ||--o{ PROCUREMENTS : "участвует в"
@@ -49,6 +53,46 @@ erDiagram
         int profile_id FK
         string word
         string type
+    }
+
+    LICENSE_TYPES {
+        int id PK
+        string code "fstek|fsb|mincifry|roscomnadzor|minpromtorg|mchs|rosgvardia|education|other"
+        string name
+        int sort_order
+    }
+
+    PROFILE_LICENSES {
+        int id PK
+        int profile_id FK
+        int license_type_id FK
+        string name
+        string number
+        string authority
+        date issue_date
+        date expiry_date
+        string notes
+    }
+
+    EXPERIENCE_CONFIRMATION_TYPES {
+        int id PK
+        string code "platform|documents|registry (сид BR-03)"
+        string name
+        int sort_order
+    }
+
+    PROFILE_EXPERIENCE {
+        int id PK
+        int profile_id FK
+        int confirmation_type_id FK
+        string title
+        string customer_name
+        string contract_number
+        date start_date
+        date end_date
+        float amount
+        bool import_independent
+        string notes
     }
 
     CUSTOMERS {
@@ -143,12 +187,22 @@ erDiagram
   (`active_only`) — глобальный (`config_service.yaml -> search_criteria.active_only`);
   колонка `profiles.active_only` удалена (миграция 1.36).
 - **Ключи уникальности**: `procurements (number, platform_id)`;
-  `procurement_evaluations (procurement_id, profile_id)`; `keywords (profile_id, word, type)`.
+  `procurement_evaluations (procurement_id, profile_id)`; `keywords (profile_id, word, type)`;
+  `license_types (code)`; `experience_confirmation_types (code)`.
 - **Справочники**: `customers`, `procedure_types` (+ `procedure_type_mappings`),
   `platforms`; `procedure_categories` — заглушка (этап 1).
+- **Лицензии и подтверждённый опыт профиля** (миграция 1.37, BR-03): `profile_licenses`
+  и `profile_experience` — дочерние таблицы профиля (FK `ON DELETE CASCADE`, как
+  `keywords`). Тип лицензии — справочник `license_types` (сид: набор для ИТ-компании);
+  тип подтверждения опыта — справочник `experience_confirmation_types` (сид BR-03:
+  `platform` — через площадку ПП РФ 2571, `documents` — сканы договоров/актов,
+  `registry` — выписка из реестра контрактов). `profile_experience.import_independent` —
+  nullable boolean соответствия требованию Минпромторга об импортонезависимости
+  (NULL — неизвестно/не применимо). CRUD — вложенные эндпоинты
+  `/api/clients/{id}/licenses` и `/api/clients/{id}/experience` (tenant-скоуп BR-07).
 - **Изоляция через user_id / profile_id** (BR-07): все таблицы с приватными данными
-  (`profiles`, `procurement_evaluations`) привязаны к пользователю/профилю; tenant-скоуп
-  реализован в репозитории.
+  (`profiles`, `procurement_evaluations`, `profile_licenses`, `profile_experience`)
+  привязаны к пользователю/профилю; tenant-скоуп реализован в репозитории.
 
 ## 2. Целевая модель (пост-MVP, этапы 6–10)
 

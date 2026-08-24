@@ -11,7 +11,7 @@ import os
 import secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -286,6 +286,111 @@ class ProfileListOut(BaseModel):
     items: list[ProfileOut]
 
 
+class LicenseTypeOut(BaseModel):
+    """Справочник типов лицензий (сид — набор для ИТ-компании)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+
+
+class ConfirmationTypeOut(BaseModel):
+    """Справочник типов подтверждения опыта (сид BR-03)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+
+
+class LicenseIn(BaseModel):
+    """Создание/обновление лицензии компании (профиль).
+
+    ``license_type_id`` — справочник ``license_types``; ``expiry_date`` NULL —
+    бессрочная лицензия.
+    """
+
+    license_type_id: int
+    name: str = Field(min_length=1, max_length=512)
+    number: str | None = Field(default=None, max_length=128)
+    authority: str | None = Field(default=None, max_length=256)
+    issue_date: date | None = None
+    expiry_date: date | None = None
+    notes: str | None = None
+
+
+class LicenseOut(BaseModel):
+    """Карточка лицензии компании."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    profile_id: int
+    license_type_id: int
+    license_type: LicenseTypeOut | None = None
+    name: str
+    number: str | None = None
+    authority: str | None = None
+    issue_date: date | None = None
+    expiry_date: date | None = None
+    notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LicenseListOut(BaseModel):
+    total: int
+    items: list[LicenseOut]
+
+
+class ExperienceIn(BaseModel):
+    """Создание/обновление записи подтверждённого опыта (профиль).
+
+    ``confirmation_type_id`` — справочник ``experience_confirmation_types`` (BR-03);
+    ``import_independent`` — соответствие требованию Минпромторга об импортонезависимости
+    (true/false, NULL — неизвестно/не применимо).
+    """
+
+    title: str = Field(min_length=1, max_length=512)
+    customer_name: str | None = Field(default=None, max_length=256)
+    contract_number: str | None = Field(default=None, max_length=128)
+    start_date: date | None = None
+    end_date: date | None = None
+    amount: float | None = None
+    confirmation_type_id: int
+    import_independent: bool | None = None
+    notes: str | None = None
+
+
+class ExperienceOut(BaseModel):
+    """Карточка подтверждённого опыта компании."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    profile_id: int
+    title: str
+    customer_name: str | None = None
+    contract_number: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    amount: float | None = None
+    confirmation_type_id: int
+    confirmation_type: ConfirmationTypeOut | None = None
+    import_independent: bool | None = None
+    notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExperienceListOut(BaseModel):
+    total: int
+    items: list[ExperienceOut]
+
+
 # --------------------------------------------------------------------------- #
 # Приложение
 # --------------------------------------------------------------------------- #
@@ -525,6 +630,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             await db.connect()
             state.db = db
             state.repository = ProcurementRepository(db)
+            # Сид справочников профиля (типы лицензий, типы подтверждения BR-03) —
+            # идемпотентно, чтобы они были и при неполной миграции.
+            await state.repository.ensure_reference_data()
         except Exception as exc:  # noqa: BLE001
             logger.error("БД недоступна при старте API: %s", exc)
             state.db = None
@@ -624,6 +732,37 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         data["keywords"] = keywords["keywords"]
         data["exclusion_words"] = keywords["exclusion_words"]
         return ProfileOut(**data)
+
+    async def _owned_profile(user: User | None, client_id: int) -> Profile:
+        """Профиль пользователя или 404 (tenant-скоуп BR-07).
+
+        Лицензии/опыт привязаны к профилю, профиль — к пользователю: проверка
+        владения обязательна для всех вложенных эндпоинтов (как в get_client).
+        """
+        eff_user = await _effective_user(user)
+        profile = await _repo().get_profile(eff_user.id, client_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Профиль не найден")
+        return profile
+
+    async def _license_types_map() -> dict[int, LicenseTypeOut]:
+        return {t.id: LicenseTypeOut.model_validate(t) for t in await _repo().list_license_types()}
+
+    async def _confirmation_types_map() -> dict[int, ConfirmationTypeOut]:
+        return {
+            t.id: ConfirmationTypeOut.model_validate(t)
+            for t in await _repo().list_confirmation_types()
+        }
+
+    def _license_out(row: Any, types_map: dict[int, LicenseTypeOut]) -> LicenseOut:
+        out = LicenseOut.model_validate(row)
+        out.license_type = types_map.get(row.license_type_id)
+        return out
+
+    def _experience_out(row: Any, types_map: dict[int, ConfirmationTypeOut]) -> ExperienceOut:
+        out = ExperienceOut.model_validate(row)
+        out.confirmation_type = types_map.get(row.confirmation_type_id)
+        return out
 
     # ------------------------------------------------------------------ #
     # Авторизация (вход по логину/паролю; позже — OAuth2 через Сбер ID).
@@ -1163,6 +1302,153 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         )
         await _broadcast(state)
         return await _profile_out(profile)
+
+    # ------------------------------------------------------------------ #
+    # Лицензии и подтверждённый опыт профиля (справочники + CRUD, BR-03)
+    # ------------------------------------------------------------------ #
+    @app.get(
+        "/api/license-types",
+        response_model=list[LicenseTypeOut],
+        dependencies=[Depends(require_user)],
+    )
+    async def list_license_types() -> list[LicenseTypeOut]:
+        """Справочник типов лицензий (для выбора в редакторе профиля)."""
+        rows = await _repo().list_license_types()
+        return [LicenseTypeOut.model_validate(r) for r in rows]
+
+    @app.get(
+        "/api/confirmation-types",
+        response_model=list[ConfirmationTypeOut],
+        dependencies=[Depends(require_user)],
+    )
+    async def list_confirmation_types() -> list[ConfirmationTypeOut]:
+        """Справочник типов подтверждения опыта (сид BR-03)."""
+        rows = await _repo().list_confirmation_types()
+        return [ConfirmationTypeOut.model_validate(r) for r in rows]
+
+    @app.get(
+        "/api/clients/{client_id}/licenses",
+        response_model=LicenseListOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def list_licenses(
+        client_id: int, user: User | None = Depends(require_user)
+    ) -> LicenseListOut:
+        await _owned_profile(user, client_id)
+        rows = await _repo().list_licenses(client_id)
+        types_map = await _license_types_map()
+        return LicenseListOut(total=len(rows), items=[_license_out(r, types_map) for r in rows])
+
+    @app.post(
+        "/api/clients/{client_id}/licenses",
+        response_model=LicenseOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def create_license(
+        client_id: int, body: LicenseIn, user: User | None = Depends(require_user)
+    ) -> LicenseOut:
+        await _owned_profile(user, client_id)
+        types_map = await _license_types_map()
+        if body.license_type_id not in types_map:
+            raise HTTPException(status_code=422, detail="Неизвестный тип лицензии")
+        row = await _repo().create_license(client_id, body.model_dump())
+        return _license_out(row, types_map)
+
+    @app.put(
+        "/api/clients/{client_id}/licenses/{license_id}",
+        response_model=LicenseOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def update_license(
+        client_id: int,
+        license_id: int,
+        body: LicenseIn,
+        user: User | None = Depends(require_user),
+    ) -> LicenseOut:
+        await _owned_profile(user, client_id)
+        # 404 раньше валидации ссылки на справочник: статусы не зависят от тела.
+        if await _repo().get_license(client_id, license_id) is None:
+            raise HTTPException(status_code=404, detail="Лицензия не найдена")
+        types_map = await _license_types_map()
+        if body.license_type_id not in types_map:
+            raise HTTPException(status_code=422, detail="Неизвестный тип лицензии")
+        row = await _repo().update_license(client_id, license_id, body.model_dump())
+        return _license_out(row, types_map)
+
+    @app.delete(
+        "/api/clients/{client_id}/licenses/{license_id}",
+        status_code=204,
+        dependencies=[Depends(require_user)],
+    )
+    async def delete_license(
+        client_id: int, license_id: int, user: User | None = Depends(require_user)
+    ) -> None:
+        await _owned_profile(user, client_id)
+        if not await _repo().delete_license(client_id, license_id):
+            raise HTTPException(status_code=404, detail="Лицензия не найдена")
+
+    @app.get(
+        "/api/clients/{client_id}/experience",
+        response_model=ExperienceListOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def list_experience(
+        client_id: int, user: User | None = Depends(require_user)
+    ) -> ExperienceListOut:
+        await _owned_profile(user, client_id)
+        rows = await _repo().list_experience(client_id)
+        types_map = await _confirmation_types_map()
+        return ExperienceListOut(
+            total=len(rows), items=[_experience_out(r, types_map) for r in rows]
+        )
+
+    @app.post(
+        "/api/clients/{client_id}/experience",
+        response_model=ExperienceOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def create_experience(
+        client_id: int, body: ExperienceIn, user: User | None = Depends(require_user)
+    ) -> ExperienceOut:
+        await _owned_profile(user, client_id)
+        types_map = await _confirmation_types_map()
+        if body.confirmation_type_id not in types_map:
+            raise HTTPException(status_code=422, detail="Неизвестный тип подтверждения")
+        row = await _repo().create_experience(client_id, body.model_dump())
+        return _experience_out(row, types_map)
+
+    @app.put(
+        "/api/clients/{client_id}/experience/{experience_id}",
+        response_model=ExperienceOut,
+        dependencies=[Depends(require_user)],
+    )
+    async def update_experience(
+        client_id: int,
+        experience_id: int,
+        body: ExperienceIn,
+        user: User | None = Depends(require_user),
+    ) -> ExperienceOut:
+        await _owned_profile(user, client_id)
+        # 404 раньше валидации ссылки на справочник: статусы не зависят от тела.
+        if await _repo().get_experience(client_id, experience_id) is None:
+            raise HTTPException(status_code=404, detail="Запись опыта не найдена")
+        types_map = await _confirmation_types_map()
+        if body.confirmation_type_id not in types_map:
+            raise HTTPException(status_code=422, detail="Неизвестный тип подтверждения")
+        row = await _repo().update_experience(client_id, experience_id, body.model_dump())
+        return _experience_out(row, types_map)
+
+    @app.delete(
+        "/api/clients/{client_id}/experience/{experience_id}",
+        status_code=204,
+        dependencies=[Depends(require_user)],
+    )
+    async def delete_experience(
+        client_id: int, experience_id: int, user: User | None = Depends(require_user)
+    ) -> None:
+        await _owned_profile(user, client_id)
+        if not await _repo().delete_experience(client_id, experience_id):
+            raise HTTPException(status_code=404, detail="Запись опыта не найдена")
 
     @app.get(
         "/api/customers",

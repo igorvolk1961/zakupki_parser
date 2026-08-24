@@ -18,12 +18,16 @@ from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import (
     Customer,
     Database,
+    ExperienceConfirmationType,
     Keyword,
+    LicenseType,
     ProcedureType,
     ProcedureTypeMapping,
     Procurement,
     ProcurementEvaluation,
     Profile,
+    ProfileExperience,
+    ProfileLicense,
     User,
 )
 
@@ -853,6 +857,181 @@ class ProcurementRepository:
             key = "keywords" if row.type == "keyword" else "exclusion_words"
             bucket[key].append(row.word)
         return result
+
+    # ------------------------------------------------------------------ #
+    # Справочники профиля и дочерние списки (BR-03, BR-07)
+    # ------------------------------------------------------------------ #
+    LICENSE_TYPES_SEED = [
+        ("fstek", "ФСТЭК России (техзащита конфиденциальной информации)"),
+        ("fsb", "ФСБ России (криптографические средства)"),
+        ("mincifry", "Минцифры России (средства защиты информации)"),
+        ("roscomnadzor", "Роскомнадзор (услуги связи)"),
+        ("minpromtorg", "Минпромторг России"),
+        ("mchs", "МЧС России (пожарная безопасность)"),
+        ("rosgvardia", "Росгвардия (частная охранная деятельность)"),
+        ("education", "Лицензия на образовательную деятельность"),
+        ("other", "Прочая лицензия"),
+    ]
+    CONFIRMATION_TYPES_SEED = [
+        ("platform", "Через электронную площадку (ПП РФ 2571)"),
+        ("documents", "Сканы договоров/актов"),
+        ("registry", "Выписка из реестра контрактов"),
+    ]
+
+    async def ensure_reference_data(self) -> None:
+        """Идемпотентный сид справочников профиля (типы лицензий и BR-03).
+
+        Нужен и в проде (при неполной миграции), и в тестах (там схема создаётся
+        через ``Base.metadata.create_all`` без Liquibase). Повторный сид безопасен:
+        ``ON CONFLICT (code) DO NOTHING``.
+        """
+        async with self._db.session() as session:
+            for model, seed in (
+                (LicenseType, self.LICENSE_TYPES_SEED),
+                (ExperienceConfirmationType, self.CONFIRMATION_TYPES_SEED),
+            ):
+                stmt = pg_insert(model).values(
+                    [
+                        {"code": code, "name": name, "sort_order": i + 1}
+                        for i, (code, name) in enumerate(seed)
+                    ]
+                )
+                await session.execute(stmt.on_conflict_do_nothing(index_elements=["code"]))
+            await session.commit()
+
+    async def list_license_types(self) -> list[LicenseType]:
+        stmt = select(LicenseType).order_by(LicenseType.sort_order, LicenseType.id)
+        async with self._db.session() as session:
+            return list((await session.execute(stmt)).scalars().all())
+
+    async def list_confirmation_types(self) -> list[ExperienceConfirmationType]:
+        stmt = select(ExperienceConfirmationType).order_by(
+            ExperienceConfirmationType.sort_order, ExperienceConfirmationType.id
+        )
+        async with self._db.session() as session:
+            return list((await session.execute(stmt)).scalars().all())
+
+    async def list_licenses(self, profile_id: int) -> list[ProfileLicense]:
+        stmt = (
+            select(ProfileLicense)
+            .where(ProfileLicense.profile_id == profile_id)
+            .order_by(ProfileLicense.id)
+        )
+        async with self._db.session() as session:
+            return list((await session.execute(stmt)).scalars().all())
+
+    async def get_license(self, profile_id: int, license_id: int) -> ProfileLicense | None:
+        stmt = select(ProfileLicense).where(
+            ProfileLicense.id == license_id,
+            ProfileLicense.profile_id == profile_id,
+        )
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def create_license(self, profile_id: int, data: dict[str, Any]) -> ProfileLicense:
+        row = ProfileLicense(profile_id=profile_id, **data)
+        async with self._db.session() as session:
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+        return row
+
+    async def update_license(
+        self, profile_id: int, license_id: int, data: dict[str, Any]
+    ) -> ProfileLicense | None:
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(ProfileLicense).where(
+                        ProfileLicense.id == license_id,
+                        ProfileLicense.profile_id == profile_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            for key, value in data.items():
+                setattr(row, key, value)
+            await session.commit()
+            await session.refresh(row)
+        return row
+
+    async def delete_license(self, profile_id: int, license_id: int) -> bool:
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(ProfileLicense).where(
+                        ProfileLicense.id == license_id,
+                        ProfileLicense.profile_id == profile_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return False
+            await session.delete(row)
+            await session.commit()
+        return True
+
+    async def list_experience(self, profile_id: int) -> list[ProfileExperience]:
+        stmt = (
+            select(ProfileExperience)
+            .where(ProfileExperience.profile_id == profile_id)
+            .order_by(ProfileExperience.id)
+        )
+        async with self._db.session() as session:
+            return list((await session.execute(stmt)).scalars().all())
+
+    async def get_experience(self, profile_id: int, experience_id: int) -> ProfileExperience | None:
+        stmt = select(ProfileExperience).where(
+            ProfileExperience.id == experience_id,
+            ProfileExperience.profile_id == profile_id,
+        )
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def create_experience(self, profile_id: int, data: dict[str, Any]) -> ProfileExperience:
+        row = ProfileExperience(profile_id=profile_id, **data)
+        async with self._db.session() as session:
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+        return row
+
+    async def update_experience(
+        self, profile_id: int, experience_id: int, data: dict[str, Any]
+    ) -> ProfileExperience | None:
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(ProfileExperience).where(
+                        ProfileExperience.id == experience_id,
+                        ProfileExperience.profile_id == profile_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            for key, value in data.items():
+                setattr(row, key, value)
+            await session.commit()
+            await session.refresh(row)
+        return row
+
+    async def delete_experience(self, profile_id: int, experience_id: int) -> bool:
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(ProfileExperience).where(
+                        ProfileExperience.id == experience_id,
+                        ProfileExperience.profile_id == profile_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return False
+            await session.delete(row)
+            await session.commit()
+        return True
 
     async def ensure_default_profile(self, user_id: int) -> Profile:
         """Возвращает default-профиль пользователя, создавая пустой, если его нет.

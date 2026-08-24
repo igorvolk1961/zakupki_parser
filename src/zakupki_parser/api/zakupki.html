@@ -327,6 +327,8 @@
             <button type="button" id="pf-tab-excl">Слова-исключения <span class="tab-count" id="pf-cnt-excl"></span></button>
             <button type="button" id="pf-tab-questions">Вопросы по ТЗ <span class="tab-count" id="pf-cnt-questions"></span></button>
             <button type="button" id="pf-tab-comp">Компетенции <span class="tab-count" id="pf-cnt-comp"></span></button>
+            <button type="button" id="pf-tab-licenses">Лицензии <span class="tab-count" id="pf-cnt-licenses"></span></button>
+            <button type="button" id="pf-tab-experience">Опыт <span class="tab-count" id="pf-cnt-experience"></span></button>
           </div>
           <label id="pf-pane-keywords">Ключевые слова <span class="muted">(Enter — добавить, × — удалить)</span>
             <div class="tag-input" id="pf-keywords-tags">
@@ -350,6 +352,58 @@
             </div>
           </label>
           <label id="pf-pane-comp" style="display:none;">Компетенции <textarea id="pf-competencies" rows="10" spellcheck="false"></textarea></label>
+          <div id="pf-pane-licenses" style="display:none;">
+            <div id="license-form" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px;">
+              <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <label>Тип лицензии <select id="lic-type"></select></label>
+                <label>Наименование <input id="lic-name"></label>
+                <label>Номер <input id="lic-number"></label>
+                <label>Орган, выдавший <input id="lic-authority"></label>
+                <label>Дата выдачи <input type="date" id="lic-issue-date"></label>
+                <label>Действует до <input type="date" id="lic-expiry-date"></label>
+                <label>Примечание <input id="lic-notes"></label>
+              </div>
+              <div class="toolbar editor-actions" style="margin:8px 0 0;">
+                <button class="primary" id="license-save">Сохранить</button>
+                <button id="license-cancel">Отмена</button>
+                <span class="muted" id="license-status"></span>
+              </div>
+            </div>
+            <div class="toolbar" style="margin:0 0 8px;">
+              <button class="primary" id="license-new">Добавить лицензию</button>
+            </div>
+            <div class="table-wrap" id="licenses-table"></div>
+          </div>
+          <div id="pf-pane-experience" style="display:none;">
+            <div id="experience-form" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px;">
+              <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <label>Работы/контракт <input id="exp-title"></label>
+                <label>Заказчик работ <input id="exp-customer"></label>
+                <label>Номер контракта <input id="exp-contract"></label>
+                <label>Цена, ₽ <input type="number" step="0.01" id="exp-amount"></label>
+                <label>Начало <input type="date" id="exp-start"></label>
+                <label>Окончание <input type="date" id="exp-end"></label>
+                <label>Тип подтверждения <select id="exp-confirmation"></select></label>
+                <label>Импортонезависимость (Минпромторг)
+                  <select id="exp-import">
+                    <option value="">—</option>
+                    <option value="true">Да</option>
+                    <option value="false">Нет</option>
+                  </select>
+                </label>
+                <label>Примечание <input id="exp-notes"></label>
+              </div>
+              <div class="toolbar editor-actions" style="margin:8px 0 0;">
+                <button class="primary" id="experience-save">Сохранить</button>
+                <button id="experience-cancel">Отмена</button>
+                <span class="muted" id="experience-status"></span>
+              </div>
+            </div>
+            <div class="toolbar" style="margin:0 0 8px;">
+              <button class="primary" id="experience-new">Добавить опыт</button>
+            </div>
+            <div class="table-wrap" id="experience-table"></div>
+          </div>
           <div class="toolbar editor-actions profile-actions">
             <button class="primary" id="profile-save">Сохранить</button>
             <button id="profile-cancel">Отмена</button>
@@ -923,6 +977,13 @@ let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
 let profileQuestionsLoaded = 0;
 let questionSeq = 1;
+// Лицензии и подтверждённый опыт профиля (вложенные списки, BR-03).
+let profileLicenses = [];
+let profileExperience = [];
+let licenseTypes = [];
+let confirmationTypes = [];
+let licenseEditorId = null;
+let experienceEditorId = null;
 
 function splitWords(text) {
   return text.split(",").map((s) => s.trim()).filter(Boolean);
@@ -1074,12 +1135,229 @@ function wordCounts() {
   setWordCount($("#pf-cnt-excl"), profileExcl.length);
   setWordCount($("#pf-cnt-questions"), profileQuestions.length);
   setWordCount($("#pf-cnt-comp"), $("#pf-competencies").value.trim() ? $("#pf-competencies").value.trim().split(/\s+/).length : 0);
+  setWordCount($("#pf-cnt-licenses"), profileLicenses.length);
+  setWordCount($("#pf-cnt-experience"), profileExperience.length);
 }
 
 function switchProfileTab(name) {
-  ["keywords", "excl", "questions", "comp"].forEach((k) => {
+  ["keywords", "excl", "questions", "comp", "licenses", "experience"].forEach((k) => {
     $("#pf-tab-" + k).classList.toggle("active", k === name);
     $("#pf-pane-" + k).style.display = k === name ? "" : "none";
+  });
+}
+
+// --- Лицензии и подтверждённый опыт профиля (BR-03) ---------------------
+function setLicenseStatus(msg) { $("#license-status").textContent = msg; }
+function setExperienceStatus(msg) { $("#experience-status").textContent = msg; }
+
+function updateProfileExtrasVisibility() {
+  // Новый профиль ещё не сохранён: дочерние списки недоступны (нет profile_id).
+  const hidden = !profileEditorId;
+  ["licenses", "experience"].forEach((k) => {
+    $("#pf-tab-" + k).style.display = hidden ? "none" : "";
+    $("#pf-cnt-" + k).textContent = "";
+  });
+}
+
+async function ensureLicenseTypes() {
+  if (licenseTypes.length) return;
+  try { licenseTypes = await api("license-types") || []; } catch { licenseTypes = []; }
+}
+
+async function ensureConfirmationTypes() {
+  if (confirmationTypes.length) return;
+  try { confirmationTypes = await api("confirmation-types") || []; } catch { confirmationTypes = []; }
+}
+
+async function loadProfileExtras(id) {
+  const [lic, exp] = await Promise.all([
+    api(`clients/${id}/licenses`),
+    api(`clients/${id}/experience`),
+  ]);
+  profileLicenses = (lic && lic.items) || [];
+  profileExperience = (exp && exp.items) || [];
+  renderLicenses();
+  renderExperience();
+  wordCounts();
+}
+
+function renderLicenses() {
+  const wrap = $("#licenses-table");
+  const typeName = (l) => {
+    const t = licenseTypes.find((x) => x.id === l.license_type_id) || {};
+    return t.name || (l.license_type && l.license_type.name) || "";
+  };
+  const status = (l) => {
+    if (!l.expiry_date) return "бессрочная";
+    const exp = new Date(l.expiry_date + "T00:00:00");
+    return exp < new Date() ? "истекла" : "активна";
+  };
+  if (!profileLicenses.length) { wrap.innerHTML = `<p class="muted">Лицензий нет</p>`; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Тип</th><th>Наименование</th><th>Номер</th><th>Орган</th><th>Выдана</th><th>Действует до</th><th>Статус</th><th></th></tr></thead>
+    <tbody>${profileLicenses.map((l) => `<tr data-id="${l.id}">
+      <td>${escapeHtml(typeName(l))}</td>
+      <td>${escapeHtml(l.name)}</td>
+      <td>${escapeHtml(l.number || "")}</td>
+      <td>${escapeHtml(l.authority || "")}</td>
+      <td>${l.issue_date || "—"}</td>
+      <td>${l.expiry_date || "—"}</td>
+      <td>${status(l)}</td>
+      <td>
+        <button class="ghost" data-action="edit">Редактировать</button>
+        <button class="ghost" data-action="delete">Удалить</button>
+      </td>
+    </tr>`).join("")}</tbody></table></div>`;
+  wrap.querySelectorAll("button[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.closest("tr").dataset.id);
+      if (btn.dataset.action === "edit") openLicenseForm(id);
+      else deleteLicense(id);
+    });
+  });
+}
+
+function renderExperience() {
+  const wrap = $("#experience-table");
+  const typeName = (e) => {
+    const t = confirmationTypes.find((x) => x.id === e.confirmation_type_id) || {};
+    return t.name || (e.confirmation_type && e.confirmation_type.name) || "";
+  };
+  const importVal = (e) => e.import_independent == null ? "—" : (e.import_independent ? "да" : "нет");
+  if (!profileExperience.length) { wrap.innerHTML = `<p class="muted">Записей опыта нет</p>`; return; }
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Работы/контракт</th><th>Заказчик</th><th>Период</th><th>Цена</th><th>Тип подтверждения</th><th>Импортонезависимость</th><th></th></tr></thead>
+    <tbody>${profileExperience.map((e) => `<tr data-id="${e.id}">
+      <td>${escapeHtml(e.title)}</td>
+      <td>${escapeHtml(e.customer_name || "")}</td>
+      <td>${e.start_date || ""}${e.end_date ? " — " + e.end_date : ""}</td>
+      <td>${fmtMoney(e.amount)}</td>
+      <td>${escapeHtml(typeName(e))}</td>
+      <td>${importVal(e)}</td>
+      <td>
+        <button class="ghost" data-action="edit">Редактировать</button>
+        <button class="ghost" data-action="delete">Удалить</button>
+      </td>
+    </tr>`).join("")}</tbody></table></div>`;
+  wrap.querySelectorAll("button[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.closest("tr").dataset.id);
+      if (btn.dataset.action === "edit") openExperienceForm(id);
+      else deleteExperience(id);
+    });
+  });
+}
+
+async function openLicenseForm(id) {
+  licenseEditorId = id || null;
+  await ensureLicenseTypes();
+  const l = id ? profileLicenses.find((x) => x.id === id) : null;
+  const sel = $("#lic-type");
+  sel.innerHTML = licenseTypes.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
+  sel.value = l ? l.license_type_id : (licenseTypes.length ? licenseTypes[0].id : "");
+  $("#lic-name").value = l ? l.name : "";
+  $("#lic-number").value = l ? (l.number || "") : "";
+  $("#lic-authority").value = l ? (l.authority || "") : "";
+  $("#lic-issue-date").value = l ? (l.issue_date || "") : "";
+  $("#lic-expiry-date").value = l ? (l.expiry_date || "") : "";
+  $("#lic-notes").value = l ? (l.notes || "") : "";
+  setLicenseStatus("");
+  $("#license-form").style.display = "block";
+}
+
+async function saveLicense() {
+  const data = {
+    license_type_id: Number($("#lic-type").value),
+    name: $("#lic-name").value.trim(),
+    number: $("#lic-number").value.trim() || null,
+    authority: $("#lic-authority").value.trim() || null,
+    issue_date: $("#lic-issue-date").value || null,
+    expiry_date: $("#lic-expiry-date").value || null,
+    notes: $("#lic-notes").value.trim() || null,
+  };
+  if (!data.license_type_id) { setLicenseStatus("Укажите тип лицензии"); return; }
+  if (!data.name) { setLicenseStatus("Укажите наименование лицензии"); return; }
+  try {
+    const url = licenseEditorId
+      ? `/api/clients/${profileEditorId}/licenses/${licenseEditorId}`
+      : `/api/clients/${profileEditorId}/licenses`;
+    const r = await apiJSON(url, {
+      method: licenseEditorId ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    $("#license-form").style.display = "none";
+    await loadProfileExtras(profileEditorId);
+  } catch (e) { setLicenseStatus("Ошибка сохранения: " + e.message); }
+}
+
+function deleteLicense(id) {
+  confirmDialog("Удалить лицензию?", async () => {
+    try {
+      const r = await apiJSON(`/api/clients/${profileEditorId}/licenses/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error(await r.text());
+      await loadProfileExtras(profileEditorId);
+    } catch (e) { setLicenseStatus("Ошибка удаления: " + e.message); }
+  });
+}
+
+async function openExperienceForm(id) {
+  experienceEditorId = id || null;
+  await ensureConfirmationTypes();
+  const e = id ? profileExperience.find((x) => x.id === id) : null;
+  const sel = $("#exp-confirmation");
+  sel.innerHTML = confirmationTypes.map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join("");
+  sel.value = e ? e.confirmation_type_id : (confirmationTypes.length ? confirmationTypes[0].id : "");
+  $("#exp-title").value = e ? e.title : "";
+  $("#exp-customer").value = e ? (e.customer_name || "") : "";
+  $("#exp-contract").value = e ? (e.contract_number || "") : "";
+  $("#exp-amount").value = e && e.amount != null ? e.amount : "";
+  $("#exp-start").value = e ? (e.start_date || "") : "";
+  $("#exp-end").value = e ? (e.end_date || "") : "";
+  $("#exp-import").value = e && e.import_independent != null ? String(e.import_independent) : "";
+  $("#exp-notes").value = e ? (e.notes || "") : "";
+  setExperienceStatus("");
+  $("#experience-form").style.display = "block";
+}
+
+async function saveExperience() {
+  const importVal = $("#exp-import").value;
+  const data = {
+    title: $("#exp-title").value.trim(),
+    customer_name: $("#exp-customer").value.trim() || null,
+    contract_number: $("#exp-contract").value.trim() || null,
+    start_date: $("#exp-start").value || null,
+    end_date: $("#exp-end").value || null,
+    amount: $("#exp-amount").value === "" ? null : Number($("#exp-amount").value),
+    confirmation_type_id: Number($("#exp-confirmation").value),
+    import_independent: importVal === "" ? null : importVal === "true",
+    notes: $("#exp-notes").value.trim() || null,
+  };
+  if (!data.confirmation_type_id) { setExperienceStatus("Укажите тип подтверждения"); return; }
+  if (!data.title) { setExperienceStatus("Укажите работы/контракт"); return; }
+  try {
+    const url = experienceEditorId
+      ? `/api/clients/${profileEditorId}/experience/${experienceEditorId}`
+      : `/api/clients/${profileEditorId}/experience`;
+    const r = await apiJSON(url, {
+      method: experienceEditorId ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    $("#experience-form").style.display = "none";
+    await loadProfileExtras(profileEditorId);
+  } catch (e) { setExperienceStatus("Ошибка сохранения: " + e.message); }
+}
+
+function deleteExperience(id) {
+  confirmDialog("Удалить запись опыта?", async () => {
+    try {
+      const r = await apiJSON(`/api/clients/${profileEditorId}/experience/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error(await r.text());
+      await loadProfileExtras(profileEditorId);
+    } catch (e) { setExperienceStatus("Ошибка удаления: " + e.message); }
   });
 }
 
@@ -1108,8 +1386,13 @@ async function openProfileEditor(id) {
   let p = null;
   if (id) {
     try { p = await api(`clients/${id}`); } catch (e) { setProfileStatus("Ошибка загрузки профиля: " + e.message); return; }
+    try { await loadProfileExtras(id); } catch (e) { setProfileStatus("Ошибка загрузки лицензий/опыта: " + e.message); }
+  } else {
+    profileLicenses = [];
+    profileExperience = [];
   }
   fillProfileForm(p);
+  updateProfileExtrasVisibility();
   $("#profiles").style.display = "none";
   $("#profile-editor").style.display = "block";
 }
@@ -1477,10 +1760,16 @@ $("#generic-confirm-ok").addEventListener("click", () => {
 $("#generic-confirm-modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "generic-confirm-modal-bg") closeConfirmDialog();
 });
-["pf-tab-keywords", "pf-tab-excl", "pf-tab-questions", "pf-tab-comp"].forEach((id) => {
+["pf-tab-keywords", "pf-tab-excl", "pf-tab-questions", "pf-tab-comp", "pf-tab-licenses", "pf-tab-experience"].forEach((id) => {
   document.getElementById(id).addEventListener("click", () => switchProfileTab(id.replace("pf-tab-", "")));
 });
 $("#pf-competencies").addEventListener("input", wordCounts);
+$("#license-new").addEventListener("click", () => openLicenseForm(null));
+$("#license-save").addEventListener("click", saveLicense);
+$("#license-cancel").addEventListener("click", () => { $("#license-form").style.display = "none"; });
+$("#experience-new").addEventListener("click", () => openExperienceForm(null));
+$("#experience-save").addEventListener("click", saveExperience);
+$("#experience-cancel").addEventListener("click", () => { $("#experience-form").style.display = "none"; });
 bindTagInput("#pf-keywords-tags", profileKeywords);
 bindTagInput("#pf-excl-tags", profileExcl);
 bindTagInput("#pf-questions-tags", profileQuestions, (w) => ({ id: "q" + questionSeq++, text: w }));

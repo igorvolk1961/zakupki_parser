@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -202,6 +204,13 @@ class Profile(Base):
     keywords_rel: Mapped[list[Keyword]] = relationship(
         order_by="Keyword.type, Keyword.id", cascade="all, delete-orphan"
     )
+    # Лицензии компании-заказчика работы тендеролога и подтверждённый опыт (BR-03).
+    licenses: Mapped[list[ProfileLicense]] = relationship(
+        back_populates="profile_rel", cascade="all, delete-orphan"
+    )
+    experience: Mapped[list[ProfileExperience]] = relationship(
+        back_populates="profile_rel", cascade="all, delete-orphan"
+    )
 
 
 class Keyword(Base):
@@ -227,6 +236,137 @@ class Keyword(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ExperienceConfirmationType(Base):
+    """Справочник типов подтверждения опыта (сид — BR-03, миграция 1.37).
+
+    ``code`` — стабильный ключ: ``platform`` (через электронную площадку, ПП РФ 2571),
+    ``documents`` (сканы договоров/актов), ``registry`` (выписка из реестра контрактов).
+    Справочник глобальный (не привязан к профилю/пользователю); заполняется при
+    миграции и идемпотентно ``ensure_reference_data`` на старте приложения.
+    """
+
+    __tablename__ = "experience_confirmation_types"
+    __table_args__ = (UniqueConstraint("code", name="uq_experience_confirmation_types_code"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    experiences: Mapped[list[ProfileExperience]] = relationship(
+        back_populates="confirmation_type_rel"
+    )
+
+
+class LicenseType(Base):
+    """Справочник типов лицензий (сид — набор для ИТ-компании, миграция 1.37).
+
+    ``code`` — стабильный ключ: ``fstek``, ``fsb``, ``mincifry``, ``roscomnadzor``,
+    ``minpromtorg``, ``mchs``, ``rosgvardia``, ``education``, ``other``.
+    Справочник глобальный (не привязан к профилю/пользователю); заполняется при
+    миграции и идемпотентно ``ensure_reference_data`` на старте приложения.
+    """
+
+    __tablename__ = "license_types"
+    __table_args__ = (UniqueConstraint("code", name="uq_license_types_code"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    licenses: Mapped[list[ProfileLicense]] = relationship(back_populates="license_type_rel")
+
+
+class ProfileLicense(Base):
+    """Лицензия компании-заказчика работы тендеролога (профиль, BR-07).
+
+    ``license_type_id`` — справочник ``license_types`` (тип лицензии). ``name`` —
+    краткое наименование/описание конкретной лицензии. ``expiry_date`` NULL —
+    бессрочная лицензия. Статус (активна/истекла) вычисляется на стороне клиента
+    по ``expiry_date`` и текущей дате.
+    """
+
+    __tablename__ = "profile_licenses"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    license_type_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("license_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    number: Mapped[str | None] = mapped_column(Text)
+    authority: Mapped[str | None] = mapped_column(Text)
+    issue_date: Mapped[date | None] = mapped_column(Date)
+    expiry_date: Mapped[date | None] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    profile_rel: Mapped[Profile] = relationship(back_populates="licenses")
+    license_type_rel: Mapped[LicenseType] = relationship(back_populates="licenses")
+
+
+class ProfileExperience(Base):
+    """Подтверждённый опыт компании-заказчика работы тендеролога (профиль, BR-07).
+
+    ``confirmation_type_id`` — справочник ``experience_confirmation_types`` (сид BR-03):
+    подтверждение через площадку (ПП РФ 2571), сканы договоров/актов, выписка из
+    реестра контрактов. ``import_independent`` — соответствие требованию Минпромторга
+    об импортонезависимости: true — соответствует, false — не соответствует,
+    NULL — неизвестно/не применимо.
+    """
+
+    __tablename__ = "profile_experience"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    profile_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    customer_name: Mapped[str | None] = mapped_column(Text)
+    contract_number: Mapped[str | None] = mapped_column(Text)
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    amount: Mapped[float | None] = mapped_column(Float)
+    confirmation_type_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("experience_confirmation_types.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    import_independent: Mapped[bool | None] = mapped_column(Boolean)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    profile_rel: Mapped[Profile] = relationship(back_populates="experience")
+    confirmation_type_rel: Mapped[ExperienceConfirmationType] = relationship(
+        back_populates="experiences"
     )
 
 

@@ -80,6 +80,58 @@ erDiagram
     PROCEDURE_TYPE_MAPPINGS }o--|| PROCEDURE_TYPES : "procedure_type_id (FK, CASCADE)"
     PROCUREMENTS }o--o| PLATFORMS : "platform_id (по ключу)"
     PROCEDURE_TYPE_MAPPINGS }o--o| PLATFORMS : "platform_id (по ключу)"
+    PROFILE_LICENSES }o--|| PROFILES : "profile_id (FK, CASCADE)"
+    PROFILE_LICENSES }o--|| LICENSE_TYPES : "license_type_id (FK, RESTRICT)"
+    PROFILE_EXPERIENCE }o--|| PROFILES : "profile_id (FK, CASCADE)"
+    PROFILE_EXPERIENCE }o--|| EXPERIENCE_CONFIRMATION_TYPES : "confirmation_type_id (FK, RESTRICT)"
+
+    LICENSE_TYPES {
+        bigint id PK "автоинкремент"
+        varchar(32) code "стабильный ключ, UNIQUE (fstek|fsb|mincifry|roscomnadzor|minpromtorg|mchs|rosgvardia|education|other)"
+        text name "наименование типа лицензии"
+        integer sort_order "порядок сортировки"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    PROFILE_LICENSES {
+        bigint id PK "автоинкремент"
+        bigint profile_id FK "профиль компании (profiles.id, CASCADE)"
+        bigint license_type_id FK "тип лицензии (license_types.id, RESTRICT)"
+        text name "краткое наименование/описание конкретной лицензии"
+        text number "номер лицензии"
+        text authority "орган, выдавший лицензию"
+        date issue_date "дата выдачи"
+        date expiry_date "дата окончания; NULL — бессрочная"
+        text notes "примечания"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    EXPERIENCE_CONFIRMATION_TYPES {
+        bigint id PK "автоинкремент"
+        varchar(32) code "стабильный ключ, UNIQUE (platform|documents|registry, сид BR-03)"
+        text name "наименование типа подтверждения"
+        integer sort_order "порядок сортировки"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    PROFILE_EXPERIENCE {
+        bigint id PK "автоинкремент"
+        bigint profile_id FK "профиль компании (profiles.id, CASCADE)"
+        text title "наименование работ/контракта"
+        text customer_name "заказчик работ"
+        text contract_number "номер контракта"
+        date start_date "начало работ"
+        date end_date "окончание работ"
+        float amount "цена контракта"
+        bigint confirmation_type_id FK "тип подтверждения (experience_confirmation_types.id, RESTRICT)"
+        boolean import_independent "соответствие импортонезависимости Минпромторга; NULL — неизвестно"
+        text notes "примечания"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
 ```
 
 ## Замечания
@@ -106,6 +158,13 @@ erDiagram
 - **Справочник заказчиков** `customers`: `name`, `normalized_name` (ключ дедупликации,
   UNIQUE `uq_customers_normalized_name`), `inn`, `rating` (заполняется через API
   внешним сервисом).
+- **Лицензии и подтверждённый опыт профиля** (миграция 1.37, BR-03): `profile_licenses`
+  и `profile_experience` — дочерние таблицы профиля компании (FK `profile_id` ON DELETE
+  CASCADE, как `keywords`; tenant-скоуп BR-07 через владение профилем). Типы лицензий —
+  справочник `license_types` (сид: набор для ИТ-компании); типы подтверждения опыта —
+  справочник `experience_confirmation_types` (сид BR-03: `platform`/`documents`/`registry`).
+  CRUD — вложенные эндпоинты `/api/clients/{id}/licenses` и `/api/clients/{id}/experience`
+  (`GET/POST/PUT/DELETE`), справочники — `/api/license-types`, `/api/confirmation-types`.
 - Дата последней обработанной записи **не хранится** в state-файле: порог берётся
   из БД (`MAX(update_date)` по площадке), а при отсутствии записей — из
   `default_cutoff_days` в `config_service.yaml`.
