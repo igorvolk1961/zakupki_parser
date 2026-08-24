@@ -309,12 +309,11 @@ class ConfirmationTypeOut(BaseModel):
 class LicenseIn(BaseModel):
     """Создание/обновление лицензии компании (профиль).
 
-    ``license_type_id`` — справочник ``license_types``; ``expiry_date`` NULL —
-    бессрочная лицензия.
+    Лицензия идентифицируется типом (``license_type_id``) и номером; ``expiry_date``
+    NULL — бессрочная лицензия.
     """
 
     license_type_id: int
-    name: str = Field(min_length=1, max_length=512)
     number: str | None = Field(default=None, max_length=128)
     authority: str | None = Field(default=None, max_length=256)
     issue_date: date | None = None
@@ -331,7 +330,6 @@ class LicenseOut(BaseModel):
     profile_id: int
     license_type_id: int
     license_type: LicenseTypeOut | None = None
-    name: str
     number: str | None = None
     authority: str | None = None
     issue_date: date | None = None

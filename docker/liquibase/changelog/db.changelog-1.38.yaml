@@ -1,0 +1,10 @@
+databaseChangeLog:
+- changeSet:
+    id: 39
+    author: zakupki-parser
+    comment: 'profile_licenses: колонка name удалена — лицензия идентифицируется типом (license_types), номером и органом'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE profile_licenses DROP COLUMN IF EXISTS name;

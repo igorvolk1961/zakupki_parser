@@ -66,7 +66,6 @@ erDiagram
         int id PK
         int profile_id FK
         int license_type_id FK
-        string name
         string number
         string authority
         date issue_date

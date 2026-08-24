@@ -296,8 +296,8 @@ class LicenseType(Base):
 class ProfileLicense(Base):
     """Лицензия компании-заказчика работы тендеролога (профиль, BR-07).
 
-    ``license_type_id`` — справочник ``license_types`` (тип лицензии). ``name`` —
-    краткое наименование/описание конкретной лицензии. ``expiry_date`` NULL —
+    Лицензия идентифицируется типом (``license_type_id`` — справочник
+    ``license_types``), номером и органом, выдавшим лицензию. ``expiry_date`` NULL —
     бессрочная лицензия. Статус (активна/истекла) вычисляется на стороне клиента
     по ``expiry_date`` и текущей дате.
     """
@@ -314,7 +314,6 @@ class ProfileLicense(Base):
         nullable=False,
         index=True,
     )
-    name: Mapped[str] = mapped_column(Text, nullable=False)
     number: Mapped[str | None] = mapped_column(Text)
     authority: Mapped[str | None] = mapped_column(Text)
     issue_date: Mapped[date | None] = mapped_column(Date)

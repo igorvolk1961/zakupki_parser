@@ -104,7 +104,6 @@ def test_licenses_crud(ple_client: TestClient) -> None:
         f"/api/clients/{pid}/licenses",
         json={
             "license_type_id": fstek["id"],
-            "name": "Гостайна, 3 форма",
             "number": "1234/Ф",
             "authority": "ФСТЭК России",
             "issue_date": "2023-01-15",
@@ -114,7 +113,7 @@ def test_licenses_crud(ple_client: TestClient) -> None:
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["name"] == "Гостайна, 3 форма"
+    assert body["number"] == "1234/Ф"
     assert body["license_type"]["code"] == "fstek"
     lid = body["id"]
 
@@ -126,11 +125,10 @@ def test_licenses_crud(ple_client: TestClient) -> None:
     # прежние значения), переданное значение обновляется.
     updated = client.put(
         f"/api/clients/{pid}/licenses/{lid}",
-        json={"license_type_id": fstek["id"], "name": "Гостайна, 2 форма", "number": "5678/Ф"},
+        json={"license_type_id": fstek["id"], "number": "5678/Ф"},
     )
     assert updated.status_code == 200
     body = updated.json()
-    assert body["name"] == "Гостайна, 2 форма"
     assert body["number"] == "5678/Ф"
     assert body["expiry_date"] is None
     assert body["authority"] is None
@@ -143,18 +141,12 @@ def test_licenses_crud(ple_client: TestClient) -> None:
 def test_license_validation(ple_client: TestClient) -> None:
     client = ple_client
     pid = _create_profile(client, "lic-valid-profile")
-    r = client.post(f"/api/clients/{pid}/licenses", json={"license_type_id": 999999, "name": "X"})
-    assert r.status_code == 422
-    fstek = next(t for t in client.get("/api/license-types").json() if t["code"] == "fstek")
-    r = client.post(
-        f"/api/clients/{pid}/licenses",
-        json={"license_type_id": fstek["id"], "name": ""},
-    )
+    r = client.post(f"/api/clients/{pid}/licenses", json={"license_type_id": 999999})
     assert r.status_code == 422
     # Несуществующая запись — 404, даже если ссылка на справочник невалидна.
     r = client.put(
         f"/api/clients/{pid}/licenses/999999",
-        json={"license_type_id": 999999, "name": "X"},
+        json={"license_type_id": 999999},
     )
     assert r.status_code == 404
     assert client.delete(f"/api/clients/{pid}").status_code == 204
@@ -262,7 +254,8 @@ def test_tenant_isolation_and_cascade() -> None:
             assert license_types and conf_types
 
             await repo.create_license(
-                profile_a.id, {"license_type_id": license_types[0].id, "name": "Л-1"}
+                profile_a.id,
+                {"license_type_id": license_types[0].id, "number": "Л-1"},
             )
             await repo.create_experience(
                 profile_a.id,

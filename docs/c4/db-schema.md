@@ -98,7 +98,6 @@ erDiagram
         bigint id PK "автоинкремент"
         bigint profile_id FK "профиль компании (profiles.id, CASCADE)"
         bigint license_type_id FK "тип лицензии (license_types.id, RESTRICT)"
-        text name "краткое наименование/описание конкретной лицензии"
         text number "номер лицензии"
         text authority "орган, выдавший лицензию"
         date issue_date "дата выдачи"
