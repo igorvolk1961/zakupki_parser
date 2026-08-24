@@ -74,8 +74,6 @@ search:
     publish_date:  { query_param: "publishDateFrom" }
     update_date:   { query_param: "updateDateFrom" }
     deadline_from: { query_param: "applSubmissionCloseDateFrom" }
-    # Ключевые слова -> свободный текстовый поиск ЕИС (searchString).
-    keywords:      { query_param: "searchString" }
     okpd2:
       query_params:
         okpd2Ids: "{okpd2_ids}"

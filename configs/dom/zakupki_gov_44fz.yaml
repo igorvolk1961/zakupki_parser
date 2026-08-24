@@ -77,8 +77,6 @@ search:
     # Срок подачи заявок (applSubmissionCloseDateFrom) = сегодня — отсекает
     # просроченные закупки (дедлайн обязателен).
     deadline_from: { query_param: "applSubmissionCloseDateFrom" }
-    # Ключевые слова -> свободный текстовый поиск ЕИС (searchString).
-    keywords:      { query_param: "searchString" }
     # okpd2IdsWithNested=on (в query_params) включает дочерние узлы — перечислять
     # всё поддерево не нужно, достаточно собственных id выбранных кодов.
     okpd2:

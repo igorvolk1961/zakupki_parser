@@ -95,14 +95,8 @@ search:
     # (проверено 2026-08-18).
     nmck_min:      { json_path: "startPriceGreatEqual" }
     nmck_max:      { json_path: "startPriceLessEqual" }
-    # Ключевые слова -> nameLike (одно значение, слова через пробел). Площадка
-    # сама объединяет слова по «ИЛИ» (contains=true), поэтому keywords_one_at_a_time
-    # выключен: один поиск вместо перебора по-слову.
-    keywords:      { json_path: "nameLike" }
     # active_only -> состояние закупок (stateIdIn); ID — в state_ids ниже.
     active_only:   { json_path: "needSpecificFilter.stateIdIn" }
-  # Слова объединяются по «ИЛИ» самой площадкой (nameLike) — отдельный поиск не нужен.
-  keywords_one_at_a_time: false
   # ID состояний для active_only. Активные — 20000002 «Прием предложений» (дефолт
   # реестра; проверено 2026-08-18 — прежние 19000002…19000008 устарели и дают 0).
   # «Все» — параметр не ставится (сервер отдаёт весь реестр).

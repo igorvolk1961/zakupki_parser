@@ -2,7 +2,9 @@
 
 По требованию заказчика ключевые слова НЕ передаются на площадку: серверная
 фильтрация — только по кодам ОКПД2 (+ обход «без кода»); позитивные/негативные
-слова применяются клиентски до записи в БД (см. test_filtering.py).
+слова применяются клиентски до записи в БД (см. test_filtering.py). Обход
+«без кода» выключен по умолчанию и включается флагом config_service.yaml
+``search_criteria.no_code_search``.
 """
 
 from __future__ import annotations
@@ -45,7 +47,6 @@ class _Recorder(Orchestrator):
 
 def _make_recorder(app_config: AppConfig) -> _Recorder:
     cfg = app_config.model_copy(deep=True)
-    cfg.service.search_criteria.keywords = ["искусственный интеллект", "ИИ", "автоматизация"]
     return _Recorder(
         cfg=cfg,
         platform_id="zakupki_mos",
@@ -103,7 +104,7 @@ async def test_server_crawl_has_no_keywords(app_config: AppConfig) -> None:
     """R9: в серверных запросах нет ключевых слов — только коды ОКПД2 из профиля.
 
     Без активного профиля (repository=None) критерии из глобального конфига
-    НЕ используются (fallback удалён): обход по кодам не выполняется.
+    НЕ используются: обход по кодам не выполняется.
     """
     recorder = _make_recorder(app_config)
     await recorder.run(page=object())  # type: ignore[arg-type]
@@ -126,13 +127,28 @@ async def test_no_code_crawl_skipped_without_profile(app_config: AppConfig) -> N
 
 
 @pytest.mark.asyncio
-async def test_no_code_crawl_runs_with_empty_codes(app_config: AppConfig) -> None:
-    """Пустые коды ОКПД2 + слова: обход «без кода» идёт и при no_code_search=false.
+async def test_no_code_crawl_disabled_by_default(app_config: AppConfig) -> None:
+    """Пустые коды ОКПД2 + слова: обход «без кода» ВЫКЛЮЧЕН по умолчанию.
+
+    Флаг config_service.yaml search_criteria.no_code_search=false (по умолчанию) —
+    обход «без кода» пропускается, даже если в профиле есть позитивные слова.
+    """
+    recorder = _make_recorder(app_config)
+    recorder._repository = _ProfileRepo(_FakeProfile([]), ["ИИ"])  # type: ignore[assignment]
+    await recorder.run(page=object())  # type: ignore[arg-type]
+
+    assert recorder.crawled == []
+
+
+@pytest.mark.asyncio
+async def test_no_code_crawl_runs_with_flag(app_config: AppConfig) -> None:
+    """Пустые коды ОКПД2 + слова + флаг no_code_search=true: обход «без кода» идёт.
 
     Пустой список кодов площадка воспринимает как «любой код» (фильтр okpdPaths не
     ставится) — обход «без кода» качает весь реестр и фильтрует его клиентски.
     """
     recorder = _make_recorder(app_config)
+    recorder._cfg.service.search_criteria.no_code_search = True
     recorder._repository = _ProfileRepo(_FakeProfile([]), ["ИИ"])  # type: ignore[assignment]
     await recorder.run(page=object())  # type: ignore[arg-type]
 
@@ -142,12 +158,13 @@ async def test_no_code_crawl_runs_with_empty_codes(app_config: AppConfig) -> Non
 
 @pytest.mark.asyncio
 async def test_codes_and_no_code_crawls_when_codes_present(app_config: AppConfig) -> None:
-    """Коды заданы + слова: два прохода — по кодам ОКПД2 и отдельно «без кода».
+    """Коды заданы + слова + флаг: два прохода — по кодам ОКПД2 и отдельно «без кода».
 
     Обход «без кода» дополняет кодовый, чтобы не терять закупки, подходящие по
     словам, но вне заданных кодов (например, на mos при okpd_codes=['62.02']).
     """
     recorder = _make_recorder(app_config)
+    recorder._cfg.service.search_criteria.no_code_search = True
     recorder._repository = _ProfileRepo(_FakeProfile(["62.02"]), ["ИИ"])  # type: ignore[assignment]
     await recorder.run(page=object())  # type: ignore[arg-type]
 

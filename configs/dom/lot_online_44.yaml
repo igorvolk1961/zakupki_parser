@@ -62,8 +62,6 @@ search:
     "sort[1][property]": "publicationDateTime"
     "sort[1][direction]": "DESC"
   criteria_map:
-    # Слова -> полнотекстовый фильтр sphinx filter[*] (property=*).
-    keywords: { filter: { key: "*", property: "*", condition: "match" } }
     # ОКПД2 -> filter[okpd2] со sphinx-префиксом "_" (код матчится по префиксу).
     okpd2: { filter: { key: "okpd2", property: "okpd2", condition: "match", value_prefix: "_" } }
     # active_only -> статус закупки filter[status]. Активные = accept (Прием

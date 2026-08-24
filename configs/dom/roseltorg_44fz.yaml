@@ -54,9 +54,6 @@ sort:
   option_text: null
 search:
   enabled: true
-  # Слова в query_field объединяются ПРОБЕЛОМ (нативный OR площадки) —
-  # «или»/кавычки не нужны, поэтому keywords_one_at_a_time=false.
-  keywords_one_at_a_time: false
   query_params:
     sale: "1"
     currency: "all"
@@ -65,8 +62,6 @@ search:
     place: "44fz"
     section: "44fz"
   criteria_map:
-    # Слова -> query_field (пробел = OR).
-    keywords: { query_param: "query_field" }
     # ОКПД2 -> okpd2[] (повторяемые параметры с пустыми скобками, PHP-стиль;
     # префиксный матчинг кода — например okpd2[]=62.02).
     okpd2:    { raw_array_flat: "okpd2[]" }

@@ -371,11 +371,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # 9-бис) сохраняем ключевые слова, по которым закупка отобрана профилем (R9):
         # они записываются в procurement_evaluations.matched_keywords ещё до внешнего
         # скоринга (оценка find-or-create обновляется стадиями каскада).
-        if (
-            saved
-            and self._repository is not None
-            and self._client_profile is not None
-        ):
+        if saved and self._repository is not None and self._client_profile is not None:
             hit = matched_keywords(record, self._client_keywords)
             if hit:
                 try:
@@ -492,8 +488,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         self._client_profile = profile
 
         # R9: ключевые слова не участвуют в серверном запросе — обходы строятся
-        # только по кодам ОКПД2 (+ обход «без кода»). Критерии поиска берутся из
-        # активного профиля (профиль → колонки okpd_codes/nmck_min/nmck_max/active_only);
+        # только по кодам ОКПД2 (+ обход «без кода», только при
+        # search_criteria.no_code_search). Критерии поиска берутся из активного
+        # профиля (профиль → колонки okpd_codes/nmck_min/nmck_max/active_only);
         # без профиля (dev/тесты) — fallback на глобальный config_service.yaml.
         if self._client_profile is not None:
             base = SearchCriteria(
@@ -503,7 +500,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 active_only=self._client_profile.active_only,
             )
         else:
-            base = self._cfg.service.search_criteria.model_copy(update={"keywords": []})
+            base = self._cfg.service.search_criteria.model_copy()
         # Обход по кодам ОКПД2 имеет смысл, только если площадка реально фильтрует
         # по кодам (есть маппинг okpd2): иначе коды-only обход вернул бы весь список
         # (например roseltorg, где okpd2 не подключён).
@@ -511,15 +508,19 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # Обход «без кода» (R9): клиентская фильтрация словами профиля. Выполняется
         # ОТДЕЛЬНЫМ проходом по всему реестру площадки (фильтр okpdPaths не ставится —
         # пустой список кодов площадка воспринимает как «любой код»), чтобы не терять
-        # закупки, подходящие по словам, но вне заданных кодов ОКПД2. Кодовый и
-        # «без кода» проходы дополняют друг друга: оба запускаются при наличии
-        # позитивных ключевых слов и поиска на площадке.
+        # закупки, подходящие по словам, но вне заданных кодов ОКПД2. По умолчанию
+        # ВЫКЛЮЧЕН: запускается только при глобальном флаге config_service.yaml
+        # search_criteria.no_code_search (и наличии позитивных ключевых слов + search).
         has_positive_keywords = bool(self._client_keywords)
-        no_code_walk = has_positive_keywords and search is not None
-        if not has_positive_keywords:
+        no_code_walk = (
+            has_positive_keywords
+            and search is not None
+            and self._cfg.service.search_criteria.no_code_search
+        )
+        if has_positive_keywords and not no_code_walk:
             logger.info(
-                "Площадка %s: в активном профиле нет позитивных ключевых слов — "
-                "обход «без кода» пропущен",
+                "Площадка %s: позитивные слова есть, но обход «без кода» выключен "
+                "(search_criteria.no_code_search) — пропущен",
                 self._platform_id,
             )
 
@@ -736,15 +737,13 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         берутся из ``attributes`` item'а. Детальные страницы, stop-условия, скоринг
         и сохранение — общий путь ``_process_list_record``.
 
-        Стоп-порог по дате применяется только для обходов без ключевых слов: при
-        поиске по словам площадка сортирует по релевантности (``keywords_sort``),
-        выдачи маленькие — обходим до конца пагинации.
+        Стоп-порог по дате применяется всегда (сортировка по дате); обход идёт
+        до записи старше порога или до конца пагинации.
         """
         lc = self._platform.list_config
         search = self._platform.search
         assert search is not None, "API-обход требует search-конфига площадки"
         page_size = lc.page_size
-        has_keywords = bool(criteria.keywords)
         url = build_api_list_url(self._platform, criteria, offset=0)
         page_index = 0
         # Жёсткий потолок числа страниц (защита от вечного цикла).
@@ -794,11 +793,9 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                     if number is not None and number != "":
                         page_numbers.append(number)
                     continue
-                # Стоп-порог по дате (только не keyword-обходы: там relevance-сортировка).
-                if (
-                    not has_keywords
-                    and cutoff is not None
-                    and is_older_than_cutoff(list_vars.get(lc.publication_date), cutoff)
+                # Стоп-порог по дате.
+                if cutoff is not None and is_older_than_cutoff(
+                    list_vars.get(lc.publication_date), cutoff
                 ):
                     logger.info(
                         "Достигнут порог дат (%s < %s), завершаем цикл",
@@ -852,12 +849,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
                 seen_page_sigs.add(page_sig)
 
             # Вся страница из уже известных закупок (дата-сортировка) — новых не будет.
-            if (
-                not has_keywords
-                and self._known_numbers is not None
-                and page_total > 0
-                and page_known == page_total
-            ):
+            if self._known_numbers is not None and page_total > 0 and page_known == page_total:
                 logger.info(
                     "Площадка %s: вся страница уже в БД (%d) — новых закупок не будет, "
                     "пагинацию прекращаем",
@@ -904,12 +896,7 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         Обновляет агрегированную статистику площадки ``_platform_stats`` (для
         сводки всего прохода в ``run``).
         """
-        if criteria.keywords:
-            scope = f"слова: {criteria.keywords}"
-        elif criteria.okpd_codes:
-            scope = f"коды ОКПД2: {criteria.okpd_codes}"
-        else:
-            scope = "весь список"
+        scope = f"коды ОКПД2: {criteria.okpd_codes}" if criteria.okpd_codes else "весь список"
         skipped = max(0, received - saved - known)
         logger.info(
             "Площадка %s: обход (%s) — получено закупок: %d, сохранено: %d, "

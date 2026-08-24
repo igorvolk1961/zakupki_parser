@@ -62,12 +62,11 @@ def test_array_query_params_preserved() -> None:
             "procedure[stage][0]": "accepting",
             "sort": "by_published_desc",
         },
-        criteria_map={"keywords": CriteriaMapping(query_param="procedure[name]")},
+        criteria_map={},
     )
-    q = build_query(search, None, SearchCriteria(keywords=["ии"]))
+    q = build_query(search, None, SearchCriteria())
     params = dict(urllib.parse.parse_qsl(q))
     assert params["procedure[stage][0]"] == "accepting"
-    assert params["procedure[name]"] == "ии"
     assert params["sort"] == "by_published_desc"
 
 

@@ -89,25 +89,14 @@ sort:
 # (см. search ниже). Панель «Расширенный поиск» (ОКПД2/НМЦ) — TODO.
 filters: []
 
-# URL-фильтр списка. Фильтр по словам — query-параметр `query` (критерий keywords);
-# по ОКПД2 — массив `okpd2[]` с внутренними opaque-id площадки (критерий okpd2,
-# коды резолвятся в id через okpd_tree_file.code_to_id). Статично — `page_number=1`
-# (пагинация через page_param/page_size в list_config).
-# fabrikant НЕ поддерживает оператор «ИЛИ» в query (пробел/запятая/| = И).
-# Чтобы слова из search_criteria.keywords искались по «ИЛИ», задаём
-# keywords_one_at_a_time: парсер открывает отдельный поиск на каждое слово и
-# объединяет результаты (дедуп по номеру закупки через known_numbers).
+# URL-фильтр списка. По ОКПД2 — массив `okpd2[]` с внутренними opaque-id площадки
+# (критерий okpd2, коды резолвятся в id через okpd_tree_file.code_to_id). Статично —
+# `page_number=1` (пагинация через page_param/page_size в list_config).
 search:
   enabled: true
-  keywords_one_at_a_time: true
-  # Поисковый движок fabrikant игнорирует запросы короче 3 символов: query=ИИ
-  # возвращает ВЕСЬ активный список (проверено 2026-08-18), а не только закупки
-  # со словом. Слова короче порога отбрасываются парсером (см. min_keyword_len).
-  min_keyword_len: 3
   query_params:
     page_number: "1"
   criteria_map:
-    keywords: { query_param: "query" }
     okpd2:    { raw_array: "okpd2" }
     # active_only -> статус процедуры statuses[] (проверено на живом сайте
     # 2026-08-17: 1=Прием заявок, 2=Работа комиссии, 4=Завершённые, 5=Ожидает

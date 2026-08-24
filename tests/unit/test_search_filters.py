@@ -1,4 +1,4 @@
-"""Unit-тесты серверных фильтров URL-поиска (criteria_map: okpd2/ключевые слова/НМЦК/регион)."""
+"""Unit-тесты серверных фильтров URL-поиска (criteria_map: okpd2/НМЦК/активность/даты)."""
 
 from __future__ import annotations
 
@@ -68,24 +68,6 @@ def test_publish_date_omitted_without_cutoff() -> None:
     search = _mos({"publish_date": CriteriaMapping(json_path="publishDateGreatEqual")})
     filt = _decode_filter(build_query(search, None, SearchCriteria()))
     assert "publishDateGreatEqual" not in filt
-
-
-def test_keywords_into_query_param() -> None:
-    search = _mos({"keywords": CriteriaMapping(query_param="searchString")})
-    q = build_query(search, None, SearchCriteria(keywords=["ИТ", "нейросеть"]))
-    assert "searchString=%D0%98%D0%A2%20%D0%BD%D0%B5%D0%B9%D1%80%D0%BE%D1%81%D0%B5%D1%82%D1%8C" in q
-
-
-def test_empty_keywords_omitted() -> None:
-    search = _mos({"keywords": CriteriaMapping(query_param="searchString")})
-    q = build_query(search, None, SearchCriteria(keywords=[]))
-    assert "searchString=" not in q
-
-
-def test_keywords_into_name_like_json_path() -> None:
-    search = _mos({"keywords": CriteriaMapping(json_path="nameLike")})
-    filt = _decode_filter(build_query(search, None, SearchCriteria(keywords=["ии", "интеллект"])))
-    assert filt["nameLike"] == {"value": "ии интеллект", "contains": True}
 
 
 def test_deadline_from_included_by_default() -> None:

@@ -197,13 +197,6 @@ def _filter_dsl_values(
 
     Пустой список — критерий не задан (в запрос не попадает).
     """
-    if key == "keywords":
-        kws = criteria.keywords
-        if not kws:
-            return []
-        if search.keywords_quote_phrases:
-            kws = [f'"{w}"' if " " in w.strip() else w for w in kws]
-        return [search.keywords_separator.join(kws)]
     if key == "okpd2":
         codes = criteria.okpd_codes
         if not codes:
@@ -303,24 +296,6 @@ def build_query(
                 for i, value in enumerate(okpd_ids):
                     extra_params[f"{mapping.raw_array}[{i}]"] = value
             continue
-        if key == "keywords":
-            kws = criteria.keywords
-            if not kws:
-                continue
-            # Слова склеиваются через keywords_separator в одно значение поиска
-            # (по умолчанию пробел; для площадок с союзом «или» — ' или ', чтобы
-            # слова искались по «ИЛИ» в одном запросе). Многословные фразы можно
-            # заключать в кавычки (keywords_quote_phrases).
-            if search.keywords_quote_phrases:
-                kws = [f'"{w}"' if " " in w.strip() else w for w in kws]
-            joined = search.keywords_separator.join(kws)
-            if mapping.json_path:
-                # mos.ru: nameLike = {"value": "<слова>", "contains": true}.
-                _set_json_path(filter_json, mapping.json_path, {"value": joined, "contains": True})
-            if mapping.query_param:
-                value = json.dumps(joined, ensure_ascii=False) if mapping.json_value else joined
-                extra_params[mapping.query_param] = value
-            continue
         if key == "active_only":
             # Выбор «все/только активные»: только активные подставляет состояния из
             # state_ids.active. При «все» подставляется state_ids.all (если задан),
@@ -369,11 +344,6 @@ def build_query(
             value = value.replace("{filter_json}", filter_json_str)
             value = value.replace("{state_json}", state_json_str)
             value = value.replace(offset_placeholder, str(offset))
-            # Площадка, чей текстовый поиск работает только с сортировкой по релевантности
-            # (etpgpb: search фильтрует только с sort=by_relevance) — при наличии ключевых
-            # слов статический sort подменяется на search.keywords_sort.
-            if key == "sort" and search.keywords_sort and criteria.keywords:
-                value = search.keywords_sort
             # Статические значения (в т.ч. кириллица/пробелы) URL-кодируются целиком.
             parts.append(f"{key}={urllib.parse.quote(value, safe='')}")
     for name, value in extra_params.items():

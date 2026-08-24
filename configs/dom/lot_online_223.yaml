@@ -64,20 +64,15 @@ sort:
 filters: []
 search:
   enabled: true
-  # Список читается из открытого JSON API (api-gateway indexer). Слова и коды
-  # ОКПД2 обрабатываются раздельно (OR, дедуп по номеру); слова перебираются
-  # по-одному (keywords_one_at_a_time — «или» на 223 литеральное слово, мусор).
+  # Список читается из открытого JSON API (api-gateway indexer).
   api_endpoint: "/api-gateway/indexer/api/lots/query-extended"
   # Записи реестра — в data (count — общее число результатов).
   api_items_key: "data"
   # Формат item'а — реестр tender.lot-online (uuid, eisNumber, price, даты-части).
   api_item_format: "tender_223"
-  keywords_one_at_a_time: true
   query_params:
     page: "0"
   criteria_map:
-    # Слова -> search (полнотекстовый поиск реестра).
-    keywords: { query_param: "search" }
     # ОКПД2 -> regionOkpd2Code (код как есть, несколько — через запятую).
     okpd2: { query_param: "regionOkpd2Code" }
     # active_only -> statusGroup (DEMANDS_STARTED = «Идет прием заявок», дефолт

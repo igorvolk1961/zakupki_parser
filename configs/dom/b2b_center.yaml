@@ -50,17 +50,10 @@ search:
     order_by: "1"
     order_dir: "0"
   criteria_map:
-    # Слова в f_keyword объединяются союзом «или» (OR в одном запросе) — проверено.
-    # Многословные фразы — в кавычках (keywords_quote_phrases).
-    keywords: { query_param: "f_keyword" }
     active_only: { query_param: "show" }
   state_ids:
     all: ["all"]
     active: ["actual"]
-  # Слова по «ИЛИ» одним запросом (союз «или»), а не перебором по-одному.
-  keywords_one_at_a_time: false
-  keywords_separator: " или "
-  keywords_quote_phrases: true
   # ОКПД2-фильтр у площадки не подключён (criteria_map без okpd2): единственный
-  # способ отбора — обход «без кода» (R9) с клиентской фильтрацией словами.
-  no_code_search: true
+  # способ отбора — обход «без кода» (R9, флаг config_service.yaml
+  # search_criteria.no_code_search) с клиентской фильтрацией словами.

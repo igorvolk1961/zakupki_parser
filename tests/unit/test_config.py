@@ -126,7 +126,6 @@ def test_roseltorg_44fz_config_complete() -> None:
     assert platform.list_path == "/procedures/search"
     assert platform.search is not None
     assert platform.search.query_params.get("place") == "44fz"
-    assert platform.search.criteria_map["keywords"].query_param == "query_field"
     assert platform.search.criteria_map["okpd2"].raw_array_flat == "okpd2[]"
 
 

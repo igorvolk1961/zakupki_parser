@@ -363,15 +363,6 @@ class SearchFilterConfig(BaseModel):
             "Значение может быть списком — тогда параметр повторяется (status[]=2&status[]=3)"
         ),
     )
-    keywords_sort: str | None = Field(
-        default=None,
-        description=(
-            "значение параметра sort, подставляемое вместо статического (query_params['sort']), "
-            "когда в критериях есть ключевые слова. Нужно площадкам, чей текстовый поиск "
-            "работает только с сортировкой по релевантности (etpgpb: search фильтрует выдачу "
-            "только с sort=by_relevance; с by_published_desc API возвращает нерелевантные записи)"
-        ),
-    )
     filter_json: dict[str, Any] = Field(
         default_factory=dict, description="статичная структура параметра filter (JSON)"
     )
@@ -390,7 +381,7 @@ class SearchFilterConfig(BaseModel):
         default_factory=dict,
         description=(
             "обобщённый критерий (publish_date|update_date|deadline_from|okpd2|"
-            "nmck_min|nmck_max|keywords|active_only) -> привязка к "
+            "nmck_min|nmck_max|active_only) -> привязка к "
             "запросу площадки (JSON-путь и/или query-параметр)"
         ),
     )
@@ -405,53 +396,6 @@ class SearchFilterConfig(BaseModel):
             "параметр не ставится, площадка возвращает выдачу по умолчанию). "
             "Путь/параметр, куда подставить, задаётся в criteria_map для ключа "
             "active_only (json_path, query_param или raw_array_flat)"
-        ),
-    )
-    keywords_one_at_a_time: bool = Field(
-        default=True,
-        description=(
-            "как слова между собой сочетаются на площадке (AND/OR — зависит от площадки), "
-            "но нам всегда нужен OR. Если true (по умолчанию) — каждое слово из "
-            "search_criteria.keywords перебирается отдельным поиском, результаты "
-            "объединяются с дедупом по номеру закупки. False — все слова склеиваются "
-            "пробелом в одно значение (AND на площадке)."
-        ),
-    )
-    min_keyword_len: int | None = Field(
-        default=None,
-        ge=1,
-        description=(
-            "минимальная длина ключевого слова для поиска площадки. Площадки, чей "
-            "поисковый движок игнорирует короткие запросы (например fabrikant: слова "
-            "короче 3 символов не фильтруют и возвращают весь список закупок), задают "
-            "этот порог — слова из search_criteria.keywords короче него отбрасываются, "
-            "чтобы не открывать заведомо всеобъемлющий поиск."
-        ),
-    )
-    keywords_separator: str = Field(
-        default=" ",
-        description=(
-            "как склеить несколько слов search_criteria.keywords в одно значение поиска "
-            "(используется при keywords_one_at_a_time=false). Для площадок с союзом «или» "
-            "(lot-online, b2b-center) — ' или ', чтобы слова искались по «ИЛИ» в одном "
-            "запросе, а не по-одному"
-        ),
-    )
-    keywords_quote_phrases: bool = Field(
-        default=False,
-        description=(
-            "заключать многословные ключевые фразы в двойные кавычки (например, "
-            "'\"искусственный интеллект\" или автоматизация'). Нужно для площадок, где "
-            "фраза из нескольких слов должна совпадать точно (lot-online)"
-        ),
-    )
-    no_code_search: bool = Field(
-        default=False,
-        description=(
-            "поддерживает ли площадка обход закупок БЕЗ фильтра по кодам ОКПД2 "
-            "(R9). Если true и в профиле есть позитивные ключевые слова — выполняется "
-            "отдельный обход «без кода» (весь список фильтруется клиентски до записи); "
-            "если false — обход «без кода» пропускается с записью в лог"
         ),
     )
 
