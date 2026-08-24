@@ -128,26 +128,28 @@
   .editor-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin-top: 12px; z-index: 2; }
   .editor-actions.profile-actions { background: var(--panel); margin: 12px -16px -14px; padding: 12px 16px;
     border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
-  /* Профиль: редактор — полноэкранная область (прокрутка только внутри полей слов).
-     На очень низких экранах форма прокручивается целиком, но поля слов не
-     схлопываются ниже min-height. */
+  /* Профиль: редактор — полноэкранная область. Чипы слов в обычном потоке,
+     прокручивается сама панель поля (поле ввода прижато к низу через sticky),
+     поэтому чипы не могут «схлопнуться» или исчезнуть. */
   #profile-editor { position: fixed; inset: 0; z-index: 6; background: var(--bg); overflow-y: auto;
     padding: 20px 24px; }
   #profile-editor .panel { height: 100%; display:flex; flex-direction:column; margin-bottom:0; }
   #profile-editor .profile-form { flex:1 1 auto; min-height:0; }
   #profile-editor .profile-form > label:not(#pf-pane-keywords):not(#pf-pane-excl):not(#pf-pane-comp),
   #profile-editor .profile-form > div { flex-shrink:0; }
-  #pf-pane-keywords, #pf-pane-excl, #pf-pane-comp { flex:1 1 0; flex-shrink:1; min-height:140px; overflow:hidden; }
+  #pf-pane-keywords, #pf-pane-excl { flex:1 1 0; flex-shrink:1; min-height:140px; overflow-y:auto; }
+  #pf-pane-comp { flex:1 1 0; flex-shrink:1; min-height:140px; overflow:hidden; }
   #pf-pane-keywords .tag-input, #pf-pane-excl .tag-input {
-    flex:1 1 auto; min-height:0; overflow:hidden; align-items:stretch;
-    flex-direction:column; gap:6px;
+    display:flex; flex-direction:column; gap:6px; overflow:visible;
   }
   #pf-pane-keywords .tag-input .tags, #pf-pane-excl .tag-input .tags {
-    flex:1 1 auto; min-height:0; overflow-y:auto; display:flex; flex-wrap:wrap;
-    gap:6px; align-content:flex-start;
+    display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start; overflow:visible;
   }
+  .tag-input .tags-fallback { font-family:ui-monospace,monospace; font-size:13px;
+    color:var(--text); white-space:pre-wrap; }
   #pf-pane-keywords .tag-input input[type="text"], #pf-pane-excl .tag-input input[type="text"] {
-    flex:0 0 auto; width:100%; min-width:0; padding:6px;
+    position:sticky; bottom:0; flex:0 0 auto; width:100%; min-width:0; padding:6px;
+    background:var(--panel2); border-radius:6px;
   }
   #pf-pane-comp textarea { flex:1 1 auto; min-height:0; }
   .user-bar { display:flex; align-items:center; gap:10px; font-size:13px; color: var(--muted); }
@@ -163,7 +165,7 @@
 <body>
 <header>
   <div>
-    <h1>Парсер закупок <span class="sub" id="app-version">v1.1.0</span></h1>
+    <h1>Парсер закупок <span class="sub" id="app-version">v1.1.2</span></h1>
   </div>
   <div class="header-right">
     <span class="client-switch" id="client-switch" style="display:none;" title="Активный клиентский профиль">
@@ -327,12 +329,14 @@
           <label id="pf-pane-keywords">Ключевые слова <span class="muted">(Enter — добавить, × — удалить)</span>
             <div class="tag-input" id="pf-keywords-tags">
               <div class="tags"></div>
+              <div class="tags-fallback" style="display:none;"></div>
               <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
             </div>
           </label>
           <label id="pf-pane-excl" style="display:none;">Слова-исключения <span class="muted">(Enter — добавить, × — удалить)</span>
             <div class="tag-input" id="pf-excl-tags">
               <div class="tags"></div>
+              <div class="tags-fallback" style="display:none;"></div>
               <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
             </div>
           </label>
@@ -406,6 +410,17 @@
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="delete-profile-cancel">Отмена</button>
       <button class="danger" id="delete-profile-confirm">Удалить</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="generic-confirm-modal-bg">
+  <div class="modal" id="generic-confirm-modal">
+    <h2>Подтверждение</h2>
+    <p class="muted" style="margin-top:0;" id="generic-confirm-message"></p>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="generic-confirm-cancel">Отмена</button>
+      <button class="primary" id="generic-confirm-ok">Продолжить</button>
     </div>
   </div>
 </div>
@@ -894,6 +909,8 @@ let profileEditorId = null;
 let profileEditorName = "";
 let profileKeywords = [];
 let profileExcl = [];
+let profileKeywordsLoaded = 0;
+let profileExclLoaded = 0;
 
 function splitWords(text) {
   return text.split(",").map((s) => s.trim()).filter(Boolean);
@@ -947,6 +964,8 @@ function setProfileStatus(msg) { $("#profile-status").textContent = msg; }
 
 function fillProfileForm(p) {
   profileEditorName = p ? p.name : "";
+  profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
+  profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
   $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
@@ -970,28 +989,50 @@ function setWordCount(el, n) { el.textContent = n ? String(n) : ""; }
 
 function renderTags(arr, wrapId) {
   const box = $(wrapId);
-  box.querySelectorAll(".tag").forEach((el) => el.remove());
-  arr.forEach((w, i) => {
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = w;
-    tag.title = w;
-    const x = document.createElement("span");
-    x.className = "x";
-    x.textContent = "×";
-    x.title = "Удалить словосочетание";
-    x.addEventListener("click", () => {
-      arr.splice(i, 1);
-      renderTags(arr, wrapId);
-      wordCounts();
+  if (!box) return;
+  const tagsEl = box.querySelector(".tags");
+  const fallback = box.querySelector(".tags-fallback");
+  try {
+    tagsEl.innerHTML = "";
+    arr.forEach((w, i) => {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = w;
+      tag.title = w;
+      const x = document.createElement("span");
+      x.className = "x";
+      x.textContent = "×";
+      x.title = "Удалить словосочетание";
+      x.addEventListener("click", () => {
+        arr.splice(i, 1);
+        renderTags(arr, wrapId);
+        wordCounts();
+      });
+      tag.appendChild(x);
+      tagsEl.appendChild(tag);
     });
-    tag.appendChild(x);
-    box.querySelector(".tags").appendChild(tag);
-  });
+  } catch (err) {
+    console.error("renderTags:", err);
+  }
+  // Запасной вывод: если чипы не отрисовались, показываем список словами,
+  // чтобы слова никогда не «исчезали» из формы.
+  if (arr.length && tagsEl.childElementCount !== arr.length) {
+    fallback.textContent = arr.join("; ");
+    fallback.style.display = "";
+    tagsEl.style.display = "none";
+  } else {
+    fallback.style.display = "none";
+    tagsEl.style.display = "";
+  }
 }
 
 function bindTagInput(wrapId, arr) {
   const input = $(wrapId).querySelector("input");
+  // Страховка: при фокусе пере-рисуем чипы, чтобы они не могли остаться скрытыми.
+  input.addEventListener("focus", () => {
+    renderTags(arr, wrapId);
+    wordCounts();
+  });
   input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
@@ -1052,6 +1093,19 @@ async function openProfileEditor(id) {
 async function saveProfile() {
   const data = profileFormData();
   if (!data.name) { setProfileStatus("Укажите имя профиля"); return; }
+  // Защита от случайной потери: в профиле были слова, а форма пустая.
+  if (profileExclLoaded > 0 && data.exclusion_words.length === 0) {
+    confirmDialog(`В профиле было слов-исключений: ${profileExclLoaded}, а сейчас список пуст. Сохранить пустой список (все исключения будут удалены)?`, () => doSaveProfile(data));
+    return;
+  }
+  if (profileKeywordsLoaded > 0 && data.keywords.length === 0) {
+    confirmDialog(`В профиле было ключевых слов: ${profileKeywordsLoaded}, а сейчас список пуст. Сохранить пустой список (все слова будут удалены)?`, () => doSaveProfile(data));
+    return;
+  }
+  await doSaveProfile(data);
+}
+
+async function doSaveProfile(data) {
   try {
     const url = profileEditorId ? `/api/clients/${profileEditorId}` : "/api/clients";
     const method = profileEditorId ? "PUT" : "POST";
@@ -1379,6 +1433,22 @@ $("#delete-profile-confirm").addEventListener("click", doDeleteProfile);
 $("#delete-profile-modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "delete-profile-modal-bg") closeDeleteProfileModal();
 });
+let confirmCallback = null;
+function confirmDialog(message, onOk) {
+  confirmCallback = onOk || null;
+  $("#generic-confirm-message").textContent = message;
+  $("#generic-confirm-modal-bg").classList.add("open");
+}
+function closeConfirmDialog() { $("#generic-confirm-modal-bg").classList.remove("open"); }
+$("#generic-confirm-cancel").addEventListener("click", closeConfirmDialog);
+$("#generic-confirm-ok").addEventListener("click", () => {
+  const cb = confirmCallback;
+  closeConfirmDialog();
+  if (cb) cb();
+});
+$("#generic-confirm-modal-bg").addEventListener("click", (e) => {
+  if (e.target.id === "generic-confirm-modal-bg") closeConfirmDialog();
+});
 ["pf-tab-keywords", "pf-tab-excl", "pf-tab-comp"].forEach((id) => {
   document.getElementById(id).addEventListener("click", () => switchProfileTab(id.replace("pf-tab-", "")));
 });
@@ -1505,7 +1575,7 @@ $("#db-clear").addEventListener("click", () => {
 
 function closeDbModal() { $("#db-modal-bg").classList.remove("open"); }
 $("#db-modal-bg").addEventListener("click", (e) => { if (e.target.id === "db-modal-bg") closeDbModal(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDbModal(); closeExportModal(); closeDeleteProfileModal(); } });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDbModal(); closeExportModal(); closeDeleteProfileModal(); closeConfirmDialog(); } });
 
 async function dbClearRequest(url, body) {
   closeDbModal();
