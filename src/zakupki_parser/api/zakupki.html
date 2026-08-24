@@ -98,6 +98,16 @@
     border:1px solid var(--line); border-radius:8px; padding:8px; }
   .profile-checks { display:flex; gap:16px; flex-wrap:wrap; }
   .profile-checks label { flex-direction:row; align-items:center; gap:6px; }
+  .tag-input { display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:var(--panel2);
+               border:1px solid var(--line); border-radius:8px; padding:7px 8px; }
+  .tag-input .tags { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .tag-input input[type="text"] { flex:1 1 220px; min-width:140px; border:none; background:transparent;
+    padding:4px 6px; font-family:ui-monospace,monospace; font-size:13px; color:var(--text); }
+  .tag-input input[type="text"]:focus { outline:none; }
+  .tag { display:inline-flex; align-items:center; gap:6px; background:var(--panel); border:1px solid var(--line);
+         border-radius:20px; padding:3px 10px; font-size:12px; font-family:ui-monospace,monospace; }
+  .tag .x { cursor:pointer; color:var(--muted); font-weight:700; font-size:14px; line-height:1; }
+  .tag .x:hover { color:var(--warn); }
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
@@ -115,6 +125,8 @@
   .muted { color: var(--muted); }
   a { color: var(--accent); }
   .editor-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin-top: 12px; z-index: 2; }
+  .editor-actions.profile-actions { background: var(--panel); margin: 12px -16px -14px; padding: 12px 16px;
+    border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
   .user-bar { display:flex; align-items:center; gap:10px; font-size:13px; color: var(--muted); }
   .user-bar b { color: var(--text); font-weight:600; }
   .login-modal { max-width:360px; }
@@ -199,7 +211,7 @@
         </label>
         <div class="proc-table">
           <div class="toolbar" style="margin-bottom:8px;">
-            <button class="primary" id="batch-analyze" disabled>Обработать выбранные</button>
+            <button class="primary" id="batch-analyze" disabled>Анализировать ТЗ</button>
             <button class="ghost" id="batch-pwin-margin" disabled>Оценить P(win)/Margin</button>
             <span id="sel-count" class="muted"></span>
           </div>
@@ -289,10 +301,20 @@
             <button type="button" id="pf-tab-excl">Слова-исключения <span class="tab-count" id="pf-cnt-excl"></span></button>
             <button type="button" id="pf-tab-comp">Компетенции <span class="tab-count" id="pf-cnt-comp"></span></button>
           </div>
-          <label id="pf-pane-keywords">Ключевые слова (через запятую) <textarea id="pf-keywords" rows="14" spellcheck="false"></textarea></label>
-          <label id="pf-pane-excl" style="display:none;">Слова-исключения (через запятую) <textarea id="pf-excl" rows="14" spellcheck="false"></textarea></label>
-          <label id="pf-pane-comp" style="display:none;">Компетенции <textarea id="pf-competencies" rows="14" spellcheck="false"></textarea></label>
-          <div class="toolbar">
+          <label id="pf-pane-keywords">Ключевые слова <span class="muted">(Enter — добавить, × — удалить)</span>
+            <div class="tag-input" id="pf-keywords-tags">
+              <div class="tags"></div>
+              <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
+            </div>
+          </label>
+          <label id="pf-pane-excl" style="display:none;">Слова-исключения <span class="muted">(Enter — добавить, × — удалить)</span>
+            <div class="tag-input" id="pf-excl-tags">
+              <div class="tags"></div>
+              <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
+            </div>
+          </label>
+          <label id="pf-pane-comp" style="display:none;">Компетенции <textarea id="pf-competencies" rows="10" spellcheck="false"></textarea></label>
+          <div class="toolbar editor-actions profile-actions">
             <button class="primary" id="profile-save">Сохранить</button>
             <button id="profile-cancel">Отмена</button>
             <button class="danger" id="profile-delete" style="display:none;">Удалить</button>
@@ -349,6 +371,18 @@
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="export-cancel">Отменить</button>
       <button class="primary" id="export-confirm">Выгрузить</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="delete-profile-modal-bg">
+  <div class="modal" id="delete-profile-modal">
+    <span class="close" onclick="closeDeleteProfileModal()">×</span>
+    <h2>Удаление профиля</h2>
+    <p class="muted" style="margin-top:0;" id="delete-profile-message">Удалить профиль?</p>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="delete-profile-cancel">Отмена</button>
+      <button class="danger" id="delete-profile-confirm">Удалить</button>
     </div>
   </div>
 </div>
@@ -834,6 +868,9 @@ async function switchClient(profileId) {
 
 // --- Страница «Профили» -------------------------------------------------
 let profileEditorId = null;
+let profileEditorName = "";
+let profileKeywords = [];
+let profileExcl = [];
 
 function splitWords(text) {
   return text.split(",").map((s) => s.trim()).filter(Boolean);
@@ -848,7 +885,7 @@ function renderProfiles(list) {
     const okpd = (p.okpd_codes || []).join(", ") || "—";
     const nmck = `${p.nmck_min ?? "—"}–${p.nmck_max ?? "—"}`;
     const words = (p.keywords || []).length;
-    return `<tr data-id="${p.id}">
+    return `<tr data-id="${p.id}" data-name="${escapeHtml(p.name)}">
       <td>${escapeHtml(p.name)}</td>
       <td>${active}</td>
       <td>${enabled}</td>
@@ -871,7 +908,7 @@ function renderProfiles(list) {
       const id = Number(tr.dataset.id);
       if (btn.dataset.action === "activate") await switchClient(id);
       else if (btn.dataset.action === "edit") await openProfileEditor(id);
-      else if (btn.dataset.action === "delete") await deleteProfile(id);
+      else if (btn.dataset.action === "delete") confirmDeleteProfile(id, tr.dataset.name);
     });
   });
 }
@@ -886,6 +923,7 @@ async function loadProfiles() {
 function setProfileStatus(msg) { $("#profile-status").textContent = msg; }
 
 function fillProfileForm(p) {
+  profileEditorName = p ? p.name : "";
   $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
@@ -893,8 +931,12 @@ function fillProfileForm(p) {
   $("#pf-okpd").value = (p ? p.okpd_codes || [] : []).join(", ");
   $("#pf-nmck-min").value = p && p.nmck_min != null ? p.nmck_min : "";
   $("#pf-nmck-max").value = p && p.nmck_max != null ? p.nmck_max : "";
-  $("#pf-keywords").value = (p ? p.keywords || [] : []).join(", ");
-  $("#pf-excl").value = (p ? p.exclusion_words || [] : []).join(", ");
+  profileKeywords.length = 0;
+  (p ? p.keywords || [] : []).forEach((w) => profileKeywords.push(w));
+  profileExcl.length = 0;
+  (p ? p.exclusion_words || [] : []).forEach((w) => profileExcl.push(w));
+  renderTags(profileKeywords, "#pf-keywords-tags");
+  renderTags(profileExcl, "#pf-excl-tags");
   $("#pf-competencies").value = p ? p.competencies || "" : "";
   $("#profile-delete").style.display = p ? "inline-block" : "none";
   switchProfileTab("keywords");
@@ -903,9 +945,47 @@ function fillProfileForm(p) {
 
 function setWordCount(el, n) { el.textContent = n ? String(n) : ""; }
 
+function renderTags(arr, wrapId) {
+  const box = $(wrapId);
+  box.querySelectorAll(".tag").forEach((el) => el.remove());
+  arr.forEach((w, i) => {
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = w;
+    tag.title = w;
+    const x = document.createElement("span");
+    x.className = "x";
+    x.textContent = "×";
+    x.title = "Удалить словосочетание";
+    x.addEventListener("click", () => {
+      arr.splice(i, 1);
+      renderTags(arr, wrapId);
+      wordCounts();
+    });
+    tag.appendChild(x);
+    box.querySelector(".tags").appendChild(tag);
+  });
+}
+
+function bindTagInput(wrapId, arr) {
+  const input = $(wrapId).querySelector("input");
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return;
+    parts.forEach((w) => {
+      if (!arr.some((x) => x.toLocaleLowerCase() === w.toLocaleLowerCase())) arr.push(w);
+    });
+    input.value = "";
+    renderTags(arr, wrapId);
+    wordCounts();
+  });
+}
+
 function wordCounts() {
-  setWordCount($("#pf-cnt-keywords"), splitWords($("#pf-keywords").value).length);
-  setWordCount($("#pf-cnt-excl"), splitWords($("#pf-excl").value).length);
+  setWordCount($("#pf-cnt-keywords"), profileKeywords.length);
+  setWordCount($("#pf-cnt-excl"), profileExcl.length);
   setWordCount($("#pf-cnt-comp"), $("#pf-competencies").value.trim() ? $("#pf-competencies").value.trim().split(/\s+/).length : 0);
 }
 
@@ -924,8 +1004,8 @@ function profileFormData() {
     okpd_codes: splitWords($("#pf-okpd").value),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),
-    keywords: splitWords($("#pf-keywords").value),
-    exclusion_words: splitWords($("#pf-excl").value),
+    keywords: profileKeywords.slice(),
+    exclusion_words: profileExcl.slice(),
     competencies: $("#pf-competencies").value,
   };
 }
@@ -954,14 +1034,27 @@ async function saveProfile() {
   } catch (e) { setProfileStatus("Ошибка сохранения: " + e.message); }
 }
 
-async function deleteProfile(id) {
-  if (id == null) id = profileEditorId;
-  if (!id || !confirm("Удалить профиль?")) return;
+let deleteProfileId = null;
+
+function confirmDeleteProfile(id, name) {
+  deleteProfileId = id;
+  $("#delete-profile-message").textContent = name
+    ? `Удалить профиль «${name}»? Профиль будет удалён вместе со словами и оценками.`
+    : "Удалить профиль?";
+  $("#delete-profile-modal-bg").classList.add("open");
+}
+
+function closeDeleteProfileModal() { $("#delete-profile-modal-bg").classList.remove("open"); }
+
+async function doDeleteProfile() {
+  const id = deleteProfileId;
+  if (id == null) return;
+  closeDeleteProfileModal();
   try {
     const r = await apiJSON(`/api/clients/${id}`, { method: "DELETE" });
     if (!r.ok) throw new Error(await r.text());
     setProfileStatus("Профиль удалён");
-    $("#profile-editor").style.display = "none";
+    if (profileEditorId === id) $("#profile-editor").style.display = "none";
     await loadProfiles(); await loadActiveClient();
   } catch (e) { setProfileStatus("Ошибка удаления: " + e.message); }
 }
@@ -1251,13 +1344,18 @@ $("#profile-new").addEventListener("click", () => openProfileEditor(null));
 $("#profile-seed").addEventListener("click", seedProfile);
 $("#profile-save").addEventListener("click", saveProfile);
 $("#profile-cancel").addEventListener("click", () => { $("#profile-editor").style.display = "none"; });
-$("#profile-delete").addEventListener("click", () => deleteProfile());
-["pf-tab-keywords", "pf-tab-excl", "pf-tab-comp"].forEach((tab) => {
-  tab.addEventListener("click", () => switchProfileTab(tab.id.replace("pf-tab-", "")));
+$("#profile-delete").addEventListener("click", () => confirmDeleteProfile(profileEditorId, profileEditorName));
+$("#delete-profile-cancel").addEventListener("click", closeDeleteProfileModal);
+$("#delete-profile-confirm").addEventListener("click", doDeleteProfile);
+$("#delete-profile-modal-bg").addEventListener("click", (e) => {
+  if (e.target.id === "delete-profile-modal-bg") closeDeleteProfileModal();
 });
-["pf-keywords", "pf-excl", "pf-competencies"].forEach((id) => {
-  document.getElementById(id).addEventListener("input", wordCounts);
+["pf-tab-keywords", "pf-tab-excl", "pf-tab-comp"].forEach((id) => {
+  document.getElementById(id).addEventListener("click", () => switchProfileTab(id.replace("pf-tab-", "")));
 });
+$("#pf-competencies").addEventListener("input", wordCounts);
+bindTagInput("#pf-keywords-tags", profileKeywords);
+bindTagInput("#pf-excl-tags", profileExcl);
 $("#client-select").addEventListener("change", (ev) => {
   if (ev.target.value) switchClient(Number(ev.target.value));
 });
@@ -1378,7 +1476,7 @@ $("#db-clear").addEventListener("click", () => {
 
 function closeDbModal() { $("#db-modal-bg").classList.remove("open"); }
 $("#db-modal-bg").addEventListener("click", (e) => { if (e.target.id === "db-modal-bg") closeDbModal(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDbModal(); closeExportModal(); } });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDbModal(); closeExportModal(); closeDeleteProfileModal(); } });
 
 async function dbClearRequest(url, body) {
   closeDbModal();
