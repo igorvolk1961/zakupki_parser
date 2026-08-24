@@ -120,6 +120,8 @@
 - [ ] **fabrikant: полный маппинг ОКПД2 `code_to_id`** — фильтр по ОКПД2 работает через внутренние
       opaque-id площадки (`okpd2[]`); маппинг в `configs/codes/fabrikant_okpd2_tree.json` частичный
       (62, 62.01–62.09). Собрать полное дерево (`fetch-tree`) и проверить резолв.
+      ✅ Панель «Расширенный поиск» подключена (2026-08-24): ОКПД2 -> `okpd2[]` (bracket-формат),
+      НМЦ -> `price_from`/`price_to` (см. `configs/dom/fabrikant.yaml`).
 - [ ] **fabrikant: детальные страницы коммерческих типов** — `v2/trades/procedure/`,
       `trades/atom/PriceRequest|ProposalRequest|PriceMonitoring` имеют иную разметку (без
       `field-label`/`field-text`); извлечение nmck/customer/inn/status полноценно только для 44-ФЗ

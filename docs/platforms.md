@@ -33,7 +33,7 @@
 | etpgpb | Vue SPA | **API** `/api/v2/procedures/` (`procedure[stage][0]`+`procedure[okpd]`+`search`+`sort`+`per`+`page`) | ✅ `procedure[okpd]=62.02` (плоский, префиксный) | ✅ `search` (только с `sort=by_relevance`; `min_keyword_len=3`) | дата `by_published_desc`; слова — relevance | да |
 | roseltorg_44fz | Drupal+React | `status[]`/`sale`/`currency` | ✅ панель «Категория ОКПД 2» (TODO) | ✅ (поиск/теги) | релевантность | нет |
 | roseltorg_223fz | Drupal+React | `query_field`/`okpd2[]`/`status[]`/`page` | ✅ (JSON-LD деталей) | ✅ `query_field` (пробел=OR) | релевантность | нет |
-| fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | дата `date_publication desc` | да |
+| fabrikant | Next.js SPA (RSC) | ✅ `query`+`okpd2[]`+`price_from`/`price_to`+`statuses[]`+`page_number` (в URL) | ✅ `okpd2[]` (opaque-id, дерево `code_to_id`) | ✅ `query` (URL) | дата `date_publication desc` | да |
 | lot_online_223 | Angular SPA (Taiga) | **API** indexer (`/api-gateway/indexer/api/lots/query-extended`: `search`+`regionOkpd2Code`+`statusGroup`+`page`) | ✅ `regionOkpd2Code` (список) | ✅ `search` (по-одному) | дата публикации (дефолт) | да |
 
 ## Серверная фильтрация по состояниям (`search_criteria.active_only`)
@@ -140,9 +140,11 @@
   (снимок 2026-08-14): number, reg_number, purchase_type, subject, law, publication_date, deadline,
   nmck, customer/inn (ИНН прямо со страницы), status.
 - Фильтры и пагинация — через URL: `query` (слова), `okpd2[]` (внутренние opaque-id, коды
-  резолвятся через `code_to_id` в `configs/codes/fabrikant_okpd2_tree.json`), `page_number` (10/стр).
-  Поэтому используется URL-механизм `search` (как на zakupki.mos.ru). Список — вкладка
-  `/procedure/search/purchases` (закупки; корневой `/search` включает «Мониторинг цен»).
+  резолвятся через `code_to_id` в `configs/codes/fabrikant_okpd2_tree.json`), НМЦ —
+  `price_from`/`price_to` (панель «Расширенный поиск»; имена параметров сняты с SPA
+  2026-08-24, массив-параметры в bracket-форме `okpd2[]=`/`statuses[]=`), `page_number`
+  (10/стр). Поэтому используется URL-механизм `search` (как на zakupki.mos.ru). Список —
+  вкладка `/procedure/search/purchases` (закупки; корневой `/search` включает «Мониторинг цен»).
 - **Сортировка — по дате публикации** (`sort_order=date_publication&sort_direction=desc`,
   дефолт площадки; проверил 2026-08-17). Релевантности в списке сортировки НЕТ — только
   «Дате публикации», «Дате окончания приёма заявок», «Начальной цене». Поэтому

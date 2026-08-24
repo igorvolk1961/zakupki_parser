@@ -1,8 +1,9 @@
 # Фабрикант (fabrikant.ru). Платформа_id = имя файла.
 # Next.js SPA (App Router). Карточки списка и детальные страницы серверно-рендерятся
 # (shadcn data-slot, без css-хешей). Фильтры и пагинация отражаются в URL: `query`
-# (слова), `okpd2[]` (внутренние opaque-id), `page_number` (10 на страницу) —
-# поэтому используется URL-механизм search (как на zakupki.mos.ru), а не DOM-шаги.
+# (слова), `okpd2[]` (внутренние opaque-id), `price_from`/`price_to` (НМЦ, «Расширенный
+# поиск»), `statuses[]`, `page_number` (10 на страницу) — поэтому используется URL-механизм
+# search (как на zakupki.mos.ru), а не DOM-шаги.
 # Список — вкладка /procedure/search/purchases (закупки; корневой /search включает
 # «Мониторинг цен»). Детальные страницы 44-ФЗ на сабдомене 44.fabrikant.ru,
 # коммерческие — /v2/trades/procedure/ и /trades/atom/*.
@@ -85,19 +86,26 @@ sort:
   dropdown: null
   option_text: null
 
-# DOM-шаги фильтров не нужны: фильтр по словам и пагинация — через URL-параметры
-# (см. search ниже). Панель «Расширенный поиск» (ОКПД2/НМЦ) — TODO.
+# DOM-шаги фильтров не нужны: фильтры и пагинация отражаются в URL-параметрах
+# (см. search ниже). Панель «Расширенный поиск» подключена: ОКПД2 -> okpd2[],
+# НМЦ -> price_from/price_to (имена параметров сняты с SPA fabrikant, 2026-08-24).
 filters: []
 
-# URL-фильтр списка. По ОКПД2 — массив `okpd2[]` с внутренними opaque-id площадки
-# (критерий okpd2, коды резолвятся в id через okpd_tree_file.code_to_id). Статично —
-# `page_number=1` (пагинация через page_param/page_size в list_config).
+# URL-фильтр списка. Сайт сериализует массив-параметры в bracket-форме
+# (query-string arrayFormat: "bracket", SPA): okpd2[]=<opaque-id>, statuses[]=<status>.
+# ОКПД2 — внутренние opaque-id площадки (коды резолвятся через okpd_tree_file.code_to_id);
+# НМЦ — плоские price_from/price_to (поля «Расширенный поиск»). Статично —
+# page_number=1 (пагинация через page_param/page_size в list_config).
 search:
   enabled: true
   query_params:
     page_number: "1"
   criteria_map:
-    okpd2:    { raw_array: "okpd2" }
+    # ОКПД2 -> okpd2[] (bracket-формат; opaque-id из дерева code_to_id).
+    okpd2:    { raw_array_flat: "okpd2[]" }
+    # НМЦ -> price_from/price_to («Расширенный поиск», поля «НМЦ от/до»).
+    nmck_min: { query_param: "price_from" }
+    nmck_max: { query_param: "price_to" }
     # active_only -> статус процедуры statuses[] (проверено на живом сайте
     # 2026-08-17: 1=Прием заявок, 2=Работа комиссии, 4=Завершённые, 5=Ожидает
     # приёма заявок, 6=Отменённые; 3 — legacy). Активные = 1+5 (дефолт поиска
