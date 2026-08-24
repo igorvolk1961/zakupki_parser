@@ -115,11 +115,6 @@ run_migrations() {
     echo "Миграции применены."
 }
 
-migrations_applied() {
-    docker exec "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -t -A -c \
-        "select to_regclass('public.databasechangelog')" 2>/dev/null | grep -q databasechangelog
-}
-
 show_status() {
     docker ps -a --filter "name=^/${CONTAINER}$" --format '{{.Names}}: {{.Status}}'
     if container_running; then
@@ -164,12 +159,11 @@ if container_exists; then
             "$POSTGRES_IMAGE"
     fi
     wait_db
-    if migrations_applied; then
-        echo "БД готова к использованию (миграции уже применены)."
-    else
-        echo "В контейнере нет миграций — применяю."
-        run_migrations
-    fi
+    # Миграции выполняются при каждом старте: Liquibase update идемпотентен и
+    # применяет только недостающие changeset'ы. Раньше проверка была по факту
+    # существования таблицы databasechangelog — устаревший volume с частично
+    # применёнными миграциями молча пропускался, оставляя неполную схему.
+    run_migrations
 else
     echo "Контейнера $CONTAINER нет — создаю новый..."
     if ! docker ps -a --format '{{.Names}}|{{.Ports}}' 2>/dev/null | grep -qE "\b5432->"; then
