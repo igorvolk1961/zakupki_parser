@@ -11,6 +11,10 @@
 #   scripts/db_up.sh              # поднять БД (существующую или новую)
 #   scripts/db_up.sh <container>  # использовать другое имя контейнера
 #   scripts/db_up.sh --status     # статус контейнера и таблиц (без запуска)
+#
+# Перед пересозданием контейнера снимается бэкап БД (pg_dump, custom-format)
+# в backups/zakupki_<timestamp>.dump (хранятся последние 10). Восстановление:
+#   pg_restore -U postgres -d zakupki --clean backups/zakupki_<timestamp>.dump
 
 set -euo pipefail
 
@@ -35,12 +39,37 @@ DB_USER="postgres"
 DB_PASS="postgres"
 DB_NAME="zakupki"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKUP_DIR="$ROOT_DIR/backups"
+# Сколько последних дампов оставлять (старые удаляются).
+BACKUP_RETENTION=10
+
 container_exists() {
     docker ps -a --format '{{.Names}}' | grep -qx -- "$CONTAINER"
 }
 
 container_running() {
     docker ps --format '{{.Names}}' | grep -qx -- "$CONTAINER"
+}
+
+backup_db() {
+    # Резервная копия БД перед пересозданием контейнера: правки профилей/ключевых
+    # слов и данные закупок живут в volume zakupki_pgdata, который при пересоздании
+    # контейнера теряется. Бэкап — custom-format pg_dump (как backups/*.dump).
+    mkdir -p "$BACKUP_DIR"
+    local stamp target
+    stamp="$(date +%Y%m%d_%H%M%S)"
+    target="$BACKUP_DIR/zakupki_${stamp}.dump"
+    if docker exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" -Fc -f /tmp/zakupki.dump \
+        && docker cp "$CONTAINER:/tmp/zakupki.dump" "$target" \
+        && docker exec "$CONTAINER" rm -f /tmp/zakupki.dump; then
+        echo "Бэкап БД сохранён: $target"
+    else
+        echo "Внимание: не удалось создать бэкап БД — продолжаю без него." >&2
+    fi
+    # Оставляем последние BACKUP_RETENTION дампов.
+    ls -t "$BACKUP_DIR"/zakupki_*.dump 2>/dev/null | tail -n +$((BACKUP_RETENTION + 1)) | xargs -r rm -f
 }
 
 # Проверка, что порт 5432 опубликован контейнером И доступен с хоста.
@@ -149,6 +178,8 @@ if container_exists; then
     # сохраняется, миграции идемпотентны).
     if ! port_published_and_reachable; then
         echo "Контейнер $CONTAINER не публикует/не отдаёт порт 5432 с хоста — пересоздаю (volume сохранится)."
+        # Перед пересозданием снимаем бэкап: данные volume не должны теряться.
+        backup_db
         docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
         docker run -d --name "$CONTAINER" \
             -p 5432:5432 \
