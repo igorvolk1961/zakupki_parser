@@ -137,17 +137,18 @@
   #profile-editor .profile-form { flex:1 1 auto; min-height:0; }
   #profile-editor .profile-form > label:not(#pf-pane-keywords):not(#pf-pane-excl):not(#pf-pane-comp),
   #profile-editor .profile-form > div { flex-shrink:0; }
-  #pf-pane-keywords, #pf-pane-excl { flex:1 1 0; flex-shrink:1; min-height:140px; overflow-y:auto; }
+  #pf-pane-keywords, #pf-pane-excl, #pf-pane-questions { flex:1 1 0; flex-shrink:1; min-height:140px; overflow-y:auto; }
   #pf-pane-comp { flex:1 1 0; flex-shrink:1; min-height:140px; overflow:hidden; }
-  #pf-pane-keywords .tag-input, #pf-pane-excl .tag-input {
+  #pf-pane-keywords .tag-input, #pf-pane-excl .tag-input, #pf-pane-questions .tag-input {
     display:flex; flex-direction:column; gap:6px; overflow:visible;
   }
-  #pf-pane-keywords .tag-input .tags, #pf-pane-excl .tag-input .tags {
+  #pf-pane-keywords .tag-input .tags, #pf-pane-excl .tag-input .tags, #pf-pane-questions .tag-input .tags {
     display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start; overflow:visible;
   }
   .tag-input .tags-fallback { font-family:ui-monospace,monospace; font-size:13px;
     color:var(--text); white-space:pre-wrap; }
-  #pf-pane-keywords .tag-input input[type="text"], #pf-pane-excl .tag-input input[type="text"] {
+  #pf-pane-keywords .tag-input input[type="text"], #pf-pane-excl .tag-input input[type="text"],
+  #pf-pane-questions .tag-input input[type="text"] {
     position:sticky; bottom:0; flex:0 0 auto; width:100%; min-width:0; padding:6px;
     background:var(--panel2); border-radius:6px;
   }
@@ -324,6 +325,7 @@
           <div class="tabs" id="pf-tabs" style="margin:4px 0;">
             <button type="button" class="active" id="pf-tab-keywords">Ключевые слова <span class="tab-count" id="pf-cnt-keywords"></span></button>
             <button type="button" id="pf-tab-excl">Слова-исключения <span class="tab-count" id="pf-cnt-excl"></span></button>
+            <button type="button" id="pf-tab-questions">Вопросы по ТЗ <span class="tab-count" id="pf-cnt-questions"></span></button>
             <button type="button" id="pf-tab-comp">Компетенции <span class="tab-count" id="pf-cnt-comp"></span></button>
           </div>
           <label id="pf-pane-keywords">Ключевые слова <span class="muted">(Enter — добавить, × — удалить)</span>
@@ -338,6 +340,13 @@
               <div class="tags"></div>
               <div class="tags-fallback" style="display:none;"></div>
               <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
+            </div>
+          </label>
+          <label id="pf-pane-questions" style="display:none;">Вопросы по ТЗ <span class="muted">(Enter — добавить, × — удалить)</span>
+            <div class="tag-input" id="pf-questions-tags">
+              <div class="tags"></div>
+              <div class="tags-fallback" style="display:none;"></div>
+              <input type="text" placeholder="вопрос, Enter" spellcheck="false">
             </div>
           </label>
           <label id="pf-pane-comp" style="display:none;">Компетенции <textarea id="pf-competencies" rows="10" spellcheck="false"></textarea></label>
@@ -909,8 +918,11 @@ let profileEditorId = null;
 let profileEditorName = "";
 let profileKeywords = [];
 let profileExcl = [];
+let profileQuestions = [];
 let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
+let profileQuestionsLoaded = 0;
+let questionSeq = 1;
 
 function splitWords(text) {
   return text.split(",").map((s) => s.trim()).filter(Boolean);
@@ -966,6 +978,7 @@ function fillProfileForm(p) {
   profileEditorName = p ? p.name : "";
   profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
   profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
+  profileQuestionsLoaded = (p ? p.questions || [] : []).length;
   $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
@@ -977,8 +990,12 @@ function fillProfileForm(p) {
   (p ? p.keywords || [] : []).forEach((w) => profileKeywords.push(w));
   profileExcl.length = 0;
   (p ? p.exclusion_words || [] : []).forEach((w) => profileExcl.push(w));
+  profileQuestions.length = 0;
+  (p ? p.questions || [] : []).forEach((q) => profileQuestions.push({ id: q.id || `q${questionSeq++}`, text: q.text || "" }));
+  questionSeq = Math.max(questionSeq, ...profileQuestions.map((q) => (parseInt(String(q.id).replace(/\D/g, ""), 10) || 0) + 1));
   renderTags(profileKeywords, "#pf-keywords-tags");
   renderTags(profileExcl, "#pf-excl-tags");
+  renderTags(profileQuestions, "#pf-questions-tags");
   $("#pf-competencies").value = p ? p.competencies || "" : "";
   $("#profile-delete").style.display = p ? "inline-block" : "none";
   switchProfileTab("keywords");
@@ -992,9 +1009,11 @@ function renderTags(arr, wrapId) {
   if (!box) return;
   const tagsEl = box.querySelector(".tags");
   const fallback = box.querySelector(".tags-fallback");
+  const label = (item) => (typeof item === "object" && item != null ? item.text : item);
   try {
     tagsEl.innerHTML = "";
-    arr.forEach((w, i) => {
+    arr.forEach((item, i) => {
+      const w = String(label(item));
       const tag = document.createElement("span");
       tag.className = "tag";
       tag.textContent = w;
@@ -1017,7 +1036,7 @@ function renderTags(arr, wrapId) {
   // Запасной вывод: если чипы не отрисовались, показываем список словами,
   // чтобы слова никогда не «исчезали» из формы.
   if (arr.length && tagsEl.childElementCount !== arr.length) {
-    fallback.textContent = arr.join("; ");
+    fallback.textContent = arr.map(label).join("; ");
     fallback.style.display = "";
     tagsEl.style.display = "none";
   } else {
@@ -1026,8 +1045,9 @@ function renderTags(arr, wrapId) {
   }
 }
 
-function bindTagInput(wrapId, arr) {
+function bindTagInput(wrapId, arr, makeItem) {
   const input = $(wrapId).querySelector("input");
+  const label = (item) => (typeof item === "object" && item != null ? item.text : item);
   // Страховка: при фокусе пере-рисуем чипы, чтобы они не могли остаться скрытыми.
   input.addEventListener("focus", () => {
     renderTags(arr, wrapId);
@@ -1039,7 +1059,9 @@ function bindTagInput(wrapId, arr) {
     const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
     if (!parts.length) return;
     parts.forEach((w) => {
-      if (!arr.some((x) => x.toLocaleLowerCase() === w.toLocaleLowerCase())) arr.push(w);
+      const item = makeItem ? makeItem(w) : w;
+      const key = String(label(item)).toLocaleLowerCase();
+      if (!arr.some((x) => String(label(x)).toLocaleLowerCase() === key)) arr.push(item);
     });
     input.value = "";
     renderTags(arr, wrapId);
@@ -1050,11 +1072,12 @@ function bindTagInput(wrapId, arr) {
 function wordCounts() {
   setWordCount($("#pf-cnt-keywords"), profileKeywords.length);
   setWordCount($("#pf-cnt-excl"), profileExcl.length);
+  setWordCount($("#pf-cnt-questions"), profileQuestions.length);
   setWordCount($("#pf-cnt-comp"), $("#pf-competencies").value.trim() ? $("#pf-competencies").value.trim().split(/\s+/).length : 0);
 }
 
 function switchProfileTab(name) {
-  ["keywords", "excl", "comp"].forEach((k) => {
+  ["keywords", "excl", "questions", "comp"].forEach((k) => {
     $("#pf-tab-" + k).classList.toggle("active", k === name);
     $("#pf-pane-" + k).style.display = k === name ? "" : "none";
   });
@@ -1070,6 +1093,7 @@ function profileFormData() {
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),
     keywords: profileKeywords.slice(),
     exclusion_words: profileExcl.slice(),
+    questions: profileQuestions.slice(),
     competencies: $("#pf-competencies").value,
   };
 }
@@ -1100,6 +1124,10 @@ async function saveProfile() {
   }
   if (profileKeywordsLoaded > 0 && data.keywords.length === 0) {
     confirmDialog(`В профиле было ключевых слов: ${profileKeywordsLoaded}, а сейчас список пуст. Сохранить пустой список (все слова будут удалены)?`, () => doSaveProfile(data));
+    return;
+  }
+  if (profileQuestionsLoaded > 0 && data.questions.length === 0) {
+    confirmDialog(`В профиле было вопросов по ТЗ: ${profileQuestionsLoaded}, а сейчас список пуст. Сохранить пустой список (все вопросы будут удалены)?`, () => doSaveProfile(data));
     return;
   }
   await doSaveProfile(data);
@@ -1449,12 +1477,13 @@ $("#generic-confirm-ok").addEventListener("click", () => {
 $("#generic-confirm-modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "generic-confirm-modal-bg") closeConfirmDialog();
 });
-["pf-tab-keywords", "pf-tab-excl", "pf-tab-comp"].forEach((id) => {
+["pf-tab-keywords", "pf-tab-excl", "pf-tab-questions", "pf-tab-comp"].forEach((id) => {
   document.getElementById(id).addEventListener("click", () => switchProfileTab(id.replace("pf-tab-", "")));
 });
 $("#pf-competencies").addEventListener("input", wordCounts);
 bindTagInput("#pf-keywords-tags", profileKeywords);
 bindTagInput("#pf-excl-tags", profileExcl);
+bindTagInput("#pf-questions-tags", profileQuestions, (w) => ({ id: "q" + questionSeq++, text: w }));
 $("#client-select").addEventListener("change", (ev) => {
   if (ev.target.value) switchClient(Number(ev.target.value));
 });
