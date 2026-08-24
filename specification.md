@@ -1,7 +1,7 @@
 # Спецификация парсера площадок закупок
 
 > **Статус: текущее состояние (v0.3.0).** Целевая архитектура — мультитенантный SaaS
-> «TenderSearch» по `docs/system_analisys/` (требования, ER, NFR) — и roadmap этапов
+> «TenderSearch» по `docs/system_analysis/` (требования, ER, NFR) — и roadmap этапов
 > перестройки описаны в разделе [14. Целевая архитектура (TenderSearch)](#14-целевая-архитектура-tendersearch).
 > Этапы перестройки и статусы — в `plans/plan.md`, детальные планы — в `plans/00_plan.md`+.
 
@@ -486,13 +486,19 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 ## 14. Целевая архитектура (TenderSearch)
 
 > Этап 0 перестройки: фиксация требований и roadmap. Разделы 1–13 описывают **текущее
-> состояние (v0.3.0)**; раздел 14 — целевую модель по `docs/system_analisys/`
+> состояние (v0.3.0)**; раздел 14 — целевую модель по `docs/system_analysis/`
 > (Vision & Scope, User Stories Эпики 1–9, Business Rules BR-01…BR-07, ER-диаграмма, NFR).
 > Источник решений: мастер-план `.kilo/plans/1787250023996-architecture-multitenancy-master-plan.md`
 > (локальный, `.kilo/` в git не входит); трекер прогресса — `plans/plan.md`;
 > детальный план этапа 0 — `plans/00_plan.md`.
 
-### 14.1 Gap-анализ: текущее состояние (v0.3.0) vs требования docs/system_analisys
+### 14.1 Gap-анализ: текущее состояние (v0.3.0) vs требования docs/system_analysis
+
+> Сводная таблица «требование → статус → место в коде → этап». Детальная трассируемость,
+> бэклог и функциональные требования — в артефактах `docs/system_analysis/`:
+> `02_Business_Requirements/04_traceability_matrix.md`,
+> `02_Business_Requirements/03_product_backlog.md`,
+> `02_Business_Requirements/05_functional_requirements.md` (синхронизировано 2026-08-24).
 
 Обозначения статуса: ✅ реализовано · 🟡 частично · ❌ отсутствует.
 
