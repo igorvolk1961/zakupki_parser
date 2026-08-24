@@ -363,7 +363,7 @@
                 <label>Примечание <input id="lic-notes"></label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">
-                <button class="primary" id="license-save">Сохранить лицензию</button>
+                <button class="primary" id="license-save">Сохранить лицензию и профиль</button>
                 <button id="license-cancel">Отмена</button>
                 <span class="muted" id="license-status"></span>
               </div>
@@ -393,7 +393,7 @@
                 <label>Примечание <input id="exp-notes"></label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">
-                <button class="primary" id="experience-save">Сохранить опыт</button>
+                <button class="primary" id="experience-save">Сохранить опыт и профиль</button>
                 <button id="experience-cancel">Отмена</button>
                 <span class="muted" id="experience-status"></span>
               </div>
@@ -1180,6 +1180,20 @@ function updateProfileExtrasVisibility() {
   });
 }
 
+// Пока открыта форма добавления/редактирования лицензии или опыта, остальные
+// операции (Добавить/Редактировать/Удалить) недоступны — исключаем конфликты.
+function entryFormOpen() {
+  return $("#license-form").style.display === "block" || $("#experience-form").style.display === "block";
+}
+function setEntryActionsDisabled(disabled) {
+  [$("#license-new"), $("#experience-new")].forEach((b) => { b.disabled = disabled; });
+  document.querySelectorAll("#licenses-table button[data-action], #experience-table button[data-action]")
+    .forEach((b) => { b.disabled = disabled; });
+}
+function syncEntryFormState() {
+  setEntryActionsDisabled(entryFormOpen());
+}
+
 async function ensureLicenseTypes() {
   if (licenseTypes.length) return;
   try { licenseTypes = await api("license-types") || []; } catch { licenseTypes = []; }
@@ -1235,6 +1249,7 @@ function renderLicenses() {
       else deleteLicense(profileLicenses.find((x) => x.id === id));
     });
   });
+  syncEntryFormState();
 }
 
 function renderExperience() {
@@ -1266,6 +1281,7 @@ function renderExperience() {
       else deleteExperience(profileExperience.find((x) => x.id === id));
     });
   });
+  syncEntryFormState();
 }
 
 async function openLicenseForm(id) {
@@ -1282,6 +1298,7 @@ async function openLicenseForm(id) {
   $("#lic-notes").value = l ? (l.notes || "") : "";
   setLicenseStatus("");
   $("#license-form").style.display = "block";
+  syncEntryFormState();
 }
 
 async function saveLicense() {
@@ -1299,6 +1316,9 @@ async function saveLicense() {
     setLicenseStatus("Профиль не сохранён — лицензия не добавлена");
     return;
   }
+  const saveBtn = $("#license-save");
+  saveBtn.disabled = true;
+  $("#license-cancel").disabled = true;
   try {
     const url = licenseEditorId
       ? `/api/clients/${profileEditorId}/licenses/${licenseEditorId}`
@@ -1312,6 +1332,11 @@ async function saveLicense() {
     $("#license-form").style.display = "none";
     await loadProfileExtras(profileEditorId);
   } catch (e) { setLicenseStatus("Ошибка сохранения: " + e.message); }
+  finally {
+    saveBtn.disabled = false;
+    $("#license-cancel").disabled = false;
+    syncEntryFormState();
+  }
 }
 
 function deleteLicense(lic) {
@@ -1320,11 +1345,13 @@ function deleteLicense(lic) {
     ? `Удалить лицензию${type ? " «" + type.name + "»" : ""}${lic.number ? " №" + lic.number : ""}?`
     : "Удалить лицензию?";
   confirmDialog(label, async () => {
+    setEntryActionsDisabled(true);
     try {
       const r = await apiJSON(`/api/clients/${profileEditorId}/licenses/${lic.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error(await r.text());
       await loadProfileExtras(profileEditorId);
     } catch (e) { setLicenseStatus("Ошибка удаления: " + e.message); }
+    finally { syncEntryFormState(); }
   });
 }
 
@@ -1345,6 +1372,7 @@ async function openExperienceForm(id) {
   $("#exp-notes").value = e ? (e.notes || "") : "";
   setExperienceStatus("");
   $("#experience-form").style.display = "block";
+  syncEntryFormState();
 }
 
 async function saveExperience() {
@@ -1367,6 +1395,9 @@ async function saveExperience() {
     setExperienceStatus("Профиль не сохранён — запись опыта не добавлена");
     return;
   }
+  const saveBtn = $("#experience-save");
+  saveBtn.disabled = true;
+  $("#experience-cancel").disabled = true;
   try {
     const url = experienceEditorId
       ? `/api/clients/${profileEditorId}/experience/${experienceEditorId}`
@@ -1380,16 +1411,23 @@ async function saveExperience() {
     $("#experience-form").style.display = "none";
     await loadProfileExtras(profileEditorId);
   } catch (e) { setExperienceStatus("Ошибка сохранения: " + e.message); }
+  finally {
+    saveBtn.disabled = false;
+    $("#experience-cancel").disabled = false;
+    syncEntryFormState();
+  }
 }
 
 function deleteExperience(exp) {
   const label = exp && exp.title ? `Удалить запись опыта «${exp.title}»?` : "Удалить запись опыта?";
   confirmDialog(label, async () => {
+    setEntryActionsDisabled(true);
     try {
       const r = await apiJSON(`/api/clients/${profileEditorId}/experience/${exp.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error(await r.text());
       await loadProfileExtras(profileEditorId);
     } catch (e) { setExperienceStatus("Ошибка удаления: " + e.message); }
+    finally { syncEntryFormState(); }
   });
 }
 
@@ -1821,10 +1859,10 @@ $("#generic-confirm-modal-bg").addEventListener("click", (e) => {
 $("#pf-competencies").addEventListener("input", wordCounts);
 $("#license-new").addEventListener("click", () => openLicenseForm(null));
 $("#license-save").addEventListener("click", saveLicense);
-$("#license-cancel").addEventListener("click", () => { $("#license-form").style.display = "none"; });
+$("#license-cancel").addEventListener("click", () => { $("#license-form").style.display = "none"; syncEntryFormState(); });
 $("#experience-new").addEventListener("click", () => openExperienceForm(null));
 $("#experience-save").addEventListener("click", saveExperience);
-$("#experience-cancel").addEventListener("click", () => { $("#experience-form").style.display = "none"; });
+$("#experience-cancel").addEventListener("click", () => { $("#experience-form").style.display = "none"; syncEntryFormState(); });
 bindTagInput("#pf-keywords-tags", profileKeywords);
 bindTagInput("#pf-excl-tags", profileExcl);
 bindTagInput("#pf-questions-tags", profileQuestions, (w) => ({ id: "q" + questionSeq++, text: w }));
