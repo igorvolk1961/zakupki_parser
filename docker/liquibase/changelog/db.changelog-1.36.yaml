@@ -1,0 +1,11 @@
+databaseChangeLog:
+- changeSet:
+    id: 37
+    author: zakupki-parser
+    comment: 'active_only удалён из профилей — выбор по состоянию только глобально (config_service.yaml -> search_criteria.active_only)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE profiles DROP COLUMN active_only;
+          COMMENT ON TABLE profiles IS 'Профили фильтрации пользователей (слова — keywords, критерии поиска — okpd_codes/nmck_min/nmck_max)';

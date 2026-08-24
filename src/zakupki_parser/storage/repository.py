@@ -928,8 +928,6 @@ class ProcurementRepository:
                 profile.nmck_min = data["nmck_min"]
             if "nmck_max" in data:
                 profile.nmck_max = data["nmck_max"]
-            if "active_only" in data:
-                profile.active_only = bool(data["active_only"])
             # Профиль становится активным: явно (is_active=true) или по умолчанию
             # для профиля «default» (per-user состояние, BR-07).
             wants_active = data.get("is_active")
@@ -987,9 +985,7 @@ class ProcurementRepository:
         if not matched:
             return
         async with self._db.session() as session:
-            evaluation = await self._find_or_create_evaluation(
-                session, procurement_id, profile_id
-            )
+            evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             evaluation.matched_keywords = list(matched)
             await session.commit()
             logger.info(
@@ -1013,9 +1009,7 @@ class ProcurementRepository:
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки."""
         async with self._db.session() as session:
-            evaluation = await self._find_or_create_evaluation(
-                session, procurement_id, profile_id
-            )
+            evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             if score is not None:
                 evaluation.score = _round_score(score)
             if fit_score is not None:
@@ -1043,9 +1037,7 @@ class ProcurementRepository:
     ) -> ProcurementEvaluation:
         """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method)."""
         async with self._db.session() as session:
-            evaluation = await self._find_or_create_evaluation(
-                session, procurement_id, profile_id
-            )
+            evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             evaluation.rag_report = rag_report
             await session.commit()
         return evaluation

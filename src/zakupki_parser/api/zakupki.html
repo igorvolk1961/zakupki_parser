@@ -272,7 +272,6 @@
           <div class="profile-checks">
             <label><input type="checkbox" id="pf-enabled"> включён</label>
             <label><input type="checkbox" id="pf-active"> активный</label>
-            <label><input type="checkbox" id="pf-active-only"> только активные</label>
           </div>
           <label>ОКПД2 (через запятую) <input id="pf-okpd"></label>
           <div class="profile-checks">
@@ -878,7 +877,6 @@ function fillProfileForm(p) {
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
   $("#pf-active").checked = p ? p.is_active : false;
-  $("#pf-active-only").checked = p ? p.active_only : false;
   $("#pf-okpd").value = (p ? p.okpd_codes || [] : []).join(", ");
   $("#pf-nmck-min").value = p && p.nmck_min != null ? p.nmck_min : "";
   $("#pf-nmck-max").value = p && p.nmck_max != null ? p.nmck_max : "";
@@ -893,7 +891,6 @@ function profileFormData() {
     name: $("#pf-name").value.trim(),
     enabled: $("#pf-enabled").checked,
     is_active: $("#pf-active").checked,
-    active_only: $("#pf-active-only").checked,
     okpd_codes: splitWords($("#pf-okpd").value),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),

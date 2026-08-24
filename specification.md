@@ -74,8 +74,9 @@
    Код без предка/потомков пропускается с предупреждением.
 
    **Прочие критерии** — диапазон НМЦК (`nmck_min`/`nmck_max`), коды ОКПД2
-   (`okpd_codes`), выбор по состоянию (`active_only`) задаются в ПРОФИЛЕ (таблица
-   `profiles`; сид — `data/profile.md`, `zp seed-profile`). Ключевые слова НЕ
+   (`okpd_codes`) задаются в ПРОФИЛЕ (таблица `profiles`; сид — `data/profile.md`,
+   `zp seed-profile`). Выбор по состоянию (`active_only`) — глобальный
+   (`config_service.yaml -> search_criteria.active_only`). Ключевые слова НЕ
    передаются на площадку (R9): серверная фильтрация — только по кодам ОКПД2
    (+ обход «без кода»); позитивные/негативные слова применяются клиентски после
    получения списка и до записи в БД (`parser/filtering.py`, таблица `keywords`).
@@ -578,7 +579,6 @@ erDiagram
         jsonb okpd_codes
         float nmck_min
         float nmck_max
-        bool active_only
     }
     KEYWORDS {
         int id PK

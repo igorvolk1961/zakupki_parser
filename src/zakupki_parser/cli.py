@@ -133,7 +133,6 @@ async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: 
                 "okpd_codes": parsed.get("okpd_codes", []),
                 "nmck_min": parsed.get("nmck_min"),
                 "nmck_max": parsed.get("nmck_max"),
-                "active_only": parsed.get("active_only", False),
             },
             user.id,
         )
@@ -147,7 +146,7 @@ async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: 
         f"минус-слов — {n_ex}, компетенции — "
         f"{'заданы' if parsed.get('competencies') else 'не заданы'}; "
         f"критерии: ОКПД2={okpd}, НМЦК {parsed.get('nmck_min') or '–'}…"
-        f"{parsed.get('nmck_max') or '–'}, активные={parsed.get('active_only', False)}"
+        f"{parsed.get('nmck_max') or '–'}"
     )
     return 0
 
@@ -209,8 +208,8 @@ def _print_summary(cfg: AppConfig) -> None:
         print(f"    - {site.platform_id:<14} [{mark}]  {name} ({url})")
     print(
         "  Критерии поиска — из активного профиля (таблица profiles: okpd_codes/"
-        "nmck_min/nmck_max/active_only; слова — таблица keywords, R9)."
-        " Сид: zp seed-profile (data/profile.md)"
+        "nmck_min/nmck_max; слова — таблица keywords, R9; выбор по состоянию "
+        "active_only — глобальный search_criteria). Сид: zp seed-profile (data/profile.md)"
     )
     mode = "все площадки по дате" if cfg.service.sort_by_date_only else "по конфигурации площадок"
     print(f"  Порог дат (дней): {cfg.service.default_cutoff_days} (режим: {mode})")

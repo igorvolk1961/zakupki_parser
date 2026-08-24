@@ -490,14 +490,16 @@ class Orchestrator(ActivityMixin, PersistenceMixin, StopMixin):
         # R9: ключевые слова не участвуют в серверном запросе — обходы строятся
         # только по кодам ОКПД2 (+ обход «без кода», только при
         # search_criteria.no_code_search). Критерии поиска берутся из активного
-        # профиля (профиль → колонки okpd_codes/nmck_min/nmck_max/active_only);
-        # без профиля (dev/тесты) — fallback на глобальный config_service.yaml.
+        # профиля (профиль → колонки okpd_codes/nmck_min/nmck_max); выбор по
+        # состоянию (active_only) — только из глобального config_service.yaml
+        # (search_criteria.active_only). Без профиля (dev/тесты) — fallback на
+        # глобальный config_service.yaml.
         if self._client_profile is not None:
             base = SearchCriteria(
                 okpd_codes=self._client_profile.okpd_codes or [],
                 nmck_min=self._client_profile.nmck_min,
                 nmck_max=self._client_profile.nmck_max,
-                active_only=self._client_profile.active_only,
+                active_only=self._cfg.service.search_criteria.active_only,
             )
         else:
             base = self._cfg.service.search_criteria.model_copy()

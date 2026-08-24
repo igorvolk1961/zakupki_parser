@@ -86,7 +86,6 @@ def test_parse_keywords_empty() -> None:
         "okpd_codes": [],
         "nmck_min": None,
         "nmck_max": None,
-        "active_only": False,
     }
 
 
@@ -107,7 +106,7 @@ def test_parse_real_profile_file() -> None:
 
 
 def test_parse_search_criteria_sections() -> None:
-    """Критерии поиска профиля: okpd_codes/nmck_min/nmck_max/active_only."""
+    """Критерии поиска профиля: okpd_codes/nmck_min/nmck_max (active_only — глобально)."""
     text = """
 **name**
 bbk-it
@@ -120,15 +119,12 @@ bbk-it
 
 **nmck_max**
 5 000 000
-
-**active_only**
-true
 """
     parsed = parse_keywords_text(text)
     assert parsed["okpd_codes"] == ["62.02", "62.01"]
     assert parsed["nmck_min"] == 100000.0
     assert parsed["nmck_max"] == 5000000.0
-    assert parsed["active_only"] is True
+    assert "active_only" not in parsed
     assert parsed["name"] == "bbk-it"
 
 

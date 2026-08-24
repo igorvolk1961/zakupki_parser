@@ -73,7 +73,6 @@ class _FakeProfile:
         self.okpd_codes = okpd_codes
         self.nmck_min = None
         self.nmck_max = None
-        self.active_only = False
 
 
 class _ProfileRepo:

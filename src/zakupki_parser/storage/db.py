@@ -183,14 +183,12 @@ class Profile(Base):
     # на парсинг/пороги — пост-MVP, этапы 4/5).
     target_etp: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     target_laws: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
-    # Критерии поиска принадлежат ПРОФИЛЮ (не глобальному конфигу): коды ОКПД2,
-    # диапазон НМЦК, выбор по состоянию. Используются парсером при обходе ЭТП.
+    # Критерии поиска принадлежат ПРОФИЛЮ (не глобальному конфигу): коды ОКПД2
+    # и диапазон НМЦК. Выбор по состоянию (active_only) — глобальный
+    # config_service.yaml -> search_criteria.active_only. Используются парсером при обходе ЭТП.
     okpd_codes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     nmck_min: Mapped[float | None] = mapped_column(Float)
     nmck_max: Mapped[float | None] = mapped_column(Float)
-    active_only: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false"), default=False
-    )
     competencies: Mapped[str] = mapped_column(Text, nullable=False)
     questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

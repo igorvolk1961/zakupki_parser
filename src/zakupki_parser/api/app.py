@@ -253,7 +253,6 @@ class ProfileIn(BaseModel):
     okpd_codes: list[str] | None = None
     nmck_min: float | None = None
     nmck_max: float | None = None
-    active_only: bool | None = None
 
 
 class ProfileOut(BaseModel):
@@ -278,7 +277,6 @@ class ProfileOut(BaseModel):
     okpd_codes: list[str]
     nmck_min: float | None = None
     nmck_max: float | None = None
-    active_only: bool
     created_at: datetime
     updated_at: datetime
 

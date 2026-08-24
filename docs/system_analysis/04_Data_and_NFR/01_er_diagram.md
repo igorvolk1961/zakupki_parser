@@ -39,7 +39,6 @@ erDiagram
         jsonb okpd_codes
         float nmck_min
         float nmck_max
-        bool active_only
         text competencies
         jsonb questions
         datetime created_at
@@ -139,8 +138,10 @@ erDiagram
   атрибуты подкладываются репозиторием при выдаче под активный профиль).
 - **Таблица KEYWORDS** — канонический источник слов профиля (`keyword`/`exclusion`);
   JSONB-массивов слов в профиле нет (миграция 1.30).
-- **Критерии поиска в профиле** (миграция 1.33): `okpd_codes`, `nmck_min/max`,
-  `active_only` принадлежат профилю, а не глобальному конфигу.
+- **Критерии поиска в профиле** (миграция 1.33): `okpd_codes`, `nmck_min/max`
+  принадлежат профилю, а не глобальному конфигу. Выбор по состоянию
+  (`active_only`) — глобальный (`config_service.yaml -> search_criteria.active_only`);
+  колонка `profiles.active_only` удалена (миграция 1.36).
 - **Ключи уникальности**: `procurements (number, platform_id)`;
   `procurement_evaluations (procurement_id, profile_id)`; `keywords (profile_id, word, type)`.
 - **Справочники**: `customers`, `procedure_types` (+ `procedure_type_mappings`),

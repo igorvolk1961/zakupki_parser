@@ -10,8 +10,7 @@
   с текстом компетенций (например ``docs/references/bbk-it-site.md``) — в этом
   случае содержимое файла подставляется при разборе ``parse_keywords_file``;
 - ``okpd_codes`` — коды ОКПД2 через запятую (критерий поиска профиля);
-- ``nmck_min`` / ``nmck_max`` — диапазон НМЦК (число);
-- ``active_only`` — выбор по состоянию (true/false).
+- ``nmck_min`` / ``nmck_max`` — диапазон НМЦК (число).
 
 Каждая секция слов — список выражений через запятую. Допустимые формы:
 - ``слов*`` — слово с усечением;
@@ -21,7 +20,8 @@
 Парсер нормализует выражения (снимает кавычки, обрезает пробелы) и сохраняет
 исходный синтаксис ``*``/``~N`` — интерпретация происходит в фильтрации (Этап 3).
 Слова попадают в таблицу ``keywords`` (канонический источник, ER: PROFILE -> KEYWORD);
-критерии поиска — в колонки профиля (okpd_codes/nmck_min/nmck_max/active_only).
+критерии поиска — в колонки профиля (okpd_codes/nmck_min/nmck_max). Выбор по
+состоянию (``active_only``) — глобальный, ``config_service.yaml``.
 """
 
 from __future__ import annotations
@@ -45,7 +45,6 @@ _SECTION_ALIASES: dict[str, tuple[str, ...]] = {
     "okpd_codes": ("okpd_codes", "коды окпд2", "окпд2"),
     "nmck_min": ("nmck_min", "нмцк мин", "нмцк_мин"),
     "nmck_max": ("nmck_max", "нмцк макс", "нмцк_макс"),
-    "active_only": ("active_only", "только активные"),
 }
 
 _HEADING_RE = re.compile(r"^\s*\*\*(.+?)\*\*\s*$")
@@ -80,17 +79,11 @@ def _parse_float(value: str | None) -> float | None:
     return float(match.group().replace(",", ".")) if match else None
 
 
-def _parse_bool(value: str | None) -> bool:
-    if value is None:
-        return False
-    return value.strip().casefold() not in ("", "false", "0", "нет", "no")
-
-
 def parse_keywords_text(text: str) -> dict[str, Any]:
     """Разбирает текст файла: имя, слова, компетенции и критерии поиска.
 
     Возвращает ``{"name", "keywords", "exclusion_words", "competencies",
-    "okpd_codes", "nmck_min", "nmck_max", "active_only"}``.
+    "okpd_codes", "nmck_min", "nmck_max"}``.
     """
     sections: dict[str, list[str]] = {}
     current: str | None = None
@@ -125,7 +118,6 @@ def parse_keywords_text(text: str) -> dict[str, Any]:
         "okpd_codes": tokens("okpd_codes"),
         "nmck_min": _parse_float(first("nmck_min")),
         "nmck_max": _parse_float(first("nmck_max")),
-        "active_only": _parse_bool(first("active_only")),
     }
 
 
