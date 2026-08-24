@@ -127,6 +127,25 @@
   .editor-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin-top: 12px; z-index: 2; }
   .editor-actions.profile-actions { background: var(--panel); margin: 12px -16px -14px; padding: 12px 16px;
     border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
+  /* Профиль: редактор — полноэкранная область (прокрутка только внутри полей слов). */
+  #profile-editor { position: fixed; inset: 0; z-index: 6; background: var(--bg); overflow: hidden;
+    padding: 20px 24px; }
+  #profile-editor .panel { height: 100%; display:flex; flex-direction:column; margin-bottom:0; }
+  #profile-editor .profile-form { flex:1 1 auto; min-height:0; }
+  #profile-editor .profile-form > * { flex-shrink:0; }
+  #pf-pane-keywords, #pf-pane-excl, #pf-pane-comp { flex:1 1 0; flex-shrink:1; min-height:0; overflow:hidden; }
+  #pf-pane-keywords .tag-input, #pf-pane-excl .tag-input {
+    flex:1 1 auto; min-height:0; overflow:hidden; align-items:stretch;
+    flex-direction:column; gap:6px;
+  }
+  #pf-pane-keywords .tag-input .tags, #pf-pane-excl .tag-input .tags {
+    flex:1 1 auto; min-height:0; overflow-y:auto; display:flex; flex-wrap:wrap;
+    gap:6px; align-content:flex-start;
+  }
+  #pf-pane-keywords .tag-input input[type="text"], #pf-pane-excl .tag-input input[type="text"] {
+    flex:0 0 auto; width:100%; min-width:0; padding:6px;
+  }
+  #pf-pane-comp textarea { flex:1 1 auto; min-height:0; }
   .user-bar { display:flex; align-items:center; gap:10px; font-size:13px; color: var(--muted); }
   .user-bar b { color: var(--text); font-weight:600; }
   .login-modal { max-width:360px; }
@@ -893,9 +912,9 @@ function renderProfiles(list) {
       <td>${escapeHtml(okpd)}</td>
       <td>${escapeHtml(nmck)}</td>
       <td>
-        ${p.is_active ? "" : `<button class="ghost" data-action="activate">Активировать</button>`}
         <button class="ghost" data-action="edit">Редактировать</button>
         <button class="ghost" data-action="delete">Удалить</button>
+        ${p.is_active ? "" : `<button class="ghost" data-action="activate">Активировать</button>`}
       </td>
     </tr>`;
   }).join("");
@@ -1010,6 +1029,11 @@ function profileFormData() {
   };
 }
 
+function closeProfileEditor() {
+  $("#profile-editor").style.display = "none";
+  $("#profiles").style.display = "";
+}
+
 async function openProfileEditor(id) {
   profileEditorId = id || null;
   let p = null;
@@ -1017,6 +1041,7 @@ async function openProfileEditor(id) {
     try { p = await api(`clients/${id}`); } catch (e) { setProfileStatus("Ошибка загрузки профиля: " + e.message); return; }
   }
   fillProfileForm(p);
+  $("#profiles").style.display = "none";
   $("#profile-editor").style.display = "block";
 }
 
@@ -1029,7 +1054,7 @@ async function saveProfile() {
     const r = await apiJSON(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
     if (!r.ok) throw new Error(await r.text());
     setProfileStatus(profileEditorId ? "Профиль сохранён" : "Профиль создан");
-    $("#profile-editor").style.display = "none";
+    closeProfileEditor();
     await loadProfiles(); await loadActiveClient();
   } catch (e) { setProfileStatus("Ошибка сохранения: " + e.message); }
 }
@@ -1054,7 +1079,7 @@ async function doDeleteProfile() {
     const r = await apiJSON(`/api/clients/${id}`, { method: "DELETE" });
     if (!r.ok) throw new Error(await r.text());
     setProfileStatus("Профиль удалён");
-    if (profileEditorId === id) $("#profile-editor").style.display = "none";
+    if (profileEditorId === id) closeProfileEditor();
     await loadProfiles(); await loadActiveClient();
   } catch (e) { setProfileStatus("Ошибка удаления: " + e.message); }
 }
@@ -1343,7 +1368,7 @@ $("#tab-profiles").addEventListener("click", () => {
 $("#profile-new").addEventListener("click", () => openProfileEditor(null));
 $("#profile-seed").addEventListener("click", seedProfile);
 $("#profile-save").addEventListener("click", saveProfile);
-$("#profile-cancel").addEventListener("click", () => { $("#profile-editor").style.display = "none"; });
+$("#profile-cancel").addEventListener("click", closeProfileEditor);
 $("#profile-delete").addEventListener("click", () => confirmDeleteProfile(profileEditorId, profileEditorName));
 $("#delete-profile-cancel").addEventListener("click", closeDeleteProfileModal);
 $("#delete-profile-confirm").addEventListener("click", doDeleteProfile);
