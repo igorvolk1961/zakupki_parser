@@ -21,7 +21,9 @@ class ResultsConsumer:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._queue = TransportQueue(settings)
-        self._parser = ParserApiClient(settings.parser_api_url)
+        self._parser = ParserApiClient(
+            settings.parser_api_url, internal_token=settings.parser_internal_token
+        )
 
     async def run_forever(self) -> None:
         await self._queue.connect()

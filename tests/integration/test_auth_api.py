@@ -205,6 +205,48 @@ def test_protected_endpoints_require_token(auth_client: TestClient) -> None:
     assert bad.status_code == 401
 
 
+def test_pipeline_can_read_procurement_card_with_internal_token(auth_client: TestClient) -> None:
+    """Конвейер скоринга читает карточку закупки по внутреннему токену (ADR-7).
+
+    GET /api/procurements/{id} должен быть доступен конвейеру (scoring_transport и
+    воркерам стадий) через X-Internal-Token, а не только пользовательским JWT.
+    """
+    client = auth_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {"number": "AUTH-CARD", "platform_id": "zakupki_mos", "subject": "Карточка"}
+            )
+            rows, _ = await repo.list_procurements(number="AUTH-CARD")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    procurement_id = asyncio.run(_seed())
+
+    # Без креденшелов — 401.
+    assert client.get(f"/api/procurements/{procurement_id}").status_code == 401
+
+    # С внутренним токеном конвейера — карточка доступна.
+    ok = client.get(
+        f"/api/procurements/{procurement_id}",
+        headers={"X-Internal-Token": "internal-secret"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["id"] == procurement_id
+
+    # С неверным токеном — 401.
+    bad = client.get(
+        f"/api/procurements/{procurement_id}",
+        headers={"X-Internal-Token": "wrong"},
+    )
+    assert bad.status_code == 401
+
+
 def test_tenderologist_cannot_use_admin_endpoints(auth_client: TestClient) -> None:
     client = auth_client
     token = _login(client, "tender1", "password123")

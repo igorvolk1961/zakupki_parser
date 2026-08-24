@@ -13,6 +13,7 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -67,7 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
 
     queue = TransportQueue(settings)
-    parser = ParserApiClient(settings.parser_api_url)
+    parser = ParserApiClient(settings.parser_api_url, internal_token=settings.parser_internal_token)
     consumer = ResultsConsumer(settings)
 
     @asynccontextmanager
@@ -106,8 +107,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Проверяем, что закупка существует в парсере (приоритет передаётся
             # из парсера в авто-пуше, ADR-7; здесь — fallback на priority_default).
             await parser.get_procurement(body.procurement_id)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            logger.error(
+                "Парсер ответил HTTP %s при получении карточки %s: %s",
+                status,
+                body.procurement_id,
+                exc.response.text[:300],
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Парсер недоступен или закупка не найдена (HTTP {status})",
+            ) from exc
         except Exception as exc:  # noqa: BLE001
-            logger.error("Не удалось получить карточку %s: %s", body.procurement_id, exc)
+            logger.exception("Не удалось получить карточку %s: %s", body.procurement_id, exc)
             raise HTTPException(
                 status_code=502, detail="Парсер недоступен или закупка не найдена"
             ) from exc

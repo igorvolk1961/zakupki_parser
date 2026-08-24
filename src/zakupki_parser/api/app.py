@@ -911,10 +911,10 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     @app.get(
         "/api/procurements/{procurement_id}",
         response_model=ProcurementDetailOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_user_or_internal)],
     )
     async def get_procurement(
-        procurement_id: int, user: User | None = Depends(require_user)
+        procurement_id: int, user: User | None = Depends(require_user_or_internal)
     ) -> ProcurementDetailOut:
         _, profile = await _active_context(user)
         row = await _repo().get_by_id(procurement_id, profile_id=profile.id)

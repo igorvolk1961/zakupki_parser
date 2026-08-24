@@ -39,6 +39,9 @@ class Settings(BaseSettings, PwinCoefficients):
 
     # Парсер закупок (REST, без БД)
     parser_api_url: str = "http://localhost:8000"
+    # Внутренний токен парсера для служебных эндпоинтов (GET карточки закупки):
+    # передаётся заголовком X-Internal-Token. Из env PWIN_PARSER_INTERNAL_TOKEN.
+    parser_internal_token: str | None = None
     # Пауза перед повторной обработкой задачи при недоступности парсера (сек).
     parser_retry_backoff_seconds: float = 5.0
 

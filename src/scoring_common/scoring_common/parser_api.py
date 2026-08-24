@@ -20,15 +20,31 @@ _active_client_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 class ParserApiClient:
     """Обёртка над REST API парсера."""
 
-    def __init__(self, base_url: str, timeout: float = 30.0) -> None:
+    def __init__(
+        self, base_url: str, timeout: float = 30.0, internal_token: str | None = None
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._timeout = timeout
+        # Внутренний токен конвейера (заголовок X-Internal-Token): используется
+        # по умолчанию для всех вызовов, если не передан явно на конкретный метод.
+        self._internal_token = internal_token
+
+    def _resolve_token(self, internal_token: str | None) -> str | None:
+        return internal_token if internal_token is not None else self._internal_token
+
+    def _headers(self, internal_token: str | None) -> dict[str, str] | None:
+        token = self._resolve_token(internal_token)
+        return {"X-Internal-Token": token} if token else None
 
     async def get_procurement(self, procurement_id: int) -> dict[str, Any]:
-        """Полная карточка закупки (включая detail_json)."""
+        """Полная карточка закупки (включая detail_json).
+
+        Карточка читается служебными сервисами конвейера, поэтому запрос идёт с
+        внутренним токеном парсера (X-Internal-Token), а не пользовательским JWT.
+        """
         url = f"{self._base}/api/procurements/{procurement_id}"
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=self._headers(None))
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
             return data
@@ -40,13 +56,13 @@ class ParserApiClient:
         эндпоинт /api/clients/active открыт и для конвейера, и для пользователей.
         Ответ кешируется на ``_ACTIVE_CLIENT_TTL_SECONDS`` (профиль меняется редко).
         """
-        cache_key = internal_token or ""
+        cache_key = self._resolve_token(internal_token) or ""
         now = time.monotonic()
         cached = _active_client_cache.get(cache_key)
         if cached is not None and now - cached[0] < _ACTIVE_CLIENT_TTL_SECONDS:
             return cached[1]
         url = f"{self._base}/api/clients/active"
-        headers = {"X-Internal-Token": internal_token} if internal_token else None
+        headers = self._headers(internal_token)
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
@@ -86,7 +102,7 @@ class ParserApiClient:
             payload["margin"] = margin
         if rag_report is not None:
             payload["rag_report"] = rag_report
-        headers = {"X-Internal-Token": internal_token} if internal_token else None
+        headers = self._headers(internal_token)
         last_exc: Exception | None = None
         for attempt in range(retry_max):
             try:

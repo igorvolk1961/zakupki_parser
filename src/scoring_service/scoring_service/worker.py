@@ -32,7 +32,9 @@ class ScoringWorker:
         self._run_id = uuid.uuid4().hex
         self._scorer = build_scorer(settings)
         self._queue = StageQueue(settings)
-        self._parser = ParserApiClient(settings.parser_api_url)
+        self._parser = ParserApiClient(
+            settings.parser_api_url, internal_token=settings.parser_internal_token
+        )
         self._competencies = settings.competencies()
 
     async def _resolve_competencies(self) -> str:

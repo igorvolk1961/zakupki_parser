@@ -30,7 +30,9 @@ class AnalysisWorker:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._queue = StageQueue(settings)
-        self._parser = ParserApiClient(settings.parser_api_url)
+        self._parser = ParserApiClient(
+            settings.parser_api_url, internal_token=settings.parser_internal_token
+        )
         self._embedder = EmbeddingClient(
             base_url=settings.embedding_base_url,
             model=settings.embedding_model,

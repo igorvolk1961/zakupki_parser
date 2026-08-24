@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 import fakeredis.aioredis as fakeredis_aioredis
+import httpx
 from fastapi.testclient import TestClient
 
 import scoring_transport.consumers.results as results_module
@@ -14,8 +15,14 @@ from scoring_transport.settings import Settings
 
 
 class _FakeParser:
-    def __init__(self, base_url: str, timeout: float = 30.0) -> None:
-        pass
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 30.0,
+        internal_token: str | None = None,
+    ) -> None:
+        self.base_url = base_url
+        self.internal_token = internal_token
 
     async def get_procurement(self, procurement_id: int) -> dict[str, Any]:
         return {"id": procurement_id, "score": 250.0, "score_method": "default", "nmck": 500.0}
@@ -105,3 +112,63 @@ def test_ingest_requires_token_when_set() -> None:
         ).status_code
         == 401
     )
+
+
+def test_ingest_passes_internal_token_to_parser() -> None:
+    """Внутренний токен парсера уходит в ParserApiClient (X-Internal-Token)."""
+    calls: list[tuple[str, str | None]] = []
+
+    class _SpyParser(_FakeParser):
+        def __init__(
+            self,
+            base_url: str,
+            timeout: float = 30.0,
+            internal_token: str | None = None,
+        ) -> None:
+            calls.append((base_url, internal_token))
+            super().__init__(base_url, timeout, internal_token)
+
+    settings = Settings(
+        parser_api_url="http://parser",
+        redis_url="redis://fake",
+        parser_internal_token="sekret",
+    )
+    app_module.ParserApiClient = _SpyParser  # type: ignore[assignment]
+    fake_queue = _FakeQueue(settings)
+    app_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
+    results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
+    client = TestClient(app_module.create_app(settings))
+
+    resp = client.post("/api/scoring/jobs", json={"procurement_id": 42})
+    assert resp.status_code == 202
+    assert ("http://parser", "sekret") in calls
+
+
+class _AuthErrorParser:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 30.0,
+        internal_token: str | None = None,
+    ) -> None:
+        pass
+
+    async def get_procurement(self, procurement_id: int) -> dict[str, Any]:
+        req = httpx.Request("GET", f"http://parser/api/procurements/{procurement_id}")
+        raise httpx.HTTPStatusError(
+            "Unauthorized", request=req, response=httpx.Response(401, request=req)
+        )
+
+
+def test_ingest_502_includes_upstream_status() -> None:
+    """Сбой апстрима (например, 401 от парсера) отдаётся как 502 с реальным кодом."""
+    settings = Settings(parser_api_url="http://parser", redis_url="redis://fake")
+    app_module.ParserApiClient = _AuthErrorParser  # type: ignore[assignment]
+    fake_queue = _FakeQueue(settings)
+    app_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
+    results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
+    client = TestClient(app_module.create_app(settings))
+
+    resp = client.post("/api/scoring/jobs", json={"procurement_id": 1})
+    assert resp.status_code == 502
+    assert "HTTP 401" in resp.json()["detail"]
