@@ -858,7 +858,7 @@ class ProcurementRepository:
         """Возвращает default-профиль пользователя, создавая пустой, если его нет.
 
         Ключевые слова НЕ заполняются автоматически — их загружает скрипт
-        ``seed-profile`` (R8) по явной команде оператора (data/profile.md).
+        ``seed-profile`` (R8) по явной команде оператора (docs/references/profile.md).
         """
         async with self._db.session() as session:
             profile = (

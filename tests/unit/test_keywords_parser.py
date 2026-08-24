@@ -91,7 +91,7 @@ def test_parse_keywords_empty() -> None:
 
 def test_parse_real_profile_file() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    path = repo_root / "data" / "profile.md"
+    path = repo_root / "docs" / "references" / "profile.md"
     assert path.is_file()
     parsed = parse_keywords_file(path)
     # Новый формат profile.md: имя профиля + компетенции-ссылка на файл.
@@ -99,7 +99,7 @@ def test_parse_real_profile_file() -> None:
     assert parsed["keywords"]
     assert parsed["exclusion_words"]
     # Компетенции подставлены из docs/references/bbk-it-site.md (ссылка в файле).
-    assert "BBK IT" in parsed["competencies"]
+    assert "ИИ-юристы" in parsed["competencies"]
     # Формы из файла: усечения слов и близость (…~N).
     assert any("*" in w for w in parsed["keywords"])
     assert any("~" in w for w in parsed["exclusion_words"])
@@ -131,7 +131,7 @@ bbk-it
 def test_parse_profile_file_seedable() -> None:
     """Сид из profile.md: имя, слова и компетенции извлекаются напрямую (R8)."""
     repo_root = Path(__file__).resolve().parents[2]
-    parsed = parse_keywords_file(repo_root / "data" / "profile.md")
+    parsed = parse_keywords_file(repo_root / "docs" / "references" / "profile.md")
     assert parsed["name"] == "bbk-it"
     assert isinstance(parsed["keywords"], list)
     assert isinstance(parsed["exclusion_words"], list)

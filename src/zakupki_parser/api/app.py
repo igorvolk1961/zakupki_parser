@@ -1139,7 +1139,8 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         dependencies=[Depends(require_user)],
     )
     async def seed_client(user: User | None = Depends(require_user)) -> ProfileOut:
-        """Загружает/обновляет профиль из ``data/profile.md`` (как CLI ``zp seed-profile``).
+        """Загружает/обновляет профиль из ``docs/references/profile.md``
+        (как CLI ``zp seed-profile``).
 
         Имя профиля берётся из файла (секция ``**name**``); при отсутствии —
         ``default``. Активный профиль пользователя становится засиженным.
@@ -1151,7 +1152,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
         logger.info(
-            "Профиль %s (id=%s) засижен из web-демо (файл data/profile.md)", name, profile.id
+            "Профиль %s (id=%s) засижен из web-демо (файл docs/references/profile.md)",
+            name,
+            profile.id,
         )
         await _broadcast(state)
         return await _profile_out(profile)

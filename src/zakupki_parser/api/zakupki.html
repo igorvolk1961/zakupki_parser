@@ -206,7 +206,7 @@
           <table>
             <thead><tr>
               <th><input type="checkbox" id="sel-all" title="Выбрать все на странице"></th>
-              <th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>Статус</th><th>Дата публикации</th><th>Действия</th>
+              <th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>Статус</th><th>Дата публикации</th>
             </tr></thead>
             <tbody id="proc-rows"></tbody>
           </table>
@@ -266,7 +266,7 @@
   <div id="view-profiles" style="display:none;">
     <div class="toolbar">
       <button class="primary" id="profile-new">Создать профиль</button>
-      <button class="ghost" id="profile-seed" title="Загрузить слова и компетенции из data/profile.md">Загрузить из profile.md</button>
+      <button class="ghost" id="profile-seed" title="Загрузить слова и компетенции из docs/references/profile.md">Загрузить из profile.md</button>
       <span id="profile-status" class="muted"></span>
     </div>
     <div class="table-wrap" id="profiles"></div>
@@ -284,9 +284,14 @@
             <label>НМЦК мин <input type="number" step="0.01" id="pf-nmck-min"></label>
             <label>НМЦК макс <input type="number" step="0.01" id="pf-nmck-max"></label>
           </div>
-          <label>Ключевые слова (через запятую) <textarea id="pf-keywords" rows="5"></textarea></label>
-          <label>Слова-исключения (через запятую) <textarea id="pf-excl" rows="5"></textarea></label>
-          <label>Компетенции <textarea id="pf-competencies" rows="6"></textarea></label>
+          <div class="tabs" id="pf-tabs" style="margin:4px 0;">
+            <button type="button" class="active" id="pf-tab-keywords">Ключевые слова <span class="tab-count" id="pf-cnt-keywords"></span></button>
+            <button type="button" id="pf-tab-excl">Слова-исключения <span class="tab-count" id="pf-cnt-excl"></span></button>
+            <button type="button" id="pf-tab-comp">Компетенции <span class="tab-count" id="pf-cnt-comp"></span></button>
+          </div>
+          <label id="pf-pane-keywords">Ключевые слова (через запятую) <textarea id="pf-keywords" rows="14" spellcheck="false"></textarea></label>
+          <label id="pf-pane-excl" style="display:none;">Слова-исключения (через запятую) <textarea id="pf-excl" rows="14" spellcheck="false"></textarea></label>
+          <label id="pf-pane-comp" style="display:none;">Компетенции <textarea id="pf-competencies" rows="14" spellcheck="false"></textarea></label>
           <div class="toolbar">
             <button class="primary" id="profile-save">Сохранить</button>
             <button id="profile-cancel">Отмена</button>
@@ -562,10 +567,6 @@ function procRow(row) {
     <td><span class="pill score">${fitCell(row)}</span>${methodLabel ? `<span class="muted" style="font-size:11px"> ${escapeHtml(methodLabel)}</span>` : ""}</td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
     <td>${fmtDateOnly(row.publication_date)}</td>
-    <td class="row-actions">
-      <button class="ghost" data-action="analyze" title="RAG-анализ стоп-условий по вопросам клиента">Анализ</button>
-      <button class="ghost" data-action="pwin" title="Оценить P(win)/Margin">P/M</button>
-    </td>
   </tr>`;
 }
 
@@ -708,7 +709,11 @@ async function openDetail(id) {
       ${f("Файлы", files)}
       ${f("Ссылка", row.url ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">открыть</a>` : "—")}
     </table>
-    ${ragReportHtml(row.rag_report)}`;
+    ${ragReportHtml(row.rag_report)}
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="primary" onclick="analyzeProc(${row.id})">Анализ ТЗ</button>
+      <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
+    </div>`;
   $("#modal-bg").classList.add("open");
 }
 
@@ -853,6 +858,7 @@ function renderProfiles(list) {
       <td>
         ${p.is_active ? "" : `<button class="ghost" data-action="activate">Активировать</button>`}
         <button class="ghost" data-action="edit">Редактировать</button>
+        <button class="ghost" data-action="delete">Удалить</button>
       </td>
     </tr>`;
   }).join("");
@@ -865,6 +871,7 @@ function renderProfiles(list) {
       const id = Number(tr.dataset.id);
       if (btn.dataset.action === "activate") await switchClient(id);
       else if (btn.dataset.action === "edit") await openProfileEditor(id);
+      else if (btn.dataset.action === "delete") await deleteProfile(id);
     });
   });
 }
@@ -890,6 +897,23 @@ function fillProfileForm(p) {
   $("#pf-excl").value = (p ? p.exclusion_words || [] : []).join(", ");
   $("#pf-competencies").value = p ? p.competencies || "" : "";
   $("#profile-delete").style.display = p ? "inline-block" : "none";
+  switchProfileTab("keywords");
+  wordCounts();
+}
+
+function setWordCount(el, n) { el.textContent = n ? String(n) : ""; }
+
+function wordCounts() {
+  setWordCount($("#pf-cnt-keywords"), splitWords($("#pf-keywords").value).length);
+  setWordCount($("#pf-cnt-excl"), splitWords($("#pf-excl").value).length);
+  setWordCount($("#pf-cnt-comp"), $("#pf-competencies").value.trim() ? $("#pf-competencies").value.trim().split(/\s+/).length : 0);
+}
+
+function switchProfileTab(name) {
+  ["keywords", "excl", "comp"].forEach((k) => {
+    $("#pf-tab-" + k).classList.toggle("active", k === name);
+    $("#pf-pane-" + k).style.display = k === name ? "" : "none";
+  });
 }
 
 function profileFormData() {
@@ -930,10 +954,11 @@ async function saveProfile() {
   } catch (e) { setProfileStatus("Ошибка сохранения: " + e.message); }
 }
 
-async function deleteProfile() {
-  if (!profileEditorId || !confirm("Удалить профиль?")) return;
+async function deleteProfile(id) {
+  if (id == null) id = profileEditorId;
+  if (!id || !confirm("Удалить профиль?")) return;
   try {
-    const r = await apiJSON(`/api/clients/${profileEditorId}`, { method: "DELETE" });
+    const r = await apiJSON(`/api/clients/${id}`, { method: "DELETE" });
     if (!r.ok) throw new Error(await r.text());
     setProfileStatus("Профиль удалён");
     $("#profile-editor").style.display = "none";
@@ -945,7 +970,7 @@ async function seedProfile() {
   try {
     const r = await apiJSON("/api/clients/seed", { method: "POST", headers: { "Content-Type": "application/json" } });
     if (!r.ok) throw new Error(await r.text());
-    setProfileStatus("Профиль загружен из data/profile.md");
+    setProfileStatus("Профиль загружен из docs/references/profile.md");
     await loadProfiles(); await loadActiveClient();
   } catch (e) { setProfileStatus("Ошибка загрузки: " + e.message); }
 }
@@ -953,25 +978,26 @@ async function seedProfile() {
 function closeModal() { $("#modal-bg").classList.remove("open"); }
 
 // --- События списка закупок -------------------------------------------
-async function rowAction(tr, action) {
-  const id = Number(tr.dataset.id);
-  if (action === "analyze") {
-    const r = await apiJSON("/api/procurements/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ procurement_ids: [id] }),
-    });
-    if (r.ok) $("#parser-status").textContent = `Закупка #${id}: поставлен RAG-анализ…`;
-    else $("#parser-status").textContent = "не удалось поставить анализ (транспорт не настроен?)";
-  } else if (action === "pwin") {
-    const r = await apiJSON("/api/procurements/pwin-margin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ procurement_ids: [id] }),
-    });
-    if (r.ok) $("#parser-status").textContent = `Закупка #${id}: поставлена оценка P(win)/Margin…`;
-    else $("#parser-status").textContent = "не удалось поставить P(win)/Margin";
-  }
+async function analyzeProc(id) {
+  const r = await apiJSON("/api/procurements/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ procurement_ids: [id] }),
+  });
+  $("#parser-status").textContent = r.ok
+    ? `Закупка #${id}: поставлен RAG-анализ ТЗ…`
+    : "не удалось поставить анализ (транспорт не настроен?)";
+}
+
+async function pwinProc(id) {
+  const r = await apiJSON("/api/procurements/pwin-margin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ procurement_ids: [id] }),
+  });
+  $("#parser-status").textContent = r.ok
+    ? `Закупка #${id}: поставлена оценка P(win)/Margin…`
+    : "не удалось поставить P(win)/Margin";
 }
 
 function updateSelUi() {
@@ -985,9 +1011,6 @@ $("#proc-rows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-id]");
   if (!tr) return;
   const id = Number(tr.dataset.id);
-  // Действия строки: кнопки/селект — без смены выбора.
-  const actionBtn = e.target.closest("button[data-action]");
-  if (actionBtn) { rowAction(tr, actionBtn.dataset.action); return; }
   if (e.target.classList.contains("row-sel")) {
     if (selected.has(id)) { selected.delete(id); }
     else { selected.add(id); }
@@ -1228,7 +1251,13 @@ $("#profile-new").addEventListener("click", () => openProfileEditor(null));
 $("#profile-seed").addEventListener("click", seedProfile);
 $("#profile-save").addEventListener("click", saveProfile);
 $("#profile-cancel").addEventListener("click", () => { $("#profile-editor").style.display = "none"; });
-$("#profile-delete").addEventListener("click", deleteProfile);
+$("#profile-delete").addEventListener("click", () => deleteProfile());
+["pf-tab-keywords", "pf-tab-excl", "pf-tab-comp"].forEach((tab) => {
+  tab.addEventListener("click", () => switchProfileTab(tab.id.replace("pf-tab-", "")));
+});
+["pf-keywords", "pf-excl", "pf-competencies"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", wordCounts);
+});
 $("#client-select").addEventListener("change", (ev) => {
   if (ev.target.value) switchClient(Number(ev.target.value));
 });

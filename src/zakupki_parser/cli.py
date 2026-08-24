@@ -52,7 +52,7 @@ def _build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--user", default="admin", help="логин пользователя (по умолчанию: admin)")
     seed.add_argument(
         "--file",
-        default="data/profile.md",
+        default="docs/references/profile.md",
         help="файл с секциями **keywords**/**exclussion_words**/**competencies**",
     )
     return parser
@@ -100,7 +100,7 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
 async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: Path) -> int:
     """Заполняет default-профиль пользователя словами/компетенциями из файла (R8).
 
-    Файл (по умолчанию ``data/profile.md``) содержит секции ``**keywords**``,
+    Файл (по умолчанию ``docs/references/profile.md``) содержит секции ``**keywords**``,
     ``**exclussion_words**``, ``**competencies**`` (см. ``keywords_parser``).
     """
     from zakupki_parser.migrations import run_migrations
@@ -209,7 +209,8 @@ def _print_summary(cfg: AppConfig) -> None:
     print(
         "  Критерии поиска — из активного профиля (таблица profiles: okpd_codes/"
         "nmck_min/nmck_max; слова — таблица keywords, R9; выбор по состоянию "
-        "active_only — глобальный search_criteria). Сид: zp seed-profile (data/profile.md)"
+        "active_only — глобальный search_criteria). Сид: zp seed-profile "
+        "(docs/references/profile.md)"
     )
     mode = "все площадки по дате" if cfg.service.sort_by_date_only else "по конфигурации площадок"
     print(f"  Порог дат (дней): {cfg.service.default_cutoff_days} (режим: {mode})")

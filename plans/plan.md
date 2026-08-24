@@ -60,10 +60,10 @@
       target_etp, target_laws, min_fit_threshold, enabled, is_active); активный профиль
       пользователя (единственный; `POST /api/clients/{id}/activate`).
 - ✅ Таблица `keywords` — канонический источник (ER: PROFILE→KEYWORD; JSONB-поля профиля
-      убраны миграцией 1.30); парсер `data/profile.md` (R8, секции keywords/
+      убраны миграцией 1.30); парсер `docs/references/profile.md` (R8, секции keywords/
       exclussion_words/competencies), чтение/запись через таблицу.
-- ✅ Заполнение профиля словами — скрипт `zp seed-profile --user admin --file data/profile.md`
-      (по умолчанию admin + data/profile.md); при регистрации создаётся пустой профиль.
+- ✅ Заполнение профиля словами — скрипт `zp seed-profile --user admin --file docs/references/profile.md`
+      (по умолчанию admin + docs/references/profile.md); при регистрации создаётся пустой профиль.
 - ✅ Критерии поиска (okpd_codes, nmck_min/max, active_only) переехали из
       `config_service.yaml -> search_criteria` в профиль (миграция 1.33, секции
       `**okpd_codes**`/`**nmck_min**`/`**nmck_max**`/`**active_only**` в profile.md);
@@ -110,7 +110,7 @@
 ## Этап 5. Глубокая проверка ТЗ с маркерами (Эпик 4, BR-03/BR-04) — **MVP**
 - ☐ Формализованные проверки в `analysis_service`: опыт (ПП РФ 2571, hard/soft/none),
       реестр Минпромторга (учёт «не установлено»), лицензии. Маркеры 🔴/🟡/🟢 (US-4.5).
-- ☐ Сид вопросов профиля по умолчанию из `data/profile.md` (примеры 2571) и BR-03/04.
+- ☐ Сид вопросов профиля по умолчанию из `docs/references/profile.md` (примеры 2571) и BR-03/04.
 - ☐ Заглушка при недоступности LLM — «анализ отложен» (NFR-FT-2).
 - ☐ Тесты: «не установлено» (AC US-4.3), hard/soft опыт (US-4.2), лицензии (US-4.4), маркеры.
 

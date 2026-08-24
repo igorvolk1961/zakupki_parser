@@ -57,11 +57,11 @@ def _repo_root() -> Path:
 
 
 def _default_path() -> Path:
-    """Путь к ``data/profile.md`` относительно корня репозитория (или env-оверрайд)."""
+    """Путь к ``docs/references/profile.md`` относительно корня репозитория (или env-оверрайд)."""
     override = os.environ.get("ZAKUPKI_PROFILE_FILE")
     if override:
         return Path(override)
-    return _repo_root() / "data" / "profile.md"
+    return _repo_root() / "docs" / "references" / "profile.md"
 
 
 def _canonical_section(title: str) -> str | None:

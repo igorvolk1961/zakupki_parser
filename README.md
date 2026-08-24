@@ -202,13 +202,13 @@ uv run zp --configs configs run-service     # периодически по та
 ```
 
 Заполнить default-профиль пользователя ключевыми словами/компетенциями из файла
-(по умолчанию — `data/profile.md`, пользователь `admin`):
+(по умолчанию — `docs/references/profile.md`, пользователь `admin`):
 
 ```bash
-uv run zp --configs configs seed-profile --user admin --file data/profile.md
+uv run zp --configs configs seed-profile --user admin --file docs/references/profile.md
 ```
 
-Файл `data/profile.md` содержит секции `**name**`, `**keywords**`, `**exclussion_words**`,
+Файл `docs/references/profile.md` содержит секции `**name**`, `**keywords**`, `**exclussion_words**`,
 `**competencies**` (компетенции могут быть ссылкой на файл, например
 `docs/references/bbk-it-site.md`). Ключевые слова записываются в таблицу `keywords`
 (канонический источник; синтаксис `слов*` / `(фраза* фраза*)~N`).
@@ -257,7 +257,7 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
   (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
 - `config_service.yaml` — **аналитические** настройки: список сайтов, порог дат,
   stop-условия (редактируется через web-интерфейс). Критерии поиска (ОКПД2, НМЦК,
-  состояние) задаются в ПРОФИЛЕ (таблица `profiles`; сид — `data/profile.md`,
+  состояние) задаются в ПРОФИЛЕ (таблица `profiles`; сид — `docs/references/profile.md`,
   команда `zp seed-profile`), а не в этом конфиге.
 - `config_ops.yaml` — **эксплуатационные** настройки (devops): таймер, БД, уведомления
   (telegram/max/webhook, постадийные пороги и флаги `notify_min_fit_score`/
