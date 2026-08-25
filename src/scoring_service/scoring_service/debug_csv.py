@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from scoring_service.profile import ProfileTexts
 from scoring_service.schemas import ScoringOutput
 from scoring_service.scoring import build_scorer
 from scoring_service.settings import Settings
@@ -67,7 +68,7 @@ def load_records(csv_path: Path) -> list[tuple[int | None, dict[str, Any]]]:
 def run_debug(
     settings: Settings,
     csv_path: Path,
-    competencies: str,
+    competencies: str | ProfileTexts,
     limit: int = 0,
     stub: bool = False,
 ) -> list[tuple[int | None, ScoringOutput]]:

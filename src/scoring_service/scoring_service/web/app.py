@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from scoring_service.profile import profile_to_texts
 from scoring_service.schemas import ScoringOutput
 from scoring_service.scoring import Scorer, build_scorer
 from scoring_service.settings import Settings, get_settings
@@ -76,10 +77,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/score", response_model=ScoreResponse, dependencies=[Depends(auth)])
     async def score(body: ScoreRequest) -> ScoreResponse:
-        competencies = body.competencies or settings.competencies()
+        # Профиль нормализуется в пару текстов: для LLM — полный блок, для ветки
+        # векторной близости — только позитивные факты (без исключений).
+        texts = profile_to_texts(body.competencies) or settings.profile_texts()
         run_id = body.run_id or uuid.uuid4().hex
         try:
-            result = scorer.score(body.record, competencies, body.procurement_id, run_id=run_id)
+            result = scorer.score(body.record, texts, body.procurement_id, run_id=run_id)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return ScoreResponse(result=result)

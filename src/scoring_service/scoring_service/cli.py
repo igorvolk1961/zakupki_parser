@@ -18,6 +18,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from scoring_service.profile import ProfileTexts
 from scoring_service.settings import Settings, get_settings
 
 
@@ -25,6 +26,23 @@ def _logging_setup() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
+def _profile_texts(path: Path | None, settings: Settings) -> ProfileTexts:
+    """Рендер профиля (llm/embedding): из файла (YAML/JSON/markdown) или из настроек."""
+    from scoring_service.profile import (
+        load_profile,
+        render_profile,
+        render_profile_embedding,
+    )
+
+    if path is None:
+        return settings.profile_texts()
+    profile = load_profile(path)
+    return ProfileTexts(
+        llm=render_profile(profile),
+        embedding=render_profile_embedding(profile),
     )
 
 
@@ -40,7 +58,7 @@ def _cmd_score(settings: Settings, card: Path, competencies: Path | None) -> int
     from scoring_service.scoring import build_scorer
 
     record = json.loads(card.read_text(encoding="utf-8"))
-    comp = competencies.read_text(encoding="utf-8") if competencies else settings.competencies()
+    comp = _profile_texts(competencies, settings)
     scorer = build_scorer(settings)
     result = scorer.score(record, comp, record.get("id"), run_id=uuid.uuid4().hex)
     print(json.dumps(result.model_dump(), ensure_ascii=False, indent=2))
@@ -70,7 +88,7 @@ def _cmd_evaluate(
     )
     from scoring_service.llm_factory import flush_langfuse
 
-    comp = competencies.read_text(encoding="utf-8") if competencies else None
+    comp = _profile_texts(competencies, settings)
     report, comparison = evaluate_cli(
         settings,
         dataset,
@@ -106,7 +124,7 @@ def _cmd_score_csv(
     from scoring_service.debug_csv import render_table, run_debug, write_report
     from scoring_service.llm_factory import flush_langfuse
 
-    comp = competencies.read_text(encoding="utf-8") if competencies else settings.competencies()
+    comp = _profile_texts(competencies, settings)
     results = run_debug(settings, csv_path, comp, limit=limit, stub=stub)
     if out is not None:
         write_report(out, results)
@@ -133,12 +151,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_score = sub.add_parser("score", help="разовый скоринг карточки")
     p_score.add_argument("card", type=Path, help="путь к JSON-карточке закупки")
-    p_score.add_argument("--competencies", type=Path, default=None)
+    p_score.add_argument(
+        "--competencies",
+        type=Path,
+        default=None,
+        help="профиль поставщика: YAML/JSON (структурированный) или markdown (legacy)",
+    )
 
     p_eval = sub.add_parser("evaluate", help="оценка точности на тестовом наборе")
     p_eval.add_argument("--dataset", type=Path, required=True)
     p_eval.add_argument("--out", type=Path, default=None)
-    p_eval.add_argument("--competencies", type=Path, default=None)
+    p_eval.add_argument(
+        "--competencies",
+        type=Path,
+        default=None,
+        help="профиль поставщика: YAML/JSON (структурированный) или markdown (legacy)",
+    )
     p_eval.add_argument("--tolerance", type=float, default=1.0)
     p_eval.add_argument(
         "--accept-threshold", type=float, default=5.0, help="порог для бинарной метки"
@@ -173,7 +201,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path("../../data/export/procurements.csv"),
         help="CSV-выгрузка закупок (по умолчанию — корень репозитория)",
     )
-    p_csv.add_argument("--competencies", type=Path, default=None)
+    p_csv.add_argument(
+        "--competencies",
+        type=Path,
+        default=None,
+        help="профиль поставщика: YAML/JSON (структурированный) или markdown (legacy)",
+    )
     p_csv.add_argument("--limit", type=int, default=0, help="0 = все записи")
     p_csv.add_argument("--stub", action="store_true", help="использовать заглушку")
     p_csv.add_argument("--out", type=Path, default=None, help="JSON-отчёт")

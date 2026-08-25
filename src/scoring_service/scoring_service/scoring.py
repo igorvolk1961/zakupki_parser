@@ -34,6 +34,7 @@ from scoring_service.pipeline.description import (
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.judge_chain import JudgeChain
 from scoring_service.pipeline.tz_reviewer import TzReviewer, TzReviewOutcome
+from scoring_service.profile import ProfileTexts
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps, ScoringOutput
 from scoring_service.settings import Settings
 
@@ -188,13 +189,17 @@ class Scorer:
     def score(
         self,
         record: dict[str, Any],
-        competencies: str,
+        competencies: str | ProfileTexts,
         procurement_id: int | None = None,
         run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         run_name: str = "scoring_job",
     ) -> ScoringOutput:
-        """Полный скоринг закупки по карточке и компетенциям.
+        """Полный скоринг закупки по карточке и профилю поставщика.
+
+        ``competencies`` — либо отрендеренный текст профиля, либо структурированная
+        пара ``ProfileTexts`` (llm/embedding). Если передан строкой, для ветки
+        векторной близости используется тот же текст (без разделения на исключения).
 
         ``run_id`` — идентификатор запуска (батча): все задания одного запуска
         объединяются в одну LangFuse-сессию (``session_id``). Если ``run_id`` не задан,
@@ -210,6 +215,11 @@ class Scorer:
         if self._settings.score_use_stub:
             return self._stub_score(record, procurement_id)
 
+        texts = (
+            competencies
+            if isinstance(competencies, ProfileTexts)
+            else ProfileTexts(llm=competencies, embedding=competencies)
+        )
         session_id = run_id or (str(procurement_id) if procurement_id is not None else None)
         trace_meta = self._trace_metadata(procurement_id, run_id, metadata)
         root_config = cast(
@@ -225,7 +235,7 @@ class Scorer:
         )
         runner = RunnableLambda(self._score_impl, name=run_name)
         return runner.invoke(
-            (record, competencies, procurement_id, session_id, trace_meta, root_config),
+            (record, texts, procurement_id, session_id, trace_meta, root_config),
             config=root_config,
         )
 
@@ -233,7 +243,7 @@ class Scorer:
         self,
         inputs: tuple[
             dict[str, Any],
-            str,
+            ProfileTexts,
             int | None,
             str | None,
             dict[str, Any],
@@ -242,7 +252,7 @@ class Scorer:
         config: RunnableConfig | None = None,
     ) -> ScoringOutput:
         """Внутренняя реализация скоринга; выполняется внутри корневого run."""
-        record, competencies, procurement_id, session_id, trace_meta, root_config = inputs
+        record, texts, procurement_id, session_id, trace_meta, root_config = inputs
         parent_config = config or root_config
         description = extract_description(record)
 
@@ -251,7 +261,9 @@ class Scorer:
             # Ветка векторной близости выполняется ДО LLM-пайплайна: результат
             # используется для предварительной фильтрации закупок (если близость
             # ниже порога embedding_filter_threshold — LLM не запускается).
-            embed_sim = self._run_embedding_branch(competencies, description, parent_config)
+            # Для вектора берётся ТОЛЬКО позитивный текст профиля (без исключений
+            # и политики), чтобы «чего компания НЕ делает» не создавало шум.
+            embed_sim = self._run_embedding_branch(texts.embedding, description, parent_config)
             if (
                 embed_sim is not None
                 and self._settings.embedding_filter_threshold > 0
@@ -267,7 +279,7 @@ class Scorer:
                 return self._filtered_output(description, embed_sim, procurement_id)
 
         result = self._run_pipeline(
-            record, competencies, description, session_id, trace_meta, parent_config
+            record, texts.llm, description, session_id, trace_meta, parent_config
         )
         return self._build_output(result, embed_sim, procurement_id)
 

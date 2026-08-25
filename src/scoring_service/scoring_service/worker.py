@@ -16,6 +16,7 @@ import openai
 
 from scoring_common.parser_api import ParserApiClient
 from scoring_common.queue import StageQueue
+from scoring_service.profile import ProfileTexts
 from scoring_service.scoring import build_scorer
 from scoring_service.settings import Settings
 
@@ -35,17 +36,30 @@ class ScoringWorker:
         self._parser = ParserApiClient(
             settings.parser_api_url, internal_token=settings.parser_internal_token
         )
-        self._competencies = settings.competencies()
+        self._competencies = settings.profile_texts()
+        # Кэш нормализации профиля активного клиента: значение (str/dict) → ProfileTexts.
+        # Профиль постоянен в рамках жизни воркера — не пересобираем его на каждую закупку.
+        self._profile_cache: tuple[object, ProfileTexts] | None = None
 
-    async def _resolve_competencies(self) -> str:
-        """Компетенции активного клиентского профиля (из парсера), fallback — файл."""
+    async def _resolve_competencies(self) -> ProfileTexts:
+        """Профиль активного клиента (из парсера), fallback — файл.
+
+        Парсер может отдать структурированный профиль (dict/YAML) или текст;
+        нормализуем в пару ``ProfileTexts`` (llm/embedding) через ``profile_to_texts``.
+        """
+        from scoring_service.profile import profile_to_texts
+
         try:
             client = await self._parser.get_active_client(
                 internal_token=self._settings.parser_internal_token
             )
-            competencies = (client or {}).get("competencies")
-            if isinstance(competencies, str) and competencies:
-                return competencies
+            raw = (client or {}).get("competencies")
+            if self._profile_cache is not None and self._profile_cache[0] == raw:
+                return self._profile_cache[1]
+            texts = profile_to_texts(raw)
+            if texts is not None and texts.llm:
+                self._profile_cache = (raw, texts)
+                return texts
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             logger.warning(
                 "Не удалось получить активный клиентский профиль (%s) — компетенции из файла",

@@ -25,6 +25,13 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import YamlConfigSource
+from scoring_service.profile import (
+    Profile,
+    ProfileTexts,
+    load_profile,
+    render_profile,
+    render_profile_embedding,
+)
 
 
 class Settings(BaseSettings):
@@ -82,8 +89,8 @@ class Settings(BaseSettings):
     # Пауза перед повторной обработкой задачи после сбоя LLM (сек).
     llm_retry_backoff_seconds: float = 5.0
 
-    # Компетенции поставщика
-    competencies_file: Path = Path("data/competencies.md")
+    # Профиль поставщика (структурированный: YAML/JSON; legacy-markdown — совместимость).
+    competencies_file: Path = Path("data/profile.yaml")
 
     # Пайплайн
     num_refine_rounds: int = 1
@@ -177,9 +184,25 @@ class Settings(BaseSettings):
             file_secret_settings,
         )
 
+    def profile(self) -> Profile:
+        """Структурированный профиль поставщика из файла."""
+        return load_profile(self.competencies_file)
+
+    def profile_texts(self) -> ProfileTexts:
+        """Рендер профиля для LLM и для ветки векторной близости (раздельно)."""
+        profile = self.profile()
+        return ProfileTexts(
+            llm=render_profile(profile),
+            embedding=render_profile_embedding(profile),
+        )
+
+    def profile_text(self) -> str:
+        """Канонический LLM-текст профиля (факты, отрендеренные кодом)."""
+        return self.profile_texts().llm
+
     def competencies(self) -> str:
-        """Текст компетенций поставщика из файла."""
-        return self.competencies_file.read_text(encoding="utf-8")
+        """Обратная совместимость: отрендеренный профиль поставщика."""
+        return self.profile_text()
 
 
 def get_settings() -> Settings:

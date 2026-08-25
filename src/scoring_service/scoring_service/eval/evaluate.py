@@ -31,6 +31,7 @@ from scoring_service.eval.metrics import (
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.judge_chain import JudgeChain
+from scoring_service.profile import ProfileTexts
 from scoring_service.schemas import ScoringOutput
 from scoring_service.scoring import Scorer
 from scoring_service.settings import Settings
@@ -57,7 +58,7 @@ def _resolve_thresholds(
 def _score_item(
     scorer: Scorer,
     item: EvalItem,
-    competencies: str,
+    competencies: str | ProfileTexts,
     repeat: int,
     accept_threshold: float,
     idx: int,
@@ -97,7 +98,7 @@ def _score_item(
 def run_evaluation(
     settings: Settings,
     dataset: list[EvalItem],
-    competencies: str | None = None,
+    competencies: str | ProfileTexts | None = None,
     tolerance: float = 1.0,
     accept_threshold: float = 5.0,
     precision_k: int | None = None,
@@ -113,7 +114,7 @@ def run_evaluation(
         settings,
         callbacks=callbacks,
     )
-    comp = competencies or settings.competencies()
+    comp = competencies or settings.profile_texts()
 
     # Скоринг предметов выполняется параллельно (до 2 одновременно) с пер-предметным
     # дедлайном (circuit breaker): зависшая закупка помечается failed и не блокирует
@@ -215,7 +216,7 @@ def evaluate_cli(
     settings: Settings,
     dataset_path: Path,
     out_path: Path | None,
-    competencies: str | None,
+    competencies: str | ProfileTexts | None,
     tolerance: float,
     accept_threshold: float = 5.0,
     precision_k: int | None = None,

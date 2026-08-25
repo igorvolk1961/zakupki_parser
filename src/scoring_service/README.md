@@ -33,6 +33,53 @@ card + competencies
 `competencies_essence`, `relevant_competencies`, `term_overlap_mismatch_check`,
 `synonym_semantic_bridge`, `uncovered_scope`, `fit_score_rationale`.
 
+## Профиль поставщика (строгое разделение слоёв)
+
+Системный промпт **не зависит от пользовательских профилей**: в нём живут только
+механика и политика скоринга. Профиль — это отдельный структурированный слой
+(`profile.py`): **факты** о поставщике (позиционирование, компетенции, исключения)
+плюс два необязательных числовых параметра политики с дефолтами
+(`scoring_policy.uncovered_penalty`, `scoring_policy.ambiguous_range`). Заполняется
+через форму/UI, а не свободным текстом инструкций; «промпт-инжиниринг» выполняет
+`render_profile` — код превращает факты в канонический блок «КОМПЕТЕНЦИИ ПОСТАВЩИКА».
+
+Профиль рендерится в **два разных текста** (`ProfileTexts` / `profile_to_texts`):
+- `llm` — полный блок для fit/judge-цепочек: позиционирование, охват, компетенции,
+  исключения и не-дефолтные параметры политики;
+- `embedding` — текст **только** для ветки векторной близости: позиционирование
+  и компетенции, БЕЗ раздела «НЕ входят в компетенции» и политики. Исключения
+  описывают, чего компания НЕ делает, — их включение в эмбеддинг смещает вектор
+  профиля к нерелевантным темам и даёт ложную близость/удалённость закупок
+  (риск отсечь релевантные pre-filter по вектору).
+
+Штатный профиль — `data/profile.yaml` (формат ниже). `SCORE_COMPETENCIES_FILE`
+может указывать на любой профиль; CLI-ключ `--competencies` принимает YAML/JSON
+(структурированный) либо legacy-markdown (обратная совместимость; legacy-разбор
+не теряет текст — нераспознанные секции сохраняются в позиционировании). Значения,
+приходящие из парсера (воркер) или REST (`POST /score`), нормализуются
+`profile_to_texts`: структурированный профиль рендерится кодом, свободный текст
+проходит как есть (в этом случае llm- и embedding-тексты совпадают).
+
+Порог `embedding_filter_threshold` калибруется под embedding-текст профиля
+(позитивные факты без исключений). При изменении состава этого текста (например,
+правке `render_profile_embedding`) перекалибруйте порог на исторической выборке
+и прогоните `evaluate --compare baseline.json` до раскатки.
+
+```yaml
+name: "Поставщик"
+positioning: "чем занимается, одним-двумя предложениями"
+breadth: broad                # broad | narrow — как трактовать неперечисленные кейсы
+competencies:
+  - area: "Направление"
+    description: "что делает компания в этой области"
+    examples: ["пример работ"]
+exclusions:                   # «НЕ входят в компетенции» — закупки по ним отсеиваются
+  - "чего компания НЕ делает"
+# scoring_policy:             # необязательно, дефолты = значения системного промпта
+#   uncovered_penalty: 1.5
+#   ambiguous_range: [4.0, 6.0]
+```
+
 ## Уточнение по ТЗ (`tz_review`)
 Если fit запросил (`requires_tz_review`), `TzReviewer` ищет файл ТЗ в карточке закупки,
 извлекает его текст (скачивание) и выполняет повторный fit/judge по расширенному описанию.
@@ -90,8 +137,8 @@ uv sync --group dev
 # фоновый воркер Redis-очереди
 uv run python -m scoring_service worker
 
-# разовый скоринг карточки (JSON) + компетенции
-uv run python -m scoring_service score card.json --competencies data/competencies.md
+# разовый скоринг карточки (JSON) + профиль поставщика
+uv run python -m scoring_service score card.json --competencies data/profile.yaml
 
 # отладка пайплайна на выгрузке БД (CSV): таблица + JSON-отчёт; LLM по умолчанию
 uv run python -m scoring_service score-csv --csv ../../data/export/procurements.csv --limit 5
@@ -129,7 +176,7 @@ env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 | `SCORE_PARSER_API_URL` | адрес REST API парсера (по умолчанию `http://localhost:8000`) |
 | `SCORE_REDIS_URL` | адрес Redis (по умолчанию `redis://localhost:6379/0`) |
 | `SCORE_P_WIN` / `SCORE_MARGIN_RATE` | стубы P(win)/Margin (дефолтный подход парсера) |
-| `SCORE_COMPETENCIES_FILE` | файл с компетенциями поставщика |
+| `SCORE_COMPETENCIES_FILE` | файл профиля поставщика: структурированный YAML/JSON (`data/profile.yaml`); legacy-markdown тоже читается |
 | `SCORE_NUM_REFINE_ROUNDS` | число итераций refine при `verdict=reject` |
 | `SCORE_USE_STUB` | заглушка: возвращать score, уже присутствующий в данных закупки, без LLM-пайплайна (по умолчанию `false`) |
 | `SCORE_NORMALIZE_FIT_FOR_SCORE` | приводить Fit (0–10) к шкале 0–1 при расчёте Score (по умолчанию `true`) |
