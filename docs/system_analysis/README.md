@@ -11,7 +11,7 @@
 
 | Раздел | Артефакт | Статус | Назначение |
 | :----- | :------- | :----- | :--------- |
-| 01_Business_Context | [`01_vision_&_scope.md`](01_Business_Context/01_vision_%26_scope.md) | ✅ | Видение, границы MVP/пост-MVP, критерии успеха |
+| 01_Business_Context | [`01_vision_&_scope.md`](01_Business_Context/01_vision_%26_scope.md) | ✅ | Видение, границы MVP/пост-MVP, критерии успеха, целевые пользователи (роли/цели/задачи) |
 | 01_Business_Context | [`02_stakeholders.md`](01_Business_Context/02_stakeholders.md) | ✅ | Стейкхолдеры и роли |
 | 01_Business_Context | [`03_glossary.md`](01_Business_Context/03_glossary.md) | ✅ | Глоссарий предметной области и реализации |
 | 01_Business_Context | [`04_as-is-to_be.md`](01_Business_Context/04_as-is-to_be.md) | ✅ | Модели процессов AS-IS и TO-BE (шаги 1–9) |
