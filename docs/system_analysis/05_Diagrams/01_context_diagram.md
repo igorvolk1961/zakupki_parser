@@ -28,7 +28,7 @@ graph TD
         SF["Scoring Service (Fit)<br>LLM: Fit → Judge → refine → ТЗ → Giga"]
         SP["P(win) Service"]
         SM["Margin Service"]
-        ANALYSIS["Analysis Service<br>RAG-анализ ТЗ по вопросам профиля"]
+        ANALYSIS["Analysis Service<br>Анализ ТЗ: факты (LLM)<br>+ матчер с профилем (код)"]
         DB[("PostgreSQL<br>закупки, профили, оценки")]
         AUDIT["Журнал аудита (целевой)"]
     end
@@ -69,8 +69,11 @@ graph TD
   (`POST /api/scoring/jobs`) и возврат результата (`POST /score`).
 - **Каскад Fit → P(win) → Margin** — отдельные stateless-воркеры за Redis-очередями;
   автокаскад отключён, P(win)/Margin — on-demand по запросу тендеролога.
-- **Analysis Service** — on-demand RAG-анализ ТЗ по вопросам профиля (вердикты
-  absolute/soft/no_stop_condition).
+- **Analysis Service** — on-demand двухстадийный анализ ТЗ: Stage A — извлечение
+  фактов (обязательные системные проверки `sys:*` одним batch-LLM-вызовом по
+  лексически отобранным секциям + пользовательские вопросы per-question); Stage B —
+  сопоставление фактов ТЗ с фактами профиля (`GET /api/clients/active` → `facts`)
+  детерминированными правилами (`matcher.py`) → вердикты и маркеры 🔴/🟡/🟢.
 - **Уведомления** — постадийные (после fit/pwin/margin) при прохождении порога
   (`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`).
 - **Аудит** — целевая сущность (этап 6/9/10).

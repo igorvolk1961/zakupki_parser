@@ -50,7 +50,7 @@ sequenceDiagram
     end
 ```
 
-## Диаграмма последовательности детальной проверки ТЗ
+## Диаграмма последовательности детальной проверки ТЗ (двухстадийный анализ)
 
 ```mermaid
 sequenceDiagram
@@ -60,42 +60,87 @@ sequenceDiagram
     participant QUEUE as "Очередь задач"
     participant WORKER as "Воркер analysis_service"
     participant ETP as "ЭТП (Скачивание файла)"
-    participant RAG as "RAG Pipeline"
+    participant RAG as "Analysis Pipeline"
     participant DB as "База данных"
     participant OBS as "LangFuse"
 
-    Note over TS,OBS: Асинхронный процесс глубокого анализа ТЗ (On-Demand, Шаг 5–6 TO-BE v2.0)
+    Note over TS,OBS: Асинхронный on-demand анализ ТЗ (US-4.1): Stage A (факты ТЗ) → Stage B (матчер с фактами профиля)
 
     TS->>UI: Клик по кнопке "Проанализировать ТЗ"
     UI->>API: POST /api/procurements/analyze
-    API->>DB: Проверка прав и лимитов (активный профиль)
+    API->>DB: Проверка прав (активный профиль)
     DB-->>API: Доступ разрешен
 
-    API->>QUEUE: Постановка задач (fit, если не посчитан, + analysis)
+    API->>QUEUE: Постановка задачи analysis
     API-->>UI: {"status": "queued"}
     UI-->>TS: Статус "Идет анализ ТЗ..."
 
     QUEUE->>WORKER: Передача задачи analysis
-    WORKER->>DB: Загрузка метаданных закупки (URL) и вопросов профиля
-    DB-->>WORKER: Ссылка на файл ТЗ, вопросы профиля (компетенции)
+    WORKER->>DB: GET /api/clients/active (вопросы профиля + факты BR-03)
+    DB-->>WORKER: questions[] + facts{license_codes, experience_codes}
 
     WORKER->>ETP: Скачивание файла ТЗ по URL (On-Demand)
     ETP-->>WORKER: Текст/Файл ТЗ
 
-    WORKER->>RAG: Передача текста ТЗ и вопросов профиля
-    RAG->>RAG: Эмбеддинги → top-k чанков → LLM-вердикт (absolute/soft/no_stop_condition)
-    RAG-->>WORKER: JSON rag_report (вердикты по вопросам)
+    rect rgb(240, 248, 255)
+    Note over WORKER,RAG: Stage A — извлечение фактов из ТЗ (профиль в промпт НЕ попадает)
+    WORKER->>RAG: Чанки ТЗ (split_tz_sections)
+    RAG->>RAG: Лексический отбор секций по паттернам sys-проверок
+    RAG->>RAG: 1 batch-LLM-вызов (sys:exp_2571, sys:minprom_registry, sys:license_sro) → факты
+    WORKER->>RAG: Пользовательские вопросы профиля (эмбеддинги → top-k → LLM)
+    end
+
+    rect rgb(255, 250, 235)
+    Note over WORKER,RAG: Stage B — сопоставление фактов ТЗ с фактами профиля (код, без LLM)
+    RAG->>RAG: matcher.py: правила BR-03/BR-04 → verdict + marker 🔴/🟡/🟢
+    RAG-->>WORKER: JSON rag_report (source=system|profile, marker, facts)
+    end
 
     WORKER->>OBS: Логирование трейса (cost, latency, tokens)
     WORKER->>DB: Обновление procurement_evaluations.rag_report
     WORKER->>UI: WebSocket: "Анализ ТЗ завершен"
 
     UI->>DB: Запрос обновленной карточки
-    DB-->>UI: Данные с вердиктами
-    UI-->>TS: Отображение результатов проверки
+    DB-->>UI: Данные с вердиктами и маркерами
+    UI-->>TS: Раздел «Анализ ТЗ»: системные проверки (обязат.) + вопросы клиента
 
-    Note over TS,UI: Целевое (этап 5): формализованные маркеры 🔴/🟡/🟢 по проверкам опыт 2571 / Минпромторг / лицензии (US-4.5)
+    Note over TS,UI: Реализовано: маркеры 🔴/🟡/🟢 по проверкам опыт 2571 / Минпромторг / лицензии (US-4.5, BR-03/BR-04)
 ```
+
+## Диаграмма процесса двухстадийного анализа ТЗ (Stage A / Stage B)
+
+```mermaid
+flowchart LR
+    TZ[Текст ТЗ] --> CH[split_tz_sections → чанки]
+    CH --> EMB[Эмбеддинги чанков<br/>1 вызов на карточку]
+
+    subgraph A[Stage A — факты ТЗ (LLM, on-demand)]
+        LEX[Лексический ретривал секций<br/>по паттернам sys-проверок]
+        CH --> LEX
+        LEX -->|нет совпадений| SKIP[sys-вердикты no_stop_condition<br/>LLM не вызывается]
+        LEX -->|релевантные секции| BATCH[1 batch-LLM-вызов<br/>batch_system.md]
+        BATCH --> F1[Факты: опыт 2571,<br/>реестр Минпромторга, лицензии/СРО]
+        EMB --> RETR[top-k по эмбеддингам]
+        CH --> RETR
+        RETR --> USERQ[Per-question LLM-вызовы<br/>пользовательские вопросы]
+        USERQ --> VUSER[Вердикты пользовательских вопросов]
+    end
+
+    subgraph B[Stage B — сопоставление с профилем (код, ≈$0)]
+        PF[Факты профиля:<br/>license_codes, experience_codes<br/>GET /api/clients/active → facts] --> MATCH
+        F1 --> MATCH[matcher.py<br/>правила BR-03/BR-04/US-4.4]
+        MATCH --> VSYS[Вердикты sys-проверок<br/>+ marker 🔴/🟡/🟢]
+        MATCH -->|вид лицензии не распознан| SOFT[soft «требует проверки»]
+    end
+
+    VSYS --> RAG[rag_report: verdict, marker,<br/>source system/profile, facts]
+    VUSER --> RAG
+    SKIP --> VSYS
+```
+
+> Экономичность: эмбеддинги системных вопросов не вычисляются (лексический ретривал);
+> на типовую карточку — 1 эмбеддинг-вызов (чанки) + 1 batch-LLM-вызов (системные проверки)
+> + редкие вызовы на пользовательские вопросы; Stage B — чистый код.
 
 ## Диаграмма последовательности on-demand P(win)/Margin
 

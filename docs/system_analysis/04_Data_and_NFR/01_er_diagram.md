@@ -199,6 +199,14 @@ erDiagram
   nullable boolean соответствия требованию Минпромторга об импортонезависимости
   (NULL — неизвестно/не применимо). CRUD — вложенные эндпоинты
   `/api/clients/{id}/licenses` и `/api/clients/{id}/experience` (tenant-скоуп BR-07).
+- **Вопросы к ТЗ и факты анализа**: `profiles.questions` (jsonb `{id, text}`) хранит
+  только **пользовательские** вопросы. Обязательные системные проверки (ids `sys:*`,
+  опыт 2571 / реестр Минпромторга / лицензии) живут вне БД — константа
+  `analysis_service` (`pipeline/system_questions.py`, версия `SYSTEM_QUESTIONS_VERSION`);
+  при сохранении профиля вопросы `sys:*` фильтруются (FR-4.4). `procurement_evaluations.rag_report`
+  содержит per-question `{question_id, verdict, marker, source, facts, question_version, ...}`;
+  факты профиля для Stage B (коды лицензий/опыта) собираются из `profile_licenses` +
+  `profile_experience` (`get_profile_facts`) и отдаются конвейеру в `GET /api/clients/active` → `facts`.
 - **Изоляция через user_id / profile_id** (BR-07): все таблицы с приватными данными
   (`profiles`, `procurement_evaluations`, `profile_licenses`, `profile_experience`)
   привязаны к пользователю/профилю; tenant-скоуп реализован в репозитории.

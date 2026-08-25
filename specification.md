@@ -343,16 +343,26 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 (`POST /api/procurements/{id}/manual-score`, `score_method=manual`) и «Отклонить»
 (`POST /api/procurements/{id}/reject`, fit=0.1, `score_method=reject`). Уведомлений нет.
 
-**analysis_service** (`src/analysis_service/`, on-demand RAG-анализ стоп-условий):
+**analysis_service** (`src/analysis_service/`, on-demand двухстадийный анализ ТЗ):
 - очередь `analysis:jobs`/`analysis:results` (маршрутизация в транспорте);
 - чанкинг ТЗ по разделам (чанк не пересекает границу раздела, `pipeline/chunker.py`);
-- эмбеддинги чанков/вопросов — OpenAI-совместимый endpoint (`scoring_common/embeddings.py`,
-  Giga Embedder через gpt2giga-прокси), cosine-поиск top-k;
-- лёгкая LLM (DeepSeek через `llm.py`) — вердикт по каждому вопросу профиля:
-  `no_stop_condition | soft | absolute` (+ цитата и обоснование);
-- результат `rag_report` сохраняется в `procurement_scores.rag_report`
+- **обязательные системные проверки** (опыт ПП РФ 2571, реестр Минпромторга,
+  лицензии/СРО; ids `sys:*`, версия `SYSTEM_QUESTIONS_VERSION`): лексический отбор
+  секций по паттернам (`pipeline/system_questions.py`) → один batch-LLM-вызов
+  (`pipeline/prompts/batch_system.md`) → факты ТЗ; при отсутствии релевантных секций
+  LLM не вызывается;
+- пользовательские вопросы профиля — эмбеддинги чанков/вопросов (Giga Embedder через
+  gpt2giga-прокси) → cosine top-k → per-question LLM-вердикт
+  (`no_stop_condition | soft | absolute`);
+- **Stage B**: `pipeline/matcher.py` сопоставляет факты ТЗ с фактами профиля
+  (коды лицензий/типов опыта из `GET /api/clients/active` → `facts`)
+  детерминированными правилами BR-03/BR-04 → вердикт + маркер 🔴/🟡/🟢;
+  нераспознанный вид лицензии → `soft` «требует проверки» (recall-over-precision);
+  профиль в промпт не попадает;
+- результат `rag_report` (per-question: `verdict`, `marker`, `source` (`system|profile`),
+  `facts`, `question_version`) сохраняется в `procurement_scores.rag_report`
   (`POST /score` с полем `rag_report`, score_method не меняется) и показывается
-  тендерологу в таблице закупок.
+  тендерологу в карточке закупки.
 
 **Предварительная фильтрация (слова-исключения):** `stop_conditions.exclusion_words_present`
 включает проверку слов-исключений активного профиля в описании (стем-матчинг по границе
@@ -513,7 +523,7 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 | US-2.4 Не прошедшие фильтр не попадают в список | 🟡 stop-условия (`keyword_context_required`, `exclusion_words_present`); R9 меняет механику на клиентскую пост-фильтрацию **до записи в БД** | `parser/orchestrator/stop.py` | 3 || US-2.5 Не показывать отклонённые повторно | ❌ отклонение = `score_method=reject`; скрытия из выдачи нет | `api/app.py` | 7 || US-3.1 Оповещение о высокорелевантных закупках в Telegram | 🟡 уведомления после стадий каскада есть (Telegram/MAX/webhook); оповещение по каждой высокорелевантной закупке в Telegram — с этапа 8; дайджест топ-3 **не нужен** (US-3.4 удалён решением заказчика) | `notify.py`, `api/app.py` | 8 |
 | US-3.3 Экспорт XLSX | 🟡 только CSV | `api/app.py` (`/api/procurements/export`) | 8 |
 | US-4.1 Инициация детального анализа ТЗ | ✅ `POST /api/procurements/analyze` → `analysis_service` | `api/app.py`, `analysis_service/` | — |
-| US-4.2 Проверка опыта (ПП РФ 2571, hard/soft) | 🟡 RAG-вердикты по вопросам профиля; формальный маркер 2571 не выделен | `analysis_service/pipeline/rag.py` | 5 || US-4.3 Реестр Минпромторга с учётом «не установлено» | 🟡 общий RAG; контекстный кейс «не установлено» не специфицирован | `rag.py` | 5 || US-4.4 Лицензии (какая требуется) | 🟡 общий RAG-вопрос | `rag.py` | 5 || US-4.5 Маркеры 🔴/🟡/🟢 в карточке | 🟡 вердикты `absolute/soft/no_stop_condition` есть; формализованных маркеров по проверкам нет | `rag.py`, `api/zakupki.html` | 5 || US-5.1 «В работу» / «Отклонить» | 🟡 ручные пресеты (`manual-score`) и `reject`; статуса «В работе» нет | `api/app.py` | 7 || US-5.2 Причина отклонения | ❌ | — | 7 || US-5.3 Предложение добавить слово-исключение | ❌ | — | 7 || US-6.1/6.2 Сводка «В работу» в XLSX с маркерами | ❌ | — | 8 |
+| US-4.2 Проверка опыта (ПП РФ 2571, hard/soft) | ✅ системная проверка `sys:exp_2571`: Stage A (batch-LLM факты) + Stage B (матчер с фактами профиля), маркер | `analysis_service/pipeline/rag.py`, `matcher.py` | 5 || US-4.3 Реестр Минпромторга с учётом «не установлено» | ✅ системная проверка `sys:minprom_registry` (учёт «не установлено») | `rag.py`, `matcher.py` | 5 || US-4.4 Лицензии (какая требуется) | ✅ системная проверка `sys:license_sro` (сопоставление с `license_types` профиля) | `rag.py`, `matcher.py` | 5 || US-4.5 Маркеры 🔴/🟡/🟢 в карточке | ✅ маркеры и `source=system` в `rag_report`, раздел «Анализ ТЗ» | `rag.py`, `api/zakupki.html` | 5 || US-5.1 «В работу» / «Отклонить» | 🟡 ручные пресеты (`manual-score`) и `reject`; статуса «В работе» нет | `api/app.py` | 7 || US-5.2 Причина отклонения | ❌ | — | 7 || US-5.3 Предложение добавить слово-исключение | ❌ | — | 7 || US-6.1/6.2 Сводка «В работу» в XLSX с маркерами | ❌ | — | 8 |
 
 > Этапы 6, 4C, 7, 8, 9, 10 — **пост-MVP (вне MVP)**; этапы 1, 2, 3, 4 (4A+4B), 5 — в MVP.
 > В MVP пользователь **не корректирует оценки вручную** (auto-Fit; `manual-score`/`reject`, Эпик 5 — пост-MVP).
@@ -526,7 +536,7 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 | ER: `subscriptions` | ❌ (заглушка; оплата вне MVP) | — | 1 |
 | ER: `audit_log` | ❌ | — | 1, 6, 9 || ER: `procedure_categories` (pwin_coefficient) | ❌ (заглушка) | — | 1 |
 | BR-01 Кэширование/пропуск неизменного | 🟡 `known_numbers`, `total_results` early-exit, unique-constraint; кэша ответов ЭТП нет | `orchestrator.py`, `repository.py` | 4 || BR-02 Первичный скоринг Fit (стоп-слова, веса, порог) | ✅ | `scoring_service/`, `config_score.yaml` | — |
-| BR-03 Валидация опыта (ПП РФ 2571) | 🟡 (см. US-4.2) | `rag.py` | 5 || BR-04 Контекстный анализ реестра Минпромторга («не установлено») | 🟡 (см. US-4.3) | `rag.py` | 5 || BR-05 Жизненный цикл аккаунта | ❌ | — | 6 || BR-06 Обработка ошибок, DLQ после 3 попыток | 🟡 retry/backoff/recovery, circuit breaker; явной DLQ нет | `retry.py`, `circuit.py`, `scoring_common/stage_worker.py` | 10 |
+| BR-03 Валидация опыта (ПП РФ 2571) | ✅ (см. US-4.2) | `rag.py`, `matcher.py` | 5 || BR-04 Контекстный анализ реестра Минпромторга («не установлено») | ✅ (см. US-4.3) | `rag.py`, `matcher.py` | 5 || BR-05 Жизненный цикл аккаунта | ❌ | — | 6 || BR-06 Обработка ошибок, DLQ после 3 попыток | 🟡 retry/backoff/recovery, circuit breaker; явной DLQ нет | `retry.py`, `circuit.py`, `scoring_common/stage_worker.py` | 10 |
 | US-8.1 Метрики (Prometheus/LangFuse) | 🟡 LangFuse-трейсинг LLM есть; `GET /metrics` нет | `scoring_service/`, `docker-compose.yml` | 10 |
 | US-8.2 Админ-панель пользователей | 🟡 web-демо без управления аккаунтами | `api/zakupki.html` | 6, 10 || US-8.3 Stateless-воркеры, горизонтальное масштабирование | 🟡 стадии скоринга — stateless; парсер — один процесс | `scoring_*`, `docker-compose.yml` | 4C |
 | US-9.1 Дисклеймер в UI/экспортах | ❌ | — | 8, 9 |
