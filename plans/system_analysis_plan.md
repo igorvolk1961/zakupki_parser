@@ -42,7 +42,7 @@
 | Функциональные требования (FR) | — | ❌ | Отсутствуют как отдельный проверяемый документ |
 | Product Backlog | — | ❌ | Отсутствует; функции частично выполняют `plans/plan.md` и `specification.md` §14.4 |
 | Sequence-диаграммы | `03_System_Behavior/01_sequence_diagrams.md` | ✅ | Отражают процесс парсинга, анализа ТЗ, обратной связи |
-| Демо бизнес-процесса | `03_System_Behavior/02_business_process_demo.md` | ✅ | — |
+| Бизнес-процесс | `03_System_Behavior/02_business_process.md` | ✅ | — |
 | ER-диаграмма | `04_Data_and_NFR/01_er_diagram.md` | 🟡 | Концептуальная модель расходится с фактической схемой (миграции 1.29–1.35) |
 | NFR | `04_Data_and_NFR/02_non_functional_requirements.md` | ✅ | — |
 | Context-диаграмма | `05_Diagrams/01_context_diagram.md` | 🟡 | Не отражает `scoring_transport` и стадии каскада (Fit/Pwin/Margin) как компоненты |

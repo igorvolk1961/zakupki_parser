@@ -40,7 +40,7 @@
       `get_profile`/`list_profiles`/`upsert_profile`/`set_active_profile`, `first_user`.
 - ✅ API: `_effective_user`/`_ensure_service_account` (auth off → сервис-аккаунт);
       внутренние эндпоинты — только X-Internal-Token; `/api/clients/*` — tenant-скоуп.
-      Ручные `manual-score`/`reject` удалены (+ web-демо).
+      Ручные `manual-score`/`reject` удалены (+ web-интерфейс).
 - ✅ Тесты: изоляция BR-07 (репозиторий), CRUD профилей в tenant-скоупе, сид default-профиля
       при регистрации; устаревшие тесты `active_client_id`/ручные оценки заменены.
       Пайплайн: unit 277 ✅, ruff ✅, mypy ✅, check-config ✅.

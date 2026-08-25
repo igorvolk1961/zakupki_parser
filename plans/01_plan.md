@@ -75,7 +75,7 @@ active_client_id`) на мультитенантную: профили и оце
 - Вместо `get_active_client(cfg.score.active_client_id)` — активный профиль сервис-аккаунта
   (`ensure_service_account()` + `get_active_profile`). Поведение парсера не меняется.
 
-### 1.6. Web-демо (`api/zakupki.html`)
+### 1.6. Web-интерфейс (`api/zakupki.html`)
 - Убрать select «Ручная» и кнопку «Откл» (+ JS-обработчики `manual-score`/`reject`).
 - Пилюля активного клиента работает как раньше (`/api/clients/active`).
 
@@ -102,6 +102,6 @@ active_client_id`) на мультитенантную: профили и оце
 ## Критерии приёмки
 1. Миграция 1.29 применима на чистой БД и на существующих данных (rename+backfill).
 2. Профили — в скоупе `user_id`, оценки — в скоупе `profile_id` (BR-07).
-3. `manual-score`/`reject` удалены; web-демо их не вызывает.
+3. `manual-score`/`reject` удалены; web-интерфейс их не вызывает.
 4. Конвейер скоринга (score/active) работает под сервис-аккаунтом без изменений в воркерах.
 5. unit 277+ без регрессий, integration зелёные (при DSN), ruff/mypy/check-config — чисто.

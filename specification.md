@@ -386,7 +386,7 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 Поднимается командой `serve` (или сервисом `api` в docker-compose). Читает
 конфиг (БД) и отдаёт:
 - `GET /health` — статус: ok, доступность БД;
-- `GET /` — web-демо (просмотр закупок/заказчиков, запуск/остановка парсера,
+- `GET /` — web-интерфейс (просмотр закупок/заказчиков, запуск/остановка парсера,
   редактирование аналитического конфига);
 - `GET /api/procurements` — список с фильтрами (`number`, `platform_id`,
   `okpd2`, `customer`, `active`, `min_fit_score`), серверной сортировкой
@@ -405,7 +405,7 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
   активные и релевантные закупки (`fit_score ≥` заданного порога, по умолчанию 0.4).
   Операция read-only; используется кнопкой «Выгрузить CSV» в web-приложении.
 - `POST /api/parser/start` / `POST /api/parser/stop` / `GET /api/parser/status` —
-  управление постоянным мониторингом парсера из web-демо;
+  управление постоянным мониторингом парсера из web-интерфейса;
 - `POST /api/db/clear` — полная очистка БД (закупки и заказчики); доступна только при
   остановленном парсере;
 - `POST /api/db/clear-inactive` — удаление неактивных закупок (`is_active=false` или
@@ -538,7 +538,7 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 | BR-01 Кэширование/пропуск неизменного | 🟡 `known_numbers`, `total_results` early-exit, unique-constraint; кэша ответов ЭТП нет | `orchestrator.py`, `repository.py` | 4 || BR-02 Первичный скоринг Fit (стоп-слова, веса, порог) | ✅ | `scoring_service/`, `config_score.yaml` | — |
 | BR-03 Валидация опыта (ПП РФ 2571) | ✅ (см. US-4.2) | `rag.py`, `matcher.py` | 5 || BR-04 Контекстный анализ реестра Минпромторга («не установлено») | ✅ (см. US-4.3) | `rag.py`, `matcher.py` | 5 || BR-05 Жизненный цикл аккаунта | ❌ | — | 6 || BR-06 Обработка ошибок, DLQ после 3 попыток | 🟡 retry/backoff/recovery, circuit breaker; явной DLQ нет | `retry.py`, `circuit.py`, `scoring_common/stage_worker.py` | 10 |
 | US-8.1 Метрики (Prometheus/LangFuse) | 🟡 LangFuse-трейсинг LLM есть; `GET /metrics` нет | `scoring_service/`, `docker-compose.yml` | 10 |
-| US-8.2 Админ-панель пользователей | 🟡 web-демо без управления аккаунтами | `api/zakupki.html` | 6, 10 || US-8.3 Stateless-воркеры, горизонтальное масштабирование | 🟡 стадии скоринга — stateless; парсер — один процесс | `scoring_*`, `docker-compose.yml` | 4C |
+| US-8.2 Админ-панель пользователей | 🟡 web-интерфейс без управления аккаунтами | `api/zakupki.html` | 6, 10 || US-8.3 Stateless-воркеры, горизонтальное масштабирование | 🟡 стадии скоринга — stateless; парсер — один процесс | `scoring_*`, `docker-compose.yml` | 4C |
 | US-9.1 Дисклеймер в UI/экспортах | ❌ | — | 8, 9 |
 | US-9.2 Уважение robots.txt, официальные API | ❌ | `browser/manager.py` | 9 |
 | US-9.3 Маскирование персональных данных | ❌ | — | 9 |

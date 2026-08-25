@@ -151,7 +151,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
         logger.info(
-            "Профиль %s (id=%s) засижен из web-демо (файл docs/references/profile.md)",
+            "Профиль %s (id=%s) засижен из web-интерфейса (файл docs/references/profile.md)",
             name,
             profile.id,
         )

@@ -21,7 +21,7 @@ graph TD
     end
 
     subgraph System["Система SaaS (zakupki-parser / TenderSearch)"]
-        API["API Gateway (FastAPI)<br>+ web-демо"]
+        API["API Gateway (FastAPI)<br>+ web-интерфейс"]
         PARSER["Парсер (Playwright)<br>клиентская пост-фильтрация (R9)"]
         TR["Scoring Transport<br>gateway каскада (ingest + возврат)"]
         RS[("Redis<br>очереди стадий")]

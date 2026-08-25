@@ -66,7 +66,7 @@ class Orchestrator(
         self._db_cb = db_cb
         self._new_page = new_page
         self._now = now or datetime.now(UTC)
-        # Колбэк при сохранении закупки (живые обновления в web-демо).
+        # Колбэк при сохранении закупки (живые обновления в web-интерфейсе).
         self._on_record_saved = on_record_saved
         # Авто-пуш задания на внешний скоринг в транспорт (ADR-7). Если адрес не задан —
         # внешний скоринг не запускается, закупка остаётся с дефолтным score.

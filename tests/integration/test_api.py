@@ -224,7 +224,7 @@ def test_websocket_receives_broadcast(api_client: tuple[TestClient, Path]) -> No
         assert ws.receive_text() == "data-changed"
 
 
-def test_demo_page_served(api_client: tuple[TestClient, Path]) -> None:
+def test_index_page_served(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     resp = client.get("/")
     assert resp.status_code == 200

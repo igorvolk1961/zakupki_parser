@@ -1,4 +1,4 @@
-"""Административные эндпоинты: демо, health, управление парсером и БД."""
+"""Административные эндпоинты: главная страница, health, управление парсером и БД."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from zakupki_parser.storage.db import User
 
 logger = logging.getLogger(__name__)
 
-# Web-демо: страница лежит рядом с прежним api/app.py (каталог api/).
+# Web-интерфейс: страница лежит рядом с прежним api/app.py (каталог api/).
 ZAKUPKI_HTML = Path(__file__).resolve().parents[2] / "zakupki.html"
 
 
@@ -33,8 +33,8 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     require_admin = ctx.require_admin
 
     @router.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def demo() -> HTMLResponse:
-        """Простое web-приложение для демонстрации MVP (читает данные через API)."""
+    async def index() -> HTMLResponse:
+        """Простое web-приложение MVP (читает данные через API)."""
         # Без кеширования: браузер всегда получает свежую версию HTML (ранее
         # кешированная промежуточная версия показывала устаревший интерфейс).
         return HTMLResponse(
@@ -103,7 +103,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
                 "finished_at": None,
             }
             state.parser_task = asyncio.create_task(_run_parser(state))
-        logger.info("Запущен парсер (постоянный мониторинг) по команде из web-демо")
+        logger.info("Запущен парсер (постоянный мониторинг) по команде из web-интерфейса")
         return {"status": "started"}
 
     @router.post("/api/parser/stop", include_in_schema=False, dependencies=[Depends(require_admin)])
@@ -113,7 +113,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         if task is None or task.done():
             return {"status": "idle"}
         task.cancel()
-        logger.info("Запрошена остановка парсера из web-демо")
+        logger.info("Запрошена остановка парсера из web-интерфейса")
         return {"status": "stopping"}
 
     @router.post("/api/db/clear", include_in_schema=False, dependencies=[Depends(require_admin)])
@@ -122,7 +122,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         if state.parser_task is not None and not state.parser_task.done():
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         deleted = await _repo().clear_all()
-        logger.info("БД очищена из web-демо: %s", deleted)
+        logger.info("БД очищена из web-интерфейса: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 
@@ -140,7 +140,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         if state.parser_task is not None and not state.parser_task.done():
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         deleted = await _repo().delete_inactive()
-        logger.info("Удалены неактивные закупки из web-демо: %s", deleted)
+        logger.info("Удалены неактивные закупки из web-интерфейса: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 
@@ -163,7 +163,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         threshold = body.min_fit_score if body is not None else 0.4
         _, profile = await _active_context(user)
         deleted = await _repo().delete_irrelevant(threshold, profile_id=profile.id)
-        logger.info("Удалены нерелевантные закупки из web-демо: %s", deleted)
+        logger.info("Удалены нерелевантные закупки из web-интерфейса: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 

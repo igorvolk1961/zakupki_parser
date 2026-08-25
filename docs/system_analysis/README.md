@@ -22,7 +22,7 @@
 | 02_Business_Requirements | [`04_traceability_matrix.md`](02_Business_Requirements/04_traceability_matrix.md) | ✅ | Матрица трассируемости US↔BR↔NFR↔ER↔этап |
 | 02_Business_Requirements | [`05_functional_requirements.md`](02_Business_Requirements/05_functional_requirements.md) | ✅ | Функциональные требования FR-xx |
 | 03_System_Behavior | [`01_sequence_diagrams.md`](03_System_Behavior/01_sequence_diagrams.md) | ✅ | Диаграммы последовательности (парсинг, двухстадийный анализ ТЗ, каскад) |
-| 03_System_Behavior | [`02_business_process_demo.md`](03_System_Behavior/02_business_process_demo.md) | ✅ | Демо бизнес-процесса для стейкхолдеров |
+| 03_System_Behavior | [`02_business_process.md`](03_System_Behavior/02_business_process.md) | ✅ | Диаграмма бизнес-процесса для стейкхолдеров |
 | 04_Data_and_NFR | [`01_er_diagram.md`](04_Data_and_NFR/01_er_diagram.md) | ✅ | Модель данных: фактическая и целевая |
 | 04_Data_and_NFR | [`02_non_functional_requirements.md`](04_Data_and_NFR/02_non_functional_requirements.md) | ✅ | Нефункциональные требования (COST/PERF/SEC/REL/OBS/FT) |
 | 05_Diagrams | [`01_context_diagram.md`](05_Diagrams/01_context_diagram.md) | ✅ | Контекстная диаграмма (уровень 0) |

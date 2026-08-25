@@ -33,7 +33,7 @@ class AppState:
         # Кеш сервис-аккаунта (первый пользователь): backfill осиротевших профилей и
         # сид default-профиля выполняются один раз, а не на каждый запрос.
         self.service_account: User | None = None
-        # Управление парсером (запуск/остановка из web-демо).
+        # Управление парсером (запуск/остановка из web-интерфейса).
         self.parser_lock = asyncio.Lock()
         self.parser_task: asyncio.Task[None] | None = None
         self.parser_status: dict[str, Any] = {
@@ -43,7 +43,7 @@ class AppState:
             "started_at": None,
             "finished_at": None,
         }
-        # WebSocket-клиенты web-демо (живые обновления при изменении БД).
+        # WebSocket-клиенты web-интерфейса (живые обновления при изменении БД).
         self.ws_clients: set[WebSocket] = set()
         # Отложенное пороговое уведомление (ADR-7): Notifier + порог fit_score,
         # используется в POST /score.
@@ -54,7 +54,7 @@ class AppState:
 
 
 async def _broadcast(state: AppState, message: str = "data-changed") -> None:
-    """Оповещает подключённых клиентов web-демо об изменении данных."""
+    """Оповещает подключённых клиентов web-интерфейса об изменении данных."""
     for ws in list(state.ws_clients):
         try:
             await ws.send_text(message)
