@@ -11,13 +11,13 @@ from zakupki_parser.api.app.schemas import CustomerListOut, CustomerOut, RatingU
 def build_customers_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     _repo = ctx._repo
-    require_user = ctx.require_user
+    require_base = ctx.require_base
     require_internal = ctx.require_internal
 
     @router.get(
         "/api/customers",
         response_model=CustomerListOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def list_customers(
         name: str | None = None,
@@ -31,7 +31,7 @@ def build_customers_router(ctx: ApiContext) -> APIRouter:
     @router.get(
         "/api/customers/{customer_id}",
         response_model=CustomerOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def get_customer(customer_id: int) -> CustomerOut:
         row = await _repo().get_customer(customer_id)

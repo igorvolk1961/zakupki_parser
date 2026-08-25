@@ -22,7 +22,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     _active_context = ctx._active_context
     _profile_out = ctx._profile_out
     _validate_profile_entries = ctx._validate_profile_entries
-    require_user = ctx.require_user
+    require_base = ctx.require_base
     require_user_or_internal = ctx.require_user_or_internal
 
     @router.get(
@@ -40,12 +40,12 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     @router.get(
         "/api/clients",
         response_model=ProfileListOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def list_clients(
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
-        user: User | None = Depends(require_user),
+        user: User | None = Depends(require_base),
     ) -> ProfileListOut:
         eff_user = await _effective_user(user)
         rows, total = await _repo().list_profiles(user_id=eff_user.id, limit=limit, offset=offset)
@@ -58,9 +58,9 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     @router.get(
         "/api/clients/{client_id}",
         response_model=ProfileOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
-    async def get_client(client_id: int, user: User | None = Depends(require_user)) -> ProfileOut:
+    async def get_client(client_id: int, user: User | None = Depends(require_base)) -> ProfileOut:
         eff_user = await _effective_user(user)
         row = await _repo().get_profile(eff_user.id, client_id)
         if row is None:
@@ -70,10 +70,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/clients",
         response_model=ProfileOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def create_client(
-        body: ProfileIn, user: User | None = Depends(require_user)
+        body: ProfileIn, user: User | None = Depends(require_base)
     ) -> ProfileOut:
         eff_user = await _effective_user(user)
         await _validate_profile_entries(body)
@@ -84,10 +84,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     @router.put(
         "/api/clients/{client_id}",
         response_model=ProfileOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def update_client(
-        client_id: int, body: ProfileIn, user: User | None = Depends(require_user)
+        client_id: int, body: ProfileIn, user: User | None = Depends(require_base)
     ) -> ProfileOut:
         eff_user = await _effective_user(user)
         existing = await _repo().get_profile(eff_user.id, client_id)
@@ -105,10 +105,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/clients/{client_id}/activate",
         response_model=ProfileOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def activate_client(
-        client_id: int, user: User | None = Depends(require_user)
+        client_id: int, user: User | None = Depends(require_base)
     ) -> ProfileOut:
         """Делает профиль активным (per-user состояние; остальные деактивируются)."""
         eff_user = await _effective_user(user)
@@ -121,9 +121,9 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     @router.delete(
         "/api/clients/{client_id}",
         status_code=204,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
-    async def delete_client(client_id: int, user: User | None = Depends(require_user)) -> None:
+    async def delete_client(client_id: int, user: User | None = Depends(require_base)) -> None:
         """Удаляет профиль (нельзя удалить активный или последний)."""
         eff_user = await _effective_user(user)
         try:
@@ -135,9 +135,9 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/clients/seed",
         response_model=ProfileOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
-    async def seed_client(user: User | None = Depends(require_user)) -> ProfileOut:
+    async def seed_client(user: User | None = Depends(require_base)) -> ProfileOut:
         """Загружает/обновляет профиль из ``docs/references/profile.md``
         (как CLI ``zp seed-profile``).
 

@@ -41,7 +41,7 @@ def ple_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
             repo = ProcurementRepository(db)
             user = await repo.first_user()
             if user is None:
-                user = await repo.create_user("admin", "test-hash", ROLE_ADMIN)
+                user = await repo.create_user("admin", "test-hash", [ROLE_ADMIN])
             await repo.upsert_profile(
                 {
                     "name": "default",
@@ -59,10 +59,13 @@ def ple_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
 
     asyncio.run(_setup())
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
+    # dev-режим: выключаем авторизацию явно (репозиторий .env может включать её).
+    os.environ["ZAKUPKI_AUTH_ENABLED"] = "false"
     app = create_app()
     with TestClient(app) as client:
         yield client
     os.environ.pop("ZAKUPKI_DB_DSN", None)
+    os.environ.pop("ZAKUPKI_AUTH_ENABLED", None)
 
 
 def _create_profile(client: TestClient, name: str) -> int:
@@ -299,8 +302,8 @@ def test_tenant_isolation_and_cascade() -> None:
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            user_a = await repo.create_user("ple-a", "hash", ROLE_ADMIN)
-            user_b = await repo.create_user("ple-b", "hash", ROLE_ADMIN)
+            user_a = await repo.create_user("ple-a", "hash", [ROLE_ADMIN])
+            user_b = await repo.create_user("ple-b", "hash", [ROLE_ADMIN])
             profile_a = await repo.upsert_profile({"name": "A1", "competencies": "C"}, user_a.id)
             await repo.upsert_profile({"name": "A2", "competencies": "C"}, user_a.id)
             profile_b = await repo.upsert_profile({"name": "B", "competencies": "C"}, user_b.id)

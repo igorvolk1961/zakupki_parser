@@ -8,6 +8,7 @@ import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadActiveClient } from "./clients.js";
 import { updateControls } from "./admin.js";
+import { roleLabelList, updateRolesUI } from "./roles.js";
 
 let loginMode = "login"; // "login" | "register"
 
@@ -75,12 +76,12 @@ function renderAuth() {
   if (state.authUser) {
     bar.style.display = "flex";
     $("#user-name").textContent = state.authUser.username;
-    $("#user-role").textContent =
-      state.authUser.role === "admin" ? "администратор" : "тендеролог";
+    $("#user-role").textContent = roleLabelList().join(", ");
   } else {
     bar.style.display = "none";
   }
   updateControls();
+  updateRolesUI();
 }
 
 function logout() {
@@ -107,6 +108,13 @@ async function checkAuth() {
       state.authRequired = true;
       state.authUser = await r.json();
       renderAuth();
+      return true;
+    }
+    if (r.status === 403) {
+      // Заблокированный аккаунт: вход закрыт, показываем ошибку в модалке входа.
+      state.authRequired = true;
+      showLogin();
+      $("#login-error").textContent = "Аккаунт заблокирован";
       return true;
     }
     if (r.status === 401) {

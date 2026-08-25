@@ -1,8 +1,8 @@
-"""Интеграционные тесты админ-страницы справочников (требуют PostgreSQL).
+"""Интеграционные тесты страницы справочников (требуют PostgreSQL).
 
 Проверяют: список справочных таблиц (реестр), CRUD строк license_types и
 experience_confirmation_types, конфликты уникальности (409), защиту эндпоинтов
-ролью администратора (401/403).
+ролью analyst (401/403).
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.api.app import create_app
-from zakupki_parser.auth import ROLE_ADMIN, hash_password
+from zakupki_parser.auth import ALL_ROLES, hash_password
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -46,7 +46,7 @@ def ref_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
             repo = ProcurementRepository(db)
             user = await repo.first_user()
             if user is None:
-                user = await repo.create_user("admin", "test-hash", ROLE_ADMIN)
+                user = await repo.create_user("admin", "test-hash", list(ALL_ROLES))
             await repo.upsert_profile(
                 {
                     "name": "default",
@@ -93,7 +93,7 @@ def ref_auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestCl
                 user = await repo.create_user(
                     "admin",
                     await asyncio.to_thread(hash_password, "adminpass"),
-                    ROLE_ADMIN,
+                    list(ALL_ROLES),
                 )
             await repo.upsert_profile(
                 {
@@ -308,11 +308,11 @@ def test_seed_code_rename_blocked(ref_client: TestClient) -> None:
     )
 
 
-def test_reference_admin_only(ref_auth_client: TestClient) -> None:
+def test_reference_analyst_only(ref_auth_client: TestClient) -> None:
     client = ref_auth_client
     # Аноним — 401.
     assert client.get("/api/reference").status_code == 401
-    # Тендеролог — 403.
+    # Простой пользователь — 403.
     token = _login(client, "admin", "adminpass")
     reg = client.post(
         "/api/auth/register",
@@ -325,5 +325,5 @@ def test_reference_admin_only(ref_auth_client: TestClient) -> None:
     assert reg.status_code == 200
     tender_token = str(reg.json()["access_token"])
     assert client.get("/api/reference", headers=_auth(tender_token)).status_code == 403
-    # Администратор — 200.
+    # Пользователь с ролью analyst (у админа все роли) — 200.
     assert client.get("/api/reference", headers=_auth(token)).status_code == 200

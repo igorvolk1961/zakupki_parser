@@ -1,45 +1,22 @@
 "use strict";
 
-// Вкладки «Параметры» (config_service.yaml) и «Промпты» (редактор промптов).
+// Вкладки аналитика: «Параметры мониторинга» (config_service.yaml: форма по схеме
+// + «Расширенный режим» с сырым YAML) и «Промпты» (редактор промптов).
 import { $ } from "./utils.js";
 import { api, apiJSON } from "./api.js";
+import { createConfigView } from "./config_view.js";
 
-let cfgDirty = false;
+export let monitorDirty = false;
 
-async function loadConfig() {
-  const cfg = await api("config");
-  $("#cfg-editor").value = JSON.stringify(cfg, null, 2);
-  $("#cfg-status").textContent = "config_service.yaml";
-  cfgDirty = false;
-}
+const monitorView = createConfigView("monitor", "config", {
+  savedNote: "Сохранено ✓ (применится при следующем запуске парсера)",
+  onDirty: (v) => {
+    monitorDirty = v;
+  },
+});
 
-async function saveConfig() {
-  let payload;
-  try {
-    payload = JSON.parse($("#cfg-editor").value);
-  } catch (err) {
-    $("#cfg-status").textContent = "Ошибка JSON: " + err.message;
-    return;
-  }
-  $("#cfg-status").textContent = "Сохранение…";
-  try {
-    const r = await apiJSON("/api/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) {
-      const detail = await r.json();
-      $("#cfg-status").textContent = "Ошибка валидации: " + JSON.stringify(detail.detail || detail);
-      return;
-    }
-    const saved = await r.json();
-    $("#cfg-editor").value = JSON.stringify(saved, null, 2);
-    $("#cfg-status").textContent = "Сохранено ✓ (применится при следующем запуске парсера)";
-    cfgDirty = false;
-  } catch (err) {
-    $("#cfg-status").textContent = "Ошибка: " + err.message;
-  }
+export function loadMonitor() {
+  return monitorView.load();
 }
 
 // --- Промпты ----------------------------------------------------------
@@ -136,14 +113,9 @@ async function savePrompt() {
   }
 }
 
-export { loadConfig, saveConfig, loadPromptList, loadPrompt, savePrompt, cfgDirty, promptDirty };
+export { loadPromptList, loadPrompt, savePrompt, promptDirty };
 
-$("#cfg-editor").addEventListener("input", () => {
-  cfgDirty = true;
-  $("#cfg-status").textContent = "несохранённые изменения";
-});
-$("#cfg-save").addEventListener("click", saveConfig);
-$("#cfg-reload").addEventListener("click", loadConfig);
+// --- Слушатели --------------------------------------------------------
 $("#prompt-editor").addEventListener("input", () => {
   promptDirty = true;
   $("#prompt-status").textContent = "несохранённые изменения";

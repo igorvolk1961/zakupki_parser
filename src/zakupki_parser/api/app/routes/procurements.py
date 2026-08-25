@@ -6,10 +6,9 @@ import csv
 import io
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from zakupki_parser.api.app.converters import (
     _meets_stage_notify_threshold,
@@ -65,13 +64,14 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     _repo = ctx._repo
     _active_context = ctx._active_context
     require_user = ctx.require_user
+    require_base = ctx.require_base
     require_internal = ctx.require_internal
     require_user_or_internal = ctx.require_user_or_internal
 
     @router.get(
         "/api/procurements",
         response_model=ProcurementListOut,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def list_procurements(
         number: str | None = None,
@@ -106,19 +106,18 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/procurements/export",
         include_in_schema=False,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def export_procurements(
-        body: ExportIn | None = None, user: User | None = Depends(require_user)
-    ) -> dict[str, Any]:
-        """Выгружает активные релевантные закупки из БД в CSV (каталог export_dir).
+        body: ExportIn | None = None, user: User | None = Depends(require_base)
+    ) -> Response:
+        """Выгружает активные релевантные закупки в CSV (скачивание в браузер).
 
         В выгрузку попадают ТОЛЬКО активные (по статусу и сроку актуальности) и
         релевантные (прошедшие внешний скоринг с fit_score >= порога) закупки —
         как фильтр «Только релевантные» в таблице закупок. Порог по умолчанию 0.4.
-
-        Файл пишется в ``config_service.yaml -> export_dir`` (создаётся при
-        необходимости). Операция read-only — безопасна при работающем парсере.
+        Файл отдаётся клиенту (браузер сам предложит выбрать папку), на сервере
+        ничего не пишется. Операция read-only — безопасна при работающем парсере.
         """
         threshold = body.min_fit_score if body is not None else 0.4
         _, profile = await _active_context(user)
@@ -139,17 +138,14 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                     out[col] = out[col].isoformat()
             writer.writerow(out)
 
-        export_dir = Path(state.cfg.ops.export_dir)
-        try:
-            export_dir.mkdir(parents=True, exist_ok=True)
-            target = export_dir / "procurements.csv"
-            target.write_bytes(buf.getvalue().encode("utf-8-sig"))
-        except OSError as exc:
-            logger.error("Не удалось записать CSV %s: %s", export_dir, exc)
-            raise HTTPException(status_code=500, detail=f"Не удалось выгрузить CSV: {exc}") from exc
-
-        logger.info("Выгружено закупок в CSV: %s -> %s", len(rows), target)
-        return {"status": "exported", "count": len(rows), "path": str(target)}
+        logger.info("Выгружено закупок в CSV (клиент): %s", len(rows))
+        return Response(
+            content=buf.getvalue().encode("utf-8-sig"),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="procurements.csv"',
+            },
+        )
 
     @router.get(
         "/api/procurements/{procurement_id}",
@@ -235,10 +231,10 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/procurements/analyze",
         include_in_schema=False,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def analyze_procurements(
-        body: ProcurementIdsIn, user: User | None = Depends(require_user)
+        body: ProcurementIdsIn, user: User | None = Depends(require_base)
     ) -> dict[str, Any]:
         """Обработать выбранные закупки: авто-Fit (если нет) + RAG-анализ ТЗ.
 
@@ -262,10 +258,10 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/procurements/pwin-margin",
         include_in_schema=False,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def pwin_margin_procurements(
-        body: ProcurementIdsIn, user: User | None = Depends(require_user)
+        body: ProcurementIdsIn, user: User | None = Depends(require_base)
     ) -> dict[str, Any]:
         """Оценить P(win) и Margin для выбранных закупок (on-demand, обе стадии)."""
         if state.score_transport is None:

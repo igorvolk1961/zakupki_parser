@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.websockets import WebSocketDisconnect
 
 from zakupki_parser.api.app import create_app
-from zakupki_parser.auth import ROLE_ADMIN, hash_password
+from zakupki_parser.auth import ALL_ROLES, hash_password
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -47,16 +47,16 @@ def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            # Сервис-аккаунт: не «admin» — логин admin оставлен свободным, чтобы
-            # test_register_never_grants_admin_role проверил регистрацию под ним.
-            # Пароль — реальный хеш (PBKDF2): используется для входа админом
-            # в test_websocket_with_token.
+            # Сервис-аккаунт: получает ВСЕ роли (как автосоздаваемый admin).
+            # Логин «admin» оставлен свободным, чтобы test_register_never_grants_admin_role
+            # проверил регистрацию под ним. Пароль — реальный хеш (PBKDF2):
+            # используется для входа в test_websocket_with_token.
             user = await repo.first_user()
             if user is None:
                 user = await repo.create_user(
                     "service-account",
                     await asyncio.to_thread(hash_password, "servicepass"),
-                    ROLE_ADMIN,
+                    list(ALL_ROLES),
                 )
             await repo.upsert_profile(
                 {
@@ -109,7 +109,7 @@ def _headers(token: str) -> dict[str, str]:
 
 def test_register_login_me(auth_client: TestClient) -> None:
     client = auth_client
-    # Регистрация: пароль выбирает сам пользователь + подтверждение, роль — tenderologist.
+    # Регистрация: пароль выбирает сам пользователь + подтверждение, роль — user.
     resp = client.post(
         "/api/auth/register",
         json={"username": "tender1", "password": "password123", "password_confirm": "password123"},
@@ -118,7 +118,7 @@ def test_register_login_me(auth_client: TestClient) -> None:
     body = resp.json()
     assert body["access_token"]
     assert body["user"]["username"] == "tender1"
-    assert body["user"]["role"] == "tenderologist"
+    assert body["user"]["roles"] == ["user"]
 
     # Дубликат логина отклоняется.
     dup = client.post(
@@ -256,26 +256,28 @@ def test_pipeline_can_read_procurement_card_with_internal_token(auth_client: Tes
     assert bad.status_code == 401
 
 
-def test_tenderologist_cannot_use_admin_endpoints(auth_client: TestClient) -> None:
+def test_simple_user_cannot_use_admin_endpoints(auth_client: TestClient) -> None:
     client = auth_client
     token = _login(client, "tender1", "password123")
     headers = _headers(token)
 
-    # Рабочие (тендеролог) эндпоинты доступны.
+    # Рабочие (простой пользователь) эндпоинты доступны.
     assert client.get("/api/procurements", headers=headers).status_code == 200
     assert client.get("/api/config/threshold", headers=headers).status_code == 200
 
-    # Админ-операции — 403.
+    # Операции других ролей — 403.
     assert client.post("/api/parser/start", headers=headers).status_code == 403
     assert client.post("/api/db/clear", headers=headers).status_code == 403
     assert client.put("/api/config", headers=headers, json={}).status_code == 403
+    assert client.get("/api/users", headers=headers).status_code == 403
+    assert client.get("/api/logs/tail", headers=headers).status_code == 403
 
 
 def test_register_never_grants_admin_role(auth_client: TestClient) -> None:
-    """Регистрация (даже под логином admin) всегда даёт роль tenderologist.
+    """Регистрация (даже под логином admin) всегда даёт роль user.
 
-    Роль администратора регистрацией не выдаётся — она задаётся env-сидом
-    начального администратора или администратором системы.
+    Роли admin/analyst/devops регистрацией не выдаются — их задаёт администратор
+    во вкладке «Пользователи».
     """
     client = auth_client
     resp = client.post(
@@ -283,9 +285,9 @@ def test_register_never_grants_admin_role(auth_client: TestClient) -> None:
         json={"username": "admin", "password": "password123", "password_confirm": "password123"},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["user"]["role"] == "tenderologist"
+    assert resp.json()["user"]["roles"] == ["user"]
 
-    # Тендеролог не имеет доступа к админ-эндпоинту.
+    # Простой пользователь не имеет доступа к панели парсера.
     token = _login(client, "admin", "password123")
     assert client.post("/api/db/clear", headers=_headers(token)).status_code == 403
 

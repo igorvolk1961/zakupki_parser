@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -121,16 +121,69 @@ class UserOut(BaseModel):
     id: int
     username: str
     email: str | None = None
-    role: str
+    roles: list[str]
+    status: str = "active"
     created_at: datetime
     updated_at: datetime
+
+
+# Роли, которые администратор может выдавать/снимать (роль «user» — только
+# через саморегистрацию и админом не управляется).
+ADMIN_ASSIGNABLE_ROLES = ("admin", "analyst", "devops")
+
+
+def _validate_assignable_roles(roles: list[str]) -> list[str]:
+    """Проверяет, что роли непусты и состоят только из выдаваемых админом ролей."""
+    unknown = set(roles) - set(ADMIN_ASSIGNABLE_ROLES)
+    if unknown:
+        joined = ", ".join(sorted(unknown))
+        raise ValueError(f"Роль 'user' и неизвестные роли выдавать нельзя: {joined}")
+    if not roles:
+        raise ValueError("Укажите хотя бы одну роль")
+    return roles
+
+
+class UserIn(BaseModel):
+    """Создание пользователя администратором (роли {admin, analyst, devops})."""
+
+    username: str = Field(min_length=1, max_length=128)
+    email: str | None = Field(default=None, max_length=255)
+    password: str = Field(min_length=8)
+    roles: list[str]
+
+    @field_validator("roles")
+    @classmethod
+    def _roles_assignable(cls, value: list[str]) -> list[str]:
+        return _validate_assignable_roles(value)
+
+
+class UserRolesIn(BaseModel):
+    """Смена ролей пользователя администратором (без роли «user»)."""
+
+    roles: list[str]
+
+    @field_validator("roles")
+    @classmethod
+    def _roles_assignable(cls, value: list[str]) -> list[str]:
+        return _validate_assignable_roles(value)
+
+
+class UserStatusIn(BaseModel):
+    """Блокировка/разблокировка аккаунта."""
+
+    status: Literal["active", "blocked"]
+
+
+class UsersListOut(BaseModel):
+    total: int
+    items: list[UserOut]
 
 
 class RegisterIn(BaseModel):
     """Самостоятельная регистрация: пользователь сам выбирает пароль.
 
     Требуется подтверждение пароля (``password_confirm``). Роль при регистрации
-    всегда ``tenderologist``; роль администратора регистрацией не выдаётся.
+    всегда ``user``; роли admin/analyst/devops регистрацией не выдаются.
     """
 
     username: str = Field(min_length=1, max_length=128)

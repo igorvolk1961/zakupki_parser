@@ -1,0 +1,19 @@
+databaseChangeLog:
+- changeSet:
+    id: 41
+    author: zakupki-parser
+    comment: 'users: несколько ролей (roles jsonb: user/admin/analyst/devops), статус аккаунта (status: active/blocked), бэкфилл из role, первый admin получает все роли'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS roles jsonb NOT NULL DEFAULT '[]'::jsonb;
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS status varchar(16) NOT NULL DEFAULT 'active';
+          UPDATE users SET roles = jsonb_build_array(CASE role WHEN 'admin' THEN 'admin' WHEN 'tenderologist' THEN 'user' ELSE role END)
+            WHERE roles = '[]'::jsonb AND role IS NOT NULL;
+          -- Существующие администраторы (все, не только первый) получают все роли:
+          -- до ролевой модели admin имел доступ ко всему, и этот доступ сохраняется.
+          UPDATE users SET roles = '["user","admin","analyst","devops"]'::jsonb
+            WHERE role = 'admin';
+          ALTER TABLE users DROP COLUMN IF EXISTS role;
+          COMMENT ON TABLE users IS 'Пользователи сервиса: roles (user/admin/analyst/devops, объединение вкладок), status (active/blocked)';

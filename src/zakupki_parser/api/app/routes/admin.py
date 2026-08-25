@@ -30,7 +30,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     _repo = ctx._repo
     _active_context = ctx._active_context
     require_user = ctx.require_user
-    require_admin = ctx.require_admin
+    require_devops = ctx.require_devops
 
     @router.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index() -> HTMLResponse:
@@ -64,7 +64,11 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         if state.cfg.ops.auth.enabled:
             token = websocket.query_params.get("token")
             payload = decode_token(token or "", state.cfg.ops.auth.secret or "")
-            if payload is None or await _repo().get_user(payload["sub"]) is None:
+            if payload is None:
+                await websocket.close(code=1008)
+                return
+            user = await _repo().get_user(payload["sub"])
+            if user is None or user.status == "blocked":
                 await websocket.close(code=1008)
                 return
         await websocket.accept()
@@ -77,7 +81,11 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         finally:
             state.ws_clients.discard(websocket)
 
-    @router.get("/api/parser/status", include_in_schema=False, dependencies=[Depends(require_user)])
+    @router.get(
+        "/api/parser/status",
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
     async def parser_status() -> dict[str, Any]:
         """Текущее состояние парсера (запущен/остановлен, ошибка, время)."""
         status = dict(state.parser_status)
@@ -88,7 +96,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/parser/start",
         include_in_schema=False,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_devops)],
     )
     async def start_parser() -> dict[str, Any]:
         """Запускает постоянный мониторинг парсера (периодические проходы) в фоне."""
@@ -106,7 +114,11 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         logger.info("Запущен парсер (постоянный мониторинг) по команде из web-интерфейса")
         return {"status": "started"}
 
-    @router.post("/api/parser/stop", include_in_schema=False, dependencies=[Depends(require_admin)])
+    @router.post(
+        "/api/parser/stop",
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
     async def stop_parser() -> dict[str, Any]:
         """Останавливает запущенный проход парсера."""
         task = state.parser_task
@@ -116,7 +128,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         logger.info("Запрошена остановка парсера из web-интерфейса")
         return {"status": "stopping"}
 
-    @router.post("/api/db/clear", include_in_schema=False, dependencies=[Depends(require_admin)])
+    @router.post("/api/db/clear", include_in_schema=False, dependencies=[Depends(require_devops)])
     async def clear_db() -> dict[str, Any]:
         """Очищает БД (закупки и заказчики). Доступно только при остановленном парсере."""
         if state.parser_task is not None and not state.parser_task.done():
@@ -129,7 +141,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/db/clear-inactive",
         include_in_schema=False,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_devops)],
     )
     async def clear_inactive() -> dict[str, Any]:
         """Удаляет неактивные закупки (is_active=false или истёкший срок актуальности).
@@ -147,7 +159,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     @router.post(
         "/api/db/clear-irrelevant",
         include_in_schema=False,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_devops)],
     )
     async def clear_irrelevant(
         body: ClearIrrelevantIn | None = None, user: User | None = Depends(require_user)

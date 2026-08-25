@@ -17,44 +17,59 @@ import {
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, profileFormDirty } from "./clients.js";
-import { loadConfig, loadPromptList, cfgDirty, promptDirty } from "./config.js";
+import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
+import { loadOpsConfig, loadLogConfig, loadParserConfig, opsDirty, logDirty } from "./ops_config.js";
+import { loadUsers, closeUserModal } from "./users.js";
+import { loadLogs } from "./logs.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
 import { loadRefTables, refDirty } from "./reference.js";
+import { ALL_TABS, switchTo, updateRolesUI } from "./roles.js";
 
 // --- Переключение верхних вкладок --------------------------------------
 // При уходе с формы редактирования профиля с несохранёнными изменениями
 // предупреждаем: «Отмена» — confirmDialog ниже, закрытие страницы — beforeunload.
-function switchTab(name) {
-  ["proc", "cust", "cfg", "prompts", "profiles", "refs"].forEach((k) => {
-    $("#tab-" + k).classList.toggle("active", k === name);
-    $("#view-" + k).style.display = k === name ? "block" : "none";
+const TAB_LOADERS = {
+  proc: null,
+  cust: loadCustomers,
+  profiles: loadProfiles,
+  users: loadUsers,
+  monitor: () => {
+    if (!monitorDirty) loadMonitor();
+  },
+  prompts: () => {
+    if (!promptDirty) loadPromptList();
+  },
+  refs: loadRefTables,
+  cfgops: () => {
+    if (!opsDirty) loadOpsConfig();
+  },
+  logcfg: () => {
+    if (!logDirty) loadLogConfig();
+  },
+  logs: loadLogs,
+  parser: loadParserConfig,
+};
+
+ALL_TABS.forEach((t) => {
+  const btn = $("#tab-" + t);
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    switchTo(t);
+    const loader = TAB_LOADERS[t];
+    if (loader) loader();
   });
-}
-$("#tab-proc").addEventListener("click", () => switchTab("proc"));
-$("#tab-cust").addEventListener("click", () => {
-  switchTab("cust");
-  loadCustomers();
-});
-$("#tab-cfg").addEventListener("click", () => {
-  switchTab("cfg");
-  if (!cfgDirty) loadConfig();
-});
-$("#tab-prompts").addEventListener("click", () => {
-  switchTab("prompts");
-  if (!promptDirty) loadPromptList();
-});
-$("#tab-profiles").addEventListener("click", () => {
-  switchTab("profiles");
-  loadProfiles();
-});
-$("#tab-refs").addEventListener("click", () => {
-  switchTab("refs");
-  loadRefTables();
 });
 
 window.addEventListener("beforeunload", (e) => {
-  if (cfgDirty || promptDirty || profileFormDirty() || refDirty()) {
+  if (
+    monitorDirty ||
+    opsDirty ||
+    logDirty ||
+    promptDirty ||
+    profileFormDirty() ||
+    refDirty()
+  ) {
     e.preventDefault();
     e.returnValue = "";
   }
@@ -66,6 +81,7 @@ window.closeModal = closeModal;
 window.closeDbModal = closeDbModal;
 window.closeExportModal = closeExportModal;
 window.closeDeleteProfileModal = closeDeleteProfileModal;
+window.closeUserModal = closeUserModal;
 window.analyzeProc = analyzeProc;
 window.pwinProc = pwinProc;
 
@@ -74,6 +90,7 @@ document.addEventListener("keydown", (e) => {
     closeDbModal();
     closeExportModal();
     closeDeleteProfileModal();
+    closeUserModal();
     closeConfirmDialog();
   }
 });
@@ -91,12 +108,14 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
 
 (async function init() {
   updateControls();
+  updateRolesUI();
   // Состояние переключателя «Только релевантные» и числового поля порога.
   $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
   updateMinFit();
   // При включённой авторизации без входа не загружаем данные (ждём логин) —
   // WebSocket подключится после успешного входа (см. doLogin).
   const authActive = await checkAuth();
+  updateRolesUI();
   if (authActive && !state.authUser) return;
   connectWS();
   refreshParserStatus();

@@ -40,7 +40,7 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
             repo = ProcurementRepository(db)
             user = await repo.first_user()
             if user is None:
-                user = await repo.create_user("admin", "test-hash", "admin")
+                user = await repo.create_user("admin", "test-hash", ["admin"])
             await repo.upsert_profile(
                 {
                     "name": "default",
@@ -60,10 +60,13 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
     docs = tmp_path_factory.mktemp("docs")
 
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
+    # dev-режим: выключаем авторизацию явно (репозиторий .env может включать её).
+    os.environ["ZAKUPKI_AUTH_ENABLED"] = "false"
     app = create_app()
     with TestClient(app) as client:
         yield client, docs
     os.environ.pop("ZAKUPKI_DB_DSN", None)
+    os.environ.pop("ZAKUPKI_AUTH_ENABLED", None)
 
 
 @pytest.fixture(scope="module")
@@ -230,7 +233,7 @@ def test_index_page_served(api_client: tuple[TestClient, Path]) -> None:
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     assert "Парсер закупок" in resp.text
-    assert "procurements" in resp.text
+    assert 'src="/static/js/main.js"' in resp.text
 
 
 def test_list_and_get(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
@@ -633,16 +636,11 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
     os.environ.pop("ZAKUPKI_DB_DSN", None)
 
 
-def test_export_csv_writes_to_export_dir(
-    api_client: tuple[TestClient, Path], inserted_id: int, tmp_path: Path
-) -> None:
-    """CSV выгружает только активные релевантные закупки (fit_score >= порога)."""
+def test_export_csv_download(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
+    """CSV отдаётся файлом: только активные релевантные закупки (fit_score >= порога)."""
     client, _ = api_client
-    export_dir = tmp_path / "export"
-    state = cast(Any, client.app).state.parser
-    state.cfg.ops.export_dir = str(export_dir)
 
-    async def _seed_relevant() -> int:
+    async def _seed_relevant() -> None:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
@@ -684,21 +682,16 @@ def test_export_csv_writes_to_export_dir(
             await repo.upsert_score(
                 ids["EXPORT-IRR"], profile.id, fit_score=0.2, score_method="fit"
             )
-            return ids["EXPORT-REL"]
         finally:
             await db.dispose()
 
-    relevant_id = asyncio.run(_seed_relevant())
+    asyncio.run(_seed_relevant())
 
     resp = client.post("/api/procurements/export", json={"min_fit_score": 0.4})
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "exported"
-    assert body["count"] >= 1
-
-    target = export_dir / "procurements.csv"
-    assert target.exists()
-    content = target.read_text(encoding="utf-8-sig")
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert "attachment" in resp.headers.get("content-disposition", "")
+    content = resp.content.decode("utf-8-sig")
     # Заголовок + активная релевантная запись.
     assert "number,platform_id" in content
     assert "EXPORT-REL" in content
@@ -706,9 +699,6 @@ def test_export_csv_writes_to_export_dir(
     # Нерелевантная (fit_score < 0.4) и неактивная закупки в выгрузку не попадают.
     assert "EXPORT-IRR" not in content
     assert "EXPORT-INACTIVE" not in content
-
-    # Подтверждаем, что релевантная запись существует в БД.
-    assert client.get(f"/api/procurements/{relevant_id}").status_code == 200
 
 
 def test_prompts_list_get_put_validate(tmp_path: Path) -> None:

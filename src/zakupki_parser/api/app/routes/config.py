@@ -1,4 +1,19 @@
-"""Эндпоинты конфигурации сервиса (config_service.yaml) и редактора промптов."""
+"""Эндпоинты конфигурации: config_service.yaml (аналитик), config_ops.yaml,
+config_log.yaml, config_parser.yaml (devops, только чтение) и редактор промптов.
+
+Вкладки:
+- «Параметры мониторинга» (аналитик) — config_service.yaml (форма + расширенный
+  режим YAML);
+- «Промпты» (аналитик) — файлы промптов сервисов;
+- «Конфигурация» (devops) — config_ops.yaml (форма + расширенный режим YAML);
+- «Управление Логи» (devops) — config_log.yaml (форма + расширенный режим YAML);
+- «Парсер» (devops) — config_parser.yaml, только чтение.
+
+Секреты (auth.secret, токены бэкендов) в YAML не пишутся и в форме не
+редактируются — они управляются через env. Включение авторизации
+(``auth.enabled``) также управляется через env (ZAKUPKI_AUTH_ENABLED) и через
+API не меняется: иначе devops мог бы отключить авторизацию для всего сервиса.
+"""
 
 from __future__ import annotations
 
@@ -9,10 +24,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import ValidationError
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, ValidationError
 
+from zakupki_parser.api.app.config_schema import build_schema
 from zakupki_parser.api.app.converters import (
+    _ops_config_public,
     _prompt_dir_rel,
     _prompt_file,
     _prompt_kind,
@@ -21,7 +38,7 @@ from zakupki_parser.api.app.converters import (
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import PromptUpdate
 from zakupki_parser.api.app.state import AppState
-from zakupki_parser.config.models import ServiceConfig
+from zakupki_parser.config.models import LoggingConfig, OpsConfig, ParserConfig, ServiceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +49,15 @@ def _register_prompt_routes(
     base: Path,
     state: AppState,
     service_name: str,
-    require_user: Callable[..., Any],
-    require_admin: Callable[..., Any],
+    require_analyst: Callable[..., Any],
 ) -> None:
-    """Список/чтение/сохранение файлов промптов одного каталога."""
+    """Список/чтение/сохранение файлов промптов одного каталога (вкладка «Промпты»)."""
 
     @router.get(
         f"/api/{prefix}",
         response_model=dict[str, Any],
         include_in_schema=False,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_analyst)],
     )
     async def list_prompts() -> dict[str, Any]:
         """Список файлов промптов (md/json) для вкладки «Промпты»."""
@@ -56,7 +72,7 @@ def _register_prompt_routes(
         f"/api/{prefix}/{{name}}",
         response_model=dict[str, Any],
         include_in_schema=False,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_analyst)],
     )
     async def get_prompt(name: str) -> dict[str, Any]:
         """Содержимое файла промпта."""
@@ -72,7 +88,7 @@ def _register_prompt_routes(
         f"/api/{prefix}/{{name}}",
         response_model=dict[str, Any],
         include_in_schema=False,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_analyst)],
     )
     async def put_prompt(name: str, body: PromptUpdate) -> dict[str, Any]:
         """Сохраняет промпт; JSON-файлы проверяются на корректность до записи."""
@@ -99,72 +115,264 @@ def _register_prompt_routes(
         }
 
 
+async def _read_payload(request: Request) -> dict[str, Any]:
+    """Тело PUT конфигурации: JSON-объект (форма) или raw YAML (расширенный режим)."""
+    ctype = request.headers.get("content-type", "")
+    if "json" in ctype:
+        body = await request.json()
+    else:
+        raw = (await request.body()).decode("utf-8")
+        try:
+            body = yaml.safe_load(raw) or {}
+        except yaml.YAMLError as exc:
+            raise HTTPException(status_code=422, detail=f"Некорректный YAML: {exc}") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="Ожидается объект конфигурации")
+    return body
+
+
+def _write_yaml(target: Path, data: dict[str, Any]) -> None:
+    try:
+        target.write_text(
+            yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Не удалось записать конфиг: {exc}") from exc
+
+
+def _raw_yaml(state: AppState, filename: str) -> dict[str, Any]:
+    target = Path(state.configs_dir) / filename
+    return {"yaml": target.read_text(encoding="utf-8") if target.is_file() else ""}
+
+
+def _register_config_endpoints(
+    router: APIRouter,
+    *,
+    state: AppState,
+    api_path: str,
+    schema_path: str,
+    raw_path: str | None,
+    filename: str,
+    model: type[BaseModel],
+    public: Callable[[Any], dict[str, Any]],
+    require: Callable[..., Any],
+    state_setter: Callable[[Any], None],
+    schema_options: dict[str, list[str]] | None = None,
+    schema_transform: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
+    prepare: Callable[[dict[str, Any]], None] | None = None,
+    validate: Callable[[Any], None] | None = None,
+    read_only: bool = False,
+) -> None:
+    """GET/PUT (форма + raw YAML) и схема для одного конфига.
+
+    ``prepare`` — модификация тела ДО валидации (например, подмешивание env-секретов);
+    ``validate`` — пост-валидационная проверка (например, запрет смены auth.enabled);
+    ``public`` — сериализация для формы/YAML без секретов.
+    """
+
+    @router.get(
+        api_path,
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require)],
+    )
+    async def get_config() -> dict[str, Any]:
+        """Текущие параметры конфигурации (для веб-формы)."""
+        return public(_current())
+
+    def _current() -> Any:
+        if model is ServiceConfig:
+            return state.cfg.service
+        if model is OpsConfig:
+            return state.cfg.ops
+        if model is LoggingConfig:
+            return state.cfg.logging
+        return state.cfg.parser
+
+    @router.get(
+        schema_path,
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require)],
+    )
+    async def get_config_schema() -> dict[str, Any]:
+        """Схема конфигурации для веб-формы."""
+        schema = build_schema(model, schema_options)
+        if schema_transform is not None:
+            schema = schema_transform(schema)
+        return {"schema": schema}
+
+    if raw_path is not None:
+
+        @router.get(
+            raw_path,
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def get_config_raw() -> dict[str, Any]:
+            """Сырой YAML конфигурации для «Расширенного режима»."""
+            return _raw_yaml(state, filename)
+
+    if not read_only:
+
+        @router.put(
+            api_path,
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def put_config(request: Request) -> dict[str, Any]:
+            """Валидирует и сохраняет конфигурацию (JSON-форма или raw YAML)."""
+            body = await _read_payload(request)
+            if prepare is not None:
+                prepare(body)
+            try:
+                new_model = model.model_validate(body)
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=exc.errors()) from exc
+            if validate is not None:
+                validate(new_model)
+            target = Path(state.configs_dir) / filename
+            _write_yaml(target, public(new_model))
+            state_setter(new_model)
+            logger.info("Сохранён %s (%s)", filename, target)
+            return public(new_model)
+
+
+def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """В схеме config_service.yaml скрываем критерии, принадлежащие профилю.
+
+    ``search_criteria.okpd_codes/nmck_min/nmck_max/no_code_search`` живут в
+    профиле (таблица keywords) и при сохранении глобального конфига отбрасываются
+    (``_service_config_public``) — не показываем их как редактируемые.
+    """
+    for field in schema:
+        if field.get("key") == "search_criteria" and field.get("kind") == "object":
+            field["fields"] = [
+                sub
+                for sub in field["fields"]
+                if sub["key"] in ("active_only", "deadline_not_expired")
+            ]
+    return schema
+
+
 def build_config_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     state = ctx.state
-    require_user = ctx.require_user
-    require_admin = ctx.require_admin
+    require_base = ctx.require_base
+    require_analyst = ctx.require_analyst
+    require_devops = ctx.require_devops
 
     @router.get(
         "/api/config/threshold",
         response_model=dict[str, Any],
         include_in_schema=False,
-        dependencies=[Depends(require_user)],
+        dependencies=[Depends(require_base)],
     )
     async def get_relevance_threshold() -> dict[str, Any]:
-        """Порог релевантности (fit_score) — используется переключателем «Только релевантные».
+        """Порог релевантности (fit_score) — переключатель «Только релевантные».
 
-        Значение берётся из config_ops.yaml (notifications.notify_min_fit_score),
-        эксплуатационные параметры целиком через API не отдаются.
+        Значение берётся из config_ops.yaml (notifications.notify_min_fit_score).
         """
         return {"notify_min_fit_score": state.cfg.ops.notifications.notify_min_fit_score}
 
-    @router.get(
-        "/api/config",
-        response_model=dict[str, Any],
-        include_in_schema=False,
-        dependencies=[Depends(require_user)],
+    platform_ids = sorted(state.cfg.dom.platforms.keys())
+
+    # --- config_service.yaml: «Параметры мониторинга» (аналитик) ----------
+    _register_config_endpoints(
+        router,
+        state=state,
+        api_path="/api/config",
+        schema_path="/api/config/service/schema",
+        raw_path="/api/config/service/raw",
+        filename="config_service.yaml",
+        model=ServiceConfig,
+        public=_service_config_public,
+        require=require_analyst,
+        state_setter=lambda m: setattr(state.cfg, "service", m),
+        schema_options={"sites.platform_id": platform_ids},
+        schema_transform=_service_schema_transform,
     )
-    async def get_config() -> dict[str, Any]:
-        """Текущие параметры config_service.yaml (аналитические настройки).
 
-        Секреты и эксплуатационные параметры (БД, уведомления, таймер) живут в
-        config_ops.yaml и не редактируются через этот API.
-        """
-        return _service_config_public(state.cfg.service)
+    # --- config_ops.yaml: «Конфигурация» (devops) ------------------------
+    def _prepare_ops(body: dict[str, Any]) -> None:
+        """Перед валидацией подмешиваем env-секреты (auth.enabled=true требует secret)."""
+        current = state.cfg.ops
+        auth = body.setdefault("auth", {})
+        auth.setdefault("secret", current.auth.secret)
+        auth.setdefault("internal_token", current.auth.internal_token)
+        notif = body.setdefault("notifications", {})
+        for key, current_block in (
+            ("telegram", current.notifications.telegram),
+            ("max", current.notifications.max),
+            ("webhook", current.notifications.webhook),
+        ):
+            block = notif.setdefault(key, {})
+            block.setdefault("token", current_block.token)
 
-    @router.put(
-        "/api/config",
-        response_model=dict[str, Any],
-        include_in_schema=False,
-        dependencies=[Depends(require_admin)],
-    )
-    async def put_config(body: dict[str, Any]) -> dict[str, Any]:
-        """Валидирует и сохраняет аналитические параметры config_service.yaml.
-
-        Эксплуатационные параметры (БД, уведомления, секреты) не редактируются
-        через API — они живут в config_ops.yaml и берутся из env.
-        """
-        try:
-            new_service = ServiceConfig.model_validate(body)
-        except ValidationError as exc:
-            raise HTTPException(status_code=422, detail=exc.errors()) from exc
-        target = Path(state.configs_dir) / "config_service.yaml"
-        try:
-            target.write_text(
-                yaml.safe_dump(
-                    _service_config_public(new_service),
-                    allow_unicode=True,
-                    sort_keys=False,
-                ),
-                encoding="utf-8",
+    def _validate_ops(new_ops: OpsConfig) -> None:
+        """Запрет смены включения авторизации через API (управляется env)."""
+        if new_ops.auth.enabled != state.cfg.ops.auth.enabled:
+            raise HTTPException(
+                status_code=409,
+                detail="Включение авторизации управляется через env (ZAKUPKI_AUTH_ENABLED)",
             )
-        except OSError as exc:
-            detail = f"Не удалось записать конфиг: {exc}"
-            raise HTTPException(status_code=500, detail=detail) from exc
-        state.cfg.service = new_service
-        logger.info("Сохранён config_service.yaml (%s)", target)
-        return _service_config_public(new_service)
+
+    _register_config_endpoints(
+        router,
+        state=state,
+        api_path="/api/config/ops",
+        schema_path="/api/config/ops/schema",
+        raw_path="/api/config/ops/raw",
+        filename="config_ops.yaml",
+        model=OpsConfig,
+        public=_ops_config_public,
+        require=require_devops,
+        state_setter=lambda m: setattr(state.cfg, "ops", m),
+        prepare=_prepare_ops,
+        validate=_validate_ops,
+    )
+
+    # --- config_log.yaml: «Управление Логи» (devops) ---------------------
+    def _validate_log(new_log: LoggingConfig) -> None:
+        """Путь файла лога — только относительный (без выхода за корень проекта)."""
+        file = new_log.file
+        if file and (Path(file).is_absolute() or ".." in Path(file).parts):
+            raise HTTPException(
+                status_code=422,
+                detail="Путь файла лога должен быть относительным (от корня проекта)",
+            )
+
+    _register_config_endpoints(
+        router,
+        state=state,
+        api_path="/api/config/log",
+        schema_path="/api/config/log/schema",
+        raw_path="/api/config/log/raw",
+        filename="config_log.yaml",
+        model=LoggingConfig,
+        public=lambda m: m.model_dump(),
+        require=require_devops,
+        state_setter=lambda m: setattr(state.cfg, "logging", m),
+        validate=_validate_log,
+    )
+
+    # --- config_parser.yaml: «Парсер» (devops, только чтение) -------------
+    _register_config_endpoints(
+        router,
+        state=state,
+        api_path="/api/config/parser",
+        schema_path="/api/config/parser/schema",
+        raw_path=None,
+        filename="config_parser.yaml",
+        model=ParserConfig,
+        public=lambda m: m.model_dump(),
+        require=require_devops,
+        state_setter=lambda m: setattr(state.cfg, "parser", m),
+        read_only=True,
+    )
 
     _register_prompt_routes(
         router,
@@ -172,8 +380,7 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         Path(state.cfg.ops.prompts_dir),
         state,
         "scoring_service",
-        require_user,
-        require_admin,
+        require_analyst,
     )
     _register_prompt_routes(
         router,
@@ -181,8 +388,7 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         Path(state.cfg.ops.analysis_prompts_dir),
         state,
         "analysis_service",
-        require_user,
-        require_admin,
+        require_analyst,
     )
 
     return router

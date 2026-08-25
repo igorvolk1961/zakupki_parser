@@ -14,16 +14,9 @@ let stopping = false;
 function updateControls() {
   $("#parser-start").disabled = state.parserRunning;
   $("#parser-stop").disabled = !state.parserRunning || stopping;
-  // Элементы администратора видны автоматически для роли admin (или в dev-режиме
-  // без авторизации — всем). Роль регистрацией не выдаётся; задаётся env-сидом
-  // администратора или в таблице БД.
-  const adminOn = !state.authUser || state.authUser.role === "admin";
-  $("#db-clear").style.display = adminOn ? "" : "none";
+  // Панель парсера и клиентская выгрузка CSV по ролям управляются в roles.js
+  // (updateRolesUI): парсер — только devops, выгрузка — базовые вкладки.
   $("#db-clear").disabled = state.parserRunning;
-  $("#db-export").style.display = adminOn ? "" : "none";
-  $("#tab-cfg").style.display = adminOn ? "" : "none";
-  $("#tab-prompts").style.display = adminOn ? "" : "none";
-  $("#tab-refs").style.display = adminOn ? "" : "none";
 }
 
 async function refreshParserStatus() {
@@ -179,16 +172,28 @@ $("#export-fit-up").addEventListener("click", () => stepExportFit(0.1));
 $("#export-fit-dn").addEventListener("click", () => stepExportFit(-0.1));
 $("#export-confirm").addEventListener("click", async () => {
   closeExportModal();
-  $("#parser-status").textContent = "выгрузка CSV…";
+  $("#sel-count").textContent = "выгрузка CSV…";
   const r = await apiJSON("/api/procurements/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ min_fit_score: parseFloat($("#export-min-fit").value) }),
   });
   if (!r.ok) {
-    $("#parser-status").textContent = "не удалось выгрузить CSV";
+    $("#sel-count").textContent = "не удалось выгрузить CSV";
     return;
   }
-  const body = await r.json();
-  $("#parser-status").textContent = `CSV выгружен на сервер: ${body.path} (закупок: ${body.count})`;
+  // Клиентская выгрузка: сервер возвращает CSV-файл, браузер предложит папку.
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "procurements.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  $("#sel-count").textContent = "CSV скачан ✓";
+  setTimeout(() => {
+    $("#sel-count").textContent = "";
+  }, 3000);
 });

@@ -163,3 +163,46 @@
   .login-modal .error { color: #dc2626; font-size:13px; min-height:18px; margin-bottom:8px; }
   .login-modal .switch { margin-top:14px; text-align:center; font-size:13px; }
   .login-modal .switch button { background:none; border:none; color: var(--accent); cursor:pointer; padding:0; font-size:13px; }
+  /* Общие поля модалок (создание пользователя и т.п.). */
+  .modal .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .modal .field label { font-size:13px; color: var(--muted); }
+  .modal .error { color: #dc2626; font-size:13px; min-height:18px; margin-bottom:8px; }
+  /* Вкладки: базовые — слева, ролевые — справа (объединение ролей пользователя). */
+  .tabs-bar { justify-content: space-between; align-items:center; flex-wrap:wrap; }
+  .tabs-group { display:flex; gap:6px; flex-wrap:wrap; }
+  /* Формы конфигов (схема с бэкенда). */
+  .cfg-form { display:flex; flex-direction:column; gap:14px; }
+  .cfg-section { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .cfg-section-title { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:10px; }
+  .cfg-fields { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
+  .cfg-field { display:flex; flex-direction:column; gap:4px; font-size:13px; }
+  .cfg-field > span { color: var(--muted); }
+  .cfg-field input[type="text"], .cfg-field input[type="number"], .cfg-field select, .cfg-field textarea {
+    font-family:ui-monospace,monospace; font-size:13px; background:var(--panel2); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .cfg-field textarea { min-height:80px; resize:vertical; }
+  .cfg-field input[type="checkbox"] { width:18px; height:18px; }
+  .cfg-field .cfg-help { color: var(--muted); font-size:12px; line-height:1.35; }
+  .cfg-check { flex-direction:row; align-items:center; gap:8px; }
+  .cfg-check > span { color: var(--text); }
+  .cfg-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .cfg-table th, .cfg-table td { text-align:left; padding:6px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  .cfg-table th { color: var(--muted); font-weight:600; background: var(--panel2); }
+  .cfg-table input[type="text"], .cfg-table select { font-family:ui-monospace,monospace; font-size:13px;
+    background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  /* Логи: просмотр хвоста файла. */
+  .log-view { background:#0b1220; color:#dbe7ff; border:1px solid var(--line); border-radius:12px;
+    padding:12px; font-family:ui-monospace,monospace; font-size:12px; line-height:1.45;
+    overflow:auto; max-height:70vh; white-space:pre-wrap; word-break:break-word; }
+  .log-line { display:block; }
+  .log-line.error { color:#f87171; background:rgba(239,68,68,.08); }
+  .log-line.warning { color:#fbbf24; background:rgba(245,158,11,.08); }
+  /* Пользователи: роли и статус. */
+  .users-table td.actions { white-space:nowrap; }
+  .users-table .btn-mini { padding:4px 8px; font-size:12px; margin-right:6px; }
+  .role-pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line); }
+  .status-pill { font-size:11px; padding:2px 8px; border-radius:20px; font-weight:600; }
+  .status-pill.active { background:#dcfce7; border-color:#bbf7d0; color:#166534; }
+  .status-pill.blocked { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
+  html[data-theme="dark"] .status-pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
+  html[data-theme="dark"] .status-pill.blocked { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }

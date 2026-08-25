@@ -375,7 +375,7 @@ async def test_delete_inactive(db: Database) -> None:
 async def test_delete_irrelevant(db: Database) -> None:
     """delete_irrelevant удаляет записи с per-profile fit_score < порога (стадии каскада)."""
     repo = ProcurementRepository(db)
-    user = await repo.create_user("del-user", "hash", "admin")
+    user = await repo.create_user("del-user", "hash", ["admin"])
     profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
     assert profile.id is not None
     # Внешний скоринг, fit_score >= порога — релевантна, остаётся.
@@ -434,7 +434,7 @@ async def test_find_unscored_returns_unscored_and_mark_excludes(db: Database) ->
 async def test_find_unscored_excludes_scored_only(db: Database) -> None:
     """Оценённые в очередь recovery не ставятся; просроченные (не оценённые) — ставятся."""
     repo = ProcurementRepository(db)
-    user = await repo.create_user("q-user", "hash", "admin")
+    user = await repo.create_user("q-user", "hash", ["admin"])
     profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
     assert profile.id is not None
     scored = await _upsert(repo, "Q-3")
@@ -503,7 +503,7 @@ async def test_find_unscored_reenqueues_stale_queued(db: Database) -> None:
 async def test_list_procurements_scored_filter(db: Database) -> None:
     """scored=True возвращает только закупки с per-profile fit_score."""
     repo = ProcurementRepository(db)
-    user = await repo.create_user("s-user", "hash", "admin")
+    user = await repo.create_user("s-user", "hash", ["admin"])
     profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
     assert profile.id is not None
     unscored = await _upsert(repo, "S-1")

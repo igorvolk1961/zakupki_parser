@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import LoginIn, RegisterIn, TokenOut, UserOut
-from zakupki_parser.auth import ROLE_TENDEROLOGIST, create_token, hash_password, verify_password
+from zakupki_parser.auth import ROLE_USER, create_token, hash_password, verify_password
 from zakupki_parser.storage.db import User
 
 logger = logging.getLogger(__name__)
@@ -34,9 +34,11 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
         )
         if user is None or not ok:
             raise HTTPException(status_code=401, detail="Неверный логин или пароль")
+        if user.status == "blocked":
+            raise HTTPException(status_code=403, detail="Аккаунт заблокирован")
         ttl = state.cfg.ops.auth.token_ttl_seconds
-        token = create_token(user.id, user.role, state.cfg.ops.auth.secret or "", ttl)
-        logger.info("Вход пользователя %s (роль %s)", user.username, user.role)
+        token = create_token(user.id, user.roles, state.cfg.ops.auth.secret or "", ttl)
+        logger.info("Вход пользователя %s (роли %s)", user.username, ",".join(user.roles))
         return TokenOut(access_token=token, expires_in=ttl, user=UserOut.model_validate(user))
 
     @router.post("/api/auth/logout", include_in_schema=False)
@@ -56,10 +58,9 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
     async def register(body: RegisterIn) -> TokenOut:
         """Самостоятельная регистрация: пользователь сам выбирает пароль.
 
-        Роль при регистрации всегда ``tenderologist``. Роль администратора
-        регистрацией не выдаётся — её задаёт администратор системы (env-сид
-        ``ZAKUPKI_ADMIN_USERNAME``/``ZAKUPKI_ADMIN_PASSWORD`` при первом старте
-        либо правка таблицы ``users``).
+        Роль при регистрации всегда ``user`` (простой пользователь). Роли
+        admin/analyst/devops регистрацией не выдаются — их задаёт администратор
+        во вкладке «Пользователи».
         """
         _auth_disabled()
         if await _repo().get_user_by_username(body.username) is not None:
@@ -67,7 +68,7 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
         password_hash = await asyncio.to_thread(hash_password, body.password)
         try:
             user = await _repo().create_user(
-                body.username, password_hash, ROLE_TENDEROLOGIST, email=body.email
+                body.username, password_hash, [ROLE_USER], email=body.email
             )
         except IntegrityError as exc:
             # Гонка двух одновременных регистраций с одним логином: констрейнт
@@ -78,21 +79,14 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
         # Каждому новому пользователю — активный профиль default (BR-07): без него
         # список закупок недоступен (нет контекста фильтрации). Профиль создаётся
         # пустым — ключевые слова/компетенции загружаются скриптом seed-profile (R8).
-        await _repo().seed_default_profile(
-            user.id,
-            {
-                "name": "default",
-                "enabled": True,
-                "is_active": True,
-                "competencies": "",
-                "keywords": [],
-                "exclusion_words": [],
-                "questions": [],
-            },
-        )
+        await _repo().ensure_default_profile(user.id)
         ttl = state.cfg.ops.auth.token_ttl_seconds
-        token = create_token(user.id, user.role, state.cfg.ops.auth.secret or "", ttl)
-        logger.info("Зарегистрирован пользователь %s (роль %s)", user.username, user.role)
+        token = create_token(user.id, user.roles, state.cfg.ops.auth.secret or "", ttl)
+        logger.info(
+            "Зарегистрирован пользователь %s (роли %s)",
+            user.username,
+            ",".join(user.roles),
+        )
         return TokenOut(access_token=token, expires_in=ttl, user=UserOut.model_validate(user))
 
     return router

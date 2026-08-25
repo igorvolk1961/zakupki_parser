@@ -4,7 +4,7 @@
 Всё на стандартной библиотеке: PBKDF2-HMAC-SHA256 для паролей (OWASP-рекомендации),
 HMAC-SHA256 для подписи токенов. Форматы хранения:
 - пароль: ``pbkdf2_sha256$<iterations>$<salt_hex>$<hash_hex>``;
-- токен: ``<b64url(json_payload)>.<b64url(signature)>`` (payload: sub, role, exp).
+- токен: ``<b64url(json_payload)>.<b64url(signature)>`` (payload: sub, roles, exp).
 """
 
 from __future__ import annotations
@@ -17,11 +17,13 @@ import secrets
 import time
 from typing import Any, Literal, cast
 
+ROLE_USER: Literal["user"] = "user"
 ROLE_ADMIN: Literal["admin"] = "admin"
-ROLE_TENDEROLOGIST: Literal["tenderologist"] = "tenderologist"
+ROLE_ANALYST: Literal["analyst"] = "analyst"
+ROLE_DEVOPS: Literal["devops"] = "devops"
 
-ROLES = (ROLE_ADMIN, ROLE_TENDEROLOGIST)
-Role = Literal["admin", "tenderologist"]
+ALL_ROLES = (ROLE_USER, ROLE_ADMIN, ROLE_ANALYST, ROLE_DEVOPS)
+Role = Literal["user", "admin", "analyst", "devops"]
 
 # Число итераций PBKDF2 (OWASP: >= 600 000 для SHA-256).
 _PBKDF2_ITERATIONS = 600_000
@@ -63,18 +65,18 @@ def _unb64url(text: str) -> bytes:
 
 def create_token(
     user_id: int,
-    role: str,
+    roles: list[str],
     secret: str,
     ttl_seconds: int,
     now: float | None = None,
 ) -> str:
     """Подписанный bearer-токен: ``b64(payload).b64(hmac)``.
 
-    Payload: ``{"sub": user_id, "role": role, "exp": <unix_ts>}``.
+    Payload: ``{"sub": user_id, "roles": [..], "exp": <unix_ts>}``.
     """
     payload = {
         "sub": int(user_id),
-        "role": role,
+        "roles": list(roles),
         "exp": int((now if now is not None else time.time()) + ttl_seconds),
     }
     raw = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
@@ -97,6 +99,13 @@ def decode_token(token: str, secret: str, now: float | None = None) -> dict[str,
         return None
     if exp < int(now if now is not None else time.time()):
         return None
-    if not isinstance(payload.get("sub"), int) or not isinstance(payload.get("role"), str):
+    if not isinstance(payload.get("sub"), int):
         return None
+    roles = payload.get("roles")
+    if not isinstance(roles, list) or not all(isinstance(r, str) for r in roles):
+        # Совместимость с токенами до ролевой модели: один claim ``role``.
+        legacy = payload.get("role")
+        if not isinstance(legacy, str) or not legacy:
+            return None
+        payload["roles"] = [legacy]
     return payload

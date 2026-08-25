@@ -17,6 +17,7 @@ from zakupki_parser.config.models import (
     SCORE_METHOD_FIT,
     SCORE_METHOD_MARGIN,
     SCORE_METHOD_PWIN,
+    OpsConfig,
     ServiceConfig,
 )
 from zakupki_parser.storage.db import Procurement
@@ -37,6 +38,26 @@ def _service_config_public(service: ServiceConfig) -> dict[str, Any]:
             "active_only": bool(sc.get("active_only", False)),
             "deadline_not_expired": bool(sc.get("deadline_not_expired", True)),
         }
+    return data
+
+
+def _ops_config_public(ops: OpsConfig) -> dict[str, Any]:
+    """Сериализация config_ops.yaml для веб-редактора (без секретов из env).
+
+    Секреты (auth.secret, auth.internal_token, токены бэкендов уведомлений)
+    хранятся только в env — в форму и в YAML не попадают.
+    """
+    data: dict[str, Any] = ops.model_dump()
+    auth = data.get("auth")
+    if isinstance(auth, dict):
+        auth.pop("secret", None)
+        auth.pop("internal_token", None)
+    notif = data.get("notifications")
+    if isinstance(notif, dict):
+        for block in ("telegram", "max", "webhook"):
+            item = notif.get(block)
+            if isinstance(item, dict):
+                item.pop("token", None)
     return data
 
 

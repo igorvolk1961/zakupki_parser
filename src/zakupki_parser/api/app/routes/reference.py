@@ -1,4 +1,4 @@
-"""Админ-эндпоинты справочных таблиц: CRUD для страницы «Справочники».
+"""Эндпоинты справочных таблиц (вкладка «Справочники», роль analyst): CRUD.
 
 Реестр ``REFERENCE_TABLES`` описывает таблицу (модель, схема валидации, колонки
 для редактора). Новая справочная таблица подключается добавлением одной записи
@@ -118,12 +118,12 @@ def _validate_body(cfg: _ReferenceTable, body: ReferenceRowIn) -> dict[str, Any]
 def build_reference_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     _repo = ctx._repo
-    require_admin = ctx.require_admin
+    require_analyst = ctx.require_analyst
 
     @router.get(
         "/api/reference",
         response_model=list[ReferenceTableOut],
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_analyst)],
     )
     async def list_tables() -> list[ReferenceTableOut]:
         """Список справочных таблиц (для переключателя на странице)."""
@@ -135,7 +135,7 @@ def build_reference_router(ctx: ApiContext) -> APIRouter:
     @router.get(
         "/api/reference/{table}",
         response_model=ReferenceRowsOut,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_analyst)],
     )
     async def list_rows(table: str) -> ReferenceRowsOut:
         cfg = _resolve_table(table)
@@ -146,7 +146,7 @@ def build_reference_router(ctx: ApiContext) -> APIRouter:
         "/api/reference/{table}",
         response_model=dict[str, Any],
         status_code=201,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_analyst)],
     )
     async def create_row(table: str, body: ReferenceRowIn) -> dict[str, Any]:
         cfg = _resolve_table(table)
@@ -162,7 +162,7 @@ def build_reference_router(ctx: ApiContext) -> APIRouter:
     @router.put(
         "/api/reference/{table}/{row_id}",
         response_model=dict[str, Any],
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_analyst)],
     )
     async def update_row(table: str, row_id: int, body: ReferenceRowIn) -> dict[str, Any]:
         cfg = _resolve_table(table)
@@ -188,7 +188,7 @@ def build_reference_router(ctx: ApiContext) -> APIRouter:
     @router.delete(
         "/api/reference/{table}/{row_id}",
         status_code=204,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(require_analyst)],
     )
     async def delete_row(table: str, row_id: int) -> None:
         cfg = _resolve_table(table)

@@ -26,7 +26,15 @@ from zakupki_parser.api.app.schemas import (
     ProfileOut,
 )
 from zakupki_parser.api.app.state import AppState
-from zakupki_parser.auth import ROLE_ADMIN, decode_token, hash_password
+from zakupki_parser.auth import (
+    ALL_ROLES,
+    ROLE_ADMIN,
+    ROLE_ANALYST,
+    ROLE_DEVOPS,
+    ROLE_USER,
+    decode_token,
+    hash_password,
+)
 from zakupki_parser.storage.db import Profile, User
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -54,6 +62,9 @@ class ApiContext:
     _extract_bearer: Callable[[Request], str | None]
     require_user: Callable[[Request], Awaitable[User | None]]
     require_admin: Callable[[User | None], User | None]
+    require_analyst: Callable[[User | None], User | None]
+    require_devops: Callable[[User | None], User | None]
+    require_base: Callable[[User | None], User | None]
     require_internal: Callable[[Request], None]
     require_user_or_internal: Callable[[Request], Awaitable[User | None]]
     _auth_disabled: Callable[[], None]
@@ -90,7 +101,7 @@ def build_context(state: AppState) -> ApiContext:
             username = os.environ.get("ZAKUPKI_ADMIN_USERNAME") or "admin"
             password = os.environ.get("ZAKUPKI_ADMIN_PASSWORD") or secrets.token_urlsafe(24)
             user = await _repo().create_user(
-                username, await asyncio.to_thread(hash_password, password), ROLE_ADMIN
+                username, await asyncio.to_thread(hash_password, password), list(ALL_ROLES)
             )
             logger.warning(
                 "Создан сервис-аккаунт %s (пароль %s)",
@@ -205,15 +216,32 @@ def build_context(state: AppState) -> ApiContext:
         user = await _repo().get_user(payload["sub"])
         if user is None:
             raise HTTPException(status_code=401, detail="Пользователь не найден")
+        if user.status == "blocked":
+            raise HTTPException(status_code=403, detail="Аккаунт заблокирован")
         return user
 
-    def require_admin(user: User | None = Depends(require_user)) -> User | None:
-        """Только администратор; None при выключенной авторизации."""
-        if user is None:
-            return None
-        if user.role != ROLE_ADMIN:
-            raise HTTPException(status_code=403, detail="Требуется роль администратора")
-        return user
+    def _require_roles(*required: str) -> Callable[[User | None], User | None]:
+        """Зависимость: пользователь с хотя бы одной из требуемых ролей.
+
+        При выключенной авторизации (user=None) запрос пропускается — как в
+        прежнем ``require_admin`` (dev-режим).
+        """
+
+        def require_roles(user: User | None = Depends(require_user)) -> User | None:
+            if user is None:
+                return None
+            if not (set(user.roles) & set(required)):
+                label = ", ".join(required)
+                raise HTTPException(status_code=403, detail=f"Требуется одна из ролей: {label}")
+            return user
+
+        return require_roles
+
+    require_admin = _require_roles(ROLE_ADMIN)
+    require_analyst = _require_roles(ROLE_ANALYST)
+    require_devops = _require_roles(ROLE_DEVOPS)
+    # Базовые вкладки (Закупки/Заказчики/Профили) видят user и analyst.
+    require_base = _require_roles(ROLE_USER, ROLE_ANALYST)
 
     def require_internal(request: Request) -> None:
         """Доступ только для внутренних сервисов конвейера (по X-Internal-Token).
@@ -263,7 +291,7 @@ def build_context(state: AppState) -> ApiContext:
             return
         if await _repo().count_users() > 0:
             return
-        await _repo().create_user(username, hash_password(password), ROLE_ADMIN)
+        await _repo().create_user(username, hash_password(password), list(ALL_ROLES))
         logger.info("Создан начальный администратор %s (из env)", username)
 
     ctx._repo = _repo
@@ -280,6 +308,9 @@ def build_context(state: AppState) -> ApiContext:
     ctx._extract_bearer = _extract_bearer
     ctx.require_user = require_user
     ctx.require_admin = require_admin
+    ctx.require_analyst = require_analyst
+    ctx.require_devops = require_devops
+    ctx.require_base = require_base
     ctx.require_internal = require_internal
     ctx.require_user_or_internal = require_user_or_internal
     ctx._auth_disabled = _auth_disabled

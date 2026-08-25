@@ -35,18 +35,26 @@
       <button id="parser-start">▶ Запустить</button>
       <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
       <button class="ghost" id="db-clear" disabled>Очистить БД</button>
-      <button class="ghost" id="db-export">Выгрузить CSV на сервер</button>
       <span id="parser-status" class="muted">проверка…</span>
     </div>
   </div>
 
-  <div class="tabs">
-    <button class="active" id="tab-proc">Закупки <span class="tab-count" id="cnt-proc"></span></button>
-    <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
-    <button id="tab-cfg">Параметры</button>
-    <button id="tab-prompts">Промпты</button>
-    <button id="tab-profiles">Профили</button>
-    <button id="tab-refs">Справочники</button>
+  <div class="tabs tabs-bar">
+    <div class="tabs-group" id="tabs-base">
+      <button class="active" id="tab-proc">Закупки <span class="tab-count" id="cnt-proc"></span></button>
+      <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
+      <button id="tab-profiles">Профили</button>
+    </div>
+    <div class="tabs-group" id="tabs-roles">
+      <button id="tab-users">Пользователи</button>
+      <button id="tab-monitor">Параметры мониторинга</button>
+      <button id="tab-prompts">Промпты</button>
+      <button id="tab-refs">Справочники</button>
+      <button id="tab-cfgops">Конфигурация</button>
+      <button id="tab-logcfg">Управление Логи</button>
+      <button id="tab-logs">Логи</button>
+      <button id="tab-parser">Парсер</button>
+    </div>
   </div>
 
   <div id="view-proc">
@@ -85,6 +93,7 @@
           <div class="toolbar" style="margin-bottom:8px;">
             <button class="primary" id="batch-analyze" disabled>Анализировать ТЗ</button>
             <button class="ghost" id="batch-pwin-margin" disabled>Оценить P(win)/Margin</button>
+            <button class="ghost" id="db-export" title="Скачать CSV активных релевантных закупок (браузер предложит выбрать папку)">Выгрузить CSV</button>
             <span id="sel-count" class="muted"></span>
           </div>
           <table>
@@ -112,13 +121,19 @@
     <div class="table-wrap" id="customers"></div>
   </div>
 
-  <div id="view-cfg" style="display:none;">
-    <textarea id="cfg-editor" spellcheck="false" style="width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
-    <div class="toolbar editor-actions">
-      <button class="primary" id="cfg-save">Сохранить</button>
-      <button id="cfg-reload">Отменить изменения</button>
-      <span id="cfg-status" class="muted"></span>
+  <div id="view-monitor" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Параметры мониторинга <span class="muted">(config_service.yaml)</span></div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <button class="primary" id="monitor-save">Сохранить</button>
+        <button id="monitor-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="monitor-reload">Отменить изменения</button>
+        <span id="monitor-status" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем запуске парсера.</p>
     </div>
+    <div id="monitor-form"></div>
+    <textarea id="monitor-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
   </div>
 
   <div id="view-prompts" style="display:none;">
@@ -286,6 +301,84 @@
       <span id="ref-actions-status" class="muted"></span>
     </div>
   </div>
+  <div id="view-users" style="display:none;">
+    <div class="toolbar">
+      <button class="primary" id="user-new">Создать пользователя</button>
+      <span id="users-status" class="muted"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="cust users-table">
+        <thead><tr>
+          <th>ID</th><th>Логин</th><th>Email</th><th>Роли</th><th>Статус</th><th>Создан</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="users-rows"></tbody>
+      </table>
+      <div class="empty" id="users-empty" style="display:none;">Пользователей нет</div>
+    </div>
+  </div>
+  <div id="view-cfgops" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Конфигурация <span class="muted">(config_ops.yaml)</span></div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <button class="primary" id="cfgops-save">Сохранить</button>
+        <button id="cfgops-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="cfgops-reload">Отменить изменения</button>
+        <span id="cfgops-status" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем старте сервиса. Секреты (токены, auth.secret) управляются через env и в форме не редактируются.</p>
+    </div>
+    <div id="cfgops-form"></div>
+    <textarea id="cfgops-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+  </div>
+  <div id="view-logcfg" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Управление Логи <span class="muted">(config_log.yaml)</span></div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <button class="primary" id="logcfg-save">Сохранить</button>
+        <button id="logcfg-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="logcfg-reload">Отменить изменения</button>
+        <span id="logcfg-status" class="muted"></span>
+      </div>
+      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем старте сервиса.</p>
+    </div>
+    <div id="logcfg-form"></div>
+    <textarea id="logcfg-raw" spellcheck="false" style="display:none;width:100%;height:320px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+  </div>
+  <div id="view-logs" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Логи</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <label>Поиск: <input type="text" id="logs-q" placeholder="текст в строке" style="width:180px;"></label>
+        <label>Уровень:
+          <select id="logs-level">
+            <option value="all">все</option>
+            <option value="error">ошибки</option>
+            <option value="warning">предупреждения</option>
+          </select>
+        </label>
+        <label>от <input type="datetime-local" id="logs-from" style="width:190px;"></label>
+        <label>до <input type="datetime-local" id="logs-to" style="width:190px;"></label>
+        <label>Строк:
+          <select id="logs-lines">
+            <option value="100">100</option>
+            <option value="200" selected>200</option>
+            <option value="500">500</option>
+          </select>
+        </label>
+        <button class="primary" id="logs-refresh">Обновить</button>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="logs-auto" checked> авто 5с</label>
+        <span id="logs-status" class="muted"></span>
+      </div>
+    </div>
+    <div class="log-view" id="logs-view"><div class="muted">—</div></div>
+  </div>
+  <div id="view-parser" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Парсер <span class="muted">(config_parser.yaml — только чтение)</span></div>
+      <p class="muted" style="margin:0;">Параметры парсера/браузера изменяются только в файле конфигурации; здесь — справочный просмотр.</p>
+    </div>
+    <div id="parser-form"></div>
+  </div>
 </main>
 
 <div class="modal-bg" id="modal-bg">
@@ -320,8 +413,8 @@
 <div class="modal-bg" id="export-modal-bg">
   <div class="modal" id="export-modal">
     <span class="close" onclick="closeExportModal()">×</span>
-    <h2>Выгрузка CSV на сервер</h2>
-    <p class="muted" style="margin-top:0;">В выгрузку попадут только активные и релевантные закупки (fit-score ≥ порога).</p>
+    <h2>Выгрузка CSV</h2>
+    <p class="muted" style="margin-top:0;">В выгрузку попадут только активные и релевантные закупки (fit-score ≥ порога). Браузер предложит выбрать папку для сохранения.</p>
     <div style="display:flex; align-items:center; gap:8px; color:var(--text); white-space:nowrap;">fit-score ≥
       <span class="step" id="export-min-fit-step">
         <input type="number" id="export-min-fit" value="0.4" min="0" max="0.9" step="0.1">
@@ -381,6 +474,39 @@
       <button class="primary" id="login-submit">Войти</button>
     </div>
     <div class="switch"><span class="muted">Нет аккаунта?</span> <button id="login-switch">Зарегистрироваться</button></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="user-modal-bg">
+  <div class="modal" id="user-modal">
+    <span class="close" onclick="closeUserModal()">×</span>
+    <h2 id="user-modal-title">Создать пользователя</h2>
+    <div class="field">
+      <label for="user-username">Логин</label>
+      <input id="user-username" placeholder="логин">
+    </div>
+    <div class="field">
+      <label for="user-email">Email</label>
+      <input id="user-email" placeholder="email (необязательно)">
+    </div>
+    <div class="field" id="user-password-field">
+      <label for="user-password">Пароль</label>
+      <input id="user-password" type="password" autocomplete="new-password" placeholder="не менее 8 символов">
+    </div>
+    <div class="field">
+      <label>Роли</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px;">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="user-role-admin" value="admin"> Администратор</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="user-role-analyst" value="analyst"> Аналитик</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="user-role-devops" value="devops"> DevOps</label>
+      </div>
+      <p class="muted" style="margin:6px 0 0;font-size:12px;">Роль «Простой пользователь» выдаётся только при саморегистрации и админом не управляется.</p>
+    </div>
+    <div class="error" id="user-error"></div>
+    <div class="toolbar" style="margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="user-cancel">Отмена</button>
+      <button class="primary" id="user-save">Создать</button>
+    </div>
   </div>
 </div>
 <script type="module" src="/static/js/main.js"></script>

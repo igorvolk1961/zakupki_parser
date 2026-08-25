@@ -9,7 +9,9 @@ import pytest
 
 from zakupki_parser.auth import (
     ROLE_ADMIN,
-    ROLE_TENDEROLOGIST,
+    ROLE_ANALYST,
+    ROLE_DEVOPS,
+    ROLE_USER,
     create_token,
     decode_token,
     hash_password,
@@ -35,29 +37,64 @@ def test_verify_handles_bad_format() -> None:
 
 
 def test_token_roundtrip() -> None:
-    token = create_token(42, ROLE_ADMIN, "secret", 3600)
+    token = create_token(42, [ROLE_ADMIN, ROLE_DEVOPS], "secret", 3600)
     payload = decode_token(token, "secret")
     assert payload is not None
     assert payload["sub"] == 42
-    assert payload["role"] == ROLE_ADMIN
+    assert payload["roles"] == [ROLE_ADMIN, ROLE_DEVOPS]
     assert isinstance(payload["exp"], int)
 
 
 def test_token_wrong_secret_rejected() -> None:
-    token = create_token(1, ROLE_TENDEROLOGIST, "key-a", 3600)
+    token = create_token(1, [ROLE_USER], "key-a", 3600)
     assert decode_token(token, "key-b") is None
 
 
 def test_token_expired_rejected() -> None:
-    token = create_token(1, ROLE_ADMIN, "secret", 60, now=1_000_000)
+    token = create_token(1, [ROLE_ADMIN], "secret", 60, now=1_000_000)
     assert decode_token(token, "secret", now=1_100_000) is None
 
 
 def test_token_tampered_rejected() -> None:
-    token = create_token(1, ROLE_ADMIN, "secret", 3600)
+    token = create_token(1, [ROLE_ADMIN], "secret", 3600)
     header, _ = token.split(".", 1)
     assert decode_token(header + ".AAAA", "secret") is None
     assert decode_token("not-a-token", "secret") is None
+
+
+def test_all_roles() -> None:
+    from zakupki_parser.auth import ALL_ROLES
+
+    assert ALL_ROLES == (ROLE_USER, ROLE_ADMIN, ROLE_ANALYST, ROLE_DEVOPS)
+
+
+def test_legacy_role_claim_normalized() -> None:
+    """Токены с одним claim ``role`` (до ролевой модели) принимаются как ``roles``.
+
+    Старые сессии не «вылетают» при выкатке: payload нормализуется к списку ролей.
+    """
+    import hashlib
+    import hmac
+    import json
+    import time
+
+    from zakupki_parser.auth import _b64url
+
+    payload = {"sub": 7, "role": "admin", "exp": int(time.time()) + 3600}
+    raw = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(b"secret", raw.encode("ascii"), hashlib.sha256).digest()
+    legacy = f"{raw}.{_b64url(signature)}"
+
+    decoded = decode_token(legacy, "secret")
+    assert decoded is not None
+    assert decoded["sub"] == 7
+    assert decoded["roles"] == ["admin"]
+
+    # Без ролей вовсе — токен отклоняется.
+    payload_bad = {"sub": 7, "exp": int(time.time()) + 3600}
+    raw_bad = _b64url(json.dumps(payload_bad, separators=(",", ":")).encode("utf-8"))
+    sig_bad = hmac.new(b"secret", raw_bad.encode("ascii"), hashlib.sha256).digest()
+    assert decode_token(f"{raw_bad}.{_b64url(sig_bad)}", "secret") is None
 
 
 def _configs_copy(tmp_path: Path) -> Path:
