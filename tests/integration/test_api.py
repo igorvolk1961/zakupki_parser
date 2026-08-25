@@ -264,6 +264,103 @@ def test_missing_procurement_404(api_client: tuple[TestClient, Path]) -> None:
     assert client.get("/api/procurements/999999").status_code == 404
 
 
+def test_procurement_tz_text(
+    api_client: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /api/procurements/{id}/tz возвращает текст ТЗ (в т.ч. из архива).
+
+    Кэш задействован через настоящий extract_text_cached: подменяется только
+    извлечение (extract_text) и поиск файла (find_tz_reference), чтобы не ходить
+    в сеть. Повторный запрос не переизвлекает текст (счётчик вызовов не растёт).
+    """
+    import zakupki_parser.api.app.routes.procurements as proc_route
+    from scoring_common.tz import clear_tz_text_cache
+    from scoring_common.tz.files import FileRef
+
+    client, _ = api_client
+    clear_tz_text_cache()
+    try:
+
+        async def _seed() -> int:
+            db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+            await db.connect()
+            try:
+                repo = ProcurementRepository(db)
+                assert await repo.upsert(
+                    {
+                        "number": "TZ-1",
+                        "platform_id": "zakupki_mos",
+                        "subject": "Закупка с ТЗ в архиве",
+                        "files_json": [
+                            {"name": "приложение.zip", "url": "http://x/a.zip"},
+                            {"name": "смета.xlsx", "url": "http://x/smeta.xlsx"},
+                        ],
+                    }
+                )
+                rows, _ = await repo.list_procurements(number="TZ-1")
+                return rows[0].id
+            finally:
+                await db.dispose()
+
+        tz_id = asyncio.run(_seed())
+
+        extract_calls: list[tuple[str, str]] = []
+
+        def fake_find(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+            files = record.get("files_json") or []
+            assert any(f.get("name") == "приложение.zip" for f in files)
+            return FileRef("ТЗ.docx", "http://x/a.zip#doc/ТЗ.docx")
+
+        def fake_extract(ref: FileRef, timeout: float = 30.0) -> str | None:
+            extract_calls.append((ref.url, ref.name))
+            return "# Раздел 1\nТребования к товару."
+
+        monkeypatch.setattr(proc_route, "find_tz_reference_cached", fake_find)
+        monkeypatch.setattr("scoring_common.tz.extract_text", fake_extract)
+
+        body = client.get(f"/api/procurements/{tz_id}/tz").json()
+        assert body["found"] is True
+        assert body["file_name"] == "ТЗ.docx"
+        assert body["from_archive"] is True
+        assert "Раздел 1" in body["text"]
+        assert extract_calls == [("http://x/a.zip#doc/ТЗ.docx", "ТЗ.docx")]
+
+        # Повторный запрос отдаёт тот же результат без повторного извлечения (кэш).
+        again = client.get(f"/api/procurements/{tz_id}/tz").json()
+        assert again["text"] == body["text"]
+        assert extract_calls == [("http://x/a.zip#doc/ТЗ.docx", "ТЗ.docx")]
+    finally:
+        clear_tz_text_cache()
+
+
+def test_procurement_tz_not_found(api_client: tuple[TestClient, Path]) -> None:
+    """Без файлов ТЗ эндпоинт отдаёт found=False (без обращения к сети)."""
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "TZ-NONE",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Без ТЗ",
+                    "files_json": [{"name": "смета.xlsx", "url": "http://x/smeta.xlsx"}],
+                }
+            )
+            rows, _ = await repo.list_procurements(number="TZ-NONE")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    tz_id = asyncio.run(_seed())
+    body = client.get(f"/api/procurements/{tz_id}/tz").json()
+    assert body["found"] is False
+    assert body["text"] is None
+
+
 def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     body = client.get("/api/config/threshold").json()

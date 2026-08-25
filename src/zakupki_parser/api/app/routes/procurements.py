@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import logging
@@ -10,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from scoring_common.tz import extract_text_cached, find_tz_reference_cached
 from zakupki_parser.api.app.converters import (
     _meets_stage_notify_threshold,
     _procurement_detail_out,
@@ -28,6 +30,13 @@ from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.storage.db import User
 
 logger = logging.getLogger(__name__)
+
+# Лимит одновременных извлечений текста ТЗ: каждый запрос делает тяжёлую
+# блокирующую работу (скачивание до 20 МБ, листинг архивов, конвертация docx/pdf)
+# в потоках asyncio. Семафор ограничивает число таких операций в момент времени,
+# чтобы всплеск запросов не исчерпал общий thread-pool приложения.
+_TZ_EXTRACT_CONCURRENCY = 4
+_tz_extract_semaphore = asyncio.Semaphore(_TZ_EXTRACT_CONCURRENCY)
 
 # Плоские колонки для CSV-выгрузки (без detail_json/files_json).
 CSV_COLUMNS = [
@@ -160,6 +169,42 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return _procurement_detail_out(row)
+
+    @router.get(
+        "/api/procurements/{procurement_id}/tz",
+        dependencies=[Depends(require_user_or_internal)],
+    )
+    async def get_procurement_tz(
+        procurement_id: int, user: User | None = Depends(require_user_or_internal)
+    ) -> dict[str, Any]:
+        """Текст ТЗ закупки (Markdown, в т.ч. из архива) для просмотра в карточке.
+
+        Используется та же логика, что и конвейером скоринга (``scoring_common.tz``):
+        прямой файл ТЗ → поиск внутри архивов (zip/tar) → извлечение docx/pdf.
+        Текст кэшируется (``extract_text_cached``): при повторном открытии карточки
+        файл заново не скачивается и не конвертируется.
+        """
+        _, profile = await _active_context(user)
+        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        record = {"files_json": row.files_json or []}
+        # Тяжёлые блокирующие операции выполняем в потоке, но ограничиваем их
+        # число семафором (см. _TZ_EXTRACT_CONCURRENCY): холодный кэш не должен
+        # насыщать общий thread-pool одновременными скачиваниями/конвертациями.
+        # find_tz_reference_cached кэширует результат поиска (в т.ч. листинг
+        # архивов) — при повторном открытии карточки архивы заново не скачиваются.
+        async with _tz_extract_semaphore:
+            ref = await asyncio.to_thread(find_tz_reference_cached, record, 30.0)
+            if ref is None:
+                return {"found": False, "file_name": None, "from_archive": False, "text": None}
+            text = await asyncio.to_thread(extract_text_cached, ref, 30.0)
+        return {
+            "found": text is not None,
+            "file_name": ref.name,
+            "from_archive": "#" in ref.url,
+            "text": text,
+        }
 
     @router.post(
         "/api/procurements/{procurement_id}/score",

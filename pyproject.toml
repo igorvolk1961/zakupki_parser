@@ -19,7 +19,12 @@ dependencies = [
     "httpx>=0.27",
     "python-dotenv>=1.0",
     "markitdown[docx,pdf]>=0.1.7",
+    # Извлечение текста ТЗ (в т.ч. из архивов) для просмотра в карточке закупки.
+    "scoring-common>=0.1.0",
 ]
+
+[tool.uv.sources]
+scoring-common = { path = "src/scoring_common", editable = true }
 
 [dependency-groups]
 dev = [

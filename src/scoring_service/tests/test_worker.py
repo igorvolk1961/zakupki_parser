@@ -60,9 +60,7 @@ class _TimeoutScorer:
         metadata: dict[str, Any] | None = None,
         run_name: str = "scoring_job",
     ) -> object:
-        raise openai.APITimeoutError(
-            request=httpx.Request("POST", "http://llm/chat/completions")
-        )
+        raise openai.APITimeoutError(request=httpx.Request("POST", "http://llm/chat/completions"))
 
 
 class _RejectedScorer:

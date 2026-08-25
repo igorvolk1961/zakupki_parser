@@ -1411,7 +1411,7 @@ wheels = [
 [[package]]
 name = "scoring-common"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "markitdown", extra = ["docx", "pdf"] },

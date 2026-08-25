@@ -14,6 +14,8 @@ import {
   closeModal,
   analyzeProc,
   pwinProc,
+  viewTz,
+  closeTz,
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, profileFormDirty } from "./clients.js";
@@ -84,6 +86,8 @@ window.closeDeleteProfileModal = closeDeleteProfileModal;
 window.closeUserModal = closeUserModal;
 window.analyzeProc = analyzeProc;
 window.pwinProc = pwinProc;
+window.viewTz = viewTz;
+window.closeTz = closeTz;
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {

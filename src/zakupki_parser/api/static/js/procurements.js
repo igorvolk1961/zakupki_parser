@@ -204,10 +204,59 @@ async function openDetail(id) {
     </table>
     ${ragReportHtml(row.rag_report)}
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
       <button class="primary" onclick="analyzeProc(${row.id})">Анализ ТЗ</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
     </div>`;
   $("#modal-bg").classList.add("open");
+}
+
+// Просмотр текста ТЗ (в т.ч. из архива): открывает извлечённый Markdown в модалке.
+// Закрытие возвращает к карточке закупки (id запоминается).
+async function viewTz(id) {
+  $("#modal").innerHTML = `
+    <span class="close" onclick="closeTz(${id})">×</span>
+    <h2>ТЗ закупки #${id}</h2>
+    <p class="muted">Извлекаю текст…</p>`;
+  $("#modal-bg").classList.add("open");
+  try {
+    const r = await api("procurements/" + id + "/tz");
+    if (!r.found) {
+      const reason = r.file_name
+        ? `Не удалось извлечь текст из файла: ${escapeHtml(r.file_name)}`
+        : "Файл ТЗ не найден ни среди файлов карточки, ни внутри архивов.";
+      $("#modal").innerHTML = `
+        <span class="close" onclick="closeTz(${id})">×</span>
+        <h2>ТЗ закупки #${id}</h2>
+        <p class="muted">${escapeHtml(reason)}</p>
+        <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+          <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+        </div>`;
+      return;
+    }
+    $("#modal").innerHTML = `
+      <span class="close" onclick="closeTz(${id})">×</span>
+      <h2>ТЗ закупки #${id}</h2>
+      <p class="muted" style="margin-top:0;">${escapeHtml(r.file_name)}${r.from_archive ? " <span class='pill inactive'>внутри архива</span>" : ""}</p>
+      <pre class="tz-view">${escapeHtml(r.text || "")}</pre>
+      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+      </div>`;
+  } catch (err) {
+    $("#modal").innerHTML = `
+      <span class="close" onclick="closeTz(${id})">×</span>
+      <h2>ТЗ закупки #${id}</h2>
+      <p class="muted">Ошибка загрузки: ${escapeHtml(String(err))}</p>
+      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+      </div>`;
+  }
+}
+
+// Возврат из просмотра ТЗ к карточке закупки (модалка перерисовывается).
+async function closeTz(id) {
+  closeModal();
+  await openDetail(id);
 }
 
 // RAG-отчёт анализа стоп-условий (обязательные проверки + вопросы клиента).
@@ -314,6 +363,8 @@ export {
   closeModal,
   analyzeProc,
   pwinProc,
+  viewTz,
+  closeTz,
   loadPlatforms,
 };
 

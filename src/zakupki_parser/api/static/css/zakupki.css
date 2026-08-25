@@ -113,6 +113,10 @@
   .modal td:first-child { color: var(--muted); width: 34%; }
   .modal code { color: var(--accent); word-break: break-word;}
   .modal .close { float:right; cursor:pointer; color: var(--muted); font-size:22px; line-height:1;}
+  /* Просмотр текста ТЗ (в т.ч. извлечённого из архива). */
+  .tz-view { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:12px;
+    padding:12px; font-family:ui-monospace,monospace; font-size:12px; line-height:1.45;
+    overflow:auto; max-height:65vh; white-space:pre-wrap; word-break:break-word; }
   .table-wrap { overflow-x:auto; }
   table.cust { width:100%; border-collapse:collapse; font-size:13px; background: var(--panel); border-radius:12px;}
   table.cust th, table.cust td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line);}

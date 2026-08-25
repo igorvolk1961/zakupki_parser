@@ -1,20 +1,83 @@
-"""Скачивание файлов ТЗ (с защитой от превышения размера)."""
+"""Скачивание файлов ТЗ (с защитой от превышения размера и TTL-кэшем байт)."""
 
 from __future__ import annotations
+
+import threading
+import time
+from collections import OrderedDict
 
 import httpx
 
 from scoring_common.tz.files import _MAX_FILE_BYTES
 
+# TTL кэша скачанных байт: один и тот же файл (в т.ч. архив для листинга и
+# последующего извлечения записи) не должен скачиваться дважды за короткий срок.
+_DOWNLOAD_TTL_SECONDS = 3600.0
+
+# Потолки кэша байт: максимум записей (LRU) и суммарный бюджет байт — защита от
+# неограниченного роста памяти на длинном процессе API.
+_DOWNLOAD_MAX_ENTRIES = 64
+_DOWNLOAD_MAX_TOTAL_BYTES = 100 * 1024 * 1024  # 100 МБ суммарно
+
+# Кэш: url (без #внутренний_путь) -> (время вставки, байты | None). Кэшируется
+# и неуспех (None), чтобы временная недоступность ЭТП не вызывала повторных
+# скачиваний при каждом запросе. OrderedDict — порядок для LRU-эвикции.
+_download_cache: OrderedDict[str, tuple[float, bytes | None]] = OrderedDict()
+_download_lock = threading.Lock()
+
+
+def _prune_download_cache(now: float) -> None:
+    """Очистить кэш байт: просроченные записи, LRU-лимит и бюджет байт.
+
+    Вызывается только под ``_download_lock`` ПОСЛЕ вставки новой записи.
+    """
+    expired = [k for k, (ts, _) in _download_cache.items() if now - ts >= _DOWNLOAD_TTL_SECONDS]
+    for key in expired:
+        del _download_cache[key]
+    while len(_download_cache) > _DOWNLOAD_MAX_ENTRIES:
+        _download_cache.popitem(last=False)
+    # Бюджет по сумме байт: вытесняем самые большие записи.
+    while _download_cache:
+        total = sum(len(data or b"") for _, data in _download_cache.values())
+        if total <= _DOWNLOAD_MAX_TOTAL_BYTES:
+            break
+        largest_key = max(_download_cache, key=lambda k: len(_download_cache[k][1] or b""))
+        del _download_cache[largest_key]
+
+
+def clear_download_cache() -> None:
+    """Очистить кэш скачанных байт (для тестов)."""
+    with _download_lock:
+        _download_cache.clear()
+
 
 def _download(url: str, timeout: float = 30.0, max_bytes: int = _MAX_FILE_BYTES) -> bytes | None:
-    """Скачать файл (с защитой от превышения размера)."""
+    """Скачать файл (с защитой от превышения размера и TTL-кэшем).
+
+    Кэш позволяет листингу архива и последующему извлечению записи из того же
+    архива делить одно скачивание, а повторным открытиям карточки — не ходить
+    в сеть заново.
+    """
+    plain_url = url.split("#", 1)[0]
+    now = time.monotonic()
+    with _download_lock:
+        cached = _download_cache.get(plain_url)
+        if cached is not None and now - cached[0] < _DOWNLOAD_TTL_SECONDS:
+            _download_cache.move_to_end(plain_url)
+            return cached[1]
+    raw: bytes | None = None
     try:
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            resp = client.get(url.split("#", 1)[0])
+            resp = client.get(plain_url)
             resp.raise_for_status()
             if int(resp.headers.get("content-length", "0") or 0) > max_bytes:
-                return None
-            return resp.content[:max_bytes]
+                raw = None
+            else:
+                raw = resp.content[:max_bytes]
     except httpx.HTTPError:
-        return None
+        raw = None
+    with _download_lock:
+        _download_cache[plain_url] = (time.monotonic(), raw)
+        _download_cache.move_to_end(plain_url)
+        _prune_download_cache(time.monotonic())
+    return raw

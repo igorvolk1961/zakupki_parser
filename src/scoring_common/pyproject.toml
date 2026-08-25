@@ -24,7 +24,16 @@ dev = [
 ]
 
 [tool.uv]
-package = false
+# Пакет собирается (editable) как зависимость корневого проекта: без package=false
+# uv может установить scoring_common для web-API (просмотр ТЗ из карточки закупки).
+
+[build-system]
+requires = ["uv_build>=0.9.26,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "scoring_common"
+module-root = ""
 
 [tool.ruff]
 line-length = 100
