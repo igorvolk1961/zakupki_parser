@@ -15,11 +15,12 @@ from datetime import datetime
 from typing import Any
 
 from zakupki_parser.config.models import AppConfig
+from zakupki_parser.parser.orchestrator.state import OrchestratorState
 
 logger = logging.getLogger(__name__)
 
 
-class StopMixin:
+class StopMixin(OrchestratorState):
     """Проверка условий прекращения обработки закупки."""
 
     # Задаётся в ``Orchestrator.__init__``.

@@ -1,8 +1,10 @@
 # lot-online (РАД) — 223-ФЗ (tender.lot-online.ru). Платформа_id = имя файла.
 # С 2026-08-18 список читается из открытого API реестра (api-gateway indexer:
 # /api-gateway/indexer/api/lots/query-extended — слова, ОКПД2, статусы, пагинация
-# page). Детали (ОКПД2) остаются на DOM-странице: полный ОКПД2/файлы в API indexer
-# требуют авторизации (проверено 2026-08-18).
+# page). Детали и файлы с 2026-08-25 — тоже из открытого API
+# (detail.api_format: tender_223 — GET /api-gateway/etp/procedure/{номер}/{лот}:
+# ОКПД2, заказчик с ИНН, НМЦК, статус; файлы — /etp/downloadppf?uuid=...).
+# DOM-страница и браузер для деталей не нужны.
 name: "lot-online РАД (223-ФЗ)"
 url: "https://tender.lot-online.ru"
 list_path: "/search"
@@ -41,15 +43,11 @@ list_config:
     - { name: "publication_date", selector: "xpath=//div[.='Дата публикации']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
     - { name: "deadline",         selector: "xpath=//div[.='Дата окончания приема заявок']/following-sibling::div[1]", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4} \\d{2}:\\d{2})", default: null }
 detail:
-  # ОКПД2 отображается серверно строкой «ОКПД2: 26.20.14.100: Серверы» — извлекаем
-  # код и название. Метка/значение — div.tui-text_body-m.color-text-02/01 (живая
-  # страница 2026-08-18; в снимке 2026-08-14 были span — структура изменилась).
-  # ВАЖНО: у значения [1] — только ПЕРВЫЙ следующий sibling-цвет (иначе ловятся
-  # последующие ОКВЭД2/количество).
-  wait_selector: "xpath=//div[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']"
-  variables:
-    - { name: "okpd2_code", selector: "xpath=//div[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::div[contains(@class,'color-text-01')][1]", handler: "regex", handler_arg: "^\\s*(\\d{2}(?:\\.[\\d]+)*)", multiple: true, separator: ",", default: null }
-    - { name: "okpd2_name", selector: "xpath=//div[contains(@class,'color-text-02') and normalize-space(.)='ОКПД2:']/following-sibling::div[contains(@class,'color-text-01')][1]", handler: "regex", handler_arg: "^\\s*\\d{2}(?:\\.[\\d]+)*\\s*[:\\s]\\s*(.+)", multiple: true, separator: " | ", default: "" }
+  # Детали (ОКПД2/заказчик с ИНН/НМЦК/статус) и файлы — из открытого REST API
+  # /api-gateway/etp/procedure/{номер}/{лот} (без авторизации, проверено
+  # 2026-08-25); детальная DOM-страница не открывается.
+  api_format: "tender_223"
+  variables: []
   files: []
 # Сортировка по умолчанию — «По дате публикации» (дропдаун tui-select; опция
 # «По релевантности» есть, но НЕ выбрана по умолчанию, проверил 2026-08-17).

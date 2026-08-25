@@ -343,7 +343,7 @@ async def test_crawl_api_processes_all_pages_and_stops_on_short_page(app_config:
         [_item("C", "Закупка В", "2026-08-16T10:00:00.000+03:00")],
     ]
     with patch(
-        "zakupki_parser.parser.orchestrator.orchestrator.fetch_api_items",
+        "zakupki_parser.parser.orchestrator.crawl.fetch_api_items",
         side_effect=pages,
     ):
         await recorder._crawl_api(  # noqa: SLF001
@@ -365,7 +365,7 @@ async def test_crawl_api_cutoff_stops_okpd_crawl(app_config: AppConfig) -> None:
     recent = _item("NEW", "Новая", "2026-08-17T10:00:00.000+03:00")
     old = _item("OLD", "Старая", "2020-01-01T10:00:00.000+03:00")
     with patch(
-        "zakupki_parser.parser.orchestrator.orchestrator.fetch_api_items",
+        "zakupki_parser.parser.orchestrator.crawl.fetch_api_items",
         return_value=[recent, old],
     ):
         await recorder._crawl_api(  # noqa: SLF001
@@ -383,7 +383,7 @@ async def test_crawl_api_lot_online_processes_items(app_config: AppConfig) -> No
     platform = _make_lot_online_platform(page_size=2)
     recorder = _make_lot_online_recorder(app_config, platform)
     with patch(
-        "zakupki_parser.parser.orchestrator.orchestrator.fetch_api_items",
+        "zakupki_parser.parser.orchestrator.crawl.fetch_api_items",
         side_effect=[
             [
                 _lot_online_item("0108500000426004497", "Реагенты", "18.08.2026 21:14"),
@@ -420,7 +420,7 @@ async def test_crawl_api_skips_known_procurements(app_config: AppConfig) -> None
         _item("B", "Известная", "2026-08-17T10:00:00.000+03:00"),
     ]
     with patch(
-        "zakupki_parser.parser.orchestrator.orchestrator.fetch_api_items",
+        "zakupki_parser.parser.orchestrator.crawl.fetch_api_items",
         return_value=items,
     ):
         await recorder._crawl_api(  # noqa: SLF001
@@ -555,7 +555,7 @@ def test_parse_api_item_tender_223() -> None:
     assert v["law"] == "223-ФЗ"
     assert v["publication_date"] is not None and v["publication_date"].tzinfo is not None
     assert v["deadline"] is not None and v["deadline"].tzinfo is not None
-    assert v["_api"] == {"uuid": "abc123"}
+    assert v["_api"] == {"number": "32616302720", "lot": "1"}
     assert v["detail_path"] == "/procedure?procedureNumber=32616302720&lotNumber=1"
 
 
@@ -586,7 +586,7 @@ async def test_crawl_api_rebuilds_url_with_offset(app_config: AppConfig) -> None
     ]
     page1 = [_mos_item("3", "Закупка В", "16.08.2026 13:56:07")]
     with patch(
-        "zakupki_parser.parser.orchestrator.orchestrator.fetch_api_items",
+        "zakupki_parser.parser.orchestrator.crawl.fetch_api_items",
         side_effect=[page0, page1],
     ) as fetch:
         await recorder._crawl_api(  # noqa: SLF001

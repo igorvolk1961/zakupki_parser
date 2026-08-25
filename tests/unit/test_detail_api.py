@@ -180,3 +180,75 @@ async def test_mos_details_maps_items_and_files() -> None:
 
     url = page.request.get.await_args_list[0].args[0]
     assert url == "https://zakupki.mos.ru/newapi/api/Need/Get?needId=6177179"
+
+
+@pytest.mark.asyncio
+async def test_tender_223_details_maps_response() -> None:
+    """Детали tender.lot-online (223-ФЗ): REST /api-gateway/etp/procedure/{номер}/{лот}."""
+    platform = _platform("tender_223", "https://tender.lot-online.ru")
+    payload = {
+        "commonInfo": {
+            "eisNumber": "32616319584",
+            "lotNumber": "1",
+            "title": "ПИР и СМР",
+            "price": 643260.86,
+            "stage": {"title": "Идет прием заявок", "group": "DEMANDS_STARTED"},
+        },
+        "organization": {"inn": "5260200603", "title": "ПАО РОССЕТИ ЦЕНТР"},
+        "customers": [{"inn": "5260200603", "title": "ПАО РОССЕТИ ЦЕНТР И ПРИВОЛЖЬЕ"}],
+        "productionNomenclatures": [
+            {
+                "okpd2Title": "42.22.22.110: Работы строительные по прокладке местных "
+                "линий электропередачи"
+            },
+            {"okpd2Title": "42.22.22.110: Работы строительные по прокладке местных линий"},
+        ],
+        "notices": [
+            {
+                "name": "Извещение о проведении закупки",
+                "fileSignResponse": [
+                    {
+                        "fileDTO": {
+                            "uuid": "dbfile19718ug0000q0dupncr1mj10lc",
+                            "fileName": "Документация.rar",
+                            "size": 3158858,
+                        }
+                    }
+                ],
+            }
+        ],
+    }
+    page: Any = _FakePage(gets=[payload])
+    vars_, files, inn = await fetch_api_details(
+        page, platform, {"number": "32616319584"}, {"number": "32616319584", "lot": "1"}
+    )
+    assert vars_["okpd2_code"] == "42.22.22.110"
+    assert vars_["okpd2_name"] == (
+        "Работы строительные по прокладке местных линий электропередачи | "
+        "Работы строительные по прокладке местных линий"
+    )
+    assert vars_["customer"] == "ПАО РОССЕТИ ЦЕНТР И ПРИВОЛЖЬЕ"
+    assert vars_["status"] == "Идет прием заявок"
+    assert vars_["nmck"] == 643260.86
+    assert inn == "5260200603"
+    assert files == [
+        {
+            "name": "Документация.rar",
+            "url": "https://tender.lot-online.ru/etp/downloadppf?uuid=dbfile19718ug0000q0dupncr1mj10lc",
+        }
+    ]
+
+    url = page.request.get.await_args_list[0].args[0]
+    assert url == "https://tender.lot-online.ru/api-gateway/etp/procedure/32616319584/1"
+
+
+@pytest.mark.asyncio
+async def test_tender_223_details_no_number_returns_empty() -> None:
+    """Детали tender_223: без номера/лота в _api — пустой результат, без запроса."""
+    platform = _platform("tender_223", "https://tender.lot-online.ru")
+    page: Any = _FakePage(gets=[])
+    vars_, files, inn = await fetch_api_details(page, platform, {"number": "X"}, {})
+    assert vars_ == {}
+    assert files == []
+    assert inn is None
+    page.request.get.assert_not_awaited()

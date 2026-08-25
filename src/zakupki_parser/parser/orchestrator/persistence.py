@@ -15,13 +15,14 @@ from sqlalchemy.exc import IntegrityError
 
 from zakupki_parser.circuit import CircuitBreaker
 from zakupki_parser.config.models import AppConfig
+from zakupki_parser.parser.orchestrator.state import OrchestratorState
 from zakupki_parser.storage.db_errors import is_data_db_error, is_transient_db_error
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
 
 
-class PersistenceMixin:
+class PersistenceMixin(OrchestratorState):
     """Запись закупки в БД (``_persist``)."""
 
     # Задаётся в ``Orchestrator.__init__``.

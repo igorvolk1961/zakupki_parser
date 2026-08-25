@@ -15,9 +15,10 @@ import re
 from typing import Any
 
 from zakupki_parser.config.models import PlatformDom
+from zakupki_parser.parser.orchestrator.state import OrchestratorState
 
 
-class ActivityMixin:
+class ActivityMixin(OrchestratorState):
     """Активность закупки: ``_is_active`` + нормализация статуса."""
 
     # Задаётся в ``Orchestrator.__init__``.

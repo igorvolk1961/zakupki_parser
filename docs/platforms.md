@@ -1,6 +1,6 @@
 # Сводка по торговым площадкам
 
-Обновлено: 2026-08-17. Конфиги площадок — в `configs/dom/<platform_id>.yaml`
+Обновлено: 2026-08-25. Конфиги площадок — в `configs/dom/<platform_id>.yaml`
 (по файлу на площадку). Включение/выключение — `configs/config_service.yaml -> sites`.
 Ключ площадки (`platform_id`) един во всех конфигах и БД (`procurements.platform_id`,
 `procedure_type_mappings.platform_id`); официальное имя и главная страница — в
@@ -19,7 +19,7 @@
 | `roseltorg_44fz` | Росэлторг | 44-ФЗ | ⛔ антибот (нужен полный Chromium); селекторы — TODO | нужен полный Chromium | выкл |
 | `roseltorg_223fz` | Росэлторг | 223-ФЗ | ✅ список (первая страница) + детали: ОКПД2 (JSON-LD); полный Chromium | частично | **вкл** |
 | `fabrikant` | Фабрикант | закупки (44/коммерческие) | ✅ список+детали (data-slot, снимок); ОКПД2/файлы — TODO (client-rendered) | готов к тесту | **вкл** |
-| `lot_online_223` | lot-online РАД | 223-ФЗ | ✅ список (вкл. даты); ✅ детали: ОКПД2; ✅ поиск: searchToken «или» + okpd2 JSON | частично | **вкл** |
+| `lot_online_223` | lot-online РАД | 223-ФЗ | ✅ список (вкл. даты); ✅ детали: ОКПД2+файлы+ИНН из API | готов к тесту | **вкл** |
 
 ## Механизм фильтрации и сортировки
 
@@ -158,10 +158,6 @@
   живой странице (`zp capture-fixture`/`zp run-once`). Маппинг `code_to_id` частичный (62, 62.01–62.09).
 
 ### TODO по деталям (SPA)
-- `lot_online_223` — детальные страницы грузятся асинхронно через внутренний
-  JSON-RPC `POST /etp_back/api/get` (`manager`/`entity`/`fields`/`rules`); цена/файлы в DOM
-  не рендерятся. Нужен отдельный механизм API-извлечения (или рендер после взаимодействия).
-  ОКПД2 44-ФЗ (gz) извлекается со страницы лотов — см. «Особенности lot_online».
 - `zakupki_gov_223fz` — путь документов 223-ФЗ (`notice223/...`) не подтверждён.
 
 ### Особенности lot_online (gz / tender)
@@ -175,9 +171,12 @@
   «Общей информации» (`.../common/...`) его нет — ранее URL переписывался через
   `detail.path_replace_from/path_replace_to`; после перевода деталей на API не требуется.
 - 223-ФЗ (tender): список с 2026-08-18 — открытый API `/api-gateway/indexer/api/lots/query-extended`
-  (`search`, `regionOkpd2Code`, `statusGroup=DEMANDS_STARTED`, пагинация `page`). Детали (ОКПД2) —
-  DOM-страница `/procedure?procedureNumber=...&lotNumber=...` (полный ОКПД2/файлы в indexer-API
-  требуют авторизации) — гибрид.
+  (`search`, `regionOkpd2Code`, `statusGroup=DEMANDS_STARTED`, пагинация `page`). Детали и файлы
+  с 2026-08-25 — тоже из открытого API (`detail.api_format: tender_223`: GET
+  `/api-gateway/etp/procedure/{номер}/{лот}` — ОКПД2 из `productionNomenclatures`, заказчик/ИНН
+  из `organization`/`customers`, НМЦК из `commonInfo.price`, документы из `notices[].fileSignResponse`,
+  скачивание — `/etp/downloadppf?uuid=...`; номер = `eisNumber` или `etpNumber` из реестра).
+  Детальная DOM-страница и браузер не нужны.
 - Список рендерится клиентом (Angular SPA): карточки `app-procedure-card` (gz, 44-ФЗ) и
   `app-purchase-card` (tender, 223-ФЗ). Селекторы проверены по снимку (2026-08-14).
 - Детальные страницы (ОКПД2/файлы/цена) — через внутренний API, см. «TODO по деталям (SPA)».
