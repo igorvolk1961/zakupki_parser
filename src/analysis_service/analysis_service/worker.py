@@ -1,8 +1,9 @@
 """Фоновый воркер RAG-анализа: потребляет задачи из Redis-очереди.
 
 Цикл: ``ZPOPMAX analysis:jobs`` → карточка закупки + активный клиентский профиль
-(вопросы) → чанкинг ТЗ, эмбеддинги, LLM-вердикты → ``LPUSH analysis:results``
-(транспорт возвращает rag_report в парсер).
+(вопросы и факты BR-03) → обязательные системные проверки (1 LLM-вызов + матчер
+по фактам профиля) и вопросы клиента (эмбеддинги, LLM-вердикты) → ``LPUSH
+analysis:results`` (транспорт возвращает rag_report в парсер).
 """
 
 from __future__ import annotations
@@ -71,6 +72,28 @@ class AnalysisWorker:
             logger.warning("Не удалось получить вопросы клиента: %s", exc)
             return []
 
+    async def _resolve_profile_facts(self) -> dict[str, Any]:
+        """Факты активного профиля для сопоставления с фактами ТЗ (Stage B).
+
+        Лицензии/подтверждённый опыт приходят из ответа ``/api/clients/active``
+        (тот же кэшируемый вызов, что и вопросы). При сбое — пустые факты:
+        нераспознанные/неподтверждённые барьеры маркируются жёстко, не молча
+        пропускаются.
+        """
+        try:
+            client = await self._parser.get_active_client(
+                internal_token=self._settings.parser_internal_token
+            )
+            facts = (client or {}).get("facts")
+            if isinstance(facts, dict):
+                return {
+                    "license_codes": list(facts.get("license_codes") or []),
+                    "experience_codes": list(facts.get("experience_codes") or []),
+                }
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            logger.warning("Не удалось получить факты профиля: %s", exc)
+        return {"license_codes": [], "experience_codes": []}
+
     async def _process_once(self) -> None:
         job = await self._queue.pop_job()
         if job is None:
@@ -84,7 +107,8 @@ class AnalysisWorker:
 
         async def compute(record: dict[str, Any], pid: int) -> dict[str, Any]:
             questions = await self._resolve_questions()
-            report = await self._analyzer.analyze(record, questions)
+            profile_facts = await self._resolve_profile_facts()
+            report = await self._analyzer.analyze(record, questions, profile_facts)
             return {
                 "procurement_id": pid,
                 "score": 0.0,

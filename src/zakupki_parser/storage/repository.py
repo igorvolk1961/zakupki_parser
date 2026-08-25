@@ -960,6 +960,30 @@ class ProcurementRepository:
         async with self._db.session() as session:
             return list((await session.execute(stmt)).scalars().all())
 
+    async def get_profile_facts(self, profile_id: int) -> dict[str, list[str]]:
+        """Коды лицензий и типов подтверждения опыта профиля (для анализа ТЗ).
+
+        Лёгкий срез фактов BR-03 для Stage B (сопоставление фактов ТЗ с профилем
+        выполняется кодом, профиль в промпт не попадает).
+        """
+        async with self._db.session() as session:
+            license_stmt = (
+                select(LicenseType.code)
+                .join(ProfileLicense, ProfileLicense.license_type_id == LicenseType.id)
+                .where(ProfileLicense.profile_id == profile_id)
+            )
+            experience_stmt = (
+                select(ExperienceConfirmationType.code)
+                .join(
+                    ProfileExperience,
+                    ProfileExperience.confirmation_type_id == ExperienceConfirmationType.id,
+                )
+                .where(ProfileExperience.profile_id == profile_id)
+            )
+            license_codes = list((await session.execute(license_stmt)).scalars().all())
+            experience_codes = list((await session.execute(experience_stmt)).scalars().all())
+        return {"license_codes": license_codes, "experience_codes": experience_codes}
+
     async def get_experience(self, profile_id: int, experience_id: int) -> ProfileExperience | None:
         stmt = select(ProfileExperience).where(
             ProfileExperience.id == experience_id,
@@ -1084,7 +1108,12 @@ class ProcurementRepository:
             if "competencies" in data:
                 profile.competencies = str(data["competencies"])
             if "questions" in data:
-                profile.questions = list(data["questions"])
+                # Защита от редактирования обязательных системных вопросов (sys:*):
+                # они живут вне профиля (analysis_service) и не сохраняются в профиль.
+                questions = list(data["questions"])
+                profile.questions = [
+                    q for q in questions if not str(q.get("id", "")).startswith("sys:")
+                ]
             if "target_etp" in data:
                 profile.target_etp = list(data["target_etp"])
             if "target_laws" in data:

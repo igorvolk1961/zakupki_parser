@@ -1,14 +1,17 @@
 """RAG-пайплайн анализа стоп-условий по вопросам клиента.
 
-Для каждого вопроса профиля: эмбеддинг вопроса (кэшируется) → косинусная близость
-ко всем чанкам ТЗ → top-k чанков → лёгкая LLM-верификация: содержит ли чанк
-стоп-условие и какой степени запрет (absolute/soft/none). Результат — ``rag_report``
-для таблицы тендеролога.
+Обязательные (системные) проверки — опыт (ПП РФ 2571), реестр Минпромторга,
+лицензии/СРО — извлекаются из ТЗ одним LLM-вызовом (``batch_system``) по
+лексически отобранным секциям, затем сопоставляются с фактами профиля
+детерминированными правилами (``matcher``): профиль в промпт не попадает.
+Пользовательские вопросы профиля обрабатываются по одному LLM-вызову на вопрос
+(эмбеддинги вопросов кэшируются). Результат — ``rag_report`` для карточки.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -16,7 +19,20 @@ from pydantic import BaseModel, Field
 
 from analysis_service.llm import LlmClient
 from analysis_service.pipeline.chunker import split_tz_sections
-from analysis_service.pipeline.prompts import build_verdict_messages
+from analysis_service.pipeline.matcher import (
+    MARKERS,
+    SEVERITY,
+    apply_profile_facts,
+)
+from analysis_service.pipeline.prompts import (
+    build_batch_system_messages,
+    build_verdict_messages,
+)
+from analysis_service.pipeline.system_questions import (
+    SYSTEM_QUESTIONS,
+    SYSTEM_QUESTIONS_VERSION,
+    SYSTEM_RETRIEVAL_PATTERNS,
+)
 from analysis_service.settings import Settings
 from scoring_common.embeddings import EmbeddingClient, cosine_similarity
 from scoring_common.tz import clean_text, extract_text, find_tz_reference
@@ -28,18 +44,34 @@ VERDICT_SOFT: Literal["soft"] = "soft"
 VERDICT_ABSOLUTE: Literal["absolute"] = "absolute"
 VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE)
 
-SEVERITY: dict[str, int] = {VERDICT_NONE: 0, VERDICT_SOFT: 1, VERDICT_ABSOLUTE: 2}
+# Ключи ответа batch_system.md → id системного вопроса.
+_BATCH_KEYS: dict[str, str] = {
+    "experience_2571": "sys:exp_2571",
+    "minprom_registry": "sys:minprom_registry",
+    "license_sro": "sys:license_sro",
+}
+_SYSTEM_TEXT: dict[str, str] = {q["id"]: q["text"] for q in SYSTEM_QUESTIONS}
 
 
 class QuestionVerdict(BaseModel):
-    """Вердикт по одному вопросу клиента."""
+    """Вердикт по одному вопросу (системному или профильному)."""
 
     question_id: str
     question_text: str
     verdict: Literal["no_stop_condition", "absolute", "soft"]
     severity: int = Field(ge=0, le=2)
+    marker: str = Field(default="", description="🔴/🟡/🟢 для карточки")
     excerpt: str | None = Field(default=None, description="цитата фрагмента ТЗ")
     reasoning: str = Field(default="", description="краткое обоснование")
+    source: Literal["system", "profile"] = Field(
+        default="profile", description="источник вопроса: системный или из профиля"
+    )
+    question_version: str | None = Field(
+        default=None, description="версия набора системных вопросов"
+    )
+    facts: dict[str, Any] = Field(
+        default_factory=dict, description="факты, извлечённые из ТЗ (системные вопросы)"
+    )
 
 
 class RagAnalyzer:
@@ -54,13 +86,17 @@ class RagAnalyzer:
         self._settings = settings
         self._embedder = embedder
         self._llm = llm
-        # Кэш эмбеддингов вопросов (вопросы профиля одинаковы для всех закупок).
+        # Кэш эмбеддингов пользовательских вопросов (вопросы профиля одинаковы
+        # для всех закупок). Системные вопросы эмбеддингов не требуют вовсе.
         self._question_embedding_cache: dict[str, list[float]] = {}
 
     async def analyze(
-        self, record: dict[str, Any], questions: list[dict[str, Any]]
+        self,
+        record: dict[str, Any],
+        questions: list[dict[str, Any]],
+        profile_facts: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """RAG-отчёт по вопросам клиента. best-effort: сбой не роняет задание."""
+        """RAG-отчёт: системные проверки + вопросы клиента. best-effort."""
         generated_at = datetime.now(UTC).isoformat()
 
         ref = find_tz_reference(record, timeout=self._settings.tz_download_timeout)
@@ -102,7 +138,7 @@ class RagAnalyzer:
                 "generated_at": generated_at,
             }
 
-        verdicts: list[dict[str, Any]] = []
+        verdicts: list[dict[str, Any]] = await self._analyze_system(chunks, profile_facts)
         for question in questions:
             question_id = str(question.get("id") or "")
             question_text = str(question.get("text") or "").strip()
@@ -119,6 +155,68 @@ class RagAnalyzer:
             "generated_at": generated_at,
         }
 
+    # ------------------------------------------------------------------ #
+    # Системные обязательные проверки (Stage A: batch LLM; Stage B: matcher)
+    # ------------------------------------------------------------------ #
+    def _select_relevant_chunks(self, patterns: list[str], chunks: list[str]) -> list[int]:
+        """Индексы чанков, задевающих хотя бы один из паттернов проверки."""
+        compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
+        return [
+            idx for idx, chunk in enumerate(chunks) if any(pat.search(chunk) for pat in compiled)
+        ]
+
+    async def _analyze_system(
+        self,
+        chunks: list[str],
+        profile_facts: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        """Системные проверки: лексический отбор секций → 1 LLM-вызов → matcher."""
+        selected: set[int] = set()
+        for patterns in SYSTEM_RETRIEVAL_PATTERNS.values():
+            selected.update(self._select_relevant_chunks(patterns, chunks))
+        if not selected:
+            # В ТЗ нет ни одной стандартной секции стоп-условий: LLM не зовём.
+            return [self._system_skip(qid) for qid in _SYSTEM_TEXT]
+        context = "\n\n---\n\n".join(chunks[idx] for idx in sorted(selected))
+        system, user = build_batch_system_messages(context)
+        data = await self._llm.chat_json(system, user)
+        if data is None:
+            return [
+                self._system_failed(qid, "LLM-извлечение фактов не выполнено (сбой)")
+                for qid in _SYSTEM_TEXT
+            ]
+        extractions: dict[str, Any] = {
+            key: (data.get(key) if isinstance(data.get(key), dict) else None) for key in _BATCH_KEYS
+        }
+        return apply_profile_facts(extractions, profile_facts)
+
+    def _system_skip(self, question_id: str) -> dict[str, Any]:
+        return QuestionVerdict(
+            question_id=question_id,
+            question_text=_SYSTEM_TEXT[question_id],
+            verdict=VERDICT_NONE,
+            severity=0,
+            marker=MARKERS[VERDICT_NONE],
+            reasoning="В ТЗ не найдено упоминаний, релевантных проверке",
+            source="system",
+            question_version=SYSTEM_QUESTIONS_VERSION,
+        ).model_dump()
+
+    def _system_failed(self, question_id: str, reason: str) -> dict[str, Any]:
+        return QuestionVerdict(
+            question_id=question_id,
+            question_text=_SYSTEM_TEXT[question_id],
+            verdict=VERDICT_NONE,
+            severity=0,
+            marker=MARKERS[VERDICT_NONE],
+            reasoning=reason,
+            source="system",
+            question_version=SYSTEM_QUESTIONS_VERSION,
+        ).model_dump()
+
+    # ------------------------------------------------------------------ #
+    # Пользовательские вопросы профиля (по одному LLM-вызову на вопрос)
+    # ------------------------------------------------------------------ #
     async def _verdict_for_question(
         self,
         question_id: str,
@@ -126,18 +224,18 @@ class RagAnalyzer:
         chunks: list[str],
         chunk_vectors: list[list[float]],
     ) -> dict[str, Any]:
-        """Вердикт по одному вопросу (best-effort: сбой → no_stop_condition с пометкой)."""
+        """Вердикт по одному вопросу профиля (best-effort: сбой → no_stop_condition)."""
         q_vector = self._question_embedding_cache.get(question_id)
         if q_vector is None:
             q_vector = await self._embedder.embed_one(question_text)
             if q_vector is None:
-                return QuestionVerdict(
-                    question_id=question_id,
-                    question_text=question_text,
-                    verdict=VERDICT_NONE,
-                    severity=0,
-                    reasoning="Не удалось вычислить эмбеддинг вопроса (анализ пропущен)",
-                ).model_dump()
+                return self._profile_verdict(
+                    question_id,
+                    question_text,
+                    VERDICT_NONE,
+                    "Не удалось вычислить эмбеддинг вопроса (анализ пропущен)",
+                    None,
+                )
             self._question_embedding_cache[question_id] = q_vector
 
         scored = sorted(
@@ -150,22 +248,40 @@ class RagAnalyzer:
         system, user = build_verdict_messages(question_text, context)
         data = await self._llm.chat_json(system, user)
         if data is None:
-            return QuestionVerdict(
-                question_id=question_id,
-                question_text=question_text,
-                verdict=VERDICT_NONE,
-                severity=0,
-                reasoning="LLM-верификация не выполнена (сбой)",
-            ).model_dump()
+            return self._profile_verdict(
+                question_id,
+                question_text,
+                VERDICT_NONE,
+                "LLM-верификация не выполнена (сбой)",
+                None,
+            )
 
         verdict = data.get("verdict")
         if verdict not in VERDICTS:
             verdict = VERDICT_NONE
+        return self._profile_verdict(
+            question_id,
+            question_text,
+            verdict,
+            str(data.get("reasoning") or ""),
+            str(data.get("excerpt") or "")[:500] or None,
+        )
+
+    def _profile_verdict(
+        self,
+        question_id: str,
+        question_text: str,
+        verdict: str,
+        reasoning: str,
+        excerpt: str | None,
+    ) -> dict[str, Any]:
         return QuestionVerdict(
             question_id=question_id,
             question_text=question_text,
             verdict=verdict,
             severity=SEVERITY[verdict],
-            excerpt=str(data.get("excerpt") or "")[:500] or None,
-            reasoning=str(data.get("reasoning") or ""),
+            marker=MARKERS[verdict],
+            excerpt=excerpt,
+            reasoning=reasoning,
+            source="profile",
         ).model_dump()

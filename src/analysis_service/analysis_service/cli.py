@@ -37,7 +37,10 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
     from scoring_common.embeddings import EmbeddingClient
 
     record = json.loads(card_path.read_text(encoding="utf-8"))
-    questions = [{"id": "q1", "text": "Требуется ли обязательная лицензия/членство в СРО?"}]
+    # Пользовательские вопросы не передаём: обязательные проверки (опыт 2571,
+    # реестр Минпромторга, лицензии/СРО) выполняются автоматически.
+    questions: list[dict[str, str]] = []
+    profile_facts: dict[str, list[str]] = {"license_codes": [], "experience_codes": []}
     embedder = EmbeddingClient(
         base_url=settings.embedding_base_url,
         model=settings.embedding_model,
@@ -51,7 +54,7 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
         temperature=settings.llm_temperature,
         timeout=settings.llm_request_timeout,
     )
-    report = await RagAnalyzer(settings, embedder, llm).analyze(record, questions)
+    report = await RagAnalyzer(settings, embedder, llm).analyze(record, questions, profile_facts)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 

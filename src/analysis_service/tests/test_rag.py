@@ -6,7 +6,14 @@ import asyncio
 from typing import Any
 
 import pytest
-from analysis_service.pipeline.prompts import build_verdict_messages
+from analysis_service.pipeline.matcher import (
+    apply_profile_facts,
+    resolve_license_code,
+)
+from analysis_service.pipeline.prompts import (
+    build_batch_system_messages,
+    build_verdict_messages,
+)
 from analysis_service.pipeline.rag import RagAnalyzer
 from analysis_service.settings import Settings
 
@@ -37,6 +44,17 @@ def test_build_verdict_messages_no_rescan_of_inserted_values() -> None:
     assert "Что такое {context}?" in user
     assert "Контекст ТЗ" in user
     assert user.count("Контекст ТЗ") == 1
+
+
+def test_build_batch_system_messages() -> None:
+    system, user = build_batch_system_messages("Секции ТЗ")
+    assert "Секции ТЗ" in user
+    assert "experience_2571" in user
+    assert "minprom_registry" in user
+    assert "license_sro" in user
+    assert "{context}" not in user
+    # Профиль поставщика в промпт не попадает.
+    assert "профил" not in system.lower()
 
 
 # --- Косинусная близость --------------------------------------------------
@@ -110,14 +128,217 @@ def test_verdict_parsed_from_llm() -> None:
     llm = _FakeLlm(
         [
             {
+                "experience_2571": {"found": True, "facts": {"required": False}, "excerpt": "—"},
+                "minprom_registry": {"found": False, "facts": {}},
+                "license_sro": {
+                    "found": True,
+                    "facts": {"required": True, "license_name": "лицензия МЧС"},
+                    "excerpt": "лицензия",
+                },
+            },
+            {
                 "verdict": "absolute",
                 "excerpt": "Наличие лицензии обязательно",
                 "reasoning": "жёсткое требование",
-            }
+            },
         ]
     )
     analyzer = _analyzer(llm)
-    report = asyncio.run(analyzer.analyze(record, [{"id": "q1", "text": "Лицензии?"}]))
+    report = asyncio.run(
+        analyzer.analyze(
+            record,
+            [{"id": "q1", "text": "Лицензии?"}],
+            {"license_codes": [], "experience_codes": []},
+        )
+    )
     assert report["tz_found"] in (True, False)
     if report["tz_found"] and report["questions"]:
-        assert report["questions"][0]["verdict"] == "absolute"
+        q1 = next(q for q in report["questions"] if q["question_id"] == "q1")
+        assert q1["verdict"] == "absolute"
+        assert q1["source"] == "profile"
+        assert q1["marker"] == "🔴"
+
+
+# --- Лексический ретривал системных проверок ------------------------------
+
+
+def test_select_relevant_chunks() -> None:
+    from analysis_service.pipeline.system_questions import SYSTEM_RETRIEVAL_PATTERNS
+
+    analyzer = _analyzer(_FakeLlm([]))
+    chunks = [
+        "Общие положения о проведении закупки",
+        "Требование к опыту: подтверждение на электронной площадке по ПП РФ 2571",
+        "Требования к продукции: реестр Минпромторга, пометка «не установлено»",
+        "Требуется лицензия МЧС на монтаж пожарной сигнализации",
+        "Срок исполнения контракта — 90 дней",
+    ]
+    assert analyzer._select_relevant_chunks(  # noqa: SLF001
+        SYSTEM_RETRIEVAL_PATTERNS["sys:exp_2571"], chunks
+    ) == [1]
+    assert analyzer._select_relevant_chunks(  # noqa: SLF001
+        SYSTEM_RETRIEVAL_PATTERNS["sys:minprom_registry"], chunks
+    ) == [2]
+    assert analyzer._select_relevant_chunks(  # noqa: SLF001
+        SYSTEM_RETRIEVAL_PATTERNS["sys:license_sro"], chunks
+    ) == [3]
+
+
+def test_analyze_system_batch_and_matcher() -> None:
+    chunks = [
+        "Требуется опыт исполнения контрактов, подтверждённый на электронной площадке.",
+        "Запрет иностранной продукции; реестр Минпромторга — не установлено.",
+        "Требуется лицензия МЧС на монтаж пожарной сигнализации.",
+    ]
+    batch_response = {
+        "experience_2571": {
+            "found": True,
+            "facts": {"required": True, "confirmation": "platform", "ref_2571": True},
+            "excerpt": "подтверждение на электронной площадке",
+            "reasoning": "ПП РФ 2571",
+        },
+        "minprom_registry": {
+            "found": True,
+            "facts": {"required": False, "not_established_note": True, "foreign_goods_ban": True},
+            "excerpt": "не установлено",
+            "reasoning": "пометка",
+        },
+        "license_sro": {
+            "found": True,
+            "facts": {"required": True, "license_name": "лицензия МЧС", "authority": "МЧС России"},
+            "excerpt": "лицензия МЧС",
+            "reasoning": "монтаж пожарной сигнализации",
+        },
+    }
+    analyzer = _analyzer(_FakeLlm([batch_response]))
+    verdicts = asyncio.run(
+        analyzer._analyze_system(chunks, {"license_codes": [], "experience_codes": []})  # noqa: SLF001
+    )
+    by_id = {v["question_id"]: v for v in verdicts}
+    assert by_id["sys:exp_2571"]["verdict"] == "absolute"
+    assert by_id["sys:exp_2571"]["marker"] == "🔴"
+    assert by_id["sys:exp_2571"]["source"] == "system"
+    assert by_id["sys:minprom_registry"]["verdict"] == "no_stop_condition"
+    assert by_id["sys:minprom_registry"]["marker"] == "🟢"
+    assert by_id["sys:license_sro"]["verdict"] == "absolute"
+    assert by_id["sys:license_sro"]["marker"] == "🔴"
+
+    # Те же факты, но у компании есть опыт на площадке и лицензия МЧС.
+    analyzer_ok = _analyzer(_FakeLlm([batch_response]))
+    verdicts_ok = asyncio.run(
+        analyzer_ok._analyze_system(  # noqa: SLF001
+            chunks,
+            {"license_codes": ["mchs"], "experience_codes": ["platform"]},
+        )
+    )
+    by_id_ok = {v["question_id"]: v for v in verdicts_ok}
+    assert by_id_ok["sys:exp_2571"]["verdict"] == "no_stop_condition"
+    assert by_id_ok["sys:license_sro"]["verdict"] == "no_stop_condition"
+
+
+def test_analyze_system_no_llm_when_no_sections() -> None:
+    """Если в ТЗ нет стандартных секций стоп-условий — LLM не вызывается."""
+    llm = _FakeLlm([])
+    analyzer = _analyzer(llm)
+    verdicts = asyncio.run(
+        analyzer._analyze_system(  # noqa: SLF001
+            ["Только общие положения и условия оплаты."], {}
+        )
+    )
+    assert len(verdicts) == 3
+    assert all(v["verdict"] == "no_stop_condition" for v in verdicts)
+    assert all(v["source"] == "system" for v in verdicts)
+
+
+# --- Stage B: матчер фактов ТЗ × фактов профиля -----------------------------
+
+
+def _batch(
+    exp: dict[str, Any] | None = None,
+    mp: dict[str, Any] | None = None,
+    lic: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {"experience_2571": exp, "minprom_registry": mp, "license_sro": lic}
+
+
+def test_matcher_experience_rules() -> None:
+    empty = {"license_codes": [], "experience_codes": []}
+    platform_ok = {"license_codes": [], "experience_codes": ["platform"]}
+
+    v = apply_profile_facts(
+        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "platform"}}), empty
+    )
+    assert v[0]["verdict"] == "absolute" and v[0]["marker"] == "🔴"
+    v = apply_profile_facts(
+        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "platform"}}),
+        platform_ok,
+    )
+    assert v[0]["verdict"] == "no_stop_condition"
+    v = apply_profile_facts(
+        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "evaluation_only"}}),
+        empty,
+    )
+    assert v[0]["verdict"] == "no_stop_condition"
+    v = apply_profile_facts(
+        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "documents"}}), empty
+    )
+    assert v[0]["verdict"] == "soft" and v[0]["marker"] == "🟡"
+    v = apply_profile_facts(_batch(exp={"found": True, "facts": {"required": False}}), empty)
+    assert v[0]["verdict"] == "no_stop_condition"
+    # Сбой/нет данных по проверке не должен давать ложный барьер.
+    v = apply_profile_facts(_batch(exp=None), empty)
+    assert v[0]["verdict"] == "no_stop_condition"
+
+
+def test_matcher_minprom_rules() -> None:
+    empty = {"license_codes": [], "experience_codes": []}
+    v = apply_profile_facts(_batch(mp={"found": True, "facts": {"required": True}}), empty)
+    assert v[1]["verdict"] == "absolute" and v[1]["marker"] == "🔴"
+    v = apply_profile_facts(
+        _batch(mp={"found": True, "facts": {"required": False, "not_established_note": True}}),
+        empty,
+    )
+    assert v[1]["verdict"] == "no_stop_condition" and v[1]["marker"] == "🟢"
+
+
+def test_matcher_license_rules() -> None:
+    no_license = {"license_codes": [], "experience_codes": []}
+    has_mchs = {"license_codes": ["mchs"], "experience_codes": []}
+
+    lic = {
+        "found": True,
+        "facts": {"required": True, "license_name": "лицензия МЧС на монтаж пожарной сигнализации"},
+    }
+    v = apply_profile_facts(_batch(lic=lic), no_license)
+    assert v[2]["verdict"] == "absolute" and v[2]["marker"] == "🔴"
+    v = apply_profile_facts(_batch(lic=lic), has_mchs)
+    assert v[2]["verdict"] == "no_stop_condition" and v[2]["marker"] == "🟢"
+
+    # Нераспознанный вид лицензии — мягкий маркер, не отсеивает закупку.
+    odd = {
+        "found": True,
+        "facts": {"required": True, "license_name": "какое-то экзотическое разрешение"},
+    }
+    v = apply_profile_facts(_batch(lic=odd), no_license)
+    assert v[2]["verdict"] == "soft" and v[2]["marker"] == "🟡"
+
+    # Нет требования — нет барьера.
+    v = apply_profile_facts(_batch(lic={"found": True, "facts": {"required": False}}), no_license)
+    assert v[2]["verdict"] == "no_stop_condition"
+
+
+def test_resolve_license_code_aliases() -> None:
+    assert resolve_license_code({"license_code": "mchs"}) == "mchs"
+    assert (
+        resolve_license_code(
+            {"license_name": "Лицензия МЧС России на монтаж пожарной сигнализации"}
+        )
+        == "mchs"
+    )
+    assert resolve_license_code({"authority": "ФСБ России (криптографические средства)"}) == "fsb"
+    assert (
+        resolve_license_code({"license_name": "Лицензия на образовательную деятельность"})
+        == "education"
+    )
+    assert resolve_license_code({"license_name": "непонятное разрешение"}) is None
+    assert resolve_license_code({"license_code": "other"}) is None

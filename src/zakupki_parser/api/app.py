@@ -271,6 +271,16 @@ class ExperienceIn(BaseModel):
     notes: str | None = None
 
 
+class ProfileFactsOut(BaseModel):
+    """Факты профиля для Stage B анализа ТЗ (лицензии, подтверждённый опыт).
+
+    Лёгкий срез для сопоставления с фактами ТЗ; профиль в промпт RAG не попадает.
+    """
+
+    license_codes: list[str]
+    experience_codes: list[str]
+
+
 class ProfileIn(BaseModel):
     """Создание/обновление профиля фильтрации пользователя (ключ — user_id + name).
 
@@ -319,6 +329,8 @@ class ProfileOut(BaseModel):
     nmck_max: float | None = None
     created_at: datetime
     updated_at: datetime
+    # Факты профиля для сопоставления с фактами ТЗ (только в active_client).
+    facts: ProfileFactsOut | None = None
 
 
 class ProfileListOut(BaseModel):
@@ -727,14 +739,22 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         return eff_user, profile
 
     async def _profile_out(
-        profile: Profile, keywords: dict[str, list[str]] | None = None
+        profile: Profile,
+        keywords: dict[str, list[str]] | None = None,
+        include_facts: bool = False,
     ) -> ProfileOut:
-        """Карточка профиля со словами из таблицы ``keywords`` (канонический источник)."""
+        """Карточка профиля со словами из таблицы ``keywords`` (канонический источник).
+
+        ``include_facts`` — прикрепить факты BR-03 (лицензии/опыт) для конвейера
+        (эндпоинт /api/clients/active): они нужны Stage B анализа ТЗ.
+        """
         data = ProfileOut.model_validate(profile).model_dump()
         if keywords is None:
             keywords = await _repo().get_profile_keywords(profile.id)
         data["keywords"] = keywords["keywords"]
         data["exclusion_words"] = keywords["exclusion_words"]
+        if include_facts:
+            data["facts"] = ProfileFactsOut(**await _repo().get_profile_facts(profile.id))
         return ProfileOut(**data)
 
     async def _owned_profile(user: User | None, client_id: int) -> Profile:
@@ -1208,7 +1228,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     ) -> ProfileOut:
         """Активный профиль эффективного пользователя (внутренний токен — сервис-аккаунт)."""
         _, profile = await _active_context(user)
-        return await _profile_out(profile)
+        return await _profile_out(profile, include_facts=True)
 
     @app.get(
         "/api/clients",

@@ -110,6 +110,8 @@
          border-radius:20px; padding:3px 10px; font-size:12px; font-family:ui-monospace,monospace; }
   .tag .x { cursor:pointer; color:var(--muted); font-weight:700; font-size:14px; line-height:1; }
   .tag .x:hover { color:var(--warn); }
+  .tag-system { opacity:.8; cursor:default; border-style:dashed; }
+  .tag-system:hover { opacity:.8; }
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
@@ -346,6 +348,10 @@
             </div>
           </label>
           <label id="pf-pane-questions" style="display:none;">Вопросы по ТЗ <span class="muted">(Enter — добавить, × — удалить)</span>
+            <div class="muted" style="margin-bottom:6px;">Обязательные проверки (системные, не редактируются):</div>
+            <div class="tag-input" id="pf-system-questions" style="margin-bottom:10px; pointer-events:none;">
+              <div class="tags"></div>
+            </div>
             <div class="tag-input" id="pf-questions-tags">
               <div class="tags"></div>
               <div class="tags-fallback" style="display:none;"></div>
@@ -852,13 +858,14 @@ async function openDetail(id) {
   $("#modal-bg").classList.add("open");
 }
 
-// RAG-отчёт анализа стоп-условий (по вопросам клиента).
+// RAG-отчёт анализа стоп-условий (обязательные проверки + вопросы клиента).
 function ragReportHtml(report) {
   if (!report) return "";
-  const verdictBadge = (v) => {
+  const verdictBadge = (q) => {
+    const v = q.verdict;
     const cls = v === "absolute" ? "active" : v === "soft" ? "" : "";
-    const label = v === "absolute" ? "запрет" : v === "soft" ? "понижает" : "нет";
-    return `<span class="pill ${cls}">${label}</span>`;
+    const label = q.marker || (v === "absolute" ? "запрет" : v === "soft" ? "понижает" : "нет");
+    return `<span class="pill ${cls}">${escapeHtml(label)}</span>`;
   };
   if (report.tz_found === false) {
     return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">ТЗ не найдено.</p>`;
@@ -869,14 +876,15 @@ function ragReportHtml(report) {
   const items = (report.questions || []).map((q) => `
     <div style="border-top:1px solid var(--line); padding:8px 0;">
       <div style="display:flex; align-items:center; gap:8px;">
-        <b>${escapeHtml(q.question_text)}</b> ${verdictBadge(q.verdict)}
+        <b>${escapeHtml(q.question_text)}</b> ${verdictBadge(q)}
+        ${q.source === "system" ? '<span class="pill inactive" title="Обязательная системная проверка">обязат.</span>' : ""}
       </div>
       ${q.excerpt ? `<div class="muted" style="margin-top:4px;">«${escapeHtml(q.excerpt)}»</div>` : ""}
       ${q.reasoning ? `<div style="margin-top:4px;">${escapeHtml(q.reasoning)}</div>` : ""}
     </div>`).join("");
   return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
-    ${items || '<p class="muted">Вопросов клиента пока нет.</p>'}`;
+    ${items || '<p class="muted">Вопросов к ТЗ пока нет.</p>'}`;
 }
 
 function renderCustomers(data) {
@@ -979,6 +987,25 @@ let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
 let profileQuestionsLoaded = 0;
 let questionSeq = 1;
+// Обязательные системные проверки ТЗ (read-only; источник — analysis_service).
+const SYSTEM_QUESTIONS_UI = [
+  { id: "sys:exp_2571", text: "Опыт исполнения контрактов (ПП РФ 2571)" },
+  { id: "sys:minprom_registry", text: "Реестр Минпромторга" },
+  { id: "sys:license_sro", text: "Лицензии / СРО / допуски" },
+];
+function renderSystemQuestions() {
+  const box = $("#pf-system-questions");
+  if (!box) return;
+  const tagsEl = box.querySelector(".tags");
+  tagsEl.innerHTML = "";
+  SYSTEM_QUESTIONS_UI.forEach((q) => {
+    const tag = document.createElement("span");
+    tag.className = "tag tag-system";
+    tag.textContent = q.text;
+    tag.title = "Обязательная системная проверка (не редактируется)";
+    tagsEl.appendChild(tag);
+  });
+}
 // Слепок формы профиля (включая лицензии/опыт) на момент загрузки/сохранения:
 // индикатор несохранённых изменений на кнопке «Сохранить профиль».
 let profileSavedSnapshot = "";
@@ -1073,6 +1100,7 @@ function fillProfileForm(p) {
   renderTags(profileKeywords, "#pf-keywords-tags");
   renderTags(profileExcl, "#pf-excl-tags");
   renderTags(profileQuestions, "#pf-questions-tags");
+  renderSystemQuestions();
   $("#pf-competencies").value = p ? p.competencies || "" : "";
   const delBtn = $("#profile-delete");
   delBtn.style.display = p ? "inline-block" : "none";
