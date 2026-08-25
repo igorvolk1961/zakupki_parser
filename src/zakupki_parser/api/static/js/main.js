@@ -20,12 +20,13 @@ import { loadProfiles, loadActiveClient, closeDeleteProfileModal, profileFormDir
 import { loadConfig, loadPromptList, cfgDirty, promptDirty } from "./config.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
+import { loadRefTables, refDirty } from "./reference.js";
 
 // --- Переключение верхних вкладок --------------------------------------
 // При уходе с формы редактирования профиля с несохранёнными изменениями
 // предупреждаем: «Отмена» — confirmDialog ниже, закрытие страницы — beforeunload.
 function switchTab(name) {
-  ["proc", "cust", "cfg", "prompts", "profiles"].forEach((k) => {
+  ["proc", "cust", "cfg", "prompts", "profiles", "refs"].forEach((k) => {
     $("#tab-" + k).classList.toggle("active", k === name);
     $("#view-" + k).style.display = k === name ? "block" : "none";
   });
@@ -47,9 +48,13 @@ $("#tab-profiles").addEventListener("click", () => {
   switchTab("profiles");
   loadProfiles();
 });
+$("#tab-refs").addEventListener("click", () => {
+  switchTab("refs");
+  loadRefTables();
+});
 
 window.addEventListener("beforeunload", (e) => {
-  if (cfgDirty || promptDirty || profileFormDirty()) {
+  if (cfgDirty || promptDirty || profileFormDirty() || refDirty()) {
     e.preventDefault();
     e.returnValue = "";
   }

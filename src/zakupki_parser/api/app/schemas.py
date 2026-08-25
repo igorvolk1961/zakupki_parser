@@ -358,3 +358,48 @@ class ExperienceOut(BaseModel):
 class ExperienceListOut(BaseModel):
     total: int
     items: list[ExperienceOut]
+
+
+class LicenseTypeIn(BaseModel):
+    """Создание/обновление типа лицензии (админ-страница «Справочники»)."""
+
+    code: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=256)
+    sort_order: int = 0
+
+
+class ConfirmationTypeIn(BaseModel):
+    """Создание/обновление типа подтверждения опыта (админ-страница «Справочники»)."""
+
+    code: str = Field(min_length=1, max_length=32)
+    name: str = Field(min_length=1, max_length=256)
+    sort_order: int = 0
+
+
+class ReferenceColumnOut(BaseModel):
+    """Описание колонки справочной таблицы (для построения редактора)."""
+
+    key: str
+    label: str
+    type: str  # "text" | "integer" | "boolean"
+
+
+class ReferenceTableOut(BaseModel):
+    """Описание справочной таблицы (список для переключателя)."""
+
+    key: str
+    title: str
+    columns: list[ReferenceColumnOut]
+
+
+class ReferenceRowIn(BaseModel):
+    """Тело строки справочника; конкретные поля валидируются схемой таблицы."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ReferenceRowsOut(BaseModel):
+    """Список строк справочника (все колонки таблицы как dict)."""
+
+    total: int
+    items: list[dict[str, Any]]

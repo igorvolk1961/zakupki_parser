@@ -192,16 +192,59 @@ class ProfileMixin(RepositoryMixin):
             await session.commit()
 
     async def list_license_types(self) -> list[LicenseType]:
-        stmt = select(LicenseType).order_by(LicenseType.sort_order, LicenseType.id)
+        return await self.list_reference_rows(LicenseType)
+
+    async def list_confirmation_types(self) -> list[ExperienceConfirmationType]:
+        return await self.list_reference_rows(ExperienceConfirmationType)
+
+    # --- Общий CRUD справочных таблиц (админ-страница «Справочники») ---------
+    # Генерик над моделями-справочниками (LicenseType, ExperienceConfirmationType
+    # и будущими): расширяется регистрацией новой таблицы в routes/reference.py
+    # без добавления методов в репозиторий.
+
+    async def list_reference_rows(self, model: type[Any]) -> list[Any]:
+        """Все строки справочника; сортировка по sort_order+id, если она есть."""
+        stmt = select(model)
+        if hasattr(model, "sort_order"):
+            stmt = stmt.order_by(model.sort_order.asc(), model.id.asc())
+        else:
+            stmt = stmt.order_by(model.id.asc())
         async with self._db.session() as session:
             return list((await session.execute(stmt)).scalars().all())
 
-    async def list_confirmation_types(self) -> list[ExperienceConfirmationType]:
-        stmt = select(ExperienceConfirmationType).order_by(
-            ExperienceConfirmationType.sort_order, ExperienceConfirmationType.id
-        )
+    async def get_reference_row(self, model: type[Any], row_id: int) -> Any | None:
         async with self._db.session() as session:
-            return list((await session.execute(stmt)).scalars().all())
+            return await session.get(model, row_id)
+
+    async def create_reference_row(self, model: type[Any], data: dict[str, Any]) -> Any:
+        row = model(**data)
+        async with self._db.session() as session:
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+        return row
+
+    async def update_reference_row(
+        self, model: type[Any], row_id: int, data: dict[str, Any]
+    ) -> Any | None:
+        async with self._db.session() as session:
+            row = await session.get(model, row_id)
+            if row is None:
+                return None
+            for key, value in data.items():
+                setattr(row, key, value)
+            await session.commit()
+            await session.refresh(row)
+        return row
+
+    async def delete_reference_row(self, model: type[Any], row_id: int) -> bool:
+        async with self._db.session() as session:
+            row = await session.get(model, row_id)
+            if row is None:
+                return False
+            await session.delete(row)
+            await session.commit()
+        return True
 
     async def list_licenses(self, profile_id: int) -> list[ProfileLicense]:
         stmt = (

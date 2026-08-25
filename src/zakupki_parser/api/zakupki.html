@@ -46,6 +46,7 @@
     <button id="tab-cfg">Параметры</button>
     <button id="tab-prompts">Промпты</button>
     <button id="tab-profiles">Профили</button>
+    <button id="tab-refs">Справочники</button>
   </div>
 
   <div id="view-proc">
@@ -259,6 +260,30 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+  <div id="view-refs" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Справочные таблицы</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <label>Таблица:
+          <select id="ref-table" title="Справочная таблица"></select>
+        </label>
+        <span id="ref-status" class="muted"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="cust refs-table">
+        <thead id="ref-head"></thead>
+        <tbody id="ref-rows"></tbody>
+      </table>
+      <div class="empty" id="ref-empty" style="display:none;">Записей нет</div>
+    </div>
+    <div class="toolbar refs-actions">
+      <button class="primary" id="ref-add">Добавить строку</button>
+      <button class="ghost" id="ref-save">Сохранить изменения</button>
+      <button class="danger" id="ref-delete" disabled>Удалить выбранное</button>
+      <span id="ref-actions-status" class="muted"></span>
     </div>
   </div>
 </main>

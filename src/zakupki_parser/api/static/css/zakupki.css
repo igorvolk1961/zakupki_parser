@@ -120,6 +120,14 @@
   .muted { color: var(--muted); }
   a { color: var(--accent); }
   .editor-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin-top: 12px; z-index: 2; }
+  /* Справочники: нижняя панель действий прижата к нижнему краю окна. */
+  .refs-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0;
+    margin-top: 12px; margin-bottom: 0; z-index: 2; }
+  .refs-table input[type="text"], .refs-table input[type="number"] {
+    width: 100%; min-width: 140px; padding: 6px 8px; }
+  .refs-table td input { font-family: ui-monospace, monospace; font-size: 13px; }
+  .refs-table tr.ref-new td { background: rgba(2, 132, 199, .06); }
+  html[data-theme="dark"] .refs-table tr.ref-new td { background: rgba(56, 189, 248, .08); }
   .editor-actions.profile-actions { background: var(--panel); margin: 12px -16px -14px; padding: 12px 16px;
     border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
   /* Профиль: редактор — полноэкранная область. Чипы слов в обычном потоке,

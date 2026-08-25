@@ -23,6 +23,7 @@ function updateControls() {
   $("#db-export").style.display = adminOn ? "" : "none";
   $("#tab-cfg").style.display = adminOn ? "" : "none";
   $("#tab-prompts").style.display = adminOn ? "" : "none";
+  $("#tab-refs").style.display = adminOn ? "" : "none";
 }
 
 async function refreshParserStatus() {
