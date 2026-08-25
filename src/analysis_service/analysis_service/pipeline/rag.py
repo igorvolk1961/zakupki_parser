@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,7 @@ VERDICT_NONE: Literal["no_stop_condition"] = "no_stop_condition"
 VERDICT_SOFT: Literal["soft"] = "soft"
 VERDICT_ABSOLUTE: Literal["absolute"] = "absolute"
 VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE)
+Verdict = Literal["no_stop_condition", "absolute", "soft"]
 
 # Ключи ответа batch_system.md → id системного вопроса.
 _BATCH_KEYS: dict[str, str] = {
@@ -262,7 +263,7 @@ class RagAnalyzer:
         return self._profile_verdict(
             question_id,
             question_text,
-            verdict,
+            cast(Verdict, verdict),
             str(data.get("reasoning") or ""),
             str(data.get("excerpt") or "")[:500] or None,
         )
@@ -271,7 +272,7 @@ class RagAnalyzer:
         self,
         question_id: str,
         question_text: str,
-        verdict: str,
+        verdict: Verdict,
         reasoning: str,
         excerpt: str | None,
     ) -> dict[str, Any]:

@@ -8,18 +8,25 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import cast
+from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from scoring_service.modules import embedding as embedding_module
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps, ScoringOutput
+from scoring_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 
 
 class EmbeddingMixin:
     """Векторная ветка: близость описания к компетенциям + результат предфильтрации."""
+
+    # Атрибуты задаются в Scorer.__init__ (см. scoring/__init__.py); объявлены
+    # здесь, чтобы mypy видел их в миксине.
+    _embedder: Any | None
+    _competencies_embedding_cache: dict[str, list[float]]
+    _settings: Settings
 
     def _run_embedding_branch(
         self,

@@ -16,15 +16,25 @@ from scoring_service.pipeline.description import (
     extend_description_from_tz,
     is_truncated_description,
 )
-from scoring_service.pipeline.tz_reviewer import TzReviewOutcome
+from scoring_service.pipeline.fit_chain import FitChain
+from scoring_service.pipeline.judge_chain import JudgeChain
+from scoring_service.pipeline.tz_reviewer import TzReviewer, TzReviewOutcome
 from scoring_service.schemas import FitResult, ScoringOutput
 from scoring_service.scoring.types import _PipelineResult
+from scoring_service.settings import Settings
 
 logger = logging.getLogger(__name__)
 
 
 class PipelineMixin:
     """Fit/judge/refine-пайплайн и построение финального результата."""
+
+    # Атрибуты задаются в Scorer.__init__ (см. scoring/__init__.py); объявлены
+    # здесь, чтобы mypy видел их в миксине.
+    _fit: FitChain | None
+    _judge: JudgeChain | None
+    _settings: Settings
+    _tz_reviewer: TzReviewer | None
 
     def _refine_fit(
         self,

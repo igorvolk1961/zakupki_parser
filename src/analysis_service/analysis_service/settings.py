@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     processing_ttl_seconds: int = 600
     processing_recovery_priority: float = 0.0
     queue_poll_seconds: float = 2.0
+    jobs_retry_key: str = "analysis:jobs_retries"
 
     # RAG-параметры.
     chunk_max_chars: int = Field(default=1500, ge=200, description="макс. размер чанка (символов)")
