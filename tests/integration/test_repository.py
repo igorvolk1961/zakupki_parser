@@ -474,7 +474,7 @@ async def test_find_unscored_reenqueues_after_update(db: Database) -> None:
 async def test_find_unscored_reenqueues_stale_queued(db: Database) -> None:
     """Метка постановки старше порога (queued_before) — закупка снова в очереди."""
     repo = ProcurementRepository(db)
-    pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 8, 10, 10, 0, tzinfo=UTC))
+    pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 7, 30, 10, 0, tzinfo=UTC))
     # Поставлена в очередь «давно», запись не обновлялась — без порога не возвращается.
     await repo.mark_scoring_queued(pid, datetime(2026, 8, 1, 12, 0, tzinfo=UTC))
     assert await repo.find_unscored() == []

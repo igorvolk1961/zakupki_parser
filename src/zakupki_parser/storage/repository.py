@@ -85,6 +85,7 @@ def _apply_profile_score(
             row.p_win = evaluation.p_win
             row.margin = evaluation.margin
             row.score_method = evaluation.score_method
+            row.embedding_similarity = evaluation.embedding_similarity
             # rag_report — per-user, колонки в procurements нет: подкладываем
             # динамическим атрибутом для API-ответа (ClassVar на Procurement).
             row.rag_report = evaluation.rag_report
@@ -1196,6 +1197,7 @@ class ProcurementRepository:
         margin: float | None = None,
         score_method: str = "default",
         rag_report: dict[str, Any] | None = None,
+        embedding_similarity: float | None = None,
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки."""
         async with self._db.session() as session:
@@ -1209,6 +1211,8 @@ class ProcurementRepository:
             if margin is not None:
                 evaluation.margin = _round_score(margin)
             evaluation.score_method = score_method
+            if embedding_similarity is not None:
+                evaluation.embedding_similarity = embedding_similarity
             if rag_report is not None:
                 evaluation.rag_report = rag_report
             await session.commit()

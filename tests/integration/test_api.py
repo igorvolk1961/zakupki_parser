@@ -172,8 +172,6 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
                     "number": "CIR-1",
                     "platform_id": "zakupki_mos",
                     "subject": "Релевантная",
-                    "fit_score": 0.8,
-                    "score_method": "fit",
                 }
             )
             await repo.upsert(
@@ -181,8 +179,6 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
                     "number": "CIR-2",
                     "platform_id": "zakupki_mos",
                     "subject": "Нерелевантная",
-                    "fit_score": 0.2,
-                    "score_method": "fit",
                 }
             )
             # Отсечка по векторной близости (ADR-8): fit_score=0 — нерелевантна.
@@ -191,12 +187,19 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
                     "number": "CIR-3",
                     "platform_id": "zakupki_mos",
                     "subject": "Векторная отсечка",
-                    "fit_score": 0.0,
-                    "score_method": "sim",
                 }
             )
             rows, _ = await repo.list_procurements(number="CIR-")
             ids = {p.number: p.id for p in rows}
+            # Оценки per-profile (BR-07): результат внешнего скоринга приходит
+            # через POST /score и пишется в procurement_evaluations активного профиля.
+            user = await repo.first_user()
+            assert user is not None
+            profile = await repo.get_active_profile(user.id)
+            assert profile is not None
+            await repo.upsert_score(ids["CIR-1"], profile.id, fit_score=0.8, score_method="fit")
+            await repo.upsert_score(ids["CIR-2"], profile.id, fit_score=0.2, score_method="fit")
+            await repo.upsert_score(ids["CIR-3"], profile.id, fit_score=0.0, score_method="sim")
             return ids["CIR-1"], ids["CIR-2"], ids["CIR-3"]
         finally:
             await db.dispose()
@@ -644,26 +647,22 @@ def test_export_csv_writes_to_export_dir(
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            assert await repo.upsert(
+            await repo.upsert(
                 {
                     "number": "EXPORT-REL",
                     "platform_id": "zakupki_mos",
                     "subject": "Релевантная активная",
                     "customer": "Заказчик ООО",
-                    "fit_score": 0.8,
-                    "score_method": "fit",
                 }
             )
-            assert await repo.upsert(
+            await repo.upsert(
                 {
                     "number": "EXPORT-IRR",
                     "platform_id": "zakupki_mos",
                     "subject": "Нерелевантная",
-                    "fit_score": 0.2,
-                    "score_method": "fit",
                 }
             )
-            assert await repo.upsert(
+            await repo.upsert(
                 {
                     "number": "EXPORT-INACTIVE",
                     "platform_id": "zakupki_mos",
@@ -671,8 +670,21 @@ def test_export_csv_writes_to_export_dir(
                     "is_active": False,
                 }
             )
-            rows, _ = await repo.list_procurements(number="EXPORT-REL")
-            return rows[0].id
+            rows, _ = await repo.list_procurements(number="EXPORT-")
+            ids = {p.number: p.id for p in rows}
+            # Оценки per-profile (BR-07): релевантность фильтра/выгрузки считается
+            # по procurement_evaluations активного профиля.
+            user = await repo.first_user()
+            assert user is not None
+            profile = await repo.get_active_profile(user.id)
+            assert profile is not None
+            await repo.upsert_score(
+                ids["EXPORT-REL"], profile.id, fit_score=0.8, score_method="fit"
+            )
+            await repo.upsert_score(
+                ids["EXPORT-IRR"], profile.id, fit_score=0.2, score_method="fit"
+            )
+            return ids["EXPORT-REL"]
         finally:
             await db.dispose()
 

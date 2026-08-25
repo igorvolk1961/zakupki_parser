@@ -1113,7 +1113,14 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт, результат скоринга не меняем.
             await _repo().update_rag_report(procurement_id, profile.id, body.rag_report)
-        else:
+        # Результат стадии каскада (fit/pwin/margin/sim) применяется и вместе с
+        # rag_report: rag_report не отменяет скоринг. Чисто аналитический результат
+        # (rag_report без fit_score/p_win/margin) скоринг не трогает — у analysis-воркера
+        # score=0.0 — это заглушка, перезаписывать ею оценку нельзя.
+        has_stage_result = (
+            body.fit_score is not None or body.p_win is not None or body.margin is not None
+        )
+        if body.rag_report is None or has_stage_result:
             await _repo().upsert_score(
                 procurement_id,
                 profile.id,
@@ -1122,6 +1129,7 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
                 p_win=body.p_win,
                 margin=body.margin,
                 score_method=body.score_method,
+                embedding_similarity=body.embedding_similarity,
             )
         await _broadcast(state)
         row = await _repo().get_by_id(procurement_id, profile_id=profile.id)

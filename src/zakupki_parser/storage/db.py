@@ -409,6 +409,8 @@ class ProcurementEvaluation(Base):
     p_win: Mapped[float | None] = mapped_column(Float)
     margin: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
+    # Векторная близость терминальной отсечки (score_method=sim, ADR-8).
+    embedding_similarity: Mapped[float | None] = mapped_column(Float)
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Ключевые слова профиля, по которым закупка прошла клиентскую фильтрацию (R9).
     matched_keywords: Mapped[list[str] | None] = mapped_column(JSONB)

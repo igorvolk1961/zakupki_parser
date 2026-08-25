@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from starlette.websockets import WebSocketDisconnect
 
 from zakupki_parser.api.app import create_app
+from zakupki_parser.auth import ROLE_ADMIN, hash_password
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -46,9 +47,17 @@ def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient
         await db.connect()
         try:
             repo = ProcurementRepository(db)
+            # Сервис-аккаунт: не «admin» — логин admin оставлен свободным, чтобы
+            # test_register_never_grants_admin_role проверил регистрацию под ним.
+            # Пароль — реальный хеш (PBKDF2): используется для входа админом
+            # в test_websocket_with_token.
             user = await repo.first_user()
             if user is None:
-                user = await repo.create_user("admin", "test-hash", "admin")
+                user = await repo.create_user(
+                    "service-account",
+                    await asyncio.to_thread(hash_password, "servicepass"),
+                    ROLE_ADMIN,
+                )
             await repo.upsert_profile(
                 {
                     "name": "default",
@@ -291,7 +300,8 @@ def test_websocket_requires_token(auth_client: TestClient) -> None:
 
 def test_websocket_with_token(auth_client: TestClient) -> None:
     client = auth_client
-    token = _login(client, "tender1", "password123")
+    # Сервис-аккаунт (admin) с известным паролем — доступ к админ-эндпоинту.
+    token = _login(client, "service-account", "servicepass")
     headers = _headers(token)
     with client.websocket_connect("/ws?token=" + token) as ws:
         r = client.post("/api/db/clear-inactive", headers=headers)

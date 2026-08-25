@@ -1,0 +1,10 @@
+databaseChangeLog:
+- changeSet:
+    id: 40
+    author: zakupki-parser
+    comment: 'procurement_evaluations: колонка embedding_similarity — векторная близость терминальной отсечки (score_method=sim, ADR-8)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS embedding_similarity DOUBLE PRECISION;
