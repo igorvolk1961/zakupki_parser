@@ -2,7 +2,8 @@
 
 ``create_app`` собирает приложение из роутеров (подпакет ``routes``); состояние,
 схемы, зависимости и конвертеры вынесены в соседние модули пакета
-(``state``, ``schemas``, ``deps``, ``converters``).
+(``state``, ``schemas``, ``deps``, ``converters``). Статические ассеты
+web-интерфейса (CSS/JS-модули) раздаются из каталога ``api/static``.
 """
 
 from __future__ import annotations
@@ -10,8 +11,10 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from zakupki_parser.api.app.converters import _meets_stage_notify_threshold  # noqa: F401
 from zakupki_parser.api.app.deps import build_context
@@ -28,6 +31,9 @@ from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
+
+# Каталог статических ассетов web-интерфейса (api/static).
+_STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 __all__ = ["create_app", "_meets_stage_notify_threshold"]
 
@@ -69,6 +75,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
     # скора и прохождения порога notify_min_fit_score (ADR-7).
     state.notifier = Notifier(state.cfg.ops.notifications)
     state.notify_min_fit_score = state.cfg.ops.notifications.notify_min_fit_score
+
+    # Статические ассеты web-интерфейса (CSS + ES-модули JS).
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     app.include_router(build_admin_router(ctx))
     app.include_router(build_auth_router(ctx))

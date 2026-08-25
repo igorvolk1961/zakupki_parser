@@ -1,0 +1,157 @@
+  /* Тема по умолчанию — светлая; тёмная переключается через data-theme="dark". */
+  html[data-theme="light"], :root {
+    --bg: #f5f6fa; --panel: #ffffff; --panel2: #eef1f6; --line: #d8dde6;
+    --text: #1f2937; --muted: #6b7280; --accent: #0284c7; --good: #16a34a; --warn: #d97706;
+    --on-accent: #ffffff; --sel-bg: #dbeafe;
+    --pill-score-bg: #e0f2fe; --pill-score-border: #bae6fd; --pill-score-text: #075985;
+  }
+  html[data-theme="dark"] {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --good: #4ade80; --warn: #fbbf24;
+    --on-accent: #06283a; --sel-bg: #0c4a6e;
+    --pill-score-bg: #082f49; --pill-score-border: #0c4a6e; --pill-score-text: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--text); }
+  header { padding: 18px 24px; background: var(--panel); border-bottom:1px solid var(--line);
+           display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;}
+  header h1 { font-size:18px; margin:0; }
+  header .sub { color: var(--muted); font-size:13px; }
+  header .header-right { display:flex; align-items:center; gap:18px; }
+  main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center;}
+  input, select, button { background: var(--panel2); border:1px solid var(--line); color: var(--text);
+    padding:9px 12px; border-radius:8px; font-size:14px;}
+  input:focus, select:focus { outline:none; border-color: var(--accent);}
+  button { cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
+  button.dirty::after { content: " ●"; font-size:10px; vertical-align:top; color:#fde047; }
+  button.ghost { background: transparent; }
+  button.danger { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
+  html[data-theme="dark"] button.danger { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
+  .tabs { display:flex; gap:6px; margin-bottom:16px;}
+  .tabs button { border-radius:20px; }
+  .tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
+  .tab-count { color: var(--muted); font-weight:400; margin-left:2px; }
+  .tabs button.active .tab-count { color: inherit; }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px;}
+  .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
+  .empty { text-align:center; color: var(--muted); padding: 60px 0;}
+  .split { display:flex; gap:16px; align-items:flex-start; }
+  .proc-list { flex:1 1 auto; min-width:0; max-height:72vh; display:flex; flex-direction:column;
+               border:1px solid var(--line); border-radius:10px; background: var(--panel);}
+  .proc-list table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+  .sort-toggle { display:block; flex:0 0 auto; font-size:13px; color: var(--muted, #888); padding:8px 12px; }
+  .proc-table { flex:1 1 auto; min-height:0; overflow:auto; }
+  .sort-toggle select { margin-left:6px; }
+  .pager { display:flex; align-items:center; gap:14px; justify-content:center; padding:10px 12px;
+           border-top:1px solid var(--line); font-size:13px; }
+  .pager .page-info { color: var(--muted); white-space:nowrap; }
+  #proc-min-fit::-webkit-outer-spin-button, #proc-min-fit::-webkit-inner-spin-button,
+  #db-min-fit::-webkit-outer-spin-button, #db-min-fit::-webkit-inner-spin-button,
+  #export-min-fit::-webkit-outer-spin-button, #export-min-fit::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  #proc-min-fit, #db-min-fit, #export-min-fit { -moz-appearance:textfield; }
+  .step { display:inline-flex; align-items:stretch; vertical-align:middle; }
+  .step input { width:32px; text-align:right; padding:1px 2px; border:1px solid var(--line); border-radius:6px 0 0 6px; background:var(--panel2); color:var(--text); }
+  .step-btn { display:inline-flex; flex-direction:column; }
+  .step-btn button { border:1px solid var(--line); border-left:0; background:var(--panel2); color:var(--text); padding:0 3px; font-size:6px; line-height:1.3; cursor:pointer; }
+  .step-btn button:first-child { border-radius:0 6px 0 0; border-bottom:0; }
+  .step-btn button:last-child { border-radius:0 0 6px 0; }
+  .proc-list th, .proc-list td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
+  .proc-list th { position:sticky; top:0; background: var(--panel2); z-index:1; color: var(--muted); font-weight:600;}
+  .proc-list tr { cursor:pointer; }
+  .proc-list tr:hover { background: var(--panel2); }
+  .proc-list tr.sel { background: var(--sel-bg); }
+  .proc-list td.id { color: var(--muted); width:64px; font-family:ui-monospace,monospace; }
+  .proc-list .num { color: var(--accent); font-size:12px; font-family:ui-monospace,monospace;}
+  .proc-list .subj { margin-top:2px; }
+  .proc-detail { flex:0 0 400px; width:400px; max-height:72vh; overflow:auto;
+                 display:flex; flex-direction:column; gap:12px; }
+  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; cursor:pointer;}
+  .card:hover, .card.selcard { border-color: var(--accent); }
+  .card .num { color: var(--accent); font-size:13px; font-family:ui-monospace,monospace;}
+  .card .subj { font-weight:600; margin:6px 0 10px; line-height:1.35;}
+  .card .row { display:flex; justify-content:space-between; font-size:13px; color: var(--muted);
+               padding:3px 0; border-top:1px dashed var(--line);}
+  .card .row b { color: var(--text); font-weight:600;}
+  .pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line);}
+  .pill.score { background: var(--pill-score-bg); border-color: var(--pill-score-border); color: var(--pill-score-text); font-weight:700;}
+  .pill.active { background: #dcfce7; border-color: #bbf7d0; color: #166534; font-weight:600;}
+  .pill.inactive { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
+  html[data-theme="dark"] .pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
+  html[data-theme="dark"] .pill.inactive { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
+  .client-switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
+  .client-switch select { padding:4px 6px; font-size:13px; }
+  .profile-form { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+  .profile-form label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
+  .profile-form input[type="text"], .profile-form input[type="number"], .profile-form textarea {
+    font-family:ui-monospace,monospace; font-size:13px; background:var(--panel2); color:var(--text);
+    border:1px solid var(--line); border-radius:8px; padding:8px; }
+  .profile-checks { display:flex; gap:16px; flex-wrap:wrap; }
+  .profile-checks label { flex-direction:row; align-items:center; gap:6px; }
+  .tag-input { display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:var(--panel2);
+               border:1px solid var(--line); border-radius:8px; padding:7px 8px; }
+  .tag-input .tags { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .tag-input input[type="text"] { flex:1 1 220px; min-width:140px; border:none; background:transparent;
+    padding:4px 6px; font-family:ui-monospace,monospace; font-size:13px; color:var(--text); }
+  .tag-input input[type="text"]:focus { outline:none; }
+  .tag { display:inline-flex; align-items:center; gap:6px; background:var(--panel); border:1px solid var(--line);
+         border-radius:20px; padding:3px 10px; font-size:12px; font-family:ui-monospace,monospace; }
+  .tag .x { cursor:pointer; color:var(--muted); font-weight:700; font-size:14px; line-height:1; }
+  .tag .x:hover { color:var(--warn); }
+  .tag-system { opacity:.8; cursor:default; border-style:dashed; }
+  .tag-system:hover { opacity:.8; }
+  .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
+              justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
+  .modal-bg.open { display:flex; }
+  .modal { background: var(--panel); border:1px solid var(--line); border-radius:14px; max-width:760px; width:100%; padding:20px;}
+  .modal h2 { margin-top:0; font-size:18px;}
+  .modal table { width:100%; border-collapse:collapse; font-size:13px; }
+  .modal td, .modal th { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
+  .modal td:first-child { color: var(--muted); width: 34%; }
+  .modal code { color: var(--accent); word-break: break-word;}
+  .modal .close { float:right; cursor:pointer; color: var(--muted); font-size:22px; line-height:1;}
+  .table-wrap { overflow-x:auto; }
+  table.cust { width:100%; border-collapse:collapse; font-size:13px; background: var(--panel); border-radius:12px;}
+  table.cust th, table.cust td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line);}
+  table.cust th { position:sticky; top:0; background: var(--panel2); color: var(--muted); font-weight:600;}
+  .muted { color: var(--muted); }
+  a { color: var(--accent); }
+  .editor-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin-top: 12px; z-index: 2; }
+  .editor-actions.profile-actions { background: var(--panel); margin: 12px -16px -14px; padding: 12px 16px;
+    border-top: 1px solid var(--line); border-radius: 0 0 12px 12px; }
+  /* Профиль: редактор — полноэкранная область. Чипы слов в обычном потоке,
+     прокручивается сама панель поля (поле ввода прижато к низу через sticky),
+     поэтому чипы не могут «схлопнуться» или исчезнуть. */
+  #profile-editor { position: fixed; inset: 0; z-index: 6; background: var(--bg); overflow-y: auto;
+    padding: 20px 24px; }
+  #profile-editor .panel { height: 100%; display:flex; flex-direction:column; margin-bottom:0; }
+  #profile-editor .profile-form { flex:1 1 auto; min-height:0; }
+  #profile-editor .profile-form > label:not(#pf-pane-keywords):not(#pf-pane-excl):not(#pf-pane-comp),
+  #profile-editor .profile-form > div { flex-shrink:0; }
+  #pf-pane-keywords, #pf-pane-excl, #pf-pane-questions { flex:1 1 0; flex-shrink:1; min-height:140px; overflow-y:auto; }
+  #pf-pane-comp { flex:1 1 0; flex-shrink:1; min-height:140px; overflow:hidden; }
+  #pf-pane-keywords .tag-input, #pf-pane-excl .tag-input, #pf-pane-questions .tag-input {
+    display:flex; flex-direction:column; gap:6px; overflow:visible;
+  }
+  #pf-pane-keywords .tag-input .tags, #pf-pane-excl .tag-input .tags, #pf-pane-questions .tag-input .tags {
+    display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start; overflow:visible;
+  }
+  .tag-input .tags-fallback { font-family:ui-monospace,monospace; font-size:13px;
+    color:var(--text); white-space:pre-wrap; }
+  #pf-pane-keywords .tag-input input[type="text"], #pf-pane-excl .tag-input input[type="text"],
+  #pf-pane-questions .tag-input input[type="text"] {
+    position:sticky; bottom:0; flex:0 0 auto; width:100%; min-width:0; padding:6px;
+    background:var(--panel2); border-radius:6px;
+  }
+  #pf-pane-comp textarea { flex:1 1 auto; min-height:0; }
+  .user-bar { display:flex; align-items:center; gap:10px; font-size:13px; color: var(--muted); }
+  .user-bar b { color: var(--text); font-weight:600; }
+  .login-modal { max-width:360px; }
+  .login-modal .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .login-modal .field label { font-size:13px; color: var(--muted); }
+  .login-modal .error { color: #dc2626; font-size:13px; min-height:18px; margin-bottom:8px; }
+  .login-modal .switch { margin-top:14px; text-align:center; font-size:13px; }
+  .login-modal .switch button { background:none; border:none; color: var(--accent); cursor:pointer; padding:0; font-size:13px; }
