@@ -1,0 +1,20 @@
+databaseChangeLog:
+  - changeSet:
+      id: 43
+      author: zakupki-parser
+      comment: "platforms: колонка enabled — активность площадки (источник истины — БД; конфиг config_service.yaml синхронизируется на старте/сохранении)"
+      changes:
+        - sql:
+            sql: |
+              ALTER TABLE platforms ADD COLUMN IF NOT EXISTS enabled boolean NOT NULL DEFAULT true;
+
+              -- Начальное состояние — по текущему config_service.yaml (далее актуальность
+              -- поддерживается синхронизацией конфига в БД при старте приложения и
+              -- сохранении конфигурации через форму).
+              UPDATE platforms SET enabled = CASE platform_id
+                  WHEN 'zakupki_mos' THEN true
+                  WHEN 'etpgpb' THEN true
+                  WHEN 'lot_online_44' THEN true
+                  WHEN 'lot_online_223' THEN true
+                  ELSE false
+              END;

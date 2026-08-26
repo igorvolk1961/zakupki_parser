@@ -36,7 +36,7 @@ from zakupki_parser.api.app.converters import (
     _service_config_public,
 )
 from zakupki_parser.api.app.deps import ApiContext
-from zakupki_parser.api.app.schemas import PromptUpdate
+from zakupki_parser.api.app.schemas import PlatformOut, PlatformsListOut, PromptUpdate
 from zakupki_parser.api.app.state import AppState
 from zakupki_parser.config.models import LoggingConfig, OpsConfig, ParserConfig, ServiceConfig
 
@@ -243,6 +243,11 @@ def _register_config_endpoints(
             target = Path(state.configs_dir) / filename
             _write_yaml(target, public(new_model))
             state_setter(new_model)
+            # Активность площадок (sites.enabled) синхронизируем в справочник
+            # platforms: БД — источник истины, конфиг — редактируемый интерфейс.
+            if isinstance(new_model, ServiceConfig) and state.repository is not None:
+                enabled = {s.platform_id for s in new_model.sites if s.enabled}
+                await state.repository.sync_platform_enabled(enabled)
             logger.info("Сохранён %s (%s)", filename, target)
             return public(new_model)
 
@@ -250,8 +255,8 @@ def _register_config_endpoints(
 def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Кастомизация схемы config_service.yaml для формы «Параметры мониторинга».
 
-    - sites: таблица без подписи списка и без подписи поля в ячейке, колонка
-      enabled убрана, шапка platform_id — «Площадка электронных торгов»;
+    - sites: таблица без подписи списка, колонки platform_id (ключ),
+      название/URL (из справочника platforms) и «Активная» (enabled);
     - default_cutoff_days: короткая подпись «Интервал дат в днях», пояснение —
       во всплывающую подсказку (title);
     - search_criteria: в одну колонку (stack);
@@ -269,7 +274,6 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
                     sub["kind"] = "str"
                     sub["plain"] = True
                     item.append(sub)
-                # enabled из таблицы не выводим: колонка убрана.
             item.extend(
                 [
                     {
@@ -294,6 +298,10 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
                     },
                 ]
             )
+            for sub in field["item"]:
+                if sub["key"] == "enabled":
+                    sub["label"] = "Активная"
+                    item.append(sub)
             field["item"] = item
         elif field.get("key") == "default_cutoff_days":
             field["label"] = "Интервал дат в днях"
@@ -342,6 +350,33 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         Значение берётся из config_ops.yaml (notifications.notify_min_fit_score).
         """
         return {"notify_min_fit_score": state.cfg.ops.notifications.notify_min_fit_score}
+
+    @router.get(
+        "/api/platforms",
+        response_model=PlatformsListOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def list_platforms_endpoint() -> PlatformsListOut:
+        """Справочник площадок из БД (ключ/название/URL/активность).
+
+        Источник истины — таблица ``platforms``; активность синхронизируется из
+        config_service.yaml при старте и сохранении конфигурации.
+        """
+        repo = state.repository
+        if repo is None:
+            return PlatformsListOut(items=[])
+        rows = await repo.list_platforms()
+        return PlatformsListOut(
+            items=[
+                PlatformOut(
+                    platform_id=r["value"],
+                    name=r["name"],
+                    url=r["url"],
+                    enabled=r["enabled"],
+                )
+                for r in rows
+            ]
+        )
 
     # --- config_service.yaml: «Параметры мониторинга» (аналитик) ----------
     # Список площадок для формы берётся из БД (справочник platforms); конфиги

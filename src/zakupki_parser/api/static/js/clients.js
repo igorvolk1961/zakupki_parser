@@ -19,6 +19,10 @@ let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
 let profileQuestionsLoaded = 0;
 let questionSeq = 1;
+// Площадки, используемые профилем (target_etp): выбираются из активных.
+let profilePlatforms = [];
+let activePlatforms = [];
+let platformsLoaded = false;
 // Обязательные системные проверки ТЗ (read-only; источник — analysis_service).
 const SYSTEM_QUESTIONS_UI = [
   { id: "sys:exp_2571", text: "Опыт исполнения контрактов (ПП РФ 2571)" },
@@ -122,6 +126,37 @@ async function loadProfiles() {
   }
 }
 
+async function ensureActivePlatforms() {
+  if (platformsLoaded) return;
+  try {
+    const data = await api("platforms");
+    activePlatforms = (data.items || []).filter((p) => p.enabled);
+  } catch {
+    activePlatforms = [];
+  }
+  platformsLoaded = true;
+}
+
+function renderPlatformChecks() {
+  const box = $("#pf-platforms");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!activePlatforms.length) {
+    box.innerHTML = '<span class="muted">—</span>';
+    return;
+  }
+  activePlatforms.forEach((p) => {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = p.platform_id;
+    cb.checked = profilePlatforms.includes(p.platform_id);
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(p.name));
+    box.appendChild(label);
+  });
+}
+
 function setProfileStatus(msg) {
   $("#profile-status").textContent = msg;
 }
@@ -131,6 +166,8 @@ function fillProfileForm(p) {
   profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
   profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
   profileQuestionsLoaded = (p ? p.questions || [] : []).length;
+  profilePlatforms = (p ? p.target_etp || [] : []).slice();
+  ensureActivePlatforms().then(renderPlatformChecks);
   $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
@@ -564,6 +601,7 @@ function profileFormData() {
     okpd_codes: splitWords($("#pf-okpd").value),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),
+    target_etp: profilePlatforms.slice(),
     keywords: profileKeywords.slice(),
     exclusion_words: profileExcl.slice(),
     questions: profileQuestions.slice(),
@@ -809,6 +847,16 @@ $("#delete-profile-modal-bg").addEventListener("click", (e) => {
   }
 );
 $("#pf-competencies").addEventListener("input", wordCounts);
+$("#pf-platforms").addEventListener("change", (e) => {
+  const cb = e.target;
+  if (cb.type !== "checkbox") return;
+  if (cb.checked) {
+    if (!profilePlatforms.includes(cb.value)) profilePlatforms.push(cb.value);
+  } else {
+    profilePlatforms = profilePlatforms.filter((x) => x !== cb.value);
+  }
+  syncEntryFormState();
+});
 // Изменения полей профиля (имя, ОКПД2, НМЦК, чекбоксы, чипы слов/вопросов)
 // пересчитывают доступность кнопок «Добавить лицензию/опыт».
 $("#profile-editor").addEventListener("input", syncEntryFormState);

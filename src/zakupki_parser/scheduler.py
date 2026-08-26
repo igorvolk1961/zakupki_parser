@@ -51,18 +51,29 @@ class Scheduler:
     async def start(self) -> None:
         setup_logging(self._cfg.logging)
         await self._db.connect()
+        # Активность площадок синхронизируем в БД (источник истины — platforms).
+        enabled = {s.platform_id for s in self._cfg.service.sites if s.enabled}
+        await self._repository.sync_platform_enabled(enabled)
 
     async def stop(self) -> None:
         self._stop.set()
         await self._db.dispose()
 
     async def run_once(self) -> None:
-        """Один проход по всем включённым площадкам."""
+        """Один проход по включённым площадкам активного профиля."""
         # Recovery очереди скоринга: догоняем закупки, не попавшие в очередь,
         # пока транспорт был недоступен (см. _recover_scoring_queue).
         await self._recover_scoring_queue()
+        profile_platforms = await self._active_profile_platforms()
+        enabled_platforms = await self._repository.enabled_platform_ids()
         for entry in self._cfg.service.sites:
-            if not entry.enabled:
+            if entry.platform_id not in enabled_platforms:
+                continue
+            if profile_platforms is not None and entry.platform_id not in profile_platforms:
+                logger.info(
+                    "Площадка %s не в списке площадок активного профиля — пропуск",
+                    entry.platform_id,
+                )
                 continue
             platform = self._cfg.dom.platforms.get(entry.platform_id)
             if platform is None:
@@ -78,6 +89,23 @@ class Scheduler:
                 logger.error("Ошибка обработки площадки %s: %s", entry.platform_id, exc)
             if self._on_update is not None:
                 await self._on_update()
+
+    async def _active_profile_platforms(self) -> set[str] | None:
+        """Площадки активного профиля (``target_etp``).
+
+        Возвращает None, если ограничения нет (нет профиля либо список площадок
+        пуст) — тогда обрабатываются все активные площадки config_service.yaml.
+        """
+        if self._repository is None:
+            return None
+        user = await self._repository.first_user()
+        if user is None:
+            return None
+        profile = await self._repository.get_active_profile(user.id)
+        if profile is None:
+            return None
+        platforms = set(profile.target_etp or [])
+        return platforms or None
 
     async def run_service(self) -> None:
         """Бесконечный цикл: проход -> ожидание таймера."""

@@ -86,6 +86,9 @@ class Platform(Base):
     ``platform_id`` — натуральный ключ, совпадает с ``configs/dom/<platform_id>.yaml``
     и ``procurements.platform_id``. Справочник для отображения/join'ов по ключу
     (FK на procurements не ставится: ключ стабильный, а набор платформ — конфиг).
+    ``enabled`` — активность площадки (источник истины — БД); конфиг
+    (config_service.yaml -> sites) — редактируемый интерфейс, синхронизируется
+    в БД при старте приложения и сохранении конфига.
     """
 
     __tablename__ = "platforms"
@@ -95,6 +98,9 @@ class Platform(Base):
     platform_id: Mapped[str] = mapped_column(String(128), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

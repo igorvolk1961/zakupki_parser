@@ -55,6 +55,10 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             # Сид справочников профиля (типы лицензий, типы подтверждения BR-03) —
             # идемпотентно, чтобы они были и при неполной миграции.
             await state.repository.ensure_reference_data()
+            # Активность площадок синхронизируем в БД (источник истины — platforms;
+            # конфиг config_service.yaml — редактируемый интерфейс).
+            enabled = {s.platform_id for s in state.cfg.service.sites if s.enabled}
+            await state.repository.sync_platform_enabled(enabled)
         except Exception as exc:  # noqa: BLE001
             logger.error("БД недоступна при старте API: %s", exc)
             state.db = None

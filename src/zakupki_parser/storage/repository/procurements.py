@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,18 +35,43 @@ logger = logging.getLogger(__name__)
 class ProcurementMixin(RepositoryMixin):
     """Закупки (``procurements``) и справочники процедур/заказчиков при записи."""
 
-    async def list_platforms(self) -> list[dict[str, str]]:
-        """Справочник платформ из БД: ключ, наименование и URL (для форм).
+    async def list_platforms(self) -> list[dict[str, Any]]:
+        """Справочник платформ из БД: ключ, наименование, URL и активность.
 
         Единственный источник данных о площадках — таблица ``platforms`` (сид из
-        конфигов выполняется миграциями при инициализации БД).
+        конфигов выполняется миграциями; активность синхронизируется из
+        config_service.yaml при старте/сохранении конфигурации).
         """
-        stmt = select(Platform.platform_id, Platform.name, Platform.url).order_by(
+        stmt = select(Platform.platform_id, Platform.name, Platform.url, Platform.enabled).order_by(
             Platform.platform_id
         )
         async with self._db.session() as session:
             rows = (await session.execute(stmt)).all()
-        return [{"value": pid, "label": pid, "name": name, "url": url} for pid, name, url in rows]
+        return [
+            {"value": pid, "label": pid, "name": name, "url": url, "enabled": bool(enabled)}
+            for pid, name, url, enabled in rows
+        ]
+
+    async def enabled_platform_ids(self) -> set[str]:
+        """Идентификаторы активных площадок (``platforms.enabled``)."""
+        stmt = select(Platform.platform_id).where(Platform.enabled.is_(True))
+        async with self._db.session() as session:
+            return {row[0] for row in (await session.execute(stmt)).all()}
+
+    async def sync_platform_enabled(self, enabled_ids: set[str]) -> None:
+        """Синхронизирует ``platforms.enabled`` с config_service.yaml.
+
+        Конфиг — редактируемый интерфейс, БД — источник истины: активность
+        площадки вычисляется из ``sites[].enabled`` и записывается в справочник,
+        чтобы не было расхождений между конфигом и БД.
+        """
+        if not enabled_ids:
+            stmt = update(Platform).values(enabled=False)
+        else:
+            stmt = update(Platform).values(enabled=Platform.platform_id.in_(enabled_ids))
+        async with self._db.session() as session:
+            await session.execute(stmt)
+            await session.commit()
 
     async def last_processed_date(
         self,

@@ -78,6 +78,19 @@ class CustomerOut(BaseModel):
     updated_at: datetime
 
 
+class PlatformOut(BaseModel):
+    """Площадка из справочника ``platforms`` + активность (config_service.yaml)."""
+
+    platform_id: str
+    name: str
+    url: str
+    enabled: bool
+
+
+class PlatformsListOut(BaseModel):
+    items: list[PlatformOut]
+
+
 class CustomerListOut(BaseModel):
     total: int
     items: list[CustomerOut]
