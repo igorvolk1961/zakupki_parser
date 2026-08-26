@@ -2,7 +2,7 @@
 bbk-it
 
 **competencies**
-docs/references/bbk-it-site.md
+docs/references/bbk-it-profile.json
 
 **okpd_codes**
 62

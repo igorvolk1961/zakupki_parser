@@ -21,8 +21,20 @@ let profileQuestionsLoaded = 0;
 let questionSeq = 1;
 // Площадки, используемые профилем (target_etp): выбираются из активных.
 let profilePlatforms = [];
-let activePlatforms = [];
+let platformCatalog = [];
 let platformsLoaded = false;
+// Компетенции профиля: структурированная форма (JSON, модель scoring Profile)
+// либо режим сырого текста (legacy markdown/JSON).
+let compStructured = {
+  positioning: "",
+  breadth: "broad",
+  competencies: [],
+  exclusions: [],
+  uncovered_penalty: 1.5,
+  ambiguous_range: [4, 6],
+};
+let compMode = "structured"; // "structured" | "raw"
+let compExclusions = [];
 // Обязательные системные проверки ТЗ (read-only; источник — analysis_service).
 const SYSTEM_QUESTIONS_UI = [
   { id: "sys:exp_2571", text: "Опыт исполнения контрактов (ПП РФ 2571)" },
@@ -126,39 +138,149 @@ async function loadProfiles() {
   }
 }
 
-async function ensureActivePlatforms() {
+async function ensurePlatformCatalog() {
   if (platformsLoaded) return;
   try {
     const data = await api("platforms");
-    activePlatforms = (data.items || []).filter((p) => p.enabled);
+    // Полный справочник площадок (включая деактивированные): в таблице профиля
+    // показываются только активные, деактивированные скрыты, но остаются
+    // в списке профиля и возвращаются в таблицу при реактивации.
+    platformCatalog = data.items || [];
   } catch {
-    activePlatforms = [];
+    platformCatalog = [];
   }
   platformsLoaded = true;
 }
 
-function renderPlatformChecks() {
+function renderPlatformAdd(sel) {
+  sel.innerHTML = "";
+  const used = new Set(profilePlatforms);
+  const available = platformCatalog.filter((p) => p.enabled && !used.has(p.platform_id));
+  if (!available.length) {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "— нет доступных площадок —";
+    sel.appendChild(o);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  available.forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p.platform_id;
+    o.textContent = p.name;
+    sel.appendChild(o);
+  });
+}
+
+function renderPlatformTable() {
   const box = $("#pf-platforms");
   if (!box) return;
   box.innerHTML = "";
-  if (!activePlatforms.length) {
-    box.innerHTML = '<span class="muted">—</span>';
-    return;
-  }
-  activePlatforms.forEach((p) => {
-    const label = document.createElement("label");
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.value = p.platform_id;
-    cb.checked = profilePlatforms.includes(p.platform_id);
-    label.appendChild(cb);
-    label.appendChild(document.createTextNode(p.name));
-    box.appendChild(label);
+
+  // Добавление площадки в профиль — через выпадающий список активных
+  // площадок, ещё не добавленных в профиль.
+  const addRow = document.createElement("div");
+  addRow.className = "pf-platform-add";
+  const label = document.createElement("label");
+  label.title = "Добавить площадку в профиль (только активные)";
+  label.appendChild(document.createTextNode("Добавить площадку: "));
+  const sel = document.createElement("select");
+  sel.id = "pf-platform-add";
+  renderPlatformAdd(sel);
+  label.appendChild(sel);
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.className = "ghost btn-mini";
+  addBtn.textContent = "Добавить";
+  addBtn.disabled = sel.disabled;
+  addBtn.addEventListener("click", () => {
+    const id = sel.value;
+    if (!id) return;
+    if (!profilePlatforms.includes(id)) profilePlatforms.push(id);
+    renderPlatformTable();
+    syncEntryFormState();
+    wordCounts();
   });
+  label.appendChild(addBtn);
+  addRow.appendChild(label);
+  box.appendChild(addRow);
+
+  const table = document.createElement("table");
+  table.className = "cfg-table";
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  ["Площадка", "Название", "URL", ""].forEach((h) => {
+    const th = document.createElement("th");
+    th.textContent = h;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  table.appendChild(tbody);
+  box.appendChild(table);
+
+  // В таблице — только активные площадки профиля. Деактивированные скрыты,
+  // но остаются в profilePlatforms (target_etp), поэтому при реактивации
+  // снова появляются в таблице.
+  const map = new Map(platformCatalog.map((p) => [p.platform_id, p]));
+  const visible = profilePlatforms.map((id) => map.get(id)).filter((p) => p && p.enabled);
+
+  if (!visible.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.className = "muted";
+    td.textContent = "Площадки не выбраны";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    visible.forEach((p) => {
+      const tr = document.createElement("tr");
+      const keyTd = document.createElement("td");
+      keyTd.textContent = p.platform_id;
+      tr.appendChild(keyTd);
+      const nameTd = document.createElement("td");
+      nameTd.textContent = p.name;
+      tr.appendChild(nameTd);
+      const urlTd = document.createElement("td");
+      const a = document.createElement("a");
+      a.href = p.url;
+      a.textContent = p.url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      urlTd.appendChild(a);
+      tr.appendChild(urlTd);
+      const delTd = document.createElement("td");
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "ghost btn-mini";
+      delBtn.textContent = "×";
+      delBtn.title = "Убрать площадку из профиля";
+      delBtn.addEventListener("click", () => {
+        profilePlatforms = profilePlatforms.filter((x) => x !== p.platform_id);
+        renderPlatformTable();
+        syncEntryFormState();
+        wordCounts();
+      });
+      delTd.appendChild(delBtn);
+      tr.appendChild(delTd);
+      tbody.appendChild(tr);
+    });
+  }
+  wordCounts();
 }
 
 function setProfileStatus(msg) {
   $("#profile-status").textContent = msg;
+}
+
+// Отключённый профиль не может быть активным: снимаем и блокируем «активный».
+function syncEnabledActiveState() {
+  const enabled = $("#pf-enabled").checked;
+  $("#pf-active").disabled = !enabled;
+  if (!enabled) $("#pf-active").checked = false;
 }
 
 function fillProfileForm(p) {
@@ -167,11 +289,15 @@ function fillProfileForm(p) {
   profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
   profileQuestionsLoaded = (p ? p.questions || [] : []).length;
   profilePlatforms = (p ? p.target_etp || [] : []).slice();
-  ensureActivePlatforms().then(renderPlatformChecks);
+  // Каталог перечитываем при каждом открытии профиля: реактивированные на
+  // панели «Аналитика» площадки должны снова появиться в таблице.
+  platformsLoaded = false;
+  ensurePlatformCatalog().then(renderPlatformTable);
   $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
   $("#pf-active").checked = p ? p.is_active : false;
+  syncEnabledActiveState();
   $("#pf-okpd").value = (p ? p.okpd_codes || [] : []).join(", ");
   $("#pf-nmck-min").value = p && p.nmck_min != null ? p.nmck_min : "";
   $("#pf-nmck-max").value = p && p.nmck_max != null ? p.nmck_max : "";
@@ -191,7 +317,17 @@ function fillProfileForm(p) {
   renderTags(profileExcl, "#pf-excl-tags");
   renderTags(profileQuestions, "#pf-questions-tags");
   renderSystemQuestions();
-  $("#pf-competencies").value = p ? p.competencies || "" : "";
+  // Компетенции: структурированная JSON-форма либо legacy-текст.
+  const rawComp = p ? p.competencies || "" : "";
+  const parsedComp = parseComp(rawComp);
+  if (parsedComp) {
+    compStructured = parsedComp;
+    compMode = "structured";
+  } else {
+    compMode = "raw";
+    $("#pf-competencies").value = rawComp;
+  }
+  renderCompForm();
   const delBtn = $("#profile-delete");
   delBtn.style.display = p ? "inline-block" : "none";
   if (p) {
@@ -284,20 +420,180 @@ function bindTagInput(wrapId, arr, makeItem) {
   });
 }
 
+// --- Структурированный редактор компетенций (JSON-модель scoring Profile) --
+function defaultComp() {
+  return {
+    positioning: "",
+    breadth: "broad",
+    competencies: [],
+    exclusions: [],
+    uncovered_penalty: 1.5,
+    ambiguous_range: [4, 6],
+  };
+}
+
+function parseComp(raw) {
+  if (!raw || !raw.trim()) return defaultComp();
+  try {
+    const obj = JSON.parse(raw);
+    if (
+      obj &&
+      typeof obj === "object" &&
+      (obj.competencies || obj.positioning || obj.exclusions || obj.breadth)
+    ) {
+      const policy = obj.scoring_policy || {};
+      return {
+        positioning: typeof obj.positioning === "string" ? obj.positioning : "",
+        breadth: obj.breadth === "narrow" ? "narrow" : "broad",
+        competencies: Array.isArray(obj.competencies)
+          ? obj.competencies.map((c) => ({
+              area: (c && c.area) || "",
+              description: (c && c.description) || "",
+              examples: Array.isArray(c && c.examples) ? c.examples.map(String) : [],
+            }))
+          : [],
+        exclusions: Array.isArray(obj.exclusions) ? obj.exclusions.map(String) : [],
+        uncovered_penalty:
+          typeof policy.uncovered_penalty === "number" ? policy.uncovered_penalty : 1.5,
+        ambiguous_range:
+          Array.isArray(policy.ambiguous_range) && policy.ambiguous_range.length === 2
+            ? policy.ambiguous_range.map(Number)
+            : [4, 6],
+      };
+    }
+  } catch (e) {
+    /* не JSON — не структурированный профиль */
+  }
+  return null;
+}
+
+function collectComp() {
+  const competencies = [];
+  document.querySelectorAll("#pf-comp-list .comp-item").forEach((el) => {
+    const area = (el.querySelector("[data-comp-area]").value || "").trim();
+    const description = (el.querySelector("[data-comp-desc]").value || "").trim();
+    const examples = [...el.querySelectorAll(".comp-examples .tag")].map(
+      (t) => t.childNodes[0].textContent
+    );
+    if (area || description || examples.length) {
+      competencies.push({ area, description, examples });
+    }
+  });
+  return {
+    positioning: $("#pf-comp-positioning").value.trim(),
+    breadth: $("#pf-comp-breadth").value,
+    competencies,
+    exclusions: compExclusions.slice(),
+    scoring_policy: {
+      uncovered_penalty: Number($("#pf-comp-penalty").value || 1.5),
+      ambiguous_range: [
+        Number($("#pf-comp-range-lo").value || 4),
+        Number($("#pf-comp-range-hi").value || 6),
+      ],
+    },
+  };
+}
+
+function renderCompList() {
+  const box = $("#pf-comp-list");
+  box.innerHTML = "";
+  compStructured.competencies.forEach((comp, i) => {
+    const el = document.createElement("div");
+    el.className = "comp-item";
+    el.style.cssText = "border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;";
+    const exId = "pf-comp-examples-" + i;
+    el.innerHTML = `
+      <label>Направление <input data-comp-area value="${escapeHtml(comp.area)}"></label>
+      <label>Описание <textarea data-comp-desc rows="2" spellcheck="false">${escapeHtml(comp.description)}</textarea></label>
+      <label>Примеры
+        <div class="tag-input comp-examples" id="${exId}">
+          <div class="tags"></div>
+          <div class="tags-fallback" style="display:none;"></div>
+          <input type="text" placeholder="пример, Enter" spellcheck="false">
+        </div>
+      </label>
+      <button type="button" class="ghost btn-mini comp-del" title="Удалить компетенцию">×</button>`;
+    box.appendChild(el);
+    renderTags(comp.examples, "#" + exId);
+    bindTagInput("#" + exId, comp.examples, null);
+  });
+}
+
+function renderCompForm() {
+  const structured = compMode === "structured";
+  $("#pf-comp-structured").style.display = structured ? "" : "none";
+  $("#pf-competencies").style.display = structured ? "none" : "";
+  $("#pf-comp-mode").textContent = structured ? "Режим текста" : "Режим структуры";
+  if (!structured) {
+    wordCounts();
+    return;
+  }
+  $("#pf-comp-positioning").value = compStructured.positioning || "";
+  $("#pf-comp-breadth").value = compStructured.breadth === "narrow" ? "narrow" : "broad";
+  compExclusions.length = 0;
+  (compStructured.exclusions || []).forEach((e) => compExclusions.push(e));
+  $("#pf-comp-penalty").value = compStructured.uncovered_penalty ?? 1.5;
+  $("#pf-comp-range-lo").value = (compStructured.ambiguous_range || [4, 6])[0];
+  $("#pf-comp-range-hi").value = (compStructured.ambiguous_range || [4, 6])[1];
+  renderCompList();
+  renderTags(compExclusions, "#pf-comp-exclusions");
+  bindTagInput("#pf-comp-exclusions", compExclusions, null);
+  wordCounts();
+}
+
+function switchCompMode() {
+  if (compMode === "structured") {
+    // → сырой текст: показываем текущую структуру как JSON.
+    $("#pf-competencies").value = JSON.stringify(collectComp(), null, 2);
+    compMode = "raw";
+  } else {
+    const parsed = parseComp($("#pf-competencies").value);
+    if (parsed) {
+      compStructured = parsed;
+      compMode = "structured";
+    } else {
+      setProfileStatus("Текст не является структурированным профилем (JSON) — остаёмся в текстовом режиме");
+      return;
+    }
+  }
+  renderCompForm();
+}
+
+function compWordCount() {
+  if (compMode !== "structured") {
+    return $("#pf-competencies").value.trim()
+      ? $("#pf-competencies").value.trim().split(/\s+/).length
+      : 0;
+  }
+  const c = collectComp();
+  const text = [
+    c.positioning,
+    ...c.competencies.flatMap((x) => [x.area, x.description, ...(x.examples || [])]),
+    ...c.exclusions,
+  ].join(" ");
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
 function wordCounts() {
   setWordCount($("#pf-cnt-keywords"), profileKeywords.length);
   setWordCount($("#pf-cnt-excl"), profileExcl.length);
   setWordCount($("#pf-cnt-questions"), profileQuestions.length);
+  setWordCount($("#pf-cnt-comp"), compWordCount());
+  // Счётчик площадок — только видимые (активные) строки таблицы профиля.
+  const catalogMap = new Map(platformCatalog.map((p) => [p.platform_id, p]));
   setWordCount(
-    $("#pf-cnt-comp"),
-    $("#pf-competencies").value.trim() ? $("#pf-competencies").value.trim().split(/\s+/).length : 0
+    $("#pf-cnt-platforms"),
+    profilePlatforms.filter((id) => {
+      const p = catalogMap.get(id);
+      return p && p.enabled;
+    }).length
   );
   setWordCount($("#pf-cnt-licenses"), profileLicenses.length);
   setWordCount($("#pf-cnt-experience"), profileExperience.length);
 }
 
 function switchProfileTab(name) {
-  ["keywords", "excl", "questions", "comp", "licenses", "experience"].forEach((k) => {
+  ["keywords", "excl", "questions", "comp", "platforms", "licenses", "experience"].forEach((k) => {
     $("#pf-tab-" + k).classList.toggle("active", k === name);
     $("#pf-pane-" + k).style.display = k === name ? "" : "none";
   });
@@ -605,7 +901,8 @@ function profileFormData() {
     keywords: profileKeywords.slice(),
     exclusion_words: profileExcl.slice(),
     questions: profileQuestions.slice(),
-    competencies: $("#pf-competencies").value,
+    competencies:
+      compMode === "structured" ? JSON.stringify(collectComp(), null, 2) : $("#pf-competencies").value,
     // Лицензии/опыт — часть формы профиля (BR-03): сохраняются только вместе
     // с профилем; лишние поля (id, license_type, …) сервер игнорирует.
     licenses: profileLicenses.map((l) => ({
@@ -761,6 +1058,37 @@ async function seedProfile() {
   }
 }
 
+async function importProfileFile() {
+  const fileInput = $("#profile-import-file");
+  const file = fileInput.files && fileInput.files[0];
+  fileInput.value = "";
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const r = await apiJSON("/api/clients/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: text }),
+    });
+    if (!r.ok) {
+      let msg = "не удалось загрузить";
+      try {
+        const d = await r.json();
+        if (d && d.detail) msg = typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail);
+      } catch (e) {
+        /* ignore */
+      }
+      setProfileStatus("Ошибка загрузки: " + msg);
+      return;
+    }
+    setProfileStatus("Профиль загружен из файла «" + file.name + "»");
+    await loadProfiles();
+    await loadActiveClient();
+  } catch (e) {
+    setProfileStatus("Ошибка загрузки: " + e.message);
+  }
+}
+
 // Селектор активного клиентского профиля в шапке (мультиклиентный скоринг).
 async function loadActiveClient() {
   try {
@@ -820,6 +1148,8 @@ export {
 
 $("#profile-new").addEventListener("click", () => openProfileEditor(null));
 $("#profile-seed").addEventListener("click", seedProfile);
+$("#profile-import").addEventListener("click", () => $("#profile-import-file").click());
+$("#profile-import-file").addEventListener("change", importProfileFile);
 $("#profile-save").addEventListener("click", saveProfile);
 $("#profile-cancel").addEventListener("click", () => {
   if (isProfileDirty()) {
@@ -839,7 +1169,7 @@ $("#delete-profile-confirm").addEventListener("click", doDeleteProfile);
 $("#delete-profile-modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "delete-profile-modal-bg") closeDeleteProfileModal();
 });
-["pf-tab-keywords", "pf-tab-excl", "pf-tab-questions", "pf-tab-comp", "pf-tab-licenses", "pf-tab-experience"].forEach(
+["pf-tab-keywords", "pf-tab-excl", "pf-tab-questions", "pf-tab-comp", "pf-tab-platforms", "pf-tab-licenses", "pf-tab-experience"].forEach(
   (id) => {
     document.getElementById(id).addEventListener("click", () =>
       switchProfileTab(id.replace("pf-tab-", ""))
@@ -847,14 +1177,27 @@ $("#delete-profile-modal-bg").addEventListener("click", (e) => {
   }
 );
 $("#pf-competencies").addEventListener("input", wordCounts);
-$("#pf-platforms").addEventListener("change", (e) => {
-  const cb = e.target;
-  if (cb.type !== "checkbox") return;
-  if (cb.checked) {
-    if (!profilePlatforms.includes(cb.value)) profilePlatforms.push(cb.value);
-  } else {
-    profilePlatforms = profilePlatforms.filter((x) => x !== cb.value);
-  }
+$("#pf-comp-mode").addEventListener("click", switchCompMode);
+$("#pf-comp-add").addEventListener("click", () => {
+  compStructured.competencies.push({ area: "", description: "", examples: [] });
+  renderCompList();
+  wordCounts();
+  syncEntryFormState();
+});
+$("#pf-comp-list").addEventListener("click", (e) => {
+  const del = e.target.closest(".comp-del");
+  if (!del) return;
+  const item = del.closest(".comp-item");
+  const idx = [...item.parentNode.children].indexOf(item);
+  compStructured.competencies.splice(idx, 1);
+  renderCompList();
+  wordCounts();
+  syncEntryFormState();
+});
+$("#pf-comp-structured").addEventListener("input", wordCounts);
+$("#pf-comp-structured").addEventListener("change", syncEntryFormState);
+$("#pf-enabled").addEventListener("change", () => {
+  syncEnabledActiveState();
   syncEntryFormState();
 });
 // Изменения полей профиля (имя, ОКПД2, НМЦК, чекбоксы, чипы слов/вопросов)

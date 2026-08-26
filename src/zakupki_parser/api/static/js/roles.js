@@ -38,7 +38,7 @@ export const ALL_TABS = [
 ];
 
 export const ROLE_LABELS = {
-  user: "Простой пользователь",
+  user: "Пользователь",
   admin: "Администратор",
   analyst: "Аналитик",
   devops: "DevOps",

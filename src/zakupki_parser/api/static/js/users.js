@@ -8,7 +8,7 @@ import { state } from "./store.js";
 import { api, apiJSON } from "./api.js";
 
 const ROLE_LABELS = {
-  user: "Простой пользователь",
+  user: "Пользователь",
   admin: "Администратор",
   analyst: "Аналитик",
   devops: "DevOps",

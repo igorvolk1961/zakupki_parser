@@ -91,6 +91,9 @@
     border:1px solid var(--line); border-radius:8px; padding:8px; }
   .profile-checks { display:flex; gap:16px; flex-wrap:wrap; }
   .profile-checks label { flex-direction:row; align-items:center; gap:6px; }
+  .pf-platform-add { margin-bottom:8px; }
+  .pf-platform-add label { flex-direction:row; align-items:center; gap:8px; }
+  .pf-platform-add select { min-width:240px; padding:6px 8px; background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:6px; }
   .tag-input { display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:var(--panel2);
                border:1px solid var(--line); border-radius:8px; padding:7px 8px; }
   .tag-input .tags { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
