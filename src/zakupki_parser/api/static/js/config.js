@@ -69,19 +69,22 @@ function promptEndpoint(path) {
 
 async function loadPromptList() {
   const data = await api(promptEndpoint(""));
-  promptsMeta = data.files;
+  // Промпты (markdown) впереди, файлы данных (json, few_shot) — в конец списка.
+  promptsMeta = (data.files || [])
+    .slice()
+    .sort((a, b) => (a.kind === "json" ? 1 : 0) - (b.kind === "json" ? 1 : 0));
   $("#prompt-dir").textContent = data.dir ? "каталог: " + data.dir : "каталог промптов не найден";
   const sel = $("#prompt-sel");
   const cur = sel.value;
   sel.innerHTML = "";
-  data.files.forEach((f) => {
+  promptsMeta.forEach((f) => {
     const o = document.createElement("option");
     o.value = f.name;
     const label = PROMPT_LABELS[f.name] || f.name;
     o.textContent = label + " (" + f.name + ")";
     sel.appendChild(o);
   });
-  if (cur && data.files.some((f) => f.name === cur)) sel.value = cur;
+  if (cur && promptsMeta.some((f) => f.name === cur)) sel.value = cur;
   if (sel.options.length) await loadPrompt();
   else {
     $("#prompt-editor").value = "";

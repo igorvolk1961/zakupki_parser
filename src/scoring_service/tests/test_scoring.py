@@ -78,7 +78,6 @@ class _FakeFit:
         parent_config: object | None = None,
         run_name: str = "fit_scoring",
         truncated: bool = False,
-        full_text: bool = False,
     ) -> FitResult:
         self.calls += 1
         value = self._scores.pop(0) if self._scores else 5.0
@@ -183,7 +182,6 @@ def test_score_propagates_requires_tz_review() -> None:
             parent_config: object | None = None,
             run_name: str = "fit_scoring",
             truncated: bool = False,
-            full_text: bool = False,
         ) -> FitResult:
             return _fit(5.0, requires_tz_review=True)
 
@@ -227,7 +225,6 @@ def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
             parent_config: object | None = None,
             run_name: str = "fit_scoring",
             truncated: bool = False,
-            full_text: bool = False,
         ) -> FitResult:
             self.calls.append((session_id, metadata))
             return _fit(self._score)
@@ -260,7 +257,6 @@ def test_score_falls_back_to_procurement_session_without_run_id() -> None:
             parent_config: object | None = None,
             run_name: str = "fit_scoring",
             truncated: bool = False,
-            full_text: bool = False,
         ) -> FitResult:
             self.session_ids.append(session_id)
             return _fit(5.0)
@@ -296,7 +292,6 @@ class _RecordingFit:
         self.descriptions: list[str] = []
         self.run_names: list[str] = []
         self.truncated_flags: list[bool] = []
-        self.full_text_flags: list[bool] = []
 
     def invoke(
         self,
@@ -307,12 +302,10 @@ class _RecordingFit:
         parent_config: object | None = None,
         run_name: str = "fit_scoring",
         truncated: bool = False,
-        full_text: bool = False,
     ) -> FitResult:
         self.descriptions.append(description)
         self.run_names.append(run_name)
         self.truncated_flags.append(truncated)
-        self.full_text_flags.append(full_text)
         value = self._scores.pop(0) if self._scores else 5.0
         return _fit(value, requires_tz_review=(len(self.descriptions) == 1))
 
@@ -355,8 +348,6 @@ def test_score_uses_tz_text_when_requires_tz_review() -> None:
     assert fit.descriptions[0] != fit.descriptions[1]
     assert fit.descriptions[1] == "ТЗ: Сопровождение ПО и автоматизация документооборота"
     assert fit.run_names == ["fit_scoring", "fit_tz"]
-    # Полное тело ТЗ не передаётся (только найденная строка) — full_text всегда False.
-    assert fit.full_text_flags == [False, False]
     assert out.requires_tz_review is False
     assert out.final_fit_score == 8.0
     assert out.description == "ТЗ: Сопровождение ПО и автоматизация документооборота"
@@ -419,7 +410,6 @@ class _HeaderRecordingFit:
         self.descriptions: list[str] = []
         self.run_names: list[str] = []
         self.truncated_flags: list[bool] = []
-        self.full_text_flags: list[bool] = []
 
     def invoke(
         self,
@@ -430,12 +420,10 @@ class _HeaderRecordingFit:
         parent_config: object | None = None,
         run_name: str = "fit_scoring",
         truncated: bool = False,
-        full_text: bool = False,
     ) -> FitResult:
         self.descriptions.append(description)
         self.run_names.append(run_name)
         self.truncated_flags.append(truncated)
-        self.full_text_flags.append(full_text)
         value = self._scores.pop(0) if self._scores else 5.0
         return _fit(value, requires_tz_review=(len(self.descriptions) == 1))
 
@@ -474,8 +462,6 @@ def test_score_header_extends_description_from_tz() -> None:
     )
 
     assert fit.run_names == ["fit_scoring", "fit_tz"]
-    # Полное тело ТЗ не передаётся (только описание/первая секция) — full_text всегда False.
-    assert fit.full_text_flags == [False, False]
     # Второй fit получает расширенный заголовок из ТЗ, а не весь текст ТЗ.
     assert fit.descriptions[1] == (
         "Разработка и внедрение системы автоматизации документооборота предприятия"

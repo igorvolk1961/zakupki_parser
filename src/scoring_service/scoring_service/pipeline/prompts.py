@@ -36,7 +36,6 @@ def _load_md(name: str) -> str:
 SYSTEM_PROMPT_FIT = _load_md("fit_system.md")
 SYSTEM_PROMPT_JUDGE = _load_md("judge_system.md")
 _TRUNCATED_NOTE = _load_md("truncated_note.md")
-_FULL_TEXT_NOTE = _load_md("full_text_note.md")
 
 
 def _ex(example: dict[str, Any]) -> tuple[list[BaseMessage], list[BaseMessage]]:
@@ -68,20 +67,15 @@ def build_fit_messages(
     competencies: str,
     description: str,
     truncated: bool = False,
-    full_text: bool = False,
 ) -> list[BaseMessage]:
     """Составить сообщения для fit-цепочки (система + few-shot + текущий вход).
 
     ``truncated=True`` — описание закупки обрезано многоточием: добавляется явное
     указание на неполноту описания (правило 7 системного промпта).
-    ``full_text=True`` — уже предоставлен полный текст ТЗ (файл прочитан): модель
-    не должна снова запрашивать чтение ТЗ (requires_tz_review).
     """
     messages: list[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT_FIT)]
     if truncated:
         messages.append(SystemMessage(content=_TRUNCATED_NOTE))
-    if full_text:
-        messages.append(SystemMessage(content=_FULL_TEXT_NOTE))
     for human, ai in FEW_SHOT:
         messages.extend(human)
         messages.extend(ai)
