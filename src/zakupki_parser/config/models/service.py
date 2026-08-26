@@ -20,7 +20,7 @@ class _BaseConfig(BaseModel):
 class SiteServiceEntry(_BaseConfig):
     """Одна запись в списке сайтов для периодического обхода."""
 
-    platform_id: str = Field(description="ключ площадки в configs/dom/<platform_id>.yaml")
+    platform_id: str = Field(description="площадка")
     enabled: bool = Field(default=True)
 
 
@@ -70,10 +70,7 @@ class SearchCriteria(_BaseConfig):
     )
     deadline_not_expired: bool = Field(
         default=True,
-        description=(
-            "не обрабатывать закупку, если срок приёма заявок (переменная 'deadline' "
-            "из configs/dom/<platform_id>.yaml) истёк к текущей дате"
-        ),
+        description="не обрабатывать закупку, если срок приёма заявок истёк к текущей дате",
     )
 
 
@@ -88,9 +85,7 @@ class ServiceConfig(_BaseConfig):
         default=False,
         description=(
             "сортировать все площадки по дате (по дате обновления, если площадка её "
-            "поддерживает, иначе по дате публикации); стоп-порог по дате применяется "
-            "всегда. false — сортировка площадок, допускающих релевантность, "
-            "управляется их индивидуальным параметром sort.by_relevance"
+            "поддерживает, иначе по дате публикации)"
         ),
     )
     search_criteria: SearchCriteria = Field(

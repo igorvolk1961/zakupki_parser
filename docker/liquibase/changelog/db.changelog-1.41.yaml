@@ -1,0 +1,30 @@
+databaseChangeLog:
+  - changeSet:
+      id: 42
+      author: zakupki-parser
+      comment: "Справочник platforms: повторный сид из configs/dom/*.yaml (пустая таблица после ручной очистки); идемпотентно, синхронизирует name/url"
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO platforms (platform_id, name, url) VALUES
+                  ('zakupki_mos',       'Портал поставщиков Москвы',   'https://zakupki.mos.ru'),
+                  ('zakupki_gov_44fz',  'ЕИС (44-ФЗ)',                 'https://zakupki.gov.ru'),
+                  ('zakupki_gov_223fz', 'ЕИС (223-ФЗ)',                'https://zakupki.gov.ru'),
+                  ('roseltorg_44fz',    'Росэлторг (44-ФЗ)',           'https://www.roseltorg.ru'),
+                  ('roseltorg_223fz',   'Росэлторг (223-ФЗ)',          'https://www.roseltorg.ru'),
+                  ('fabrikant',         'Фабрикант',                   'https://fabrikant.ru'),
+                  ('b2b_center',        'B2B-Center',                  'https://www.b2b-center.ru'),
+                  ('etpgpb',            'ЭТП ГПБ',                     'https://etpgpb.ru'),
+                  ('lot_online_44',     'lot-online РАД (44-ФЗ)',      'https://gz.lot-online.ru'),
+                  ('lot_online_223',    'lot-online РАД (223-ФЗ)',     'https://tender.lot-online.ru')
+              ON CONFLICT (platform_id) DO UPDATE SET
+                  name = EXCLUDED.name,
+                  url = EXCLUDED.url,
+                  updated_at = now();
+
+              -- Платформы, присутствующие в данных, но отсутствующие в сиде
+              -- (исторические/внешние) — с ключом в качестве имени.
+              INSERT INTO platforms (platform_id, name, url)
+              SELECT DISTINCT platform_id, platform_id, ''
+              FROM procurements
+              ON CONFLICT (platform_id) DO NOTHING;

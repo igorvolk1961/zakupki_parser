@@ -51,17 +51,20 @@ function renderUsers() {
         u.status === "blocked"
           ? '<span class="status-pill blocked">заблокирован</span>'
           : '<span class="status-pill active">активен</span>';
-      const roleBtn = simple || self
-        ? '<span class="muted" style="font-size:12px">' + (simple ? "—" : "вы") + "</span>"
-        : `<button class="ghost btn-mini" data-act="roles" data-id="${u.id}">Роли</button>`;
-      const statusBtn = self
-        ? '<span class="muted" style="font-size:12px">вы</span>'
-        : `<button class="ghost btn-mini" data-act="status" data-id="${u.id}">${
+      let actionsCell;
+      if (self) {
+        // Свой аккаунт: роли/блокировку/удаление менять себе нельзя — одна общая метка.
+        actionsCell = '<span class="muted" style="font-size:12px">Это Вы</span>';
+      } else {
+        const roleBtn = simple
+          ? '<span class="muted" style="font-size:12px">—</span>'
+          : `<button class="ghost btn-mini" data-act="roles" data-id="${u.id}">Роли</button>`;
+        const statusBtn = `<button class="ghost btn-mini" data-act="status" data-id="${u.id}">${
             u.status === "blocked" ? "Разблокировать" : "Заблокировать"
           }</button>`;
-      const delBtn = self
-        ? '<span class="muted" style="font-size:12px">вы</span>'
-        : `<button class="danger btn-mini" data-act="delete" data-id="${u.id}">Удалить</button>`;
+        const delBtn = `<button class="danger btn-mini" data-act="delete" data-id="${u.id}">Удалить</button>`;
+        actionsCell = `${roleBtn} ${statusBtn} ${delBtn}`;
+      }
       return `<tr>
         <td class="muted">#${u.id}</td>
         <td>${escapeHtml(u.username)}</td>
@@ -69,7 +72,7 @@ function renderUsers() {
         <td>${rolePills(u.roles)}</td>
         <td>${statusPill}</td>
         <td class="muted">${fmtDT(u.created_at)}</td>
-        <td class="actions">${roleBtn} ${statusBtn} ${delBtn}</td>
+        <td class="actions">${actionsCell}</td>
       </tr>`;
     })
     .join("");

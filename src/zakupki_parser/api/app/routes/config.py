@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -158,7 +158,10 @@ def _register_config_endpoints(
     public: Callable[[Any], dict[str, Any]],
     require: Callable[..., Any],
     state_setter: Callable[[Any], None],
-    schema_options: dict[str, list[str]] | None = None,
+    schema_options: dict[str, list[Any]] | None = None,
+    schema_options_resolver: (
+        Callable[[], Awaitable[dict[str, list[dict[str, str]]]]] | None
+    ) = None,
     schema_transform: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
     prepare: Callable[[dict[str, Any]], None] | None = None,
     validate: Callable[[Any], None] | None = None,
@@ -198,7 +201,10 @@ def _register_config_endpoints(
     )
     async def get_config_schema() -> dict[str, Any]:
         """Схема конфигурации для веб-формы."""
-        schema = build_schema(model, schema_options)
+        options = schema_options
+        if schema_options_resolver is not None:
+            options = {**(options or {}), **(await schema_options_resolver())}
+        schema = build_schema(model, options)
         if schema_transform is not None:
             schema = schema_transform(schema)
         return {"schema": schema}
@@ -242,19 +248,78 @@ def _register_config_endpoints(
 
 
 def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """В схеме config_service.yaml скрываем критерии, принадлежащие профилю.
+    """Кастомизация схемы config_service.yaml для формы «Параметры мониторинга».
 
-    ``search_criteria.okpd_codes/nmck_min/nmck_max/no_code_search`` живут в
-    профиле (таблица keywords) и при сохранении глобального конфига отбрасываются
-    (``_service_config_public``) — не показываем их как редактируемые.
+    - sites: таблица без подписи списка и без подписи поля в ячейке, колонка
+      enabled убрана, шапка platform_id — «Площадка электронных торгов»;
+    - default_cutoff_days: короткая подпись «Интервал дат в днях», пояснение —
+      во всплывающую подсказку (title);
+    - search_criteria: в одну колонку (stack);
+    - прочие комментарии полей (``description``) переезжают в tooltip'ы.
     """
     for field in schema:
-        if field.get("key") == "search_criteria" and field.get("kind") == "object":
+        if field.get("key") == "sites" and field.get("kind") == "list":
+            field["label"] = ""
+            field["addable"] = False
+            item: list[dict[str, Any]] = []
+            for sub in field["item"]:
+                if sub["key"] == "platform_id":
+                    sub["label"] = "Площадка"
+                    sub["description"] = ""
+                    sub["kind"] = "str"
+                    sub["plain"] = True
+                    item.append(sub)
+                # enabled из таблицы не выводим: колонка убрана.
+            item.extend(
+                [
+                    {
+                        "key": "name",
+                        "kind": "str",
+                        "label": "Название",
+                        "description": "",
+                        "default": None,
+                        "required": False,
+                        "derived": "platform_id",
+                        "field": "name",
+                    },
+                    {
+                        "key": "url",
+                        "kind": "str",
+                        "label": "URL",
+                        "description": "",
+                        "default": None,
+                        "required": False,
+                        "derived": "platform_id",
+                        "field": "url",
+                    },
+                ]
+            )
+            field["item"] = item
+        elif field.get("key") == "default_cutoff_days":
+            field["label"] = "Интервал дат в днях"
+            field["description"] = (
+                "Интервал обрабатываемых дат обновления закупок при первом "
+                "обращении к площадке в днях. При последующих обращениях "
+                "обрабатываются только последние не обработанные даты, включая "
+                "дату последней обработанной закупки"
+            )
+            field["inline"] = True
+        elif field.get("key") == "search_criteria" and field.get("kind") == "object":
+            field["stack"] = True
             field["fields"] = [
                 sub
                 for sub in field["fields"]
                 if sub["key"] in ("active_only", "deadline_not_expired")
             ]
+            for sub in field["fields"]:
+                if sub["key"] == "active_only":
+                    sub["label"] = "Поиск только активных закупок"
+                    sub["description"] = (
+                        "Поиск только активных закупок. Активность определяется "
+                        "только состоянием закупки на площадке, без учета дат."
+                    )
+                elif sub["key"] == "deadline_not_expired":
+                    sub["label"] = "Не обрабатывать закупку, если срок приёма заявок истёк"
     return schema
 
 
@@ -278,9 +343,15 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         """
         return {"notify_min_fit_score": state.cfg.ops.notifications.notify_min_fit_score}
 
-    platform_ids = sorted(state.cfg.dom.platforms.keys())
-
     # --- config_service.yaml: «Параметры мониторинга» (аналитик) ----------
+    # Список площадок для формы берётся из БД (справочник platforms); конфиги
+    # участвуют только в начальном сиде таблицы при инициализации БД.
+    async def _service_platform_options() -> dict[str, list[dict[str, str]]]:
+        repo = state.repository
+        if repo is None:
+            return {"sites.platform_id": []}
+        return {"sites.platform_id": await repo.list_platforms()}
+
     _register_config_endpoints(
         router,
         state=state,
@@ -292,7 +363,7 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         public=_service_config_public,
         require=require_analyst,
         state_setter=lambda m: setattr(state.cfg, "service", m),
-        schema_options={"sites.platform_id": platform_ids},
+        schema_options_resolver=_service_platform_options,
         schema_transform=_service_schema_transform,
     )
 

@@ -9,6 +9,7 @@ import { createConfigView } from "./config_view.js";
 export let monitorDirty = false;
 
 const monitorView = createConfigView("monitor", "config", {
+  schemaPath: "config/service",
   savedNote: "Сохранено ✓ (применится при следующем запуске парсера)",
   onDirty: (v) => {
     monitorDirty = v;

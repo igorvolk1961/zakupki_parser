@@ -3,7 +3,6 @@
 // Универсальный рендер форм по схеме конфигурации (см. /api/config/*/schema).
 // Поддерживает типы: bool, int, float, str, text, select, tags (list[str]),
 // object (вложенные секции), list (таблица записей модели).
-import { escapeHtml } from "./utils.js";
 
 function checkbox(value, readOnly) {
   const cb = document.createElement("input");
@@ -34,18 +33,18 @@ function selectInput(value, options, readOnly) {
   const sel = document.createElement("select");
   options.forEach((opt) => {
     const o = document.createElement("option");
-    o.value = String(opt);
-    o.textContent = String(opt);
+    if (typeof opt === "object" && opt !== null) {
+      o.value = String(opt.value);
+      o.textContent = String(opt.label);
+    } else {
+      o.value = String(opt);
+      o.textContent = String(opt);
+    }
     sel.appendChild(o);
   });
   if (value != null) sel.value = String(value);
   sel.disabled = Boolean(readOnly);
   return sel;
-}
-
-function helpText(field) {
-  if (!field.description) return "";
-  return `<div class="cfg-help">${escapeHtml(field.description)}</div>`;
 }
 
 // --- tags: list[str] (Enter — добавить, × — удалить) --------------------
@@ -87,101 +86,8 @@ function renderTags(value, readOnly) {
   return wrap;
 }
 
-// --- list: таблица записей модели (sites и т.п.) -------------------------
-function renderList(field, value, readOnly, path) {
-  const wrap = document.createElement("div");
-  const table = document.createElement("table");
-  table.className = "cfg-table";
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  field.item.forEach((sub) => {
-    const th = document.createElement("th");
-    th.textContent = sub.label;
-    headRow.appendChild(th);
-  });
-  if (!readOnly) {
-    const th = document.createElement("th");
-    headRow.appendChild(th);
-  }
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-  const tbody = document.createElement("tbody");
-  table.appendChild(tbody);
-
-  const addRow = (row, index) => {
-    const tr = document.createElement("tr");
-    tr.dataset.listRow = "1";
-    field.item.forEach((sub) => {
-      const td = document.createElement("td");
-      const cellWrap = document.createElement("div");
-      cellWrap.dataset.path = `${path}[${index}].${sub.key}`;
-      cellWrap.appendChild(renderInput(sub, row ? row[sub.key] : sub.default, readOnly, cellWrap.dataset.path));
-      td.appendChild(cellWrap);
-      tr.appendChild(td);
-    });
-    if (!readOnly) {
-      const td = document.createElement("td");
-      const del = document.createElement("button");
-      del.className = "ghost btn-mini";
-      del.textContent = "×";
-      del.title = "Удалить строку";
-      del.onclick = () => tr.remove();
-      td.appendChild(del);
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  };
-  (value || []).forEach((row, i) => addRow(row, i));
-  wrap.appendChild(table);
-  if (!readOnly) {
-    const addBtn = document.createElement("button");
-    addBtn.className = "ghost btn-mini";
-    addBtn.textContent = "+ добавить";
-    addBtn.onclick = () => addRow(null, tbody.children.length);
-    wrap.appendChild(addBtn);
-  }
-  return wrap;
-}
-
-// --- object: вложенная секция (fieldset) ---------------------------------
-function renderObject(field, value, readOnly, path) {
-  const wrap = document.createElement("div");
-  wrap.className = "cfg-section";
-  const title = document.createElement("div");
-  title.className = "cfg-section-title";
-  title.textContent = field.label;
-  wrap.appendChild(title);
-  const grid = document.createElement("div");
-  grid.className = "cfg-fields";
-  field.fields.forEach((sub) => {
-    grid.appendChild(renderInput(sub, value ? value[sub.key] : sub.default, readOnly, path + "." + sub.key));
-  });
-  wrap.appendChild(grid);
-  return wrap;
-}
-
-function renderInput(field, value, readOnly, path) {
-  path = path || field.key;
-  const wrap = document.createElement("div");
-  wrap.className = "cfg-field" + (field.kind === "bool" ? " cfg-check" : "");
-  wrap.dataset.path = path;
-
-  if (field.kind === "object") {
-    wrap.appendChild(renderObject(field, value, readOnly, path));
-    return wrap;
-  }
-  if (field.kind === "list") {
-    const label = document.createElement("span");
-    label.textContent = field.label;
-    wrap.appendChild(label);
-    wrap.appendChild(renderList(field, value, readOnly, path));
-    return wrap;
-  }
-
-  const label = document.createElement("span");
-  label.textContent = field.label;
-  wrap.appendChild(label);
-
+// --- control: сам элемент ввода по типу поля ----------------------------
+function makeControl(field, value, readOnly) {
   let input;
   switch (field.kind) {
     case "bool":
@@ -208,8 +114,171 @@ function renderInput(field, value, readOnly, path) {
     default: // str
       input = textInput(value, readOnly);
   }
-  wrap.appendChild(input);
-  wrap.insertAdjacentHTML("beforeend", helpText(field));
+  return input;
+}
+
+// --- list: таблица записей модели (sites и т.п.) -------------------------
+// Поле списка может содержать «производные» колонки (``derived``) — значения,
+// вычисляемые из выбранного значения другой колонки (например, name/url из
+// платформы): рендерятся как текст/ссылка и не попадают в сохраняемый объект.
+function renderDerived(sub, opt) {
+  const value = opt ? String(opt[sub.field] ?? "") : "";
+  if (sub.field === "url") {
+    const a = document.createElement("a");
+    a.href = value;
+    a.textContent = value;
+    a.target = "_blank";
+    a.rel = "noopener";
+    return a;
+  }
+  const span = document.createElement("span");
+  span.className = "muted";
+  span.textContent = value;
+  return span;
+}
+
+function renderList(field, value, readOnly, path) {
+  const wrap = document.createElement("div");
+  const table = document.createElement("table");
+  table.className = "cfg-table";
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  field.item.forEach((sub) => {
+    const th = document.createElement("th");
+    th.textContent = sub.label;
+    headRow.appendChild(th);
+  });
+  if (!readOnly) {
+    const th = document.createElement("th");
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  table.appendChild(tbody);
+
+  const derived = field.item.find((s) => s.derived);
+  const sourceField = derived ? field.item.find((s) => s.key === derived.derived) : null;
+  const optionMap = new Map();
+  if (sourceField && Array.isArray(sourceField.options)) {
+    sourceField.options.forEach((o) => optionMap.set(String(o.value), o));
+  }
+
+  const addRow = (row, index) => {
+    const tr = document.createElement("tr");
+    tr.dataset.listRow = "1";
+    field.item.forEach((sub) => {
+      const td = document.createElement("td");
+      const rawValue = row ? row[sub.key] : sub.default;
+      if (sub.derived) {
+        const source = row ? row[sub.derived] : sourceField.default;
+        const el = renderDerived(sub, optionMap.get(String(source)));
+        el.dataset.displayFor = sub.derived;
+        el.dataset.displayField = sub.field;
+        td.appendChild(el);
+        tr.appendChild(td);
+        return;
+      }
+      if (sub.plain) {
+        const cellWrap = document.createElement("div");
+        cellWrap.dataset.path = `${path}[${index}].${sub.key}`;
+        const span = document.createElement("span");
+        span.textContent = rawValue == null ? "" : String(rawValue);
+        cellWrap.appendChild(span);
+        const hidden = document.createElement("input");
+        hidden.type = "hidden";
+        hidden.value = rawValue == null ? "" : String(rawValue);
+        cellWrap.appendChild(hidden);
+        td.appendChild(cellWrap);
+        tr.appendChild(td);
+        return;
+      }
+      const cellWrap = document.createElement("div");
+      cellWrap.dataset.path = `${path}[${index}].${sub.key}`;
+      if (sub.description) cellWrap.title = sub.description;
+      const control = makeControl(sub, rawValue, readOnly);
+      cellWrap.appendChild(control);
+      td.appendChild(cellWrap);
+      tr.appendChild(td);
+      if (sub.kind === "select" && !readOnly) {
+        control.addEventListener("change", () => {
+          const opt = optionMap.get(control.value);
+          tr.querySelectorAll("[data-display-for]").forEach((el) => {
+            const v = opt ? String(opt[el.dataset.displayField] ?? "") : "";
+            if (el.tagName === "A") {
+              el.href = v;
+              el.textContent = v;
+            } else {
+              el.textContent = v;
+            }
+          });
+        });
+      }
+    });
+    if (!readOnly) {
+      const td = document.createElement("td");
+      const del = document.createElement("button");
+      del.className = "ghost btn-mini";
+      del.textContent = "×";
+      del.title = "Удалить строку";
+      del.onclick = () => tr.remove();
+      td.appendChild(del);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  };
+  (value || []).forEach((row, i) => addRow(row, i));
+  wrap.appendChild(table);
+  if (!readOnly && field.addable !== false) {
+    const addBtn = document.createElement("button");
+    addBtn.className = "ghost btn-mini";
+    addBtn.textContent = "+ добавить";
+    addBtn.onclick = () => addRow(null, tbody.children.length);
+    wrap.appendChild(addBtn);
+  }
+  return wrap;
+}
+
+// --- object: вложенная секция (fieldset) ---------------------------------
+function renderObject(field, value, readOnly, path) {
+  const wrap = document.createElement("div");
+  wrap.className = "cfg-section";
+  const title = document.createElement("div");
+  title.className = "cfg-section-title";
+  title.textContent = field.label;
+  wrap.appendChild(title);
+  const grid = document.createElement("div");
+  grid.className = field.stack ? "cfg-fields cfg-fields-stack" : "cfg-fields";
+  field.fields.forEach((sub) => {
+    grid.appendChild(renderInput(sub, value ? value[sub.key] : sub.default, readOnly, path + "." + sub.key));
+  });
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function renderInput(field, value, readOnly, path) {
+  path = path || field.key;
+  const wrap = document.createElement("div");
+  wrap.className =
+    "cfg-field" +
+    (field.kind === "bool" ? " cfg-check" : "") +
+    (field.inline ? " cfg-inline" : "");
+  wrap.dataset.path = path;
+
+  if (field.kind === "object") {
+    wrap.appendChild(renderObject(field, value, readOnly, path));
+    return wrap;
+  }
+  if (field.kind === "list") {
+    wrap.appendChild(renderList(field, value, readOnly, path));
+    return wrap;
+  }
+
+  const label = document.createElement("span");
+  label.textContent = field.label;
+  wrap.appendChild(label);
+  wrap.appendChild(makeControl(field, value, readOnly));
+  if (field.description) wrap.title = field.description;
   return wrap;
 }
 
@@ -267,6 +336,8 @@ function readFieldValue(el) {
   if (select) return select.value;
   const textarea = el.querySelector("textarea");
   if (textarea) return textarea.value;
+  const hidden = el.querySelector("input[type='hidden']");
+  if (hidden) return hidden.value;
   const tags = el.querySelector(".tags");
   if (tags) {
     return [...tags.querySelectorAll(".tag")].map((t) => t.childNodes[0].textContent);

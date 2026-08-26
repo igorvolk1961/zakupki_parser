@@ -179,7 +179,10 @@
   .cfg-section { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
   .cfg-section-title { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:10px; }
   .cfg-fields { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
+  .cfg-fields-stack { grid-template-columns:1fr; }
   .cfg-field { display:flex; flex-direction:column; gap:4px; font-size:13px; }
+  .cfg-inline { flex-direction:row; align-items:center; gap:8px; }
+  .cfg-inline input[type="number"] { width:110px; }
   .cfg-field > span { color: var(--muted); }
   .cfg-field input[type="text"], .cfg-field input[type="number"], .cfg-field select, .cfg-field textarea {
     font-family:ui-monospace,monospace; font-size:13px; background:var(--panel2); color:var(--text);

@@ -47,7 +47,7 @@ def _default_value(field_info: Any) -> Any:
 
 def _describe_type(
     annotation: Any,
-    options_overrides: dict[str, list[str]] | None,
+    options_overrides: dict[str, list[Any]] | None,
     path: str,
 ) -> tuple[str, dict[str, Any]]:
     """Возвращает (kind, доп. дескриптор) для аннотации поля."""
@@ -82,7 +82,7 @@ def _describe_type(
 
 def _describe_model(
     model: type[BaseModel],
-    options_overrides: dict[str, list[str]] | None = None,
+    options_overrides: dict[str, list[Any]] | None = None,
     path_prefix: str = "",
 ) -> list[dict[str, Any]]:
     """Дескрипторы полей модели (рекурсивно, без секретов)."""
@@ -112,7 +112,7 @@ def _describe_model(
 
 def build_schema(
     model: type[BaseModel],
-    options_overrides: dict[str, list[str]] | None = None,
+    options_overrides: dict[str, list[Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Схема конфигурации для веб-формы (список дескрипторов корневых полей).
 

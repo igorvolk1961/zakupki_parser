@@ -25,7 +25,7 @@ export function createConfigView(prefix, configPath, opts) {
 
   async function load() {
     const [schemaData, cfg] = await Promise.all([
-      api(configPath + "/schema"),
+      api((opts.schemaPath || configPath) + "/schema"),
       api(configPath),
     ]);
     schema = schemaData.schema;
@@ -40,7 +40,7 @@ export function createConfigView(prefix, configPath, opts) {
   async function toggleRaw() {
     raw = !raw;
     if (raw) {
-      const data = await api(configPath + "/raw");
+      const data = await api((opts.schemaPath || configPath) + "/raw");
       rawEl.value = data.yaml;
       rawEl.style.display = "";
       formEl.style.display = "none";

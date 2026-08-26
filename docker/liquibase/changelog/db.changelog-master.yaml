@@ -79,3 +79,5 @@ databaseChangeLog:
       file: db.changelog-1.39.yaml
   - include:
       file: db.changelog-1.40.yaml
+  - include:
+      file: db.changelog-1.41.yaml

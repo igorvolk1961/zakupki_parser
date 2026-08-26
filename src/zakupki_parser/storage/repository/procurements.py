@@ -17,6 +17,7 @@ from zakupki_parser.config.models import SCORE_METHOD_STAGES
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import (
     Customer,
+    Platform,
     ProcedureType,
     ProcedureTypeMapping,
     Procurement,
@@ -33,6 +34,19 @@ logger = logging.getLogger(__name__)
 
 class ProcurementMixin(RepositoryMixin):
     """Закупки (``procurements``) и справочники процедур/заказчиков при записи."""
+
+    async def list_platforms(self) -> list[dict[str, str]]:
+        """Справочник платформ из БД: ключ, наименование и URL (для форм).
+
+        Единственный источник данных о площадках — таблица ``platforms`` (сид из
+        конфигов выполняется миграциями при инициализации БД).
+        """
+        stmt = select(Platform.platform_id, Platform.name, Platform.url).order_by(
+            Platform.platform_id
+        )
+        async with self._db.session() as session:
+            rows = (await session.execute(stmt)).all()
+        return [{"value": pid, "label": pid, "name": name, "url": url} for pid, name, url in rows]
 
     async def last_processed_date(
         self,
