@@ -125,12 +125,11 @@
     <div class="panel">
       <div class="panel-title">Параметры мониторинга</div>
       <div class="toolbar" style="margin-bottom:0;">
-        <button class="primary" id="monitor-save">Сохранить</button>
+        <button class="primary" id="monitor-save" title="Сохранить параметры мониторинга. Изменения применяются при следующем запуске парсера.">Сохранить</button>
         <button id="monitor-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
         <button id="monitor-reload">Отменить изменения</button>
         <span id="monitor-status" class="muted"></span>
       </div>
-      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем запуске парсера.</p>
     </div>
     <div id="monitor-form"></div>
     <textarea id="monitor-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
@@ -140,25 +139,28 @@
     <div class="panel">
       <div class="panel-title">Промпты сервисов</div>
       <div class="toolbar" style="margin-bottom:0;">
-        <label>Сервис:
-          <select id="prompt-service">
+        <label title="Сервис, чьи промпты редактируются">Сервис:
+          <select id="prompt-service" title="scoring_service — скоринг, analysis_service — анализ ТЗ">
             <option value="prompts">scoring_service</option>
             <option value="analysis-prompts">analysis_service</option>
           </select>
         </label>
-        <label>Промпт:
-          <select id="prompt-sel"></select>
+        <label title="Файл промпта выбранного сервиса">Промпт:
+          <select id="prompt-sel" title="Промпт: файл .md/.json в каталоге промптов"></select>
         </label>
-        <span class="pill" id="prompt-kind" style="display:none;"></span>
-        <span id="prompt-dir" class="muted"></span>
+        <span class="pill" id="prompt-kind" style="display:none;" title="Тип файла промпта"></span>
+        <span id="prompt-dir" class="muted" title="Каталог промптов (относительно корня проекта)"></span>
       </div>
-      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем старте соответствующего сервиса (как и параметры конфигурации).</p>
+      <div class="toolbar" style="margin:8px 0 0;">
+        <button id="prompt-view-toggle" title="Переключить между редактором и предпросмотром Markdown. В режиме просмотра изменения не редактируются." style="display:none;">Просмотр</button>
+      </div>
     </div>
-    <textarea id="prompt-editor" spellcheck="false" style="width:100%;height:480px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    <textarea id="prompt-editor" spellcheck="false" title="Редактор промпта (Markdown или JSON)" style="width:100%;height:480px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    <div id="prompt-preview" class="prompt-preview" style="display:none;"></div>
     <div class="toolbar editor-actions">
-      <button class="primary" id="prompt-save">Сохранить</button>
-      <button id="prompt-reload">Отменить изменения</button>
-      <span id="prompt-status" class="muted"></span>
+      <button class="primary" id="prompt-save" title="Сохранить промпт в файл. Изменения применяются при следующем старте соответствующего сервиса.">Сохранить</button>
+      <button id="prompt-reload" title="Отменить изменения и перезагрузить файл">Отменить изменения</button>
+      <span id="prompt-status" class="muted" title="Статус сохранения"></span>
     </div>
   </div>
 
@@ -183,7 +185,7 @@
             <label>НМЦК мин <input type="number" step="0.01" id="pf-nmck-min"></label>
             <label>НМЦК макс <input type="number" step="0.01" id="pf-nmck-max"></label>
           </div>
-          <label>Площадки <span class="muted">(используемые клиентом; только активные)</span>
+          <label title="Используемые клиентом площадки (выбираются только активные)">Площадки
             <div class="profile-checks" id="pf-platforms"><span class="muted">—</span></div>
           </label>
           <div class="tabs" id="pf-tabs" style="margin:4px 0;">
@@ -194,23 +196,22 @@
             <button type="button" id="pf-tab-licenses">Лицензии <span class="tab-count" id="pf-cnt-licenses"></span></button>
             <button type="button" id="pf-tab-experience">Опыт <span class="tab-count" id="pf-cnt-experience"></span></button>
           </div>
-          <label id="pf-pane-keywords">Ключевые слова <span class="muted">(Enter — добавить, × — удалить)</span>
+          <label id="pf-pane-keywords" title="Enter — добавить, × — удалить">Ключевые слова
             <div class="tag-input" id="pf-keywords-tags">
               <div class="tags"></div>
               <div class="tags-fallback" style="display:none;"></div>
               <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
             </div>
           </label>
-          <label id="pf-pane-excl" style="display:none;">Слова-исключения <span class="muted">(Enter — добавить, × — удалить)</span>
+          <label id="pf-pane-excl" style="display:none;" title="Enter — добавить, × — удалить">Слова-исключения
             <div class="tag-input" id="pf-excl-tags">
               <div class="tags"></div>
               <div class="tags-fallback" style="display:none;"></div>
               <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
             </div>
           </label>
-          <label id="pf-pane-questions" style="display:none;">Вопросы по ТЗ <span class="muted">(Enter — добавить, × — удалить)</span>
-            <div class="muted" style="margin-bottom:6px;">Обязательные проверки (системные, не редактируются):</div>
-            <div class="tag-input" id="pf-system-questions" style="margin-bottom:10px; pointer-events:none;">
+          <label id="pf-pane-questions" style="display:none;" title="Enter — добавить, × — удалить">Вопросы по ТЗ
+            <div class="tag-input" id="pf-system-questions" style="margin-bottom:10px; pointer-events:none;" title="Обязательные системные проверки ТЗ (не редактируются)">
               <div class="tags"></div>
             </div>
             <div class="tag-input" id="pf-questions-tags">
@@ -321,28 +322,26 @@
   </div>
   <div id="view-cfgops" style="display:none;">
     <div class="panel">
-      <div class="panel-title">Конфигурация <span class="muted">(config_ops.yaml)</span></div>
+      <div class="panel-title" title="config_ops.yaml">Конфигурация</div>
       <div class="toolbar" style="margin-bottom:0;">
-        <button class="primary" id="cfgops-save">Сохранить</button>
+        <button class="primary" id="cfgops-save" title="Сохранить конфигурацию. Изменения применяются при следующем старте сервиса. Секреты (токены, auth.secret) управляются через env и в форме не редактируются.">Сохранить</button>
         <button id="cfgops-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
         <button id="cfgops-reload">Отменить изменения</button>
         <span id="cfgops-status" class="muted"></span>
       </div>
-      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем старте сервиса. Секреты (токены, auth.secret) управляются через env и в форме не редактируются.</p>
     </div>
     <div id="cfgops-form"></div>
     <textarea id="cfgops-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
   </div>
   <div id="view-logcfg" style="display:none;">
     <div class="panel">
-      <div class="panel-title">Управление Логи <span class="muted">(config_log.yaml)</span></div>
+      <div class="panel-title" title="config_log.yaml">Управление Логи</div>
       <div class="toolbar" style="margin-bottom:0;">
-        <button class="primary" id="logcfg-save">Сохранить</button>
+        <button class="primary" id="logcfg-save" title="Сохранить конфигурацию логирования. Изменения применяются при следующем старте сервиса.">Сохранить</button>
         <button id="logcfg-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
         <button id="logcfg-reload">Отменить изменения</button>
         <span id="logcfg-status" class="muted"></span>
       </div>
-      <p class="muted" style="margin:8px 0 0;">Изменения применяются при следующем старте сервиса.</p>
     </div>
     <div id="logcfg-form"></div>
     <textarea id="logcfg-raw" spellcheck="false" style="display:none;width:100%;height:320px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
@@ -377,8 +376,7 @@
   </div>
   <div id="view-parser" style="display:none;">
     <div class="panel">
-      <div class="panel-title">Парсер <span class="muted">(config_parser.yaml — только чтение)</span></div>
-      <p class="muted" style="margin:0;">Параметры парсера/браузера изменяются только в файле конфигурации; здесь — справочный просмотр.</p>
+      <div class="panel-title" title="config_parser.yaml — только чтение. Параметры парсера/браузера изменяются только в файле конфигурации; здесь — справочный просмотр.">Парсер</div>
     </div>
     <div id="parser-form"></div>
   </div>
@@ -388,11 +386,10 @@
   <div class="modal" id="modal"></div>
 </div>
 
-<div class="modal-bg" id="db-modal-bg">
+  <div class="modal-bg" id="db-modal-bg">
   <div class="modal" id="db-modal">
     <span class="close" onclick="closeDbModal()">×</span>
     <h2>Очистка БД</h2>
-    <p class="muted" style="margin-top:0;">Что удалить из базы данных?</p>
     <div style="display:flex; flex-direction:column; gap:10px;">
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="radio" name="db-clear-mode" value="all" checked> Удалить все записи (закупки и заказчики)</label>
       <label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="radio" name="db-clear-mode" value="inactive"> Удалить все неактивные закупки</label>
@@ -417,7 +414,6 @@
   <div class="modal" id="export-modal">
     <span class="close" onclick="closeExportModal()">×</span>
     <h2>Выгрузка CSV</h2>
-    <p class="muted" style="margin-top:0;">В выгрузку попадут только активные и релевантные закупки (fit-score ≥ порога). Браузер предложит выбрать папку для сохранения.</p>
     <div style="display:flex; align-items:center; gap:8px; color:var(--text); white-space:nowrap;">fit-score ≥
       <span class="step" id="export-min-fit-step">
         <input type="number" id="export-min-fit" value="0.4" min="0" max="0.9" step="0.1">
@@ -429,7 +425,7 @@
     </div>
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="export-cancel">Отменить</button>
-      <button class="primary" id="export-confirm">Выгрузить</button>
+      <button class="primary" id="export-confirm" title="В выгрузку попадут только активные и релевантные закупки (fit-score ≥ порога). Браузер предложит выбрать папку для сохранения.">Выгрузить</button>
     </div>
   </div>
 </div>
@@ -497,13 +493,12 @@
       <input id="user-password" type="password" autocomplete="new-password" placeholder="не менее 8 символов">
     </div>
     <div class="field">
-      <label>Роли</label>
+      <label title="Роль «Простой пользователь» выдаётся только при саморегистрации и админом не управляется">Роли</label>
       <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:14px;">
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="user-role-admin" value="admin"> Администратор</label>
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="user-role-analyst" value="analyst"> Аналитик</label>
         <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="user-role-devops" value="devops"> DevOps</label>
       </div>
-      <p class="muted" style="margin:6px 0 0;font-size:12px;">Роль «Простой пользователь» выдаётся только при саморегистрации и админом не управляется.</p>
     </div>
     <div class="error" id="user-error"></div>
     <div class="toolbar" style="margin-bottom:0; justify-content:flex-end;">

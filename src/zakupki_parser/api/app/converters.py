@@ -87,7 +87,7 @@ def _prompt_dir_rel(base: Path, state: AppState) -> str:
     В Docker каталог вне корня проекта (например, /app/prompts) — показываем
     как есть (абсолютный и короткий путь).
     """
-    root = Path(state.configs_dir).parent
+    root = Path(state.configs_dir).resolve().parent
     try:
         return str(base.relative_to(root))
     except ValueError:

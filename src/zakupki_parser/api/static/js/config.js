@@ -5,6 +5,7 @@
 import { $ } from "./utils.js";
 import { api, apiJSON } from "./api.js";
 import { createConfigView } from "./config_view.js";
+import { renderMarkdown } from "./markdown.js";
 
 export let monitorDirty = false;
 
@@ -34,6 +35,32 @@ const PROMPT_LABELS = {
 };
 let promptsMeta = [];
 let promptDirty = false;
+let promptPreview = false;
+
+// --- Предпросмотр Markdown (только для .md-промптов) --------------------
+function setPromptView(preview) {
+  promptPreview = preview;
+  const editor = $("#prompt-editor");
+  const view = $("#prompt-preview");
+  const toggle = $("#prompt-view-toggle");
+  if (preview) {
+    view.innerHTML = renderMarkdown(editor.value);
+    view.style.display = "block";
+    editor.style.display = "none";
+    toggle.textContent = "Редактор";
+  } else {
+    view.style.display = "none";
+    editor.style.display = "";
+    toggle.textContent = "Просмотр";
+  }
+}
+
+function updatePromptViewToggle(kind) {
+  const toggle = $("#prompt-view-toggle");
+  const md = kind === "markdown";
+  toggle.style.display = md ? "inline-block" : "none";
+  if (!md) setPromptView(false);
+}
 
 function promptEndpoint(path) {
   const service = $("#prompt-service").value;
@@ -66,10 +93,12 @@ async function loadPrompt() {
   const name = $("#prompt-sel").value;
   if (!name) return;
   const data = await api(promptEndpoint(encodeURIComponent(name)));
+  setPromptView(false);
   $("#prompt-editor").value = data.content;
   const kindEl = $("#prompt-kind");
   kindEl.textContent = data.kind === "json" ? "JSON" : "markdown";
   kindEl.style.display = "inline-block";
+  updatePromptViewToggle(data.kind);
   $("#prompt-status").textContent = "";
   promptDirty = false;
 }
@@ -122,6 +151,7 @@ $("#prompt-editor").addEventListener("input", () => {
   $("#prompt-status").textContent = "несохранённые изменения";
 });
 $("#prompt-save").addEventListener("click", savePrompt);
+$("#prompt-view-toggle").addEventListener("click", () => setPromptView(!promptPreview));
 $("#prompt-reload").addEventListener("click", loadPrompt);
 $("#prompt-sel").addEventListener("change", () => {
   if (promptDirty && !confirm("Есть несохранённые изменения — перезагрузить промпт?")) {

@@ -183,6 +183,20 @@
   .cfg-field { display:flex; flex-direction:column; gap:4px; font-size:13px; }
   .cfg-inline { flex-direction:row; align-items:center; gap:8px; }
   .cfg-inline input[type="number"] { width:110px; }
+  .prompt-preview { min-height:480px; max-height:640px; overflow:auto; padding:12px 16px;
+    background:var(--panel2); border:1px solid var(--line); border-radius:8px; font-size:14px; line-height:1.5; }
+  .prompt-preview h1, .prompt-preview h2, .prompt-preview h3, .prompt-preview h4 { margin:12px 0 6px; }
+  .prompt-preview h1 { font-size:20px; } .prompt-preview h2 { font-size:18px; }
+  .prompt-preview h3 { font-size:16px; } .prompt-preview h4 { font-size:14px; }
+  .prompt-preview p { margin:6px 0; }
+  .prompt-preview ul, .prompt-preview ol { margin:6px 0; padding-left:22px; }
+  .prompt-preview li { margin:2px 0; }
+  .prompt-preview code { background:var(--panel); padding:1px 4px; border-radius:4px; font-family:ui-monospace,monospace; font-size:12.5px; }
+  .prompt-preview pre { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px; overflow:auto; margin:8px 0; }
+  .prompt-preview pre code { background:none; padding:0; }
+  .prompt-preview blockquote { border-left:3px solid var(--line); margin:6px 0; padding:2px 10px; color:var(--muted); }
+  .prompt-preview hr { border:none; border-top:1px solid var(--line); margin:12px 0; }
+  .prompt-preview a { color:var(--accent); }
   .cfg-field > span { color: var(--muted); }
   .cfg-field input[type="text"], .cfg-field input[type="number"], .cfg-field select, .cfg-field textarea {
     font-family:ui-monospace,monospace; font-size:13px; background:var(--panel2); color:var(--text);
