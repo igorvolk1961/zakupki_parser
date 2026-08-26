@@ -98,7 +98,7 @@ def build_context(state: AppState) -> ApiContext:
         if user is not None:
             await _repo().backfill_orphaned_profiles(user.id)
         else:
-            username = os.environ.get("ZAKUPKI_ADMIN_USERNAME") or "admin"
+            username = os.environ.get("ZAKUPKI_ADMIN_USERNAME") or "administrator"
             password = os.environ.get("ZAKUPKI_ADMIN_PASSWORD") or secrets.token_urlsafe(24)
             user = await _repo().create_user(
                 username, await asyncio.to_thread(hash_password, password), list(ALL_ROLES)
