@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from zakupki_parser.api.app.deps import ApiContext
-from zakupki_parser.api.app.schemas import ProfileIn, ProfileListOut, ProfileOut
+from zakupki_parser.api.app.schemas import ProfileImportIn, ProfileIn, ProfileListOut, ProfileOut
 from zakupki_parser.api.app.state import _broadcast
 from zakupki_parser.storage.db import User
 
@@ -155,6 +155,30 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             name,
             profile.id,
         )
+        await _broadcast(state)
+        return await _profile_out(profile)
+
+    @router.post(
+        "/api/clients/import",
+        response_model=ProfileOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def import_client(
+        payload: ProfileImportIn, user: User | None = Depends(require_base)
+    ) -> ProfileOut:
+        """Загружает/обновляет профиль из загруженного файла.
+
+        Разметка файла — как у ``docs/references/profile.md`` (секции ``**name**``,
+        ``**Ключевые слова**`` и т.д.); имя профиля — из секции ``name``, при
+        отсутствии — ``default``.
+        """
+        from zakupki_parser.storage.keywords_parser import parse_keywords_text
+
+        eff_user = await _effective_user(user)
+        seed = parse_keywords_text(payload.content)
+        name = seed.get("name") or "default"
+        profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
+        logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
         return await _profile_out(profile)
 

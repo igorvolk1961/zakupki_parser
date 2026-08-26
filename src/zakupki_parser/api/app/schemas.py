@@ -324,6 +324,12 @@ class ProfileIn(BaseModel):
     experience: list[ExperienceIn] | None = None
 
 
+class ProfileImportIn(BaseModel):
+    """Загрузка профиля из файла (разметка как у ``docs/references/profile.md``)."""
+
+    content: str
+
+
 class ProfileOut(BaseModel):
     """Карточка профиля фильтрации."""
 

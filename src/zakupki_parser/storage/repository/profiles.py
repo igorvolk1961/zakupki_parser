@@ -485,6 +485,10 @@ class ProfileMixin(RepositoryMixin):
             # Профиль становится активным: явно (is_active=true) или по умолчанию
             # для профиля «default» (per-user состояние, BR-07).
             wants_active = data.get("is_active")
+            if profile.enabled is False:
+                # Отключённый профиль не может быть активным.
+                profile.is_active = False
+                wants_active = False
             if wants_active or (wants_active is None and name == self.DEFAULT_PROFILE_NAME):
                 await session.execute(
                     update(Profile).where(Profile.user_id == user_id).values(is_active=False)
