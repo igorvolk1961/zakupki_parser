@@ -9,11 +9,26 @@ databaseChangeLog:
         sql: |
           ALTER TABLE users ADD COLUMN IF NOT EXISTS roles jsonb NOT NULL DEFAULT '[]'::jsonb;
           ALTER TABLE users ADD COLUMN IF NOT EXISTS status varchar(16) NOT NULL DEFAULT 'active';
-          UPDATE users SET roles = jsonb_build_array(CASE role WHEN 'admin' THEN 'admin' WHEN 'tenderologist' THEN 'user' ELSE role END)
-            WHERE roles = '[]'::jsonb AND role IS NOT NULL;
-          -- Существующие администраторы (все, не только первый) получают все роли:
-          -- до ролевой модели admin имел доступ ко всему, и этот доступ сохраняется.
-          UPDATE users SET roles = '["user","admin","analyst","devops"]'::jsonb
-            WHERE role = 'admin';
-          ALTER TABLE users DROP COLUMN IF EXISTS role;
+          -- Бэкфилл из role выполняется только пока колонка role существует: changeset
+          -- может повторно запускаться после частичного применения (колонка уже удалена),
+          -- и обращение к ней уронило бы миграцию.
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'users'
+                AND column_name = 'role'
+            ) THEN
+              UPDATE users SET roles = jsonb_build_array(
+                CASE role WHEN 'admin' THEN 'admin' WHEN 'tenderologist' THEN 'user' ELSE role END
+              ) WHERE roles = '[]'::jsonb AND role IS NOT NULL;
+              -- Существующие администраторы (все, не только первый) получают все роли:
+              -- до ролевой модели admin имел доступ ко всему, и этот доступ сохраняется.
+              UPDATE users SET roles = '["user","admin","analyst","devops"]'::jsonb
+                WHERE role = 'admin';
+              ALTER TABLE users DROP COLUMN role;
+            END IF;
+          END
+          $$;
           COMMENT ON TABLE users IS 'Пользователи сервиса: roles (user/admin/analyst/devops, объединение вкладок), status (active/blocked)';

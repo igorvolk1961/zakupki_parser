@@ -382,13 +382,14 @@ BGPIDS+=($!)
 # Ждём готовности транспорта, чтобы парсер при авто-пуше не терял задания.
 echo "Ожидание готовности scoring_transport..."
 ready=0
+transport_pid="${BGPIDS[${#BGPIDS[@]}-1]}"
 for i in $(seq 1 30); do
     if curl -sf -m 1 "http://127.0.0.1:$PORT_TRANSPORT/health" >/dev/null 2>&1; then
         echo "scoring_transport готов."
         ready=1
         break
     fi
-    if ! kill -0 "${BGPIDS[1]}" 2>/dev/null; then
+    if ! kill -0 "$transport_pid" 2>/dev/null; then
         echo "scoring_transport завершился с ошибкой — прерываю." >&2
         exit 1
     fi
