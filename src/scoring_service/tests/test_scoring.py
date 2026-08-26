@@ -52,13 +52,11 @@ def _reasoning() -> ReasoningSteps:
 def _fit(
     score: float,
     requires_tz_review: bool = False,
-    requires_tz_body: bool = True,
 ) -> FitResult:
     return FitResult(
         reasoning=_reasoning(),
         fit_score=score,
         requires_tz_review=requires_tz_review,
-        requires_tz_body=requires_tz_body,
     )
 
 
@@ -414,7 +412,7 @@ def test_score_skips_tz_when_flag_off() -> None:
 
 
 class _HeaderRecordingFit:
-    """Fit, возвращающий requires_tz_review=true + requires_tz_body=false на первом вызове."""
+    """Fit, возвращающий requires_tz_review=true на первом вызове (уточнение по ТЗ)."""
 
     def __init__(self, scores: list[float]) -> None:
         self._scores = list(scores)
@@ -439,11 +437,7 @@ class _HeaderRecordingFit:
         self.truncated_flags.append(truncated)
         self.full_text_flags.append(full_text)
         value = self._scores.pop(0) if self._scores else 5.0
-        return _fit(
-            value,
-            requires_tz_review=(len(self.descriptions) == 1),
-            requires_tz_body=(len(self.descriptions) != 1),
-        )
+        return _fit(value, requires_tz_review=(len(self.descriptions) == 1))
 
 
 def test_score_truncated_description_passes_truncated_flag() -> None:
@@ -461,7 +455,7 @@ def test_score_truncated_description_passes_truncated_flag() -> None:
 
 
 def test_score_header_extends_description_from_tz() -> None:
-    """requires_tz_body=false: описание расширяется заголовком из текста ТЗ."""
+    """Уточнение по ТЗ: описание расширяется текстом из найденного файла ТЗ."""
     tz_text = (
         "Разработка и внедрение системы автоматизации документооборота предприятия\n"
         "Общие положения..."

@@ -49,8 +49,6 @@ def _ex(example: dict[str, Any]) -> tuple[list[BaseMessage], list[BaseMessage]]:
         + reasoning_json
         + f', "fit_score": {example["fit_score"]}, "requires_tz_review": '
         + ("true" if example["requires_tz_review"] else "false")
-        + ', "requires_tz_body": '
-        + ("true" if example["requires_tz_body"] else "false")
         + "}"
     )
     return [HumanMessage(content=human)], [AIMessage(content=ai)]
@@ -77,7 +75,7 @@ def build_fit_messages(
     ``truncated=True`` — описание закупки обрезано многоточием: добавляется явное
     указание на неполноту описания (правило 7 системного промпта).
     ``full_text=True`` — уже предоставлен полный текст ТЗ (файл прочитан): модель
-    не должна снова запрашивать чтение ТЗ (requires_tz_review/requires_tz_body).
+    не должна снова запрашивать чтение ТЗ (requires_tz_review).
     """
     messages: list[BaseMessage] = [SystemMessage(content=SYSTEM_PROMPT_FIT)]
     if truncated:

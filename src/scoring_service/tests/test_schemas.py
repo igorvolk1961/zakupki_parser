@@ -50,37 +50,6 @@ def test_fit_result_drops_tz_review_above_band() -> None:
     assert fit.fit_score == 8.0
 
 
-def test_fit_result_tz_body_default_true() -> None:
-    fit = FitResult(reasoning=_reasoning(), fit_score=5.0, requires_tz_review=True)
-    assert fit.requires_tz_body is True
-
-
-def test_fit_result_header_allowed_in_band() -> None:
-    # requires_tz_body=false (только заголовок) допустим при requires_tz_review=true.
-    fit = FitResult(
-        reasoning=_reasoning(), fit_score=6.0, requires_tz_review=True, requires_tz_body=False
-    )
-    assert fit.requires_tz_review is True
-    assert fit.requires_tz_body is False
-
-
-def test_fit_result_header_dropped_without_review() -> None:
-    # requires_tz_body=false без requires_tz_review — бессмысленно, сбрасываем в true.
-    fit = FitResult(
-        reasoning=_reasoning(), fit_score=6.0, requires_tz_review=False, requires_tz_body=False
-    )
-    assert fit.requires_tz_body is True
-
-
-def test_fit_result_body_reset_outside_band() -> None:
-    # Уточнение сброшено вне плаузибельной зоны — тело ТЗ по умолчанию.
-    fit = FitResult(
-        reasoning=_reasoning(), fit_score=3.0, requires_tz_review=True, requires_tz_body=False
-    )
-    assert fit.requires_tz_review is False
-    assert fit.requires_tz_body is True
-
-
 def test_judge_result_validation() -> None:
     judge = JudgeResult(critics="ok", verdict="accept", final_fit_score=9.0)
     assert judge.verdict == "accept"

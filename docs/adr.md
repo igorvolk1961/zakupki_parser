@@ -285,8 +285,8 @@ ADR-3 изначально фиксировал очередь-«outbox» на �
 
 **LLM-пайплайн `scoring_service`** (`scoring_service/scoring.py`): Fit (0–10, reasoning +
 `fit_score`) → Judge (критики / verdict / `final_fit_score`) → при `verdict=reject` до
-`num_refine_rounds` повторный Fit → уточнение по тексту ТЗ (`tz_review`, флаги
-`requires_tz_review`/`requires_tz_body`) → ветка Giga Embedder (косинусная близость,
+`num_refine_rounds` повторный Fit → уточнение по тексту ТЗ (`tz_review`, флаг
+`requires_tz_review`) → ветка Giga Embedder (косинусная близость,
 `giga_embedding_alpha`, результат `embedding_similarity`; с ADR-8 — предварительный
 фильтр перед LLM). Score = нормализованный Fit × P(win) × Margin.
 

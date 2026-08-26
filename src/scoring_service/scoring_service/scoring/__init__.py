@@ -132,7 +132,6 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             reasoning=reasoning,
             fit_score=score,
             requires_tz_review=False,
-            requires_tz_body=True,
         )
         judge = JudgeResult(
             critics="Stub: возвращён существующий score закупки",
@@ -146,7 +145,6 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             judge=judge,
             final_fit_score=score,
             requires_tz_review=False,
-            requires_tz_body=True,
             fit_multiplier=score,
             score=score,
         )

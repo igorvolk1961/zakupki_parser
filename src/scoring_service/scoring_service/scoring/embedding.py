@@ -85,7 +85,6 @@ class EmbeddingMixin:
             reasoning=reasoning,
             fit_score=0.0,
             requires_tz_review=False,
-            requires_tz_body=False,
         )
         judge = JudgeResult(
             critics="Предварительная фильтрация: векторная близость ниже порога",
@@ -99,7 +98,6 @@ class EmbeddingMixin:
             judge=judge,
             final_fit_score=0.0,
             requires_tz_review=False,
-            requires_tz_body=False,
             fit_multiplier=0.0,
             score=0.0,
             score_method="sim",

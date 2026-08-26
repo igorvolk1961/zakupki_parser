@@ -17,4 +17,3 @@ class _PipelineResult:
     final_fit: float
     fit_norm: float
     requires_tz_review: bool
-    requires_tz_body: bool

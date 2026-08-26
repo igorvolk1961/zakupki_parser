@@ -83,7 +83,7 @@ exclusions:                   # «НЕ входят в компетенции» 
 ## Уточнение по ТЗ (`tz_review`)
 Если fit запросил (`requires_tz_review`), `TzReviewer` ищет файл ТЗ в карточке закупки,
 извлекает его текст (скачивание) и выполняет повторный fit/judge по расширенному описанию.
-Флаги `requires_tz_review` / `requires_tz_body` фиксируют неполноту описания; включается
+Флаг `requires_tz_review` фиксирует неполноту/неоднозначность описания; включается
 целиком флагом `tz_review_enabled` (`SCORE_TZ_REVIEW_ENABLED`, по умолчанию `true`).
 
 ## Параллельная ветка Giga Embedder

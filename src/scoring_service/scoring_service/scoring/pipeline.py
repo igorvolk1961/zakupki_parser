@@ -154,7 +154,6 @@ class PipelineMixin:
             requires_tz_review=(
                 fit.requires_tz_review if tz_outcome is None or not tz_refined else False
             ),
-            requires_tz_body=False,
         )
 
     def _build_output(
@@ -178,7 +177,6 @@ class PipelineMixin:
             judge=result.judge,
             final_fit_score=result.final_fit,
             requires_tz_review=result.requires_tz_review,
-            requires_tz_body=result.requires_tz_body,
             fit_multiplier=result.fit_norm,
             score=score,
             embedding_similarity=embed_sim,
