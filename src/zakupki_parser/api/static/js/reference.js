@@ -289,6 +289,13 @@ async function deleteSelected() {
   }
 }
 
+async function reloadChanges() {
+  if (!current) return;
+  if (refDirty() && !confirm("Есть несохранённые изменения — отменить их?")) return;
+  statusText("");
+  await loadRefRows();
+}
+
 export { loadRefTables, refDirty };
 
 $("#ref-table").addEventListener("change", async () => {
@@ -302,5 +309,6 @@ $("#ref-table").addEventListener("change", async () => {
 });
 $("#ref-add").addEventListener("click", addRow);
 $("#ref-save").addEventListener("click", saveChanges);
+$("#ref-reload").addEventListener("click", reloadChanges);
 $("#ref-delete").addEventListener("click", deleteSelected);
 $("#ref-rows").addEventListener("change", updateDeleteBtn);
