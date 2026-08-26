@@ -3,10 +3,31 @@
 from __future__ import annotations
 
 import logging
+import re
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from zakupki_parser.config.models import LoggingConfig
+
+# Чувствительные query-параметры (token, access_token, secret и т.п.) —
+# их значения вымарываются из логов. Регэксп ловит параметр после '?' или '&'
+# и всё до следующего разделителя (&, пробел, кавычка).
+_SENSITIVE_QUERY_RE = re.compile(
+    r"([?&](?:token|access_token|refresh_token|secret|api_key|key|password|internal_token|signature)=)[^&\s\"']*",
+    re.IGNORECASE,
+)
+
+
+class _ScrubbingFormatter(logging.Formatter):
+    """Форматтер, заменяющий значения чувствительных query-параметров на ``***``.
+
+    Применяется к финальной строке лога, поэтому закрывает любые источники
+    утечки токенов: access-логи uvicorn (WebSocket/HTTP), исключения с URL и т.д.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        return _SENSITIVE_QUERY_RE.sub(lambda m: m.group(1) + "***", text)
 
 
 class _NameRewriteFilter(logging.Filter):
@@ -36,7 +57,7 @@ def setup_logging(cfg: LoggingConfig) -> None:
     root.setLevel(cfg.level.upper())
     root.handlers.clear()
 
-    fmt = logging.Formatter(cfg.format)
+    fmt = _ScrubbingFormatter(cfg.format)
     name_filter = _NameRewriteFilter()
 
     if cfg.console:
