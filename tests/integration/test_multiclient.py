@@ -114,6 +114,57 @@ def test_clients_crud(mc_client: TestClient) -> None:
     assert listed.json()["total"] >= 2
 
 
+def test_profile_export_endpoint(mc_client: TestClient) -> None:
+    """Экспорт профиля: markdown-файл с именем профиля + датой/временем.
+
+    ``include_competencies=false`` — компетенции встроены в файл профиля; ``true`` —
+    отдельный файл компетенций + ссылка на него в файле профиля.
+    """
+    client = mc_client
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "export-me",
+            "competencies": "Поставщик — Export Co.\nКомпетенции: ИИ.",
+            "keywords": ["ИИ", "автоматизация"],
+            "exclusion_words": ["ремонт"],
+            "okpd_codes": ["62.02"],
+            "nmck_min": 100000,
+            "nmck_max": 5000000,
+        },
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+    name = created.json()["name"]
+
+    # Без отдельного файла компетенций.
+    plain = client.get(f"/api/clients/{profile_id}/export")
+    assert plain.status_code == 200
+    body = plain.json()
+    assert name in body["profile_filename"]
+    assert body["profile_filename"].endswith(".md")
+    assert body["competencies_filename"] is None
+    assert body["competencies_content"] is None
+    assert "**name**" in body["profile_content"]
+    assert "Export Co." in body["profile_content"]
+    assert "ИИ" in body["profile_content"]
+    assert "автоматизация" in body["profile_content"]
+
+    # С отдельным файлом компетенций.
+    with_comp = client.get(
+        f"/api/clients/{profile_id}/export", params={"include_competencies": "true"}
+    )
+    assert with_comp.status_code == 200
+    body = with_comp.json()
+    assert body["competencies_filename"]
+    assert body["competencies_filename"].endswith("_компетенции.md")
+    assert body["competencies_content"]
+    assert "Export Co." in body["competencies_content"]
+    # В файле профиля — ссылка на файл компетенций, а не текст.
+    assert body["competencies_filename"] in body["profile_content"]
+    assert "Export Co." not in body["profile_content"]
+
+
 def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
     client = mc_client
     procurement_id = _seed_procurement()

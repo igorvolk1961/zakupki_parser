@@ -3,15 +3,35 @@
 from __future__ import annotations
 
 import logging
+import re
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from zakupki_parser.api.app.deps import ApiContext
-from zakupki_parser.api.app.schemas import ProfileImportIn, ProfileIn, ProfileListOut, ProfileOut
+from zakupki_parser.api.app.schemas import (
+    ProfileExportOut,
+    ProfileImportIn,
+    ProfileIn,
+    ProfileListOut,
+    ProfileOut,
+)
 from zakupki_parser.api.app.state import _broadcast
 from zakupki_parser.storage.db import User
+from zakupki_parser.storage.keywords_parser import serialize_profile_text
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_filename(name: str) -> str:
+    """Имя файла из имени профиля: недопустимые символы/пробелы — в подчёркивания."""
+    cleaned = re.sub(r'[\\/:*?"<>|\s]+', "_", name).strip("._")
+    return cleaned or "profile"
+
+
+def _export_timestamp() -> str:
+    """Временная метка для имени файла экспорта (дата + время, без секунд в разделе)."""
+    return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def build_clients_router(ctx: ApiContext) -> APIRouter:
@@ -66,6 +86,45 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if row is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
         return await _profile_out(row)
+
+    @router.get(
+        "/api/clients/{client_id}/export",
+        response_model=ProfileExportOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def export_client(
+        client_id: int,
+        include_competencies: bool = Query(default=False),
+        user: User | None = Depends(require_base),
+    ) -> ProfileExportOut:
+        """Экспорт профиля в markdown-файл (разметка файла-сида профиля).
+
+        Имя файла — из имени профиля и даты/времени. При ``include_competencies``
+        компетенции выгружаются отдельным файлом, а в профильном файле
+        подставляется ссылка на него (как в seed-файле); иначе компетенции
+        встроены в профильный файл.
+        """
+        eff_user = await _effective_user(user)
+        row = await _repo().get_profile(eff_user.id, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Профиль не найден")
+        profile = await _profile_out(row)
+        data = profile.model_dump()
+        safe = _safe_filename(data["name"] or "profile")
+        ts = _export_timestamp()
+        profile_filename = f"{safe}_{ts}.md"
+        competencies_content = (data.get("competencies") or "").strip()
+        competencies_filename: str | None = None
+        if include_competencies and competencies_content:
+            competencies_filename = f"{safe}_{ts}_компетенции.md"
+        return ProfileExportOut(
+            profile_filename=profile_filename,
+            profile_content=serialize_profile_text(
+                data, competencies_reference=competencies_filename
+            ),
+            competencies_filename=competencies_filename,
+            competencies_content=competencies_content if competencies_filename else None,
+        )
 
     @router.post(
         "/api/clients",

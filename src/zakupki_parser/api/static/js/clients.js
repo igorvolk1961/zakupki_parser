@@ -107,6 +107,7 @@ function renderProfiles(list) {
       <td>${escapeHtml(nmck)}</td>
       <td>
         <button class="ghost" data-action="edit">Редактировать</button>
+        <button class="ghost" data-action="export" title="Экспорт профиля в markdown-файл (файл профиля и, при желании, отдельный файл с компетенциями)">Экспорт</button>
         <button class="ghost" data-action="delete"${delDisabled}${delTitle}>Удалить профиль</button>
         ${p.is_active ? "" : `<button class="ghost" data-action="activate">Активировать</button>`}
       </td>
@@ -123,6 +124,7 @@ function renderProfiles(list) {
       const id = Number(tr.dataset.id);
       if (btn.dataset.action === "activate") await switchClient(id);
       else if (btn.dataset.action === "edit") await openProfileEditor(id);
+      else if (btn.dataset.action === "export") openExportProfile(id, tr.dataset.name);
       else if (btn.dataset.action === "delete") confirmDeleteProfile(id, tr.dataset.name);
     });
   });
@@ -1110,6 +1112,101 @@ async function importProfileFile() {
   }
 }
 
+// Экспорт профиля в markdown-файл: выбор папки (File System Access) или
+// обычное скачивание, если браузер не поддерживает выбор папки.
+let exportProfileId = null;
+let exportProfileName = "";
+
+function openExportProfile(id, name) {
+  exportProfileId = id;
+  exportProfileName = name || "";
+  $("#export-profile-name").textContent = exportProfileName
+    ? `Профиль «${exportProfileName}»`
+    : "Профиль";
+  $("#export-profile-modal-bg").classList.add("open");
+}
+
+function closeExportProfileModal() {
+  $("#export-profile-modal-bg").classList.remove("open");
+  exportProfileId = null;
+}
+
+async function writeToDir(dirHandle, filename, content) {
+  const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+function downloadProfileFile(content, filename) {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function doExportProfile() {
+  const id = exportProfileId;
+  if (id == null) return;
+  const includeCompetencies = $("#export-profile-competencies").checked;
+  closeExportProfileModal();
+  setProfileStatus("Экспорт профиля…");
+  // Папку выбираем до сетевого запроса — выбор папки требует свежего жеста
+  // пользователя (transient activation), который не переживает await fetch.
+  let dirHandle = null;
+  let usePicker = false;
+  if (window.showDirectoryPicker) {
+    try {
+      dirHandle = await window.showDirectoryPicker();
+      usePicker = true;
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        setProfileStatus("Экспорт отменён");
+        return;
+      }
+      // Иначе браузер не дал доступ — падаем в обычное скачивание.
+    }
+  }
+  try {
+    const data = await api(`clients/${id}/export`, {
+      include_competencies: includeCompetencies ? "true" : "false",
+    });
+    if (usePicker && dirHandle) {
+      await writeToDir(dirHandle, data.profile_filename, data.profile_content);
+      if (data.competencies_filename && data.competencies_content != null) {
+        await writeToDir(dirHandle, data.competencies_filename, data.competencies_content);
+      }
+      const files = data.competencies_filename
+        ? `${data.profile_filename} и ${data.competencies_filename}`
+        : data.profile_filename;
+      setProfileStatus(`Профиль сохранён в выбранную папку: ${files}`);
+      return;
+    }
+    downloadProfileFile(data.profile_content, data.profile_filename);
+    if (data.competencies_filename && data.competencies_content != null) {
+      // Браузеры без выбора папки ограничивают скачивание нескольких файлов
+      // одним жестом. Второй файл запускаем отдельно и предупреждаем, что
+      // браузер может запросить разрешение на несколько файлов — иначе файл
+      // компетенций потеряется «молча».
+      setTimeout(() => {
+        downloadProfileFile(data.competencies_content, data.competencies_filename);
+      }, 700);
+      setProfileStatus(
+        "Профиль выгружен. Если браузер спросит про несколько файлов — разрешите, чтобы сохранился и файл компетенций."
+      );
+      return;
+    }
+    setProfileStatus("Профиль выгружен ✓");
+  } catch (e) {
+    setProfileStatus("Ошибка экспорта: " + e.message);
+  }
+}
+
 // Селектор активного клиентского профиля в шапке (мультиклиентный скоринг).
 async function loadActiveClient() {
   try {
@@ -1164,6 +1261,7 @@ export {
   confirmDeleteProfile,
   closeDeleteProfileModal,
   doDeleteProfile,
+  closeExportProfileModal,
 };
 
 $("#profile-new").addEventListener("click", () => openProfileEditor(null));
@@ -1187,6 +1285,11 @@ $("#delete-profile-cancel").addEventListener("click", closeDeleteProfileModal);
 $("#delete-profile-confirm").addEventListener("click", doDeleteProfile);
 $("#delete-profile-modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "delete-profile-modal-bg") closeDeleteProfileModal();
+});
+$("#export-profile-cancel").addEventListener("click", closeExportProfileModal);
+$("#export-profile-confirm").addEventListener("click", doExportProfile);
+$("#export-profile-modal-bg").addEventListener("click", (e) => {
+  if (e.target.id === "export-profile-modal-bg") closeExportProfileModal();
 });
 ["pf-tab-keywords", "pf-tab-excl", "pf-tab-questions", "pf-tab-comp", "pf-tab-platforms", "pf-tab-licenses", "pf-tab-experience"].forEach(
   (id) => {

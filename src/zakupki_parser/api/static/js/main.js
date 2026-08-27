@@ -113,6 +113,7 @@ document.addEventListener("keydown", (e) => {
     closeDbModal();
     closeExportModal();
     closeDeleteProfileModal();
+    closeExportProfileModal();
     closeUserModal();
     closeConfirmDialog();
   }

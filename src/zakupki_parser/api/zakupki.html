@@ -502,6 +502,22 @@
   </div>
 </div>
 
+<div class="modal-bg" id="export-profile-modal-bg">
+  <div class="modal" id="export-profile-modal">
+    <span class="close" onclick="closeExportProfileModal()">×</span>
+    <h2>Экспорт профиля</h2>
+    <p class="muted" style="margin-top:0;" id="export-profile-name"></p>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Если включено, компетенции выгружаются отдельным файлом, а в файле профиля на него ставится ссылка. Если выключено — компетенции встроены в файл профиля.">
+      <input type="checkbox" id="export-profile-competencies" checked> Также выгрузить файл с компетенциями
+    </label>
+    <p class="muted" style="font-size:12px; margin-bottom:0;" id="export-profile-hint">Браузер предложит выбрать папку; файлы сохранятся с именем из названия профиля и даты/времени.</p>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="export-profile-cancel">Отмена</button>
+      <button class="primary" id="export-profile-confirm">Экспортировать</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="generic-confirm-modal-bg">
   <div class="modal" id="generic-confirm-modal">
     <h2>Подтверждение</h2>

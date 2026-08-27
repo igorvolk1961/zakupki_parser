@@ -162,6 +162,43 @@ def parse_keywords_file(path: Path | None = None) -> dict[str, Any]:
     return resolve_competencies_reference(parsed, (target.parent,))
 
 
+def serialize_profile_text(data: dict[str, Any], competencies_reference: str | None = None) -> str:
+    """Сериализует профиль в markdown-разметку файла-сида (обратно к ``parse_*``).
+
+    Формат совпадает с seed-файлом (``docs/references/bbk-it-profile.md``): секции
+    ``**name**``, ``**competencies**``, ``**okpd_codes**``, ``**nmck_min**``/
+    ``**nmck_max**``, ``**keywords**``, ``**exclussion_words**``. Пустые секции
+    не выводятся.
+
+    ``competencies_reference`` — имя файла компетенций при экспорте отдельным
+    файлом: тогда в ``**competencies**`` подставляется ссылка на файл (как в
+    seed-файле), иначе — сам текст компетенций.
+    """
+    blocks: list[str] = []
+
+    def add_section(key: str, lines: list[Any]) -> None:
+        lines = [ln for ln in lines if ln is not None and str(ln).strip()]
+        if not lines:
+            return
+        blocks.append("**" + key + "**\n" + "\n".join(str(ln) for ln in lines))
+
+    add_section("name", [(data.get("name") or "").strip()])
+    competencies = (data.get("competencies") or "").strip()
+    if competencies_reference:
+        add_section("competencies", [competencies_reference])
+    elif competencies:
+        add_section("competencies", [competencies])
+    add_section("okpd_codes", [str(c) for c in (data.get("okpd_codes") or []) if str(c).strip()])
+    add_section("nmck_min", [data.get("nmck_min")])
+    add_section("nmck_max", [data.get("nmck_max")])
+    add_section("keywords", [str(w) for w in (data.get("keywords") or []) if str(w).strip()])
+    add_section(
+        "exclussion_words",
+        [str(w) for w in (data.get("exclusion_words") or []) if str(w).strip()],
+    )
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+
 def _dedupe(items: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
