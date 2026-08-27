@@ -280,9 +280,11 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
   а также селекторы сортировки и фильтров (блоки `sort`/`filters`) и URL-фильтр `search`
   (в т.ч. `okpd_codes` + маппинг `okpd_tree_file`).
 - `config_service.yaml` — **аналитические** настройки: список сайтов, порог дат,
-  stop-условия (редактируется через web-интерфейс). Критерии поиска (ОКПД2, НМЦК,
-  состояние) задаются в ПРОФИЛЕ (таблица `profiles`; сид — `файл-сид профиля`,
-  команда `zp seed-profile`), а не в этом конфиге.
+  stop-условия, правила оценки (`scoring`), объединение одинаковых обходов
+  (`deduplicate_requests`) (редактируется через web-интерфейс). Критерии поиска
+  (ОКПД2, НМЦК, состояние) задаются в ПРОФИЛЕ (таблица `profiles`; сид —
+  `файл-сид профиля`, команда `zp seed-profile`), а не в этом конфиге.
+  Мультипрофильный обход и дедупликация запросов — `docs/profile-crawling.md`.
 - `config_ops.yaml` — **эксплуатационные** настройки (devops): таймер, БД, уведомления
   (telegram/max/webhook, постадийные пороги и флаги `notify_min_fit_score`/
   `notify_min_pwin`/`notify_min_margin`, `notify_{fit,pwin,margin}_enabled`), каталог

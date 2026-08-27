@@ -353,6 +353,13 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
                 label = scoring_labels.get(sub["key"])
                 if label:
                     sub["label"] = label
+        elif field.get("key") == "deduplicate_requests":
+            field["label"] = "Объединять одинаковые обходы"
+            field["description"] = (
+                "Объединять одинаковые поисковые обходы одной площадки (совпадающие коды "
+                "ОКПД2/НМЦК/состояние разных профилей) в один запрос. Что это даёт и когда "
+                "отключать — см. docs/profile-crawling.md"
+            )
     return schema
 
 
