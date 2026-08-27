@@ -26,9 +26,17 @@ export function authHeaders(extra) {
 }
 
 export async function api(path, params) {
-  const url =
-    (path.startsWith("/") ? path : "/api/" + path) +
-    (params ? "?" + new URLSearchParams(params) : "");
+  // undef/null параметры не попадают в строку запроса: иначе URLSearchParams
+  // превращает их в текст "undefined" и сервер начинает фильтровать по нему
+  // (например, q=undefined вырезает все строки лога — «строк: 0»).
+  const query = params
+    ? new URLSearchParams(
+        Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
+        )
+      ).toString()
+    : "";
+  const url = (path.startsWith("/") ? path : "/api/" + path) + (query ? "?" + query : "");
   // cache: "no-store" — не даём браузеру отдавать устаревший ответ из кэша:
   // вкладки «Логи» и другие обновляются опросом (авто 5с) и кнопкой «Обновить»
   // и всегда должны получать свежие данные, а не кэш предыдущего ответа.
