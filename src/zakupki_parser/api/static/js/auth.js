@@ -35,22 +35,14 @@ function saveLoginToCache(username) {
 }
 
 function renderLoginOptions() {
-  const sel = $("#login-username-select");
-  if (!sel) return;
-  const previous = sel.value;
-  sel.innerHTML = "";
-  const ph = document.createElement("option");
-  ph.value = "";
-  ph.textContent = "Сохранённые логины…";
-  sel.appendChild(ph);
-  const names = getSavedLogins();
-  for (const name of names) {
+  const d = document.getElementById("login-usernames");
+  if (!d) return;
+  d.innerHTML = "";
+  for (const name of getSavedLogins()) {
     const opt = document.createElement("option");
     opt.value = name;
-    opt.textContent = name;
-    sel.appendChild(opt);
+    d.appendChild(opt);
   }
-  if (names.includes(previous)) sel.value = previous;
 }
 
 function showLogin() {
@@ -64,8 +56,6 @@ function showLogin() {
   $("#login-confirm-field").style.display = "none";
   $("#login-password-confirm").value = "";
   $("#login-modal-bg").classList.add("open");
-  $("#login-username-select").style.display = "";
-  $("#login-username-select").value = "";
   renderLoginOptions();
   $("#login-username").focus();
 }
@@ -186,7 +176,6 @@ $("#login-switch").addEventListener("click", () => {
   $("#login-password").type = "password";
   $("#login-password").autocomplete = loginMode === "register" ? "new-password" : "current-password";
   $("#login-confirm-field").style.display = loginMode === "register" ? "" : "none";
-  $("#login-username-select").style.display = loginMode === "register" ? "none" : "";
   $("#login-password-confirm").value = "";
   $("#login-error").textContent = "";
   $("#login-username").focus();
@@ -195,12 +184,6 @@ $("#login-switch").addEventListener("click", () => {
   document.getElementById(id).addEventListener("keydown", (e) => {
     if (e.key === "Enter") doLogin(loginMode === "register");
   });
-});
-$("#login-username-select").addEventListener("change", () => {
-  const sel = $("#login-username-select");
-  if (!sel.value) return;
-  $("#login-username").value = sel.value;
-  $("#login-password").focus();
 });
 $("#login-modal-bg").addEventListener("click", (e) => {
   // Не даём закрыть модалку входа кликом мимо (нужна авторизация).
