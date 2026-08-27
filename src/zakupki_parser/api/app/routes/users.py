@@ -64,7 +64,9 @@ def build_users_router(ctx: ApiContext) -> APIRouter:
             ) from exc
         # Активный профиль default — как при регистрации: без него список закупок
         # недоступен (нет контекста фильтрации) для ролей с базовыми вкладками.
-        await _repo().ensure_default_profile(user.id)
+        # Создаётся только для ролей user/analyst (BR-07): администратору/devops
+        # профиль не положен.
+        await _repo().ensure_default_profile(user.id, user.roles)
         logger.info(
             "Админ %s создал пользователя %s (роли %s)",
             admin.username if admin else "?",
@@ -99,6 +101,13 @@ def build_users_router(ctx: ApiContext) -> APIRouter:
                     status_code=409, detail="Нельзя снять роль admin у последнего администратора"
                 )
         updated = await _repo().update_user_roles(target.id, new_roles)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        # Смена ролей пересекает границу «профиль положен»: при появлении
+        # роли user/analyst создаём default-профиль, при исчезновении — удаляем.
+        profile = await _repo().ensure_default_profile(target.id, updated.roles)
+        if profile is None:
+            await _repo().delete_profiles_without_default_role()
         return UserOut.model_validate(updated)
 
     @router.patch(

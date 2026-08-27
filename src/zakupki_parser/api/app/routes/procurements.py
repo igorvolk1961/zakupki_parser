@@ -257,6 +257,18 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 score_method=body.score_method,
                 embedding_similarity=body.embedding_similarity,
             )
+            # Один общий скор — раздаём всем профилям-участникам (отобравшим закупку
+            # по matched_keywords), чтобы каждый показывал результат в своей таблице.
+            await _repo().fan_out_score(
+                procurement_id,
+                from_profile_id=profile.id,
+                score=body.score,
+                fit_score=body.fit_score,
+                score_method=body.score_method,
+                p_win=body.p_win,
+                margin=body.margin,
+                embedding_similarity=body.embedding_similarity,
+            )
         await _broadcast(state)
         row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
         if row is None:  # pragma: no cover - проверено выше

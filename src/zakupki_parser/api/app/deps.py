@@ -109,8 +109,9 @@ def build_context(state: AppState) -> ApiContext:
                 "из env" if os.environ.get("ZAKUPKI_ADMIN_PASSWORD") else "сгенерирован",
             )
             await _repo().backfill_orphaned_profiles(user.id)
-        # Профиль default создаётся пустым (слова загружаются скриптом seed-profile, R8).
-        await _repo().ensure_default_profile(user.id)
+        # Профиль default создаётся пустым (слова загружаются скриптом seed-profile, R8);
+        # сервис-аккаунт имеет роль user/analyst — профиль положен.
+        await _repo().ensure_default_profile(user.id, user.roles)
         state.service_account = user
         return user
 

@@ -25,6 +25,17 @@ ROLE_DEVOPS: Literal["devops"] = "devops"
 ALL_ROLES = (ROLE_USER, ROLE_ADMIN, ROLE_ANALYST, ROLE_DEVOPS)
 Role = Literal["user", "admin", "analyst", "devops"]
 
+# Роли, которым создаётся default-профиль (контекст фильтрации/скоринга закупок).
+# Администраторы и devops без этих ролей не видят закупки и профилей не имеют —
+# их default-профили удаляются (BR-07, см. repository.profiles).
+DEFAULT_PROFILE_ROLES = (ROLE_USER, ROLE_ANALYST)
+
+
+def has_default_profile_role(roles: list[str]) -> bool:
+    """Есть ли у пользователя роль, которой положен default-профиль."""
+    return bool(set(roles) & set(DEFAULT_PROFILE_ROLES))
+
+
 # Число итераций PBKDF2 (OWASP: >= 600 000 для SHA-256).
 _PBKDF2_ITERATIONS = 600_000
 _SALT_BYTES = 16

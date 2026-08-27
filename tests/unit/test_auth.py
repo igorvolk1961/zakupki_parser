@@ -68,6 +68,19 @@ def test_all_roles() -> None:
     assert ALL_ROLES == (ROLE_USER, ROLE_ADMIN, ROLE_ANALYST, ROLE_DEVOPS)
 
 
+def test_has_default_profile_role() -> None:
+    """Профиль положен только пользователю с ролью user/analyst (BR-07)."""
+    from zakupki_parser.auth import has_default_profile_role
+
+    assert has_default_profile_role(["user"]) is True
+    assert has_default_profile_role(["analyst"]) is True
+    assert has_default_profile_role(["user", "admin"]) is True
+    assert has_default_profile_role(["admin"]) is False
+    assert has_default_profile_role(["devops"]) is False
+    assert has_default_profile_role(["admin", "devops"]) is False
+    assert has_default_profile_role([]) is False
+
+
 def test_legacy_role_claim_normalized() -> None:
     """Токены с одним claim ``role`` (до ролевой модели) принимаются как ``roles``.
 

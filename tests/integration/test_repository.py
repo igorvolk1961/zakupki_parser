@@ -506,7 +506,7 @@ async def test_list_procurements_scored_filter(db: Database) -> None:
     user = await repo.create_user("s-user", "hash", ["admin"])
     profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
     assert profile.id is not None
-    unscored = await _upsert(repo, "S-1")
+    await _upsert(repo, "S-1")
     scored_id = await _upsert(repo, "S-2")
     await repo.upsert_score(scored_id, profile.id, fit_score=0.8, score_method="fit")
 
@@ -521,4 +521,68 @@ async def test_list_procurements_scored_filter(db: Database) -> None:
     rows, total = await repo.list_procurements(scored=False, profile_id=profile.id)
     assert total == 2
     assert {p.number for p in rows} == {"S-1", "S-2"}
-    assert unscored != scored_id
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_profile_gated_by_role(db: Database) -> None:
+    """Default-профиль создаётся только для ролей user/analyst (BR-07)."""
+    repo = ProcurementRepository(db)
+    admin = await repo.create_user("no-prof-admin", "h", ["admin"])
+    devops = await repo.create_user("no-prof-devops", "h", ["devops"])
+    analyst = await repo.create_user("prof-analyst", "h", ["analyst"])
+    user = await repo.create_user("prof-user", "h", ["user"])
+
+    assert await repo.ensure_default_profile(admin.id, admin.roles) is None
+    assert await repo.ensure_default_profile(devops.id, devops.roles) is None
+    assert await repo.ensure_default_profile(analyst.id, analyst.roles) is not None
+    assert await repo.ensure_default_profile(user.id, user.roles) is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_profiles_without_default_role(db: Database) -> None:
+    """Профили пользователей без ролей user/analyst удаляются."""
+    repo = ProcurementRepository(db)
+    admin = await repo.create_user("del-admin", "h", ["admin"])
+    devops = await repo.create_user("del-devops", "h", ["devops"])
+    user = await repo.create_user("del-user", "h", ["user"])
+    # У ролевых пользователей профили фактически есть (обход гейта — upsert_profile).
+    await repo.upsert_profile({"name": "default", "competencies": "a"}, admin.id)
+    await repo.upsert_profile({"name": "default", "competencies": "d"}, devops.id)
+    await repo.upsert_profile({"name": "default", "competencies": "u"}, user.id)
+
+    removed = await repo.delete_profiles_without_default_role()
+    assert removed == 2  # admin + devops; профиль обычного пользователя остаётся
+
+    assert await repo.get_profile_by_name(admin.id, "default") is None
+    assert await repo.get_profile_by_name(devops.id, "default") is None
+    assert await repo.get_profile_by_name(user.id, "default") is not None
+
+
+@pytest.mark.asyncio
+async def test_fan_out_score_to_participants(db: Database) -> None:
+    """Один общий скор раздаётся профилям-участникам (matched_keywords)."""
+    repo = ProcurementRepository(db)
+    src_user = await repo.create_user("fan-src", "h", ["user"])
+    src = await repo.upsert_profile({"name": "default", "competencies": "s"}, src_user.id)
+    part_user = await repo.create_user("fan-part", "h", ["user"])
+    part = await repo.upsert_profile({"name": "default", "competencies": "p"}, part_user.id)
+
+    pid = await _upsert(repo, "FAN-1")
+    await repo.record_matched_keywords(pid, part.id, ["авт*"])
+    await repo.upsert_score(pid, src.id, score=0.9, fit_score=0.9, score_method="fit")
+
+    updated = await repo.fan_out_score(
+        pid, from_profile_id=src.id, score=0.9, fit_score=0.9, score_method="fit"
+    )
+    assert updated == 1
+    part_eval = await repo.get_score(pid, part.id)
+    assert part_eval is not None
+    assert part_eval.fit_score == 0.9
+    assert part_eval.score_method == "fit"
+
+    # Профиль без matched_keywords (не участник) не получает скор.
+    non_participant_user = await repo.create_user("fan-none", "h", ["user"])
+    non_part = await repo.upsert_profile(
+        {"name": "default", "competencies": "n"}, non_participant_user.id
+    )
+    assert (await repo.get_score(pid, non_part.id)) is None

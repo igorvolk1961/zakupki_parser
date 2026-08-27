@@ -107,3 +107,52 @@ class EvaluationMixin(RepositoryMixin):
             evaluation.rag_report = rag_report
             await session.commit()
         return evaluation
+
+    async def fan_out_score(
+        self,
+        procurement_id: int,
+        *,
+        from_profile_id: int,
+        score: float | None,
+        fit_score: float | None,
+        score_method: str,
+        p_win: float | None = None,
+        margin: float | None = None,
+        embedding_similarity: float | None = None,
+    ) -> int:
+        """Раздаёт ОДИН общий скор всем профилям-участникам закупки (BR-07).
+
+        Оценка считается один раз (против активного клиента) и копируется всем
+        профилям, которые отобрали закупку (у них непустой ``matched_keywords``),
+        кроме источника ``from_profile_id``: тогда каждый профиль видит этот агрегат
+        в своей таблице. Возвращает число обновлённых профилей.
+        """
+        async with self._db.session() as session:
+            participants = (
+                (
+                    await session.execute(
+                        select(ProcurementEvaluation.profile_id).where(
+                            ProcurementEvaluation.procurement_id == procurement_id,
+                            ProcurementEvaluation.profile_id != from_profile_id,
+                            ProcurementEvaluation.matched_keywords.is_not(None),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for pid in [p for p in participants if p is not None]:
+                evaluation = await self._find_or_create_evaluation(session, procurement_id, pid)
+                if score is not None:
+                    evaluation.score = _round_score(score)
+                if fit_score is not None:
+                    evaluation.fit_score = _round_score(fit_score)
+                if p_win is not None:
+                    evaluation.p_win = _round_score(p_win)
+                if margin is not None:
+                    evaluation.margin = _round_score(margin)
+                evaluation.score_method = score_method
+                if embedding_similarity is not None:
+                    evaluation.embedding_similarity = embedding_similarity
+            await session.commit()
+        return len(participants)

@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from zakupki_parser.auth import has_default_profile_role
 from zakupki_parser.storage.db import (
     ExperienceConfirmationType,
     Keyword,
@@ -416,12 +417,21 @@ class ProfileMixin(RepositoryMixin):
             await session.commit()
         return True
 
-    async def ensure_default_profile(self, user_id: int) -> Profile:
+    async def ensure_default_profile(
+        self, user_id: int, roles: list[str] | None = None
+    ) -> Profile | None:
         """Возвращает default-профиль пользователя, создавая пустой, если его нет.
 
-        Ключевые слова НЕ заполняются автоматически — их загружает скрипт
-        ``seed-profile`` (R8) по явной команде оператора (файл-сид профиля).
+        Профиль создаётся ТОЛЬКО для ролей ``user``/``analyst`` (BR-07): у
+        администратора/devops без этих ролей профиля быть не должно — им профиль
+        не положен, возвращается ``None``. Ключевые слова НЕ заполняются
+        автоматически — их загружает скрипт ``seed-profile`` (R8).
         """
+        if roles is None:
+            user = await self._get_user(user_id)
+            roles = user.roles if user is not None else []
+        if not has_default_profile_role(roles):
+            return None
         async with self._db.session() as session:
             profile = (
                 await session.execute(
@@ -441,6 +451,37 @@ class ProfileMixin(RepositoryMixin):
                 session.add(profile)
                 await session.commit()
         return profile
+
+    async def delete_profiles_without_default_role(self) -> int:
+        """Удаляет профили пользователей без ролей user/analyst (одноразовая чистка).
+
+        Возвращает число удалённых профилей. Связанные строки (keywords/licenses/
+        experience/evaluations) удаляются каскадом (ORM delete-orphan + FK CASCADE).
+        """
+        deleted = 0
+        async with self._db.session() as session:
+            users = (await session.execute(select(User.id, User.roles))).all()
+            for user_id, roles in users:
+                if has_default_profile_role(roles):
+                    continue
+                profiles = (
+                    (await session.execute(select(Profile).where(Profile.user_id == user_id)))
+                    .scalars()
+                    .all()
+                )
+                for profile in profiles:
+                    await session.delete(profile)
+                    deleted += 1
+            await session.commit()
+        if deleted:
+            logger.info("Удалены профили пользователей без ролей user/analyst: %d", deleted)
+        return deleted
+
+    async def _get_user(self, user_id: int) -> User | None:
+        async with self._db.session() as session:
+            return (
+                await session.execute(select(User).where(User.id == user_id))
+            ).scalar_one_or_none()
 
     async def seed_default_profile(self, user_id: int, seed: dict[str, Any]) -> Profile:
         """Создаёт/обновляет активный профиль ``default`` пользователя (R8).

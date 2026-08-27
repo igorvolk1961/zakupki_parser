@@ -59,6 +59,9 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
             # конфиг config_service.yaml — редактируемый интерфейс).
             enabled = {s.platform_id for s in state.cfg.service.sites if s.enabled}
             await state.repository.sync_platform_enabled(enabled)
+            # Чистка профилей пользователей без ролей user/analyst (BR-07):
+            # администратор/девопс профиля иметь не должен — идемпотентно.
+            await state.repository.delete_profiles_without_default_role()
         except Exception as exc:  # noqa: BLE001
             logger.error("БД недоступна при старте API: %s", exc)
             state.db = None

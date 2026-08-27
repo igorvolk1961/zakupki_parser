@@ -76,10 +76,10 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(
                 status_code=409, detail="Пользователь с таким логином уже есть"
             ) from exc
-        # Каждому новому пользователю — активный профиль default (BR-07): без него
-        # список закупок недоступен (нет контекста фильтрации). Профиль создаётся
-        # пустым — ключевые слова/компетенции загружаются скриптом seed-profile (R8).
-        await _repo().ensure_default_profile(user.id)
+        # Новому пользователю с ролью user/analyst — активный профиль default (BR-07):
+        # без него список закупок недоступен (нет контекста фильтрации). Профиль
+        # создаётся пустым — ключевые слова/компетенции загружаются seed-profile (R8).
+        await _repo().ensure_default_profile(user.id, user.roles)
         ttl = state.cfg.ops.auth.token_ttl_seconds
         token = create_token(user.id, user.roles, state.cfg.ops.auth.secret or "", ttl)
         logger.info(
