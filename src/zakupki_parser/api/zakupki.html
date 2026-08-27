@@ -496,8 +496,10 @@
     <h2 id="login-title">Вход</h2>
     <div class="field">
       <label for="login-username">Логин</label>
-      <input id="login-username" list="login-usernames" autocomplete="username" placeholder="логин">
-      <datalist id="login-usernames"></datalist>
+      <select id="login-username-select" title="Выбрать сохранённый логин">
+        <option value="">Сохранённые логины…</option>
+      </select>
+      <input id="login-username" autocomplete="username" placeholder="логин">
     </div>
     <div class="field">
       <label for="login-password">Пароль</label>
