@@ -84,10 +84,15 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     @router.get(
         "/api/parser/status",
         include_in_schema=False,
-        dependencies=[Depends(require_devops)],
+        dependencies=[Depends(require_user)],
     )
     async def parser_status() -> dict[str, Any]:
-        """Текущее состояние парсера (запущен/остановлен, ошибка, время)."""
+        """Текущее состояние парсера (запущен/остановлен, ошибка, время).
+
+        Статус доступен всем аутентифицированным пользователям: он лишь
+        информирует о работе парсера, управление (start/stop/clear) — только
+        devops (см. соответствующие эндпоинты).
+        """
         status = dict(state.parser_status)
         if state.parser_task is not None and not state.parser_task.done():
             status["running"] = True

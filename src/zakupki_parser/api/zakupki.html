@@ -14,6 +14,7 @@
     <h1>Парсер закупок <span class="sub" id="app-version">v0.3.0</span></h1>
   </div>
   <div class="header-right">
+    <span id="parser-status" class="muted" title="Состояние парсера">проверка…</span>
     <span class="client-switch" id="client-switch" style="display:none;" title="Активный клиентский профиль">
       <label for="client-select">клиент:</label>
       <select id="client-select"><option value="">— загрузка… —</option></select>
@@ -35,7 +36,6 @@
       <button id="parser-start">▶ Запустить</button>
       <button class="ghost" id="parser-stop" disabled>■ Остановить</button>
       <button class="ghost" id="db-clear" disabled>Очистить БД</button>
-      <span id="parser-status" class="muted">проверка…</span>
     </div>
   </div>
 
