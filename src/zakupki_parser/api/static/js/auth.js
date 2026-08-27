@@ -12,6 +12,39 @@ import { roleLabelList, updateRolesUI } from "./roles.js";
 
 let loginMode = "login"; // "login" | "register"
 
+// Кэш последних логинов (localStorage): дубликаты убираются, свежие — сверху.
+const LOGINS_KEY = "zp_saved_logins";
+const LOGINS_LIMIT = 10;
+
+function getSavedLogins() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(LOGINS_KEY) || "[]");
+    return Array.isArray(arr) ? arr.filter((u) => typeof u === "string" && u.trim()) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLoginToCache(username) {
+  const name = username.trim();
+  if (!name) return;
+  const list = getSavedLogins().filter((u) => u !== name);
+  list.unshift(name);
+  localStorage.setItem(LOGINS_KEY, JSON.stringify(list.slice(0, LOGINS_LIMIT)));
+  renderLoginOptions();
+}
+
+function renderLoginOptions() {
+  const d = document.getElementById("login-usernames");
+  if (!d) return;
+  d.innerHTML = "";
+  for (const name of getSavedLogins()) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    d.appendChild(opt);
+  }
+}
+
 function showLogin() {
   loginMode = "login";
   $("#login-title").textContent = "Вход";
@@ -23,6 +56,7 @@ function showLogin() {
   $("#login-confirm-field").style.display = "none";
   $("#login-password-confirm").value = "";
   $("#login-modal-bg").classList.add("open");
+  renderLoginOptions();
   $("#login-username").focus();
 }
 
@@ -58,6 +92,7 @@ async function doLogin(register) {
       return;
     }
     setToken(data.access_token);
+    saveLoginToCache(username);
     state.authUser = data.user;
     state.authRequired = true;
     hideLogin();
