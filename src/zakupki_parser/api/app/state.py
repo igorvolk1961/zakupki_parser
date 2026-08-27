@@ -118,7 +118,5 @@ def _create_state(configs_dir: str) -> AppState:
     cfg = load_config(configs_dir)
     state = AppState(cfg, configs_dir)
     if cfg.score.scoring_transport_url:
-        state.score_transport = ScoringTransportClient(
-            cfg.score.scoring_transport_url, auth_token=cfg.score.scoring_transport_token
-        )
+        state.score_transport = ScoringTransportClient(cfg.score.scoring_transport_url)
     return state

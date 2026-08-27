@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
 # Поля, управляемые через env (секреты) — в форме не редактируются.
-SECRET_FIELD_NAMES = {"secret", "token", "internal_token", "scoring_transport_token"}
+SECRET_FIELD_NAMES = {"secret", "token", "internal_token"}
 
 
 def _unwrap_optional(annotation: Any) -> tuple[Any, bool]:

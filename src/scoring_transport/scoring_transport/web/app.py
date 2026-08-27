@@ -26,20 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def _auth_dependency(settings: Settings) -> Callable[[str | None], None]:
-    """FastAPI-зависимость обязательной авторизации по Bearer-токену.
-
-    Требует ``Authorization: Bearer <token>``; токен (``TRANSPORT_AUTH_TOKEN``)
-    обязателен — без него веб-сервис не стартует (fail-fast на этапе сборки).
-    """
-
-    if not settings.auth_token:
-        raise RuntimeError("TRANSPORT_AUTH_TOKEN не задан: авторизация эндпоинтов обязательна")
-    expected = f"Bearer {settings.auth_token}"
+    """FastAPI-зависимость опциональной авторизации по Bearer-токену."""
 
     def _require_authorization(
         authorization: str | None = Header(default=None),
     ) -> None:
-        if authorization != expected:
+        if not settings.auth_token:
+            return
+        if authorization != f"Bearer {settings.auth_token}":
             raise HTTPException(status_code=401, detail="Unauthorized")
 
     return _require_authorization

@@ -260,7 +260,6 @@ services:
       TRANSPORT_REDIS_URL: redis://redis:6379/0
       TRANSPORT_PARSER_API_URL: http://api:8000
       TRANSPORT_PARSER_INTERNAL_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
-      TRANSPORT_AUTH_TOKEN: ${ZAKUPKI_SCORING_TRANSPORT_TOKEN:-${ZAKUPKI_INTERNAL_TOKEN:-}}
     ports:
       - "8200:8200"
     restart: unless-stopped
@@ -335,7 +334,6 @@ services:
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
-      ZAKUPKI_SCORING_TRANSPORT_TOKEN: ${ZAKUPKI_SCORING_TRANSPORT_TOKEN:-${ZAKUPKI_INTERNAL_TOKEN:-}}
     volumes:
       - ../configs:/app/configs
     restart: unless-stopped
@@ -354,7 +352,6 @@ services:
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
-      ZAKUPKI_SCORING_TRANSPORT_TOKEN: ${ZAKUPKI_SCORING_TRANSPORT_TOKEN:-${ZAKUPKI_INTERNAL_TOKEN:-}}
       # Общий том промптов: вкладка «Промпты» пишет сюда, scoring_service читает.
       ZAKUPKI_PROMPTS_DIR: /app/prompts
       # Общий том промптов анализатора: вкладка «Промпты» пишет сюда,
