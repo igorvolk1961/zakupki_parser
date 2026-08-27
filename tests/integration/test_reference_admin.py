@@ -8,6 +8,7 @@ experience_confirmation_types, конфликты уникальности (409)
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 from collections.abc import Iterator
@@ -22,6 +23,17 @@ from zakupki_parser.auth import ALL_ROLES, create_token, hash_password
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
+
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 
@@ -52,7 +64,7 @@ def ref_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
                     "name": "default",
                     "enabled": True,
                     "is_active": True,
-                    "competencies": "Тестовые компетенции",
+                    "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
                     "questions": [],
@@ -105,7 +117,7 @@ def ref_auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestCl
                     "name": "default",
                     "enabled": True,
                     "is_active": True,
-                    "competencies": "Тестовые компетенции",
+                    "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
                     "questions": [],
@@ -250,7 +262,7 @@ def test_delete_used_license_type_conflict(ref_client: TestClient) -> None:
     """Тип лицензии, на который ссылается профиль, удалить нельзя (FK RESTRICT)."""
     client = ref_client
     r = client.post(
-        "/api/clients", json={"name": "ref-conflict", "competencies": "C", "keywords": []}
+        "/api/clients", json={"name": "ref-conflict", "competencies": COMP_JSON, "keywords": []}
     )
     assert r.status_code == 200, r.text
     pid = r.json()["id"]

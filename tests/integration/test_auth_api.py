@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 from collections.abc import Iterator
@@ -23,6 +24,17 @@ from zakupki_parser.auth import ALL_ROLES, hash_password
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
+
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 
@@ -63,7 +75,7 @@ def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient
                     "name": "default",
                     "enabled": True,
                     "is_active": True,
-                    "competencies": "Тестовые компетенции",
+                    "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
                     "questions": [],

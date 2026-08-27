@@ -1,0 +1,12 @@
+databaseChangeLog:
+- changeSet:
+    id: 48
+    author: zakupki-parser
+    comment: 'procurement_evaluations: comp_hash — хэш канонического содержания компетенций профиля (BR-07). Ключ дедупликации скоринга: задания с одинаковым содержанием компетенций обрабатываются один раз, результат пишется всем подписанным профилям'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS comp_hash TEXT;
+    - sql:
+        splitStatements: false
+        sql: CREATE INDEX IF NOT EXISTS idx_proc_eval_comp_hash ON procurement_evaluations(procurement_id, comp_hash);

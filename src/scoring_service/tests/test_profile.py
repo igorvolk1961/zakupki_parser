@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -124,17 +125,16 @@ def test_profile_to_text_structured() -> None:
     assert "Охват:" in text
 
 
-def test_profile_to_text_plain_string_passes_through() -> None:
-    assert profile_to_text("test competencies") == "test competencies"
+def test_profile_to_text_plain_string_not_supported() -> None:
+    """Свободный текст компетенций не поддерживается (легаси удалено, BR-07)."""
+    assert profile_to_text("test competencies") == ""
     assert profile_to_text(None) == ""
     assert profile_to_text(123) == ""
 
 
-def test_profile_to_text_legacy_markdown_normalized() -> None:
-    text = profile_to_text(LEGACY_MD)
-    assert "Поставщик: BBK IT (ООО «Юнити»)" in text
-    assert "Основные компетенции:" in text
-    assert "НЕ входят в компетенции (исключения):" in text
+def test_profile_to_text_legacy_markdown_not_supported() -> None:
+    """Legacy-markdown компетенций не поддерживается: возвращается пустой текст."""
+    assert profile_to_text(LEGACY_MD) == ""
 
 
 def test_load_profile_yaml(tmp_path: Path) -> None:
@@ -194,18 +194,19 @@ def test_profile_to_texts_structured_and_plain() -> None:
     assert "НЕ входят в компетенции" not in texts.embedding
     assert texts.llm != texts.embedding
 
-    plain = profile_to_texts("test competencies")
-    assert plain is not None
-    assert plain.llm == "test competencies"
-    assert plain.embedding == "test competencies"
-
+    # Свободный текст компетенций не поддерживается (легаси удалено, BR-07).
+    assert profile_to_texts("test competencies") is None
     assert profile_to_texts(None) is None
     assert profile_to_texts(123) is None
 
 
-def test_profile_to_text_returns_llm_text() -> None:
-    assert profile_to_text("test competencies") == "test competencies"
-    assert profile_to_text(None) == ""
+def test_profile_to_text_json_string() -> None:
+    """JSON-строка схемы Profile нормализуется в текст (BR-07)."""
+    data = {"name": "X", "positioning": "Y", "breadth": "narrow"}
+    texts = profile_to_texts(json.dumps(data))
+    assert texts is not None
+    assert "Поставщик: X" in texts.llm
+    assert profile_to_text(json.dumps(data)) != ""
 
 
 def test_load_profile_invalid_yaml_raises(tmp_path: Path) -> None:

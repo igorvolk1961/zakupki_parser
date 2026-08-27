@@ -27,6 +27,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Iterable
@@ -126,16 +127,30 @@ def parse_keywords_text(text: str) -> dict[str, Any]:
 def _resolve_competencies_file(comp: str, base_dirs: Iterable[Path]) -> str:
     """Если ``comp`` — однострочная ссылка на файл, подставляет его содержимое.
 
-    Перебирает ``base_dirs`` (обычно каталог исходного файла и корень репозитория)
+    JSON-блок (объект схемы Profile) ссылкой не считается. Перебирает
+    ``base_dirs`` (обычно каталог исходного файла и корень репозитория)
     и возвращает либо содержимое найденного файла, либо исходную строку.
     """
-    if not comp or "\n" in comp.strip():
+    if not comp:
+        return comp
+    if "\n" in comp.strip():
+        return comp
+    # Компетенции — канонический JSON (BR-07): попытка разобрать как JSON-объект —
+    # это блок, а не путь к файлу.
+    try:
+        parsed = json.loads(comp)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
         return comp
     candidate = Path(comp.strip())
     for base in base_dirs:
         ref = base / candidate
-        if ref.is_file():
-            return ref.read_text(encoding="utf-8")
+        try:
+            if ref.is_file():
+                return ref.read_text(encoding="utf-8")
+        except OSError:
+            continue
     return comp
 
 

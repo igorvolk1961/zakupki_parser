@@ -63,6 +63,10 @@ class ProcurementEvaluation(Base):
     # (пер-профильно, BR-07): recovery догоняет (закупка, профиль), которые не
     # попали в очередь, а не только закупку целиком.
     scoring_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Хэш канонического содержания компетенций профиля (BR-07): ключ дедупликации
+    # скоринга — профили с идентичным содержанием компетенций обрабатываются один
+    # раз, результат пишется всем подписанным профилям этой группы.
+    comp_hash: Mapped[str | None] = mapped_column(Text)
     # status/rejection_reason зарезервированы под Эпик 5 («В работу»/«Отклонить») —
     # пост-MVP (этап 7); сейчас всегда status='new', rejection_reason=NULL.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")

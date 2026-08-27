@@ -1,10 +1,29 @@
-"""Тесты парсера файла ключевых слов/компетенций профиля (R8)."""
+"""Тесты парсера файла ключевых слов профиля (R8).
+
+Компетенции в сиде — канонический JSON схемы Profile (BR-07): legacy-markdown
+компетенций не поддерживаются; ``parse_keywords_text``/``resolve_competencies_reference``
+обрабатывают JSON-блок либо ссылку на JSON-файл.
+"""
 
 from __future__ import annotations
+
+import json
 
 from zakupki_parser.storage.keywords_parser import (
     parse_keywords_text,
     resolve_competencies_reference,
+)
+
+# Канонические компетенции (JSON схемы Profile) для сида.
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Внедряем ИИ",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование", "examples": ["кейс1"]}],
+        "exclusions": [],
+        "scoring_policy": {"uncovered_penalty": 1.5, "ambiguous_range": [4.0, 6.0]},
+    },
+    ensure_ascii=False,
 )
 
 SAMPLE = """
@@ -25,8 +44,8 @@ SAMPLE = """
 https://example.com/1
 """
 
-# Формат агрегаторов (ТендерПлан/ТендерЛэнд): англ. секции + компетенции.
-SAMPLE_AGG = """
+# Формат агрегаторов (ТендерПлан/ТендерЛэнд): англ. секции + JSON-компетенции.
+SAMPLE_AGG = f"""
 **name**
 bbk-it
 
@@ -39,8 +58,7 @@ bbk-it
 (правов* систем*)~1,
 
 **competencies**
-Поставщик — BBK IT.
-Основные компетенции: ИИ, автоматизация.
+{COMP_JSON}
 """
 
 
@@ -59,16 +77,16 @@ def test_parse_keywords_sections() -> None:
     assert not any("пример" in w.casefold() for w in parsed["keywords"])
 
 
-def test_parse_aggregator_format_with_competencies() -> None:
+def test_parse_aggregator_format_with_json_competencies() -> None:
     parsed = parse_keywords_text(SAMPLE_AGG)
     assert parsed["name"] == "bbk-it"
     assert "услуг* программирован*" in parsed["keywords"]
     assert "разработ* ИИ" in parsed["keywords"]
     assert "(правов* систем*)~1" in parsed["exclusion_words"]
     assert "радиопрограмм*" in parsed["exclusion_words"]
-    # Текст компетенций сохраняется как блок.
-    assert "BBK IT" in parsed["competencies"]
-    assert "автоматизация" in parsed["competencies"]
+    # Компетенции — канонический JSON схемы Profile.
+    assert json.loads(parsed["competencies"])["positioning"] == "Внедряем ИИ"
+    assert parsed["competencies"] == COMP_JSON
 
 
 def test_parse_keywords_deduplicates() -> None:
@@ -114,7 +132,7 @@ bbk-it
 
 
 def test_resolve_competencies_reference_content() -> None:
-    """Компетенции-ссылка подставляется содержимым файла (web-импорт, R8)."""
+    """Компетенции-ссылка подставляется содержимым JSON-файла компетенций (R8)."""
     seed = {"name": "bbk-it", "competencies": "docs/references/bbk-it-competencies.json"}
     out = resolve_competencies_reference(seed)
     assert '"positioning"' in out["competencies"]
@@ -123,8 +141,7 @@ def test_resolve_competencies_reference_content() -> None:
     assert seed["competencies"] == "docs/references/bbk-it-competencies.json"
 
 
-def test_resolve_competencies_reference_keeps_block() -> None:
-    """Многострочный блок компетенций не считается ссылкой на файл."""
-    text = "Поставщик — BBK IT.\nОсновные компетенции: ИИ, автоматизация."
-    out = resolve_competencies_reference({"competencies": text})
-    assert out["competencies"] == text
+def test_resolve_competencies_reference_keeps_json_block() -> None:
+    """JSON-блок компетенций не считается ссылкой на файл (содержит перевод строки)."""
+    out = resolve_competencies_reference({"competencies": COMP_JSON})
+    assert out["competencies"] == COMP_JSON

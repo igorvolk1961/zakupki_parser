@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import datetime
@@ -294,22 +293,12 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> ProfileOut:
         """Загружает/обновляет профиль из загруженного файла.
 
-        Основной формат — единый JSON-файл (компетенции — подобъект внутри).
-        Для обратной совместимости поддерживается и markdown-разметка файла-сида
-        (секции ``**name**``, ``**Ключевые слова**`` и т.д.); имя профиля — из
-        секции/поля ``name``, при отсутствии — ``default``.
+        Основной формат — единый JSON-файл (компетенции — подобъект внутри схемы
+        ``Profile``, BR-07). Legacy-markdown-файлы сида не поддерживаются: легаси
+        удалено, компетенции всегда канонический JSON.
         """
         eff_user = _require_user(user)
-        text = payload.content
-        try:
-            seed = parse_profile_json(text)
-        except (json.JSONDecodeError, ValueError, TypeError):
-            from zakupki_parser.storage.keywords_parser import (
-                parse_keywords_text,
-                resolve_competencies_reference,
-            )
-
-            seed = resolve_competencies_reference(parse_keywords_text(text))
+        seed = parse_profile_json(payload.content)
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)

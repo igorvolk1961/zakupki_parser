@@ -91,3 +91,5 @@ databaseChangeLog:
       file: db.changelog-1.45.yaml
   - include:
       file: db.changelog-1.46.yaml
+  - include:
+      file: db.changelog-1.47.yaml

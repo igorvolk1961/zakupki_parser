@@ -8,6 +8,7 @@ tenant-изоляцию (BR-07) и каскадное удаление при у
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import Iterator
 
@@ -21,6 +22,17 @@ from zakupki_parser.auth import ROLE_ADMIN, ROLE_USER, create_token
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database, ProfileExperience, ProfileLicense
 from zakupki_parser.storage.repository import ProcurementRepository
+
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 AUTH_SECRET = "test-secret"
@@ -48,7 +60,7 @@ def ple_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
                     "name": "default",
                     "enabled": True,
                     "is_active": True,
-                    "competencies": "Тестовые компетенции",
+                    "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
                     "questions": [],
@@ -75,9 +87,7 @@ def ple_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
 
 
 def _create_profile(client: TestClient, name: str) -> int:
-    r = client.post(
-        "/api/clients", json={"name": name, "competencies": "Компетенции", "keywords": []}
-    )
+    r = client.post("/api/clients", json={"name": name, "competencies": COMP_JSON, "keywords": []})
     assert r.status_code == 200
     return int(r.json()["id"])
 
@@ -255,7 +265,7 @@ def test_profile_save_with_entries(ple_client: TestClient) -> None:
         "/api/clients",
         json={
             "name": "entries-profile",
-            "competencies": "C",
+            "competencies": COMP_JSON,
             "keywords": [],
             "licenses": [{"license_type_id": fstek["id"], "number": "Л-1"}],
             "experience": [
@@ -280,7 +290,7 @@ def test_profile_save_with_entries(ple_client: TestClient) -> None:
         f"/api/clients/{pid}",
         json={
             "name": "entries-profile",
-            "competencies": "C2",
+            "competencies": COMP_JSON,
             "licenses": [],
             "experience": [{"title": "Опыт-2", "confirmation_type_id": platform["id"]}],
         },
@@ -310,9 +320,13 @@ def test_tenant_isolation_and_cascade() -> None:
             repo = ProcurementRepository(db)
             user_a = await repo.create_user("ple-a", "hash", [ROLE_ADMIN])
             user_b = await repo.create_user("ple-b", "hash", [ROLE_ADMIN])
-            profile_a = await repo.upsert_profile({"name": "A1", "competencies": "C"}, user_a.id)
-            await repo.upsert_profile({"name": "A2", "competencies": "C"}, user_a.id)
-            profile_b = await repo.upsert_profile({"name": "B", "competencies": "C"}, user_b.id)
+            profile_a = await repo.upsert_profile(
+                {"name": "A1", "competencies": COMP_JSON}, user_a.id
+            )
+            await repo.upsert_profile({"name": "A2", "competencies": COMP_JSON}, user_a.id)
+            profile_b = await repo.upsert_profile(
+                {"name": "B", "competencies": COMP_JSON}, user_b.id
+            )
             assert profile_a.id is not None and profile_b.id is not None
 
             await repo.ensure_reference_data()

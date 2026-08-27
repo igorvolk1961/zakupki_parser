@@ -14,43 +14,44 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from zakupki_parser.storage.competencies import normalize_competencies
+
 SCHEMA = "zakupki-profile"
 VERSION = 1
 
-# Ключи, по которым строка компетенций считается структурированной (см. parseComp).
-_STRUCTURED_KEYS = ("positioning", "breadth", "competencies", "exclusions")
-
 
 def _split_competencies(raw: str) -> dict[str, Any]:
-    """Строка компетенций БД -> подобъект для экспорта."""
+    """Строка компетенций БД -> подобъект для экспорта.
+
+    Компетенции всегда канонический JSON схемы ``Profile`` (BR-07): экспортируем
+    как есть (валидированную модель), без legacy-режимов raw/empty.
+    """
     if not raw or not raw.strip():
-        return {"mode": "empty"}
+        return {}
     try:
         obj = json.loads(raw)
     except json.JSONDecodeError:
-        return {"mode": "raw", "text": raw}
-    if isinstance(obj, dict) and any(k in obj for k in _STRUCTURED_KEYS):
-        obj.setdefault("mode", "structured")
+        # Легаси-значения не поддерживаются: экспорт не искажаем каноническую схему.
+        return {}
+    if isinstance(obj, dict):
         return obj
-    return {"mode": "raw", "text": raw}
+    return {}
 
 
 def _join_competencies(block: Any) -> str:
-    """Подобъект импорта -> строка компетенций для БД.
+    """Подобъект импорта -> строка компетенций для БД (канонический JSON схемы Profile).
 
-    ``None``/""/``{"mode":"empty"}`` — пусто; ``{"mode":"raw","text":...}`` — сырой
-    текст; любой другой dict — структурированный JSON (как в ``collectComp``).
+    Принимает объект схемы ``Profile`` (dict): нормализуется через
+    ``normalize_competencies``. Сырой текст/markdown не допускаются.
     """
     if block is None or block == "":
-        return ""
-    if isinstance(block, dict) and block.get("mode") in {"empty", "raw"}:
-        return block.get("text", "") if block.get("mode") == "raw" else ""
+        # Пустой профиль: JSON пустого Profile (валидируется при сохранении).
+        return normalize_competencies("")
     if isinstance(block, str):
-        return block
+        return normalize_competencies(block)
     if not isinstance(block, dict):
-        return json.dumps(block, ensure_ascii=False)
-    clean = {k: v for k, v in block.items() if k != "mode"}
-    return json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+        raise ValueError("competencies должны быть JSON-объектом схемы Profile")
+    return normalize_competencies(json.dumps(block, ensure_ascii=False))
 
 
 def serialize_profile_json(profile: dict[str, Any]) -> str:

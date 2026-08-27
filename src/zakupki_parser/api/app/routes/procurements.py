@@ -325,6 +325,31 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 embedding_similarity=body.embedding_similarity,
                 langfuse_trace_url=body.langfuse_trace_url,
             )
+            # BR-07 (дедупликация по содержанию компетенций): результат, посчитанный
+            # для представителя группы идентичного содержания компетенций,
+            # распространяется на всех профилей, отобравших эту закупку с тем же
+            # comp_hash (подписка). Один LLM-вызов на группу, результат — у всех.
+            try:
+                rep = await _repo().get_score(procurement_id, body.profile_id)
+                if rep is not None and rep.comp_hash:
+                    await _repo().apply_score_to_comp_hash_group(
+                        procurement_id,
+                        rep.comp_hash,
+                        score=body.score,
+                        fit_score=body.fit_score,
+                        p_win=body.p_win,
+                        margin=body.margin,
+                        score_method=body.score_method,
+                        embedding_similarity=body.embedding_similarity,
+                        langfuse_trace_url=body.langfuse_trace_url,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Не удалось распространить результат скоринга на группу "
+                    "компетенций закупки %s: %s",
+                    procurement_id,
+                    exc,
+                )
         await _broadcast(state)
         row = await _repo().get_by_id(procurement_id, profile_id=body.profile_id)
         if row is None:  # pragma: no cover - проверено выше

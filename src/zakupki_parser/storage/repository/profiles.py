@@ -546,6 +546,25 @@ class ProfileMixin(RepositoryMixin):
         name = data.get("name")
         if not name:
             raise ValueError("profiles.name обязателен")
+        # Компетенции — всегда канонический JSON схемы Profile (BR-07). Обязательная
+        # валидация на записи: пустой профиль (без компетенций/позиционирования)
+        # не может участвовать в сборе закупок, поэтому его сохранение запрещено.
+        if "competencies" in data:
+            from zakupki_parser.storage.competencies import (
+                CompetenciesError,
+                normalize_competencies,
+                parse_competencies,
+            )
+            from zakupki_parser.storage.competencies import (
+                is_empty as _competencies_is_empty,
+            )
+
+            profile_model = parse_competencies(str(data.get("competencies") or ""))
+            if _competencies_is_empty(profile_model):
+                raise CompetenciesError(
+                    "Профиль без компетенций нельзя сохранить: он не участвует в сборе закупок"
+                )
+            data = {**data, "competencies": normalize_competencies(data.get("competencies"))}
         wants_keywords = "keywords" in data or "exclusion_words" in data
         async with self._db.session() as session:
             stmt = (

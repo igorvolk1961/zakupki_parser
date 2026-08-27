@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta, timezone
@@ -19,6 +20,17 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
+
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 
@@ -129,42 +141,48 @@ async def test_update_details_enriches_existing(db: Database) -> None:
 
 
 @pytest.mark.asyncio
-async def test_details_fetched_only_after_score(db: Database) -> None:
-    """Детали дособираются только ПОСЛЕ получения результата скоринга (BR-08).
+async def test_scoring_dedup_by_comp_hash(db: Database) -> None:
+    """Дедупликация скоринга по содержанию компетенций (BR-07).
 
-    find_scored_without_details возвращает закупку с контекстом досборки
-    (detail_api) только когда для неё записан fit_score (внешний сервис вернул
-    результат через POST /score). Без скоринга закупка в выборку не попадает;
-    после успешной досборки (mark_details_fetched) — тоже исключается.
+    Профили с идентичным содержанием компетенций (помечены одним comp_hash)
+    обрабатываются один раз: результат представителя распространяется на всю
+    группу (apply_score_to_comp_hash_group), find_group_evaluation отдаёт
+    представителя, если результат уже есть или задание поставлено.
     """
     repo = ProcurementRepository(db)
+    from zakupki_parser.storage.competencies import competencies_hash
+
+    comp_hash = competencies_hash(COMP_JSON)
     user = await repo.create_user("sd-user", "hash", ["analyst"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     await repo.upsert(
         {
-            "number": "SD-1",
+            "number": "DEDUP-1",
             "platform_id": "zakupki_mos",
             "subject": "ИТ-услуги",
-            "detail_api": {"need_id": "42"},
-            "detail_json": {"subject": "ИТ-услуги", "number": "SD-1"},
+            "detail_json": {"subject": "ИТ-услуги"},
         }
     )
-    pid = await repo.find_id("SD-1", "zakupki_mos")
+    pid = await repo.find_id("DEDUP-1", "zakupki_mos")
     assert pid is not None
 
-    # Скоринга ещё нет — досборка не положена.
-    assert await repo.find_scored_without_details("zakupki_mos") == []
+    await repo.record_matched_keywords(pid, profile.id, ["ИИ"], comp_hash=comp_hash)
 
-    # Результат скоринга получен (fit_score записан) — закупка попадает в выборку.
-    await repo.upsert_score(pid, profile.id, score=0.5, fit_score=0.5, score_method="fit")
-    pending = await repo.find_scored_without_details("zakupki_mos")
-    assert [p["id"] for p in pending] == [pid]
-    assert pending[0]["detail_api"] == {"need_id": "42"}
+    # Группа ещё без результата и без постановки — представителя нет, ставим задание.
+    assert await repo.find_group_evaluation(pid, comp_hash) is None
 
-    # Успешная досборка — закупка исключается из выборки.
-    await repo.mark_details_fetched(pid)
-    assert await repo.find_scored_without_details("zakupki_mos") == []
+    # Результат посчитан представителю: применяем ко всей группе.
+    await repo.upsert_score(pid, profile.id, score=0.6, fit_score=0.6, score_method="fit")
+    n = await repo.apply_score_to_comp_hash_group(
+        pid, comp_hash, score=0.6, fit_score=0.6, score_method="fit"
+    )
+    assert n == 1
+    got = await repo.get_score(pid, profile.id)
+    assert got is not None and got.fit_score == 0.6
+
+    # Представитель группы теперь есть (fit_score записан).
+    assert await repo.find_group_evaluation(pid, comp_hash) is not None
 
 
 @pytest.mark.asyncio
@@ -472,7 +490,7 @@ async def test_delete_irrelevant(db: Database) -> None:
     """delete_irrelevant удаляет записи с per-profile fit_score < порога (стадии каскада)."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("del-user", "hash", ["admin"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     # Внешний скоринг, fit_score >= порога — релевантна, остаётся.
     pid_ri1 = await _upsert(repo, "RI-1")
@@ -515,7 +533,7 @@ async def test_find_unscored_returns_unscored_and_mark_excludes(db: Database) ->
     """find_unscored возвращает пары (закупка, профиль); mark_scoring_queued исключает."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("q-user", "hash", ["user"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     pid = await _upsert(repo, "Q-1")
     pid2 = await _upsert(repo, "Q-2")
@@ -537,7 +555,7 @@ async def test_find_unscored_excludes_scored_only(db: Database) -> None:
     """Оценённые (по профилю) в recovery не ставятся; неоценённые — ставятся."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("q-user", "hash", ["admin"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     scored = await _upsert(repo, "Q-3")
     await repo.record_matched_keywords(scored, profile.id, ["авт*"])
@@ -557,7 +575,7 @@ async def test_find_unscored_reenqueues_after_update(db: Database) -> None:
     """Обновление записи после постановки (update_date новее метки) — снова в очереди."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("q-user", "hash", ["user"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 8, 10, 10, 0, tzinfo=UTC))
     await repo.record_matched_keywords(pid, profile.id, ["авт*"])
@@ -583,7 +601,7 @@ async def test_find_unscored_reenqueues_stale_queued(db: Database) -> None:
     """Метка постановки старше порога (queued_before) — пара снова в очереди."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("q-user", "hash", ["user"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 7, 30, 10, 0, tzinfo=UTC))
     await repo.record_matched_keywords(pid, profile.id, ["авт*"])
@@ -605,7 +623,7 @@ async def test_find_unscored_returns_timestamps(db: Database) -> None:
     """find_unscored отдаёт update_date/publication_date для приоритета по времени."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("q-user", "hash", ["user"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     pub = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
     upd = datetime(2026, 8, 18, 10, 0, tzinfo=UTC)
@@ -624,7 +642,7 @@ async def test_list_procurements_scored_filter(db: Database) -> None:
     """scored=True возвращает только закупки с per-profile fit_score."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("s-user", "hash", ["admin"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
     await _upsert(repo, "S-1")
     scored_id = await _upsert(repo, "S-2")
@@ -671,9 +689,9 @@ async def test_list_enabled_profiles_includes_analyst(db: Database) -> None:
     prof_analyst = await repo.create_user("crawl-analyst", "h", ["analyst"])
     admin = await repo.create_user("crawl-admin", "h", ["admin"])
 
-    await repo.upsert_profile({"name": "default", "competencies": "u"}, prof_user.id)
-    await repo.upsert_profile({"name": "default", "competencies": "a"}, prof_analyst.id)
-    await repo.upsert_profile({"name": "default", "competencies": "adm"}, admin.id)
+    await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, prof_user.id)
+    await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, prof_analyst.id)
+    await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, admin.id)
 
     profiles = await repo.list_enabled_profiles_for_active_users()
     owner_ids = {p.user_id for p in profiles}
@@ -690,9 +708,9 @@ async def test_delete_profiles_without_default_role(db: Database) -> None:
     devops = await repo.create_user("del-devops", "h", ["devops"])
     user = await repo.create_user("del-user", "h", ["user"])
     # У ролевых пользователей профили фактически есть (обход гейта — upsert_profile).
-    await repo.upsert_profile({"name": "default", "competencies": "a"}, admin.id)
-    await repo.upsert_profile({"name": "default", "competencies": "d"}, devops.id)
-    await repo.upsert_profile({"name": "default", "competencies": "u"}, user.id)
+    await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, admin.id)
+    await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, devops.id)
+    await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
 
     removed = await repo.delete_profiles_without_default_role()
     assert removed == 2  # admin + devops; профиль обычного пользователя остаётся
@@ -707,9 +725,9 @@ async def test_upsert_score_is_per_profile(db: Database) -> None:
     """Скор пишется в конкретный profile_id (пер-профильно), без fan-out."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("pf-user", "h", ["user"])
-    profile = await repo.upsert_profile({"name": "default", "competencies": "x"}, user.id)
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     other_user = await repo.create_user("pf-other", "h", ["user"])
-    other = await repo.upsert_profile({"name": "default", "competencies": "y"}, other_user.id)
+    other = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, other_user.id)
 
     pid = await _upsert(repo, "PF-1")
     await repo.record_matched_keywords(pid, profile.id, ["авт*"])

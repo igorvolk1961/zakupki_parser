@@ -1,4 +1,8 @@
-"""Тесты сериализации профиля в единый JSON-файл с подобъектом компетенций."""
+"""Тесты сериализации профиля в единый JSON-файл с подобъектом компетенций.
+
+Компетенции — всегда канонический JSON схемы Profile (BR-07): legacy-режимы
+raw/markdown не поддерживаются. Невалидные/не-JSON значения отклоняются.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,7 @@ import json
 
 import pytest
 
+from zakupki_parser.storage.competencies import CompetenciesError
 from zakupki_parser.storage.profile_json import (
     SCHEMA,
     VERSION,
@@ -14,28 +19,7 @@ from zakupki_parser.storage.profile_json import (
 )
 
 
-def test_serialize_raw_competencies_block() -> None:
-    """Legacy-текст компетенций — сырой подобъект, а не ссылка на файл."""
-    profile = {
-        "name": "bbk-it",
-        "enabled": True,
-        "is_active": True,
-        "competencies": "Поставщик — BBK IT.\nКомпетенции: ИИ.",
-        "keywords": ["ИИ"],
-        "exclusion_words": ["ремонт"],
-        "okpd_codes": ["62"],
-        "questions": [],
-    }
-    content = serialize_profile_json(profile)
-    payload = json.loads(content)
-    assert payload["schema"] == SCHEMA
-    assert payload["version"] == VERSION
-    assert payload["profile"]["name"] == "bbk-it"
-    assert payload["competencies"]["mode"] == "raw"
-    assert "ИИ" in payload["competencies"]["text"]
-
-
-def test_serialize_structured_competencies_roundtrip() -> None:
+def test_serialize_structured_competencies() -> None:
     """Структурированные компетенции сохраняются в формате scoring Profile."""
     structured = {
         "positioning": "Внедряем ИИ",
@@ -46,17 +30,44 @@ def test_serialize_structured_competencies_roundtrip() -> None:
     }
     profile = {"name": "x", "competencies": json.dumps(structured)}
     payload = json.loads(serialize_profile_json(profile))
-    assert payload["competencies"]["mode"] == "structured"
+    assert payload["schema"] == SCHEMA
+    assert payload["version"] == VERSION
+    assert payload["profile"]["name"] == "x"
     assert payload["competencies"]["positioning"] == "Внедряем ИИ"
+    assert payload["competencies"]["competencies"][0]["area"] == "Аудит"
 
 
-def test_parse_roundtrip_json() -> None:
-    """Экспорт -> импорт сохраняет компетенции и слова без потерь."""
+def test_serialize_invalid_competencies_skipped() -> None:
+    """Легаси/свободный текст компетенций -> пустой подобъект (не искажаем схему)."""
     profile = {
         "name": "bbk-it",
         "enabled": True,
         "is_active": True,
         "competencies": "Поставщик — BBK IT.\nКомпетенции: ИИ.",
+        "keywords": ["ИИ"],
+        "exclusion_words": ["ремонт"],
+        "okpd_codes": ["62"],
+        "questions": [],
+    }
+    payload = json.loads(serialize_profile_json(profile))
+    assert payload["schema"] == SCHEMA
+    assert payload["competencies"] == {}
+
+
+def test_parse_roundtrip_json() -> None:
+    """Экспорт -> импорт сохраняет компетенции и слова без потерь."""
+    structured = {
+        "positioning": "Внедряем ИИ",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование", "examples": ["кейс1"]}],
+        "exclusions": [],
+        "scoring_policy": {"uncovered_penalty": 1.5, "ambiguous_range": [4.0, 6.0]},
+    }
+    profile = {
+        "name": "bbk-it",
+        "enabled": True,
+        "is_active": True,
+        "competencies": json.dumps(structured),
         "keywords": ["ИИ", "автоматизация"],
         "exclusion_words": ["ремонт"],
         "okpd_codes": ["62"],
@@ -69,7 +80,13 @@ def test_parse_roundtrip_json() -> None:
     }
     seed = parse_profile_json(serialize_profile_json(profile))
     assert seed["name"] == "bbk-it"
-    assert seed["competencies"] == profile["competencies"]
+    # Канонический JSON проходит через модель Profile: добавляются дефолтные поля
+    # (name и т.п.), компетенции сохраняются без потерь.
+    from zakupki_parser.storage.competencies import normalize_competencies
+
+    assert json.loads(seed["competencies"]) == json.loads(
+        normalize_competencies(json.dumps(structured, ensure_ascii=False))
+    )
     assert seed["keywords"] == ["ИИ", "автоматизация"]
     assert seed["exclusion_words"] == ["ремонт"]
     assert seed["okpd_codes"] == ["62"]
@@ -88,20 +105,30 @@ def test_parse_structured_competencies_stored_compact() -> None:
     }
     content = json.dumps({"profile": {"name": "x"}, "competencies": structured})
     seed = parse_profile_json(content)
-    assert json.loads(seed["competencies"]) == structured
+    from zakupki_parser.storage.competencies import normalize_competencies
+
+    assert json.loads(seed["competencies"]) == json.loads(
+        normalize_competencies(json.dumps(structured, ensure_ascii=False))
+    )
 
 
 def test_parse_missing_name_defaults() -> None:
-    seed = parse_profile_json(json.dumps({"competencies": "gibberish"}))
+    seed = parse_profile_json(json.dumps({"competencies": {"positioning": "П"}}))
     assert seed["name"] == "default"
-    assert seed["competencies"] == "gibberish"
 
 
-def test_parse_empty_competencies() -> None:
-    seed = parse_profile_json(
-        json.dumps({"profile": {"name": "x"}, "competencies": {"mode": "empty"}})
-    )
-    assert seed["competencies"] == ""
+def test_parse_rejects_non_json_competencies() -> None:
+    """Свободный текст компетенций отклоняется (легаси нет): только JSON-схема."""
+    with pytest.raises(CompetenciesError):
+        parse_profile_json(json.dumps({"competencies": "gibberish"}))
+
+
+def test_parse_empty_competencies_yields_empty_profile_json() -> None:
+    """Пустые компетенции -> канонический JSON пустого профиля (проверка пустоты выше)."""
+    seed = parse_profile_json(json.dumps({"profile": {"name": "x"}, "competencies": {}}))
+    profile = json.loads(seed["competencies"])
+    assert profile["positioning"] == ""
+    assert profile["competencies"] == []
 
 
 def test_parse_rejects_non_numeric_nmck() -> None:
@@ -131,6 +158,7 @@ def test_parse_coerces_types() -> None:
                     "is_active": False,
                     "okpd_codes": ["62", "62.01"],
                     "target_etp": ["zakupki_mos"],
+                    "competencies": {"positioning": "Внедряем ИИ"},
                 }
             }
         )
@@ -141,3 +169,10 @@ def test_parse_coerces_types() -> None:
     assert seed["is_active"] is False
     assert seed["okpd_codes"] == ["62", "62.01"]
     assert seed["target_etp"] == ["zakupki_mos"]
+
+
+def test_parse_rejects_invalid_competencies_schema() -> None:
+    """JSON не схемы Profile (например, со строковым competencies) отклоняется."""
+    payload = json.dumps({"profile": {"name": "x"}, "competencies": {"competencies": "not-list"}})
+    with pytest.raises(CompetenciesError):
+        parse_profile_json(payload)

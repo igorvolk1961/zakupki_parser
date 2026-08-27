@@ -147,9 +147,15 @@ class RecordProcessingMixin(OrchestratorState):
             if self._repository is not None and ctx is not None and record.get("id") is not None:
                 hit = matched_keywords(record, ctx.keywords)
                 if hit:
+                    # Хэш канонического содержания компетенций профиля (BR-07):
+                    # ключ дедупликации скоринга — профили с идентичным содержанием
+                    # компетенций обрабатываются один раз.
+                    from zakupki_parser.storage.competencies import competencies_hash
+
+                    comp_hash = competencies_hash(ctx.profile.competencies)
                     try:
                         await self._repository.record_matched_keywords(
-                            int(record["id"]), ctx.profile.id, hit
+                            int(record["id"]), ctx.profile.id, hit, comp_hash=comp_hash
                         )
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
@@ -163,10 +169,53 @@ class RecordProcessingMixin(OrchestratorState):
                     #     засчитывается именно этому профилю. Дедупликация — по паре
                     #     (procurement_id, profile_id). Приоритет — время обновления/
                     #     публикации закупки (ZPOPMAX берёт больший score).
+                    #     BR-07 (дедупликация по содержанию компетенций): если для
+                    #     этой закупки уже есть оценка-представитель группы с тем же
+                    #     компетенциями (fit_score записан ИЛИ задание поставлено) —
+                    #     НОВОЕ задание не ставится; профиль лишь подписывается под
+                    #     результат группы (метка scoring_queued_at, результат придёт
+                    #     через apply_score_to_comp_hash_group).
                     if self._transport is not None:
                         key = (int(record["id"]), ctx.profile.id)
                         if key not in pushed_scoring:
                             pushed_scoring.add(key)
+                            dedup = await self._repository.find_group_evaluation(
+                                int(record["id"]), comp_hash
+                            )
+                            if dedup is not None:
+                                await self._repository.mark_scoring_queued(
+                                    int(record["id"]), ctx.profile.id, self._now
+                                )
+                                if dedup.fit_score is not None:
+                                    # Группа уже скорирована: копируем результат
+                                    # представителя текущему профилю (подписка).
+                                    await self._repository.upsert_score(
+                                        int(record["id"]),
+                                        ctx.profile.id,
+                                        score=dedup.score,
+                                        fit_score=dedup.fit_score,
+                                        p_win=dedup.p_win,
+                                        margin=dedup.margin,
+                                        score_method=dedup.score_method,
+                                        embedding_similarity=dedup.embedding_similarity,
+                                        langfuse_trace_url=dedup.langfuse_trace_url,
+                                    )
+                                    logger.info(
+                                        "Закупка %s: применён результат группы компетенций "
+                                        "(профиль %s)",
+                                        record.get("number"),
+                                        ctx.profile.id,
+                                    )
+                                else:
+                                    # Группа ещё считается: подписываемся — результат
+                                    # придёт через apply_score_to_comp_hash_group.
+                                    logger.info(
+                                        "Закупка %s: задание уже есть для группы "
+                                        "компетенций (профиль %s подписан)",
+                                        record.get("number"),
+                                        ctx.profile.id,
+                                    )
+                                continue
                             ts = record.get("update_date") or record.get("publication_date")
                             priority = self._now.timestamp()
                             if isinstance(ts, datetime):

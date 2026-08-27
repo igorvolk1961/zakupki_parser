@@ -22,6 +22,17 @@ from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
+
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 AUTH_SECRET = "test-secret"
 
@@ -38,7 +49,7 @@ async def _seed_default_profile(repo: ProcurementRepository) -> int:
             "name": "default",
             "enabled": True,
             "is_active": True,
-            "competencies": "Тестовые компетенции",
+            "competencies": COMP_JSON,
             "keywords": [],
             "exclusion_words": ["медицинский"],
             "questions": [{"id": "q1", "text": "Требуется ли лицензия?"}],
@@ -108,7 +119,7 @@ def test_clients_crud(mc_client: TestClient) -> None:
     # Создание профиля (POST /api/clients — upsert по user_id + name).
     created = client.post(
         "/api/clients",
-        json={"name": "client-b", "competencies": "Компетенции B", "keywords": ["ИИ"]},
+        json={"name": "client-b", "competencies": COMP_JSON, "keywords": ["ИИ"]},
     )
     assert created.status_code == 200
     body = created.json()
@@ -131,7 +142,7 @@ def test_profile_export_import_roundtrip(mc_client: TestClient) -> None:
         "/api/clients",
         json={
             "name": "export-me",
-            "competencies": "Поставщик — Export Co.\nКомпетенции: ИИ.",
+            "competencies": COMP_JSON,
             "keywords": ["ИИ", "автоматизация"],
             "exclusion_words": ["ремонт"],
             "okpd_codes": ["62.02"],
@@ -156,16 +167,16 @@ def test_profile_export_import_roundtrip(mc_client: TestClient) -> None:
     assert content["profile"]["okpd_codes"] == ["62.02"]
     assert content["profile"]["keywords"] == ["ИИ", "автоматизация"]
     assert content["profile"]["exclusion_words"] == ["ремонт"]
-    # Legacy-текст компетенций — как подобъект raw, а не как отдельный файл/ссылка.
-    assert content["competencies"]["mode"] == "raw"
-    assert "Export Co." in content["competencies"]["text"]
+    # Компетенции — канонический JSON схемы Profile (BR-07), без legacy-режимов.
+    assert content["competencies"]["positioning"] == "Тестовые компетенции"
+    assert content["competencies"]["competencies"][0]["area"] == "Аудит"
 
     # Повторная загрузка того же файла не теряет компетенции.
     imported = client.post("/api/clients/import", json={"content": body["profile_content"]})
     assert imported.status_code == 200
     imported_body = imported.json()
     assert imported_body["name"] == name
-    assert "Export Co." in imported_body["competencies"]
+    assert "Тестовые компетенции" in imported_body["competencies"]
     assert imported_body["keywords"] == ["ИИ", "автоматизация"]
 
 
@@ -192,14 +203,17 @@ def test_profile_export_structured_competencies(mc_client: TestClient) -> None:
     assert exported.status_code == 200
     body = exported.json()
     content = json.loads(body["profile_content"])
-    assert content["competencies"]["mode"] == "structured"
     assert content["competencies"]["positioning"] == "Внедряем ИИ и автоматизируем процессы"
     assert content["competencies"]["competencies"][0]["area"] == "Аудит"
 
     imported = client.post("/api/clients/import", json={"content": body["profile_content"]})
     assert imported.status_code == 200
     imported_body = imported.json()
-    assert json.loads(imported_body["competencies"]) == structured
+    from zakupki_parser.storage.competencies import normalize_competencies
+
+    assert json.loads(imported_body["competencies"]) == json.loads(
+        normalize_competencies(json.dumps(structured))
+    )
 
 
 def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
@@ -274,8 +288,12 @@ def test_repository_isolation_br07() -> None:
             repo = ProcurementRepository(db)
             user_a = await repo.create_user("user-a", "hash-a", [ROLE_ADMIN])
             user_b = await repo.create_user("user-b", "hash-b", [ROLE_ADMIN])
-            profile_a = await repo.upsert_profile({"name": "A1", "competencies": "C"}, user_a.id)
-            profile_b = await repo.upsert_profile({"name": "B1", "competencies": "C"}, user_b.id)
+            profile_a = await repo.upsert_profile(
+                {"name": "A1", "competencies": COMP_JSON}, user_a.id
+            )
+            profile_b = await repo.upsert_profile(
+                {"name": "B1", "competencies": COMP_JSON}, user_b.id
+            )
             assert profile_a.id is not None and profile_b.id is not None
 
             # Профили изолированы.
@@ -316,14 +334,14 @@ def test_keywords_sync_and_single_active_profile() -> None:
                 user.id,
                 {
                     "name": "default",
-                    "competencies": "C",
+                    "competencies": COMP_JSON,
                     "keywords": ["ИИ", "автоматизация"],
                     "exclusion_words": ["ремонт"],
                 },
             )
             assert p1.id is not None
             p2 = await repo.upsert_profile(
-                {"name": "other", "competencies": "C", "is_active": True}, user.id
+                {"name": "other", "competencies": COMP_JSON, "is_active": True}, user.id
             )
             assert p2.id is not None
 

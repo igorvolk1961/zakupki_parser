@@ -182,11 +182,11 @@ def load_profile(path: Path) -> Profile:
 
 
 def profile_to_texts(value: Any) -> ProfileTexts | None:
-    """Нормализовать произвольное значение профиля в пару текстов (llm/embedding).
+    """Нормализовать компетенции профиля в пару текстов (llm/embedding).
 
-    Структурированный профиль (``Profile``/dict/YAML-отображение/legacy-markdown)
-    рендерится кодом; свободный текст проходит как есть (обратная совместимость).
-    Возвращает ``None``, если значение не похоже на профиль.
+    Принимает ТОЛЬКО структурированное значение: ``Profile``, dict или JSON-строку
+    (каноническая схема ``Profile`` — BR-07). Свободный текст/legacy-markdown не
+    поддерживаются (легаси удалено): для него возвращается ``None``.
     """
     if isinstance(value, Profile):
         return ProfileTexts(
@@ -197,15 +197,12 @@ def profile_to_texts(value: Any) -> ProfileTexts | None:
         return profile_to_texts(Profile.model_validate(value))
     if isinstance(value, str) and value.strip():
         try:
-            parsed = yaml.safe_load(value)
-        except yaml.YAMLError:
-            parsed = None
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
         if isinstance(parsed, dict):
             return profile_to_texts(Profile.model_validate(parsed))
-        if "## " in value or "компетенци" in value.lower():
-            return profile_to_texts(parse_legacy_markdown(value))
-        # Свободный текст: единый для обоих потребителей.
-        return ProfileTexts(llm=value, embedding=value)
+        return None
     return None
 
 

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
@@ -123,10 +124,16 @@ class Scheduler:
         """Включённые профили незаблокированных пользователей + слова (BR-07).
 
         Пустой список — профилей нет: обходы не строятся (dev-режим).
+        Из сбора исключаются пустые/невалидные профили (без компетенций): они не
+        могут участвовать в сборе закупок и не ставятся в очередь скоринга
+        (конвейер не скорит без контекста компетенций, BR-07).
         """
         if self._repository is None:
             return []
         profiles = await self._repository.list_enabled_profiles_for_active_users()
+        if not profiles:
+            return []
+        profiles = [p for p in profiles if self._profile_has_valid_competencies(p)]
         if not profiles:
             return []
         kw_map = await self._repository.list_profiles_keywords([p.id for p in profiles])
@@ -138,6 +145,21 @@ class Scheduler:
             )
             for p in profiles
         ]
+
+    @staticmethod
+    def _profile_has_valid_competencies(profile: Any) -> bool:
+        """Профиль пригоден для сбора: компетенции — валидная непустая схема."""
+        from zakupki_parser.storage.competencies import (
+            CompetenciesError,
+            is_empty,
+            parse_competencies,
+        )
+
+        try:
+            model = parse_competencies(profile.competencies or "")
+        except CompetenciesError:
+            return False
+        return not is_empty(model)
 
     async def run_service(self) -> None:
         """Бесконечный цикл: проход -> ожидание таймера."""
