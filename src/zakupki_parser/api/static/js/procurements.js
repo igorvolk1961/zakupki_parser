@@ -297,14 +297,16 @@ function ragReportHtml(report) {
 
 async function loadPlatforms() {
   const set = new Set();
-  // Включённые площадки из config_service.yaml (показываем даже без записей в БД).
+  // Включённые площадки из справочника platforms (доступен базовым ролям,
+  // в отличие от analyst-only /api/config). Активность синхронизируется из
+  // config_service.yaml при старте и сохранении конфигурации.
   try {
-    const cfg = await api("config");
-    (cfg.sites || []).forEach((s) => {
+    const cfg = await api("platforms");
+    (cfg.items || []).forEach((s) => {
       if (s.enabled) set.add(s.platform_id);
     });
   } catch (err) {
-    /* конфиг недоступен — полагаемся на БД */
+    /* справочник недоступен — полагаемся на БД */
   }
   // Площадки, по которым уже есть сохранённые закупки.
   const paged = await api("procurements", { limit: 100 });
