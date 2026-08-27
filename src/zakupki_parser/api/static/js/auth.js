@@ -52,7 +52,7 @@ function showLogin() {
   $("#login-submit").textContent = "Войти";
   $("#login-error").textContent = "";
   $("#login-password").type = "password";
-  $("#login-password").autocomplete = "current-password";
+  $("#login-password").autocomplete = "off";
   $("#login-confirm-field").style.display = "none";
   $("#login-password-confirm").value = "";
   $("#login-modal-bg").classList.add("open");
@@ -174,7 +174,7 @@ $("#login-switch").addEventListener("click", () => {
   $("#login-switch").textContent = loginMode === "register" ? "Войти" : "Зарегистрироваться";
   $("#login-submit").textContent = loginMode === "register" ? "Создать аккаунт" : "Войти";
   $("#login-password").type = "password";
-  $("#login-password").autocomplete = loginMode === "register" ? "new-password" : "current-password";
+  $("#login-password").autocomplete = "off";
   $("#login-confirm-field").style.display = loginMode === "register" ? "" : "none";
   $("#login-password-confirm").value = "";
   $("#login-error").textContent = "";
