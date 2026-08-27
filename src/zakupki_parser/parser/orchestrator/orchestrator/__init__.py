@@ -361,8 +361,7 @@ class Orchestrator(
             no_code_ok = has_positive and search is not None and sc.no_code_search
             if has_positive and not no_code_ok:
                 logger.info(
-                    "Площадка %s: позитивные слова есть, но обход «без кода» выключен "
-                    "(search_criteria.no_code_search) — пропущен",
+                    "Площадка %s: обход «без кода» пропущен (no_code_search=false)",
                     self._platform_id,
                 )
             if no_code_ok:
