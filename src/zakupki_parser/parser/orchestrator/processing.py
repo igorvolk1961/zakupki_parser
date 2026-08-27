@@ -188,6 +188,11 @@ class RecordProcessingMixin(OrchestratorState):
                                 await self._repository.mark_scoring_queued(
                                     int(record["id"]), ctx.profile.id, self._now
                                 )
+                                logger.info(
+                                    "Закупка %s поставлена в очередь скоринга (профиль %s)",
+                                    record.get("number"),
+                                    ctx.profile.id,
+                                )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning(
                                     "Не удалось поставить задание на скоринг закупки %s "

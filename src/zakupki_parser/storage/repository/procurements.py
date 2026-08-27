@@ -352,7 +352,7 @@ class ProcurementMixin(RepositoryMixin):
             if detail is not None:
                 record.detail_json = detail
             record.is_active = bool(data.get("is_active", record.is_active))
-            if data.get("inn") and not record.customer_rel:
+            if data.get("inn") and record.customer_id is None:
                 record.customer_id = await self._resolve_customer_id(
                     session, data.get("customer"), data.get("inn")
                 )
