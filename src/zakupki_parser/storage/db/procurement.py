@@ -162,10 +162,6 @@ class Procurement(Base):
     okpd2_codes: Mapped[str | None] = mapped_column(Text)
     kpgz_codes: Mapped[str | None] = mapped_column(Text)
     files_json: Mapped[list[Any] | None] = mapped_column(JSONB)
-    # Отметка успешной постановки закупки в очередь внешнего скоринга (fit).
-    # NULL — задача не поставлена (в т.ч. транспорт был недоступен при сохранении);
-    # recovery по ней догоняет пропущенные закупки (см. repository.find_unscored).
-    scoring_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )

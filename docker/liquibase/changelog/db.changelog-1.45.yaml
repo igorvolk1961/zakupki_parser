@@ -1,0 +1,9 @@
+databaseChangeLog:
+- changeSet:
+    id: 46
+    author: zakupki-parser
+    comment: 'procurements: удаление устаревшей колонки scoring_queued_at (метка постановки в очередь скоринга перенесена на procurement_evaluations, BR-07)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurements DROP COLUMN IF EXISTS scoring_queued_at;

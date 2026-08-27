@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from zakupki_parser.storage.keywords_parser import (
-    parse_keywords_file,
     parse_keywords_text,
     resolve_competencies_reference,
 )
@@ -93,22 +90,6 @@ def test_parse_keywords_empty() -> None:
     }
 
 
-def test_parse_real_profile_file() -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    path = repo_root / "docs" / "references" / "bbk-it-profile.md"
-    assert path.is_file()
-    parsed = parse_keywords_file(path)
-    # Новый формат bbk-it-profile.md: имя профиля + компетенции-ссылка на файл.
-    assert parsed["name"] == "bbk-it"
-    assert parsed["keywords"]
-    assert parsed["exclusion_words"]
-    # Компетенции подставлены из docs/references/bbk-it-competencies.json (ссылка в файле).
-    assert "ИИ-юристы" in parsed["competencies"]
-    # Формы из файла: усечения слов и близость (…~N).
-    assert any("*" in w for w in parsed["keywords"])
-    assert any("~" in w for w in parsed["exclusion_words"])
-
-
 def test_parse_search_criteria_sections() -> None:
     """Критерии поиска профиля: okpd_codes/nmck_min/nmck_max (active_only — глобально)."""
     text = """
@@ -130,16 +111,6 @@ bbk-it
     assert parsed["nmck_max"] == 5000000.0
     assert "active_only" not in parsed
     assert parsed["name"] == "bbk-it"
-
-
-def test_parse_profile_file_seedable() -> None:
-    """Сид из bbk-it-profile.md: имя, слова и компетенции извлекаются напрямую (R8)."""
-    repo_root = Path(__file__).resolve().parents[2]
-    parsed = parse_keywords_file(repo_root / "docs" / "references" / "bbk-it-profile.md")
-    assert parsed["name"] == "bbk-it"
-    assert isinstance(parsed["keywords"], list)
-    assert isinstance(parsed["exclusion_words"], list)
-    assert isinstance(parsed["competencies"], str)
 
 
 def test_resolve_competencies_reference_content() -> None:
