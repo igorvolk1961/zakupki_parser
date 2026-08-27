@@ -52,6 +52,10 @@ class ProcurementEvaluation(Base):
     score_method: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     # Векторная близость терминальной отсечки (score_method=sim, ADR-8).
     embedding_similarity: Mapped[float | None] = mapped_column(Float)
+    # Глубокая ссылка на LangFuse-трейс скоринга закупки (строится scoring_service
+    # по trace_id; None, если LangFuse не настроен/недоступен — кнопка «Трейс»
+    # на карточке не отображается).
+    langfuse_trace_url: Mapped[str | None] = mapped_column(Text)
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Ключевые слова профиля, по которым закупка прошла клиентскую фильтрацию (R9).
     matched_keywords: Mapped[list[str] | None] = mapped_column(JSONB)

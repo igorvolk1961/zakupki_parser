@@ -134,6 +134,7 @@ class ScoringWorker:
                     "fit_score": result.fit_multiplier,
                     "score_method": result.score_method,
                     "embedding_similarity": result.embedding_similarity,
+                    "langfuse_trace_url": result.langfuse_trace_url,
                 }
             )
             # Успех: обнуляем счётчик ретраев (если до этого были сбои LLM).

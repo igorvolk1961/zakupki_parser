@@ -60,6 +60,7 @@ class ResultsConsumer:
                 payload.get("score_method", "fit"),
                 fit_score=payload.get("fit_score"),
                 embedding_similarity=payload.get("embedding_similarity"),
+                langfuse_trace_url=payload.get("langfuse_trace_url"),
                 p_win=payload.get("p_win"),
                 margin=payload.get("margin"),
                 rag_report=payload.get("rag_report"),

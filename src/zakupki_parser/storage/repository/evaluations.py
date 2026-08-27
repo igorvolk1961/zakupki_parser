@@ -70,6 +70,7 @@ class EvaluationMixin(RepositoryMixin):
         score_method: str = "default",
         rag_report: dict[str, Any] | None = None,
         embedding_similarity: float | None = None,
+        langfuse_trace_url: str | None = None,
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки."""
         async with self._db.session() as session:
@@ -85,6 +86,8 @@ class EvaluationMixin(RepositoryMixin):
             evaluation.score_method = score_method
             if embedding_similarity is not None:
                 evaluation.embedding_similarity = embedding_similarity
+            if langfuse_trace_url is not None:
+                evaluation.langfuse_trace_url = langfuse_trace_url
             if rag_report is not None:
                 evaluation.rag_report = rag_report
             await session.commit()
@@ -119,6 +122,7 @@ class EvaluationMixin(RepositoryMixin):
         p_win: float | None = None,
         margin: float | None = None,
         embedding_similarity: float | None = None,
+        langfuse_trace_url: str | None = None,
     ) -> int:
         """Раздаёт ОДИН общий скор всем профилям-участникам закупки (BR-07).
 
@@ -154,5 +158,7 @@ class EvaluationMixin(RepositoryMixin):
                 evaluation.score_method = score_method
                 if embedding_similarity is not None:
                     evaluation.embedding_similarity = embedding_similarity
+                if langfuse_trace_url is not None:
+                    evaluation.langfuse_trace_url = langfuse_trace_url
             await session.commit()
         return len(participants)

@@ -102,6 +102,7 @@ class ParserApiClient:
         score_method: str = "fit",
         fit_score: float | None = None,
         embedding_similarity: float | None = None,
+        langfuse_trace_url: str | None = None,
         p_win: float | None = None,
         margin: float | None = None,
         rag_report: dict[str, Any] | None = None,
@@ -121,6 +122,8 @@ class ParserApiClient:
             payload["fit_score"] = fit_score
         if embedding_similarity is not None:
             payload["embedding_similarity"] = embedding_similarity
+        if langfuse_trace_url is not None:
+            payload["langfuse_trace_url"] = langfuse_trace_url
         if p_win is not None:
             payload["p_win"] = p_win
         if margin is not None:

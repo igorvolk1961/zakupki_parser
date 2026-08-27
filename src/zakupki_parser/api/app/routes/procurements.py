@@ -256,6 +256,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 margin=body.margin,
                 score_method=body.score_method,
                 embedding_similarity=body.embedding_similarity,
+                langfuse_trace_url=body.langfuse_trace_url,
             )
             # Один общий скор — раздаём всем профилям-участникам (отобравшим закупку
             # по matched_keywords), чтобы каждый показывал результат в своей таблице.
@@ -268,6 +269,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 p_win=body.p_win,
                 margin=body.margin,
                 embedding_similarity=body.embedding_similarity,
+                langfuse_trace_url=body.langfuse_trace_url,
             )
         await _broadcast(state)
         row = await _repo().get_by_id(procurement_id, profile_id=profile.id)

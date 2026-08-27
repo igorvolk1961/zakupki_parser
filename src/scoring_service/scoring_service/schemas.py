@@ -111,6 +111,11 @@ class ScoringOutput(BaseModel):
     # Ветка векторной близости (Giga Embedder). None, если ветка выключена/не
     # настроен ключ доступа/произошёл сбой (best-effort).
     embedding_similarity: float | None = None
+    # URL трейса LangFuse для этой закупки (глубокоя ссылка на трейс в UI).
+    # None, если LangFuse не настроен/недоступен либо трейс не создан — тогда
+    # кнопка «Трейс» на карточке не отображается. Ссылка строится на стороне
+    # скоринга по trace_id, созданному мониторингом root-run одной закупки.
+    langfuse_trace_url: str | None = None
 
     @field_validator("final_fit_score")
     @classmethod

@@ -1,0 +1,12 @@
+databaseChangeLog:
+- changeSet:
+    id: 44
+    author: zakupki-parser
+    comment: 'procurement_evaluations: колонка langfuse_trace_url — глубокая ссылка на LangFuse-трейс скоринга закупки (None — LangFuse не настроен/недоступен, кнопка «Трейс» на карточке скрыта)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS langfuse_trace_url TEXT;
+          COMMENT ON COLUMN procurement_evaluations.langfuse_trace_url IS
+            'Глубокая ссылка на LangFuse-трейс скоринга закупки (None — трассировка недоступна, кнопка «Трейс» не отображается)';

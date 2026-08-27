@@ -16,9 +16,10 @@ import {
   pwinProc,
   viewTz,
   closeTz,
+  viewTrace,
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
-import { loadProfiles, loadActiveClient, closeDeleteProfileModal, profileFormDirty } from "./clients.js";
+import { loadProfiles, loadActiveClient, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
 import {
   loadScoreopsConfig,
@@ -99,11 +100,13 @@ window.closeModal = closeModal;
 window.closeDbModal = closeDbModal;
 window.closeExportModal = closeExportModal;
 window.closeDeleteProfileModal = closeDeleteProfileModal;
+window.closeExportProfileModal = closeExportProfileModal;
 window.closeUserModal = closeUserModal;
 window.analyzeProc = analyzeProc;
 window.pwinProc = pwinProc;
 window.viewTz = viewTz;
 window.closeTz = closeTz;
+window.viewTrace = viewTrace;
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {

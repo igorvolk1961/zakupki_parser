@@ -62,6 +62,7 @@ def _apply_profile_score(
             row.margin = evaluation.margin
             row.score_method = evaluation.score_method
             row.embedding_similarity = evaluation.embedding_similarity
+            row.langfuse_trace_url = evaluation.langfuse_trace_url
             # rag_report — per-user, колонки в procurements нет: подкладываем
             # динамическим атрибутом для API-ответа (ClassVar на Procurement).
             row.rag_report = evaluation.rag_report

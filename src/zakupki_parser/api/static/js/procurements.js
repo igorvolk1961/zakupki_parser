@@ -13,6 +13,7 @@ import {
 } from "./utils.js";
 import { state } from "./store.js";
 import { api, apiJSON } from "./api.js";
+import { hasRole } from "./roles.js";
 
 let allItems = [];
 let selected = new Set();
@@ -36,7 +37,8 @@ function card(row) {
     <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.platform_name || row.platform_id)}</span>
       <span class="pill score">score ${row.score ?? "—"}</span>
       <span class="pill score">fit ${fitCell(row)}</span>
-      <span class="pill score">sim ${row.embedding_similarity ?? "—"}</span></div>
+      <span class="pill score">sim ${row.embedding_similarity ?? "—"}</span>
+      ${row.langfuse_trace_url && hasRole("analyst") ? `<a class="pill" href="${escapeHtml(row.langfuse_trace_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">трейс</a>` : ""}</div>
   </div>`;
 }
 
@@ -207,6 +209,7 @@ async function openDetail(id) {
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
       <button class="primary" onclick="analyzeProc(${row.id})">Анализ ТЗ</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
+      ${row.langfuse_trace_url && hasRole("analyst") ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
     </div>`;
   $("#modal-bg").classList.add("open");
 }
@@ -324,6 +327,17 @@ function closeModal() {
   $("#modal-bg").classList.remove("open");
 }
 
+// Открыть LangFuse-трейс закупки в новой вкладке. Доступно ТОЛЬКО роли analyst:
+// сама кнопка «Трейс» рендерится только при hasRole("analyst") и непустой ссылке
+// (procurement_evaluations.langfuse_trace_url); ссылки нет, если LangFuse не
+// настроен/недоступен.
+function viewTrace(id) {
+  if (!hasRole("analyst")) return;
+  const row = allItems.find((r) => r.id === id);
+  const url = row && row.langfuse_trace_url;
+  if (url) window.open(url, "_blank", "noopener");
+}
+
 async function analyzeProc(id) {
   const r = await apiJSON("/api/procurements/analyze", {
     method: "POST",
@@ -365,6 +379,7 @@ export {
   pwinProc,
   viewTz,
   closeTz,
+  viewTrace,
   loadPlatforms,
 };
 

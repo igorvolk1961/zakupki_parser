@@ -53,6 +53,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         tz_reviewer: TzReviewer | None = None,
         embedder: Any | None = None,
         embedding_skip_reason: str | None = None,
+        langfuse_handler: Any | None = None,
     ) -> None:
         self._fit = fit_chain
         self._judge = judge_chain
@@ -60,6 +61,10 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         # Callbacks для корневого run скоринга: один трейс на задание, в который
         # вложены fit/judge/refine как дочерние спаны (вместо отдельных трейсов).
         self._callbacks = callbacks
+        # LangFuse LangChain-callback: после каждого score() читаем last_trace_id,
+        # чтобы построить глубокую ссылку на трейс закупки. None, если LangFuse
+        # не настроен — ссылки нет, кнопка «Трейс» не отображается.
+        self._langfuse_handler = langfuse_handler
         # Параллельная ветка векторной близости (Giga Embedder). None, если ветка
         # выключена либо не настроен ключ доступа.
         self._embedder = embedder
@@ -149,6 +154,22 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             score=score,
         )
 
+    def _langfuse_trace_url(self, trace_id: str | None) -> str | None:
+        """Глубокая ссылка на трейс LangFuse по trace_id (или None).
+
+        Ссылку строит глобальный клиент LangFuse (``get_trace_url``): возвращает
+        ``None``, если проект не резолвится (LangFuse недоступен/не настроен) —
+        тогда кнопка «Трейс» на карточке скрывается. Ошибки не роняют скоринг.
+        """
+        if not trace_id:
+            return None
+        try:
+            from langfuse import get_client
+
+            return get_client().get_trace_url(trace_id=trace_id)
+        except Exception:  # noqa: BLE001 - best-effort, не роняет скоринг
+            return None
+
     def score(
         self,
         record: dict[str, Any],
@@ -196,11 +217,20 @@ class Scorer(EmbeddingMixin, PipelineMixin):
                 },
             },
         )
+        # Обнуляем trace_id перед прогоном: last_trace_id у LangFuse-обработчика
+        # глобальный (перезаписывается каждым run), чтобы при сбое текущей закупки
+        # не прицепить ссылку на трейс предыдущей.
+        if self._langfuse_handler is not None:
+            self._langfuse_handler.last_trace_id = None
         runner = RunnableLambda(self._score_impl, name=run_name)
-        return runner.invoke(
+        result = runner.invoke(
             (record, texts, procurement_id, session_id, trace_meta, root_config),
             config=root_config,
         )
+        trace_url = self._langfuse_trace_url(getattr(self._langfuse_handler, "last_trace_id", None))
+        if trace_url:
+            result.langfuse_trace_url = trace_url
+        return result
 
     def _score_impl(
         self,
@@ -256,7 +286,8 @@ def build_scorer(settings: Settings) -> Scorer:
     if settings.score_use_stub:
         return Scorer(None, None, settings)
     llm = build_llm(settings)
-    callbacks = callbacks_for(langfuse_handler(settings))
+    lf_handler = langfuse_handler(settings)
+    callbacks = callbacks_for(lf_handler)
     # Параллельная ветка векторной близости. Строится только при включённом флаге
     # и заданном ключе доступа; иначе — None с причиной пропуска (без падения).
     embedder: Any | None = None
@@ -288,6 +319,7 @@ def build_scorer(settings: Settings) -> Scorer:
         callbacks=callbacks,
         embedder=embedder,
         embedding_skip_reason=embedding_skip_reason,
+        langfuse_handler=lf_handler,
     )
 
 

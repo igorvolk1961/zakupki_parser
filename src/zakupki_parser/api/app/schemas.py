@@ -46,6 +46,8 @@ class ProcurementOut(BaseModel):
     margin: float | None = None
     score_method: str | None = None
     embedding_similarity: float | None = None
+    # Глубокая ссылка на LangFuse-трейс скоринга (кнопка «Трейс» на карточке).
+    langfuse_trace_url: str | None = None
     # Per-client RAG-отчёт анализа стоп-условий (профиль активного клиента).
     rag_report: dict[str, Any] | None = None
     is_active: bool = True
@@ -233,6 +235,7 @@ class ScoreUpdate(BaseModel):
     margin: float | None = None
     score_method: str = SCORE_METHOD_FIT
     embedding_similarity: float | None = None
+    langfuse_trace_url: str | None = None
     rag_report: dict[str, Any] | None = None
 
     @field_validator("score_method")
@@ -328,6 +331,21 @@ class ProfileImportIn(BaseModel):
     """Загрузка профиля из файла (разметка как у файла-сида профиля)."""
 
     content: str
+
+
+class ProfileExportOut(BaseModel):
+    """Экспорт профиля в markdown-файл (разметка как у файла-сида профиля).
+
+    ``profile_content`` — файл профиля; если выбран экспорт компетенций отдельным
+    файлом, ``competencies_filename``/``competencies_content`` непусты, а в
+    ``**competencies**`` профильного файла подставляется имя файла компетенций
+    (как ссылка в seed-файле). В противном случае компетенции встроены в профиль.
+    """
+
+    profile_filename: str
+    profile_content: str
+    competencies_filename: str | None = None
+    competencies_content: str | None = None
 
 
 class ProfileOut(BaseModel):
