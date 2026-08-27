@@ -411,8 +411,8 @@
             <option value="warning">предупреждения</option>
           </select>
         </label>
-        <label>от <input type="datetime-local" id="logs-from" style="width:190px;"></label>
-        <label>до <input type="datetime-local" id="logs-to" style="width:190px;"></label>
+        <label>от <input type="datetime-local" id="logs-from" step="1" style="width:270px;"></label>
+        <label>до <input type="datetime-local" id="logs-to" step="1" style="width:270px;"></label>
         <label>Строк:
           <select id="logs-lines">
             <option value="100">100</option>
@@ -421,7 +421,7 @@
           </select>
         </label>
         <button class="primary" id="logs-refresh">Обновить</button>
-        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="logs-auto" checked> авто 5с</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="logs-auto" checked> авто <input type="number" id="logs-interval" value="5" min="1" step="1" style="width:58px;"> с</label>
         <span id="logs-status" class="muted"></span>
       </div>
     </div>

@@ -30,8 +30,12 @@ async function loadLogs() {
     };
     const fromVal = $("#logs-from").value;
     const toVal = $("#logs-to").value;
-    if (fromVal) params.from = new Date(fromVal).toISOString();
-    if (toVal) params.to = new Date(toVal).toISOString();
+    // Значение datetime-local уже локальное («YYYY-MM-DDTHH:MM[:SS]»). Отправляем
+    // его как наивное время: сервер интерпретирует его в локальной зоне и сравнивает
+    // с метками лога напрямую. (toISOString() переводил в UTC, а дата без времени
+    // уходила как UTC-полночь — фильтр «ломало».)
+    if (fromVal) params.from = fromVal;
+    if (toVal) params.to = toVal;
 
     const data = await api("logs/tail", params);
     const lines = data.lines || [];
@@ -64,6 +68,14 @@ async function loadLogs() {
   }
 }
 
+const AUTO_KEY = "zp_logs_interval";
+
+// Текущий интервал автообновления (сек), не меньше 1.
+function logsInterval() {
+  const v = parseInt($("#logs-interval").value, 10);
+  return Number.isFinite(v) && v >= 1 ? v : 5;
+}
+
 function setupAutoRefresh() {
   if (logsTimer) {
     clearInterval(logsTimer);
@@ -79,14 +91,25 @@ function setupAutoRefresh() {
       } catch (e) {
         /* сервис недоступен — повторим на следующем тике */
       }
-    }, 5000);
+    }, logsInterval() * 1000);
   }
 }
 
 export { loadLogs };
 
+// Восстанавливаем сохранённый интервал между сессиями.
+const savedInterval = Number.parseInt(localStorage.getItem(AUTO_KEY) || "", 10);
+if (Number.isFinite(savedInterval) && savedInterval >= 1) {
+  $("#logs-interval").value = savedInterval;
+}
+
 $("#logs-refresh").addEventListener("click", loadLogs);
 $("#logs-auto").addEventListener("change", setupAutoRefresh);
+// Изменение интервала: сохраняем и перезапускаем таймер с новым значением.
+$("#logs-interval").addEventListener("change", () => {
+  localStorage.setItem(AUTO_KEY, String(logsInterval()));
+  setupAutoRefresh();
+});
 // Автообновление включено по умолчанию (чекбокс отмечен в HTML) — запускаем сразу.
 setupAutoRefresh();
 $("#logs-q").addEventListener("input", () => {
