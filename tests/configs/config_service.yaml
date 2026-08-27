@@ -9,3 +9,6 @@ default_cutoff_days: 7
 search_criteria:
   active_only: false
   deadline_not_expired: true
+scoring:
+  embedding_filter_threshold: 0.55
+  tz_review_enabled: false

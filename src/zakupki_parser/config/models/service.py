@@ -76,6 +76,59 @@ class SearchCriteria(_BaseConfig):
     )
 
 
+class ScoringConfig(_BaseConfig):
+    """Правила оценки закупки внешним скорингом (аналитик).
+
+    Параметры влияют на результат скоринга (fit_score/score) и на то, выполняется ли
+    LLM-пайплайн. Хранятся в ``config_service.yaml``; значения применяются воркером
+    scoring_service (см. ``scoring_service.worker``), источник истины — этот конфиг.
+    """
+
+    embedding_filter_threshold: float = Field(
+        default=0.66,
+        ge=0,
+        le=1,
+        description=(
+            "Порог векторной близости описания закупки и компетенций (0..1): если "
+            "близость ниже порога, LLM-пайплайн fit/judge не выполняется, возвращается "
+            "score=0 и score_method=sim. Значение <= 0 отключает фильтрацию"
+        ),
+    )
+    giga_embedding_alpha: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        description="Вес векторной близости в итоговом score (0 — только диагностика)",
+    )
+    giga_enabled: bool = Field(
+        default=False,
+        description="Выполнять ли ветку векторной близости (эмбеддинги компетенций и описания)",
+    )
+    num_refine_rounds: int = Field(
+        default=1,
+        ge=0,
+        description="Число повторных fit-итераций при вердикте судьи 'reject'",
+    )
+    max_fit_score: float = Field(
+        default=10.0, gt=0, description="Максимальное значение Fit (шкала 0..max_fit_score)"
+    )
+    min_fit_score: float = Field(default=0.0, ge=0, description="Минимальное значение Fit")
+    score_round_digits: int = Field(
+        default=2, ge=0, le=4, description="Округление итогового score до N знаков"
+    )
+    normalize_fit_for_score: bool = Field(
+        default=True,
+        description="Приводить Fit (0..max_fit_score) к шкале score (0..1)",
+    )
+    tz_review_enabled: bool = Field(
+        default=True,
+        description="Включать ли уточнение скора по тексту ТЗ (requires_tz_review)",
+    )
+    tz_download_timeout: float = Field(
+        default=30.0, gt=0, description="Таймаут скачивания файла ТЗ (сек)"
+    )
+
+
 class ServiceConfig(_BaseConfig):
     """Сервисная конфигурация (аналитика): список сайтов, критерии, пороги, флаги."""
 
@@ -109,4 +162,8 @@ class ServiceConfig(_BaseConfig):
             "критерии (коды ОКПД2/НМЦК) разных профилей в один проход с веерной "
             "фильтрацией по каждому профилю"
         ),
+    )
+    scoring: ScoringConfig = Field(
+        default_factory=ScoringConfig,
+        description="правила оценки закупки (вкладка «Параметры мониторинга»)",
     )

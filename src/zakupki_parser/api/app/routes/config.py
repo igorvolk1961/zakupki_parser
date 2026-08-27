@@ -38,7 +38,13 @@ from zakupki_parser.api.app.converters import (
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import PlatformOut, PlatformsListOut, PromptUpdate
 from zakupki_parser.api.app.state import AppState
-from zakupki_parser.config.models import LoggingConfig, OpsConfig, ParserConfig, ServiceConfig
+from zakupki_parser.config.models import (
+    LoggingConfig,
+    OpsConfig,
+    ParserConfig,
+    ScoringOpsConfig,
+    ServiceConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +197,8 @@ def _register_config_endpoints(
             return state.cfg.ops
         if model is LoggingConfig:
             return state.cfg.logging
+        if model is ScoringOpsConfig:
+            return state.cfg.scoring_ops
         return state.cfg.parser
 
     @router.get(
@@ -260,8 +268,21 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
     - default_cutoff_days: короткая подпись «Интервал дат в днях», пояснение —
       во всплывающую подсказку (title);
     - search_criteria: в одну колонку (stack);
+    - scoring: в одну колонку, короткие подписи правил оценки закупки;
     - прочие комментарии полей (``description``) переезжают в tooltip'ы.
     """
+    scoring_labels: dict[str, str] = {
+        "embedding_filter_threshold": "Порог векторной близости",
+        "giga_embedding_alpha": "Вес векторной близости",
+        "giga_enabled": "Ветка векторной близости",
+        "num_refine_rounds": "Повторные fit-итерации",
+        "max_fit_score": "Максимальный Fit",
+        "min_fit_score": "Минимальный Fit",
+        "score_round_digits": "Округление score",
+        "normalize_fit_for_score": "Нормализовать Fit в score",
+        "tz_review_enabled": "Уточнение по тексту ТЗ",
+        "tz_download_timeout": "Таймаут скачивания ТЗ",
+    }
     for field in schema:
         if field.get("key") == "sites" and field.get("kind") == "list":
             field["label"] = ""
@@ -328,6 +349,12 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
                     )
                 elif sub["key"] == "deadline_not_expired":
                     sub["label"] = "Не обрабатывать закупку, если срок приёма заявок истёк"
+        elif field.get("key") == "scoring" and field.get("kind") == "object":
+            field["stack"] = True
+            for sub in field["fields"]:
+                label = scoring_labels.get(sub["key"])
+                if label:
+                    sub["label"] = label
     return schema
 
 
@@ -350,6 +377,20 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         Значение берётся из config_ops.yaml (notifications.notify_min_fit_score).
         """
         return {"notify_min_fit_score": state.cfg.ops.notifications.notify_min_fit_score}
+
+    @router.get(
+        "/api/config/scoring",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(ctx.require_user_or_internal)],
+    )
+    async def get_scoring_config() -> dict[str, Any]:
+        """Аналитические скор-настройки (config_service.yaml -> scoring).
+
+        Читается внутренним конвейером (scoring_service) через X-Internal-Token,
+        чтобы воркер применял актуальные правила оценки без рестарта.
+        """
+        return state.cfg.service.scoring.model_dump()
 
     @router.get(
         "/api/platforms",
@@ -498,6 +539,20 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         require=require_devops,
         state_setter=lambda m: setattr(state.cfg, "parser", m),
         prepare=_prepare_parser,
+    )
+
+    # --- config_score_ops.yaml: «Скоринг-сервис» (devops) -----------------
+    _register_config_endpoints(
+        router,
+        state=state,
+        api_path="/api/config/score-ops",
+        schema_path="/api/config/score-ops/schema",
+        raw_path="/api/config/score-ops/raw",
+        filename="config_score_ops.yaml",
+        model=ScoringOpsConfig,
+        public=lambda m: m.model_dump(),
+        require=require_devops,
+        state_setter=lambda m: setattr(state.cfg, "scoring_ops", m),
     )
 
     _register_prompt_routes(

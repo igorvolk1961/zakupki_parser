@@ -238,3 +238,61 @@ def test_ops_config_rejects_unknown_nested_keys() -> None:
         OpsConfig.model_validate(
             {"notifications": {"backend": "webhook", "telegram": {"chatd": "x"}}}
         )
+
+
+def test_service_config_scoring_defaults(app_config: AppConfig) -> None:
+    """Аналитические скор-настройки валидируются и имеют дефолты."""
+    sc = app_config.service.scoring
+    assert sc.embedding_filter_threshold >= 0
+    assert sc.max_fit_score > sc.min_fit_score
+    assert sc.score_round_digits >= 0
+    assert sc.num_refine_rounds >= 0
+
+
+def test_service_config_scoring_loaded_from_seed(app_config: AppConfig) -> None:
+    """Значения из config_service.yaml -> scoring подхватываются загрузчиком."""
+    assert app_config.service.scoring.embedding_filter_threshold == 0.55
+    assert app_config.service.scoring.tz_review_enabled is False
+
+
+def test_scoring_ops_config_loaded(app_config: AppConfig) -> None:
+    """Инфраструктурная конфигурация scoring_service грузится из config_score_ops.yaml."""
+    ops = app_config.scoring_ops
+    assert ops.llm_model == "gpt-4o-mini"
+    assert ops.llm_retry_max_attempts == 3
+    assert ops.giga_embeddings_model == "EmbeddingsGigaR"
+
+
+def test_scoring_ops_config_rejects_unknown_keys() -> None:
+    from zakupki_parser.config.models import ScoringOpsConfig
+
+    with pytest.raises(ValidationError):
+        ScoringOpsConfig.model_validate({"llm_model_typo": "x"})
+
+
+def test_service_config_scoring_rejects_unknown_keys() -> None:
+    with pytest.raises(ValidationError):
+        ServiceConfig.model_validate({"scoring": {"filter_threshold_typo": 0.5}})
+
+
+def test_service_schema_includes_scoring() -> None:
+    """Форма «Параметры мониторинга» (аналитик) содержит блок правил оценки."""
+    from zakupki_parser.api.app.config_schema import build_schema
+
+    schema = build_schema(ServiceConfig)
+    scoring = next(f for f in schema if f["key"] == "scoring")
+    assert scoring["kind"] == "object"
+    keys = {sub["key"] for sub in scoring["fields"]}
+    assert {"embedding_filter_threshold", "giga_embedding_alpha", "num_refine_rounds"} <= keys
+
+
+def test_score_ops_schema_has_no_secrets_and_expected_fields() -> None:
+    """Форма «Скоринг-сервис» (devops): инфраструктура без секретов."""
+    from zakupki_parser.api.app.config_schema import build_schema
+    from zakupki_parser.config.models import ScoringOpsConfig
+
+    schema = build_schema(ScoringOpsConfig)
+    keys = {f["key"] for f in schema}
+    assert {"llm_base_url", "llm_model", "score_use_stub", "giga_base_url"} <= keys
+    # Секреты не выводятся в форму (управляются через env).
+    assert not (keys & {"llm_api_key", "giga_client_id", "giga_client_secret", "auth_token"})

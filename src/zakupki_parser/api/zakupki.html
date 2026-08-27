@@ -50,6 +50,7 @@
       <button id="tab-monitor">Параметры мониторинга</button>
       <button id="tab-prompts">Промпты</button>
       <button id="tab-refs">Справочники</button>
+      <button id="tab-scoreops">Скоринг-сервис</button>
       <button id="tab-cfgops">Конфигурация</button>
       <button id="tab-logcfg">Управление логами</button>
       <button id="tab-logs">Логи</button>
@@ -350,6 +351,19 @@
       </table>
       <div class="empty" id="users-empty" style="display:none;">Пользователей нет</div>
     </div>
+  </div>
+  <div id="view-scoreops" style="display:none;">
+    <div class="panel">
+      <div class="panel-title" title="config_score_ops.yaml">Скоринг-сервис</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <button class="primary" id="scoreops-save" title="Сохранить конфигурацию scoring_service. Изменения применяются при следующем старте сервиса. Секреты (ключи LLM/Giga/токены) управляются через env и в форме не редактируются.">Сохранить</button>
+        <button id="scoreops-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="scoreops-reload">Отменить изменения</button>
+        <span id="scoreops-status" class="muted"></span>
+      </div>
+    </div>
+    <div id="scoreops-form"></div>
+    <textarea id="scoreops-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
   </div>
   <div id="view-cfgops" style="display:none;">
     <div class="panel">

@@ -47,6 +47,24 @@ class _OkParser:
     async def get_active_client(self, internal_token: str | None = None) -> dict:
         return {"competencies": "test competencies"}
 
+    async def get_scoring_config(self, internal_token: str | None = None) -> dict:
+        # Без аналитических переопределений: scorer собирается из базовых настроек.
+        return {}
+
+
+class _NoCompetenciesParser(_OkParser):
+    """Имитация парсера без компетенций активного профиля (скоринг невозможен)."""
+
+    async def get_active_client(self, internal_token: str | None = None) -> dict:
+        return {"competencies": ""}
+
+
+class _AnalystConfigParser(_OkParser):
+    """Имитация парсера, отдающего аналитические скор-настройки."""
+
+    async def get_scoring_config(self, internal_token: str | None = None) -> dict:
+        return {"embedding_filter_threshold": 0.5, "giga_embedding_alpha": 0.25}
+
 
 class _TimeoutScorer:
     """Имитация LLM-таймаута (openai.APITimeoutError)."""
@@ -129,10 +147,37 @@ async def test_http_404_drops_job(worker_queue) -> None:
     assert await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:7") is None
 
 
+async def test_missing_competencies_drops_job_without_file_fallback(worker_queue) -> None:
+    """Без компетенций активного профиля закупка не скорится файловым профилем."""
+    worker = worker_queue
+    worker._parser = _NoCompetenciesParser()
+    assert worker._queue._client is not None
+    await worker._queue.enqueue(77, 1.0)
+    await worker._process_once()
+    # Компетенции не заданы: задача снимается, файловый профиль-фallback НЕ используется.
+    assert await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:77") is None
+    results = worker._queue._settings.results_key
+    assert await worker._queue._client.llen(results) == 0
+
+
+async def test_scorer_applies_analyst_scoring_config(worker_queue) -> None:
+    """Scorer собирается под аналитические скор-настройки из парсера."""
+    worker = worker_queue
+    worker._parser = _AnalystConfigParser()
+    assert worker._queue._client is not None
+    scorer = await worker._ensure_scorer()
+    assert scorer._settings.embedding_filter_threshold == 0.5
+    assert scorer._settings.giga_embedding_alpha == 0.25
+    # Тот же snapshot — scorer не пересобирается.
+    assert await worker._ensure_scorer() is scorer
+
+
 async def test_llm_timeout_requeues_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _OkParser()
     worker._scorer = _TimeoutScorer()
+    # Snapshot «base» (пустые переопределения): _ensure_scorer не пересобирает fake.
+    worker._scoring_snapshot = "base"
     assert worker._queue._client is not None
     await worker._queue.enqueue(306, 1781072448.0)
     await worker._process_once()
@@ -151,6 +196,7 @@ async def test_llm_timeout_dropped_after_max_attempts(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _OkParser()
     worker._scorer = _TimeoutScorer()
+    worker._scoring_snapshot = "base"
     assert worker._queue._client is not None
     # До обработки уже было llm_retry_max_attempts неудач.
     for _ in range(worker._settings.llm_retry_max_attempts):
@@ -167,6 +213,7 @@ async def test_llm_rejection_drops_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _OkParser()
     worker._scorer = _RejectedScorer()
+    worker._scoring_snapshot = "base"
     assert worker._queue._client is not None
     await worker._queue.enqueue(400, 1.0)
     await worker._process_once()

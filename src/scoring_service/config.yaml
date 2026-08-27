@@ -76,7 +76,10 @@ giga_verify_ssl: true
 # БЕЗ исключений, см. profile.render_profile_embedding). При изменении состава
 # этого текста или профиля перекалибруйте порог на исторической выборке
 # (share score_method=sim) до раскатки.
-embedding_filter_threshold: 0.66
+# Значение здесь — фоллбэк/дефолт воркера: в runtime переопределяется аналитиком
+# через config_service.yaml -> scoring (эндпоинт /api/config/scoring), применяется
+# при сборе scorer без рестарта.
+embedding_filter_threshold: 0.0
 
 # Заглушка: возвращать score из данных закупки без LLM-пайплайна (пока пайплайн не отлажен)
 score_use_stub: false

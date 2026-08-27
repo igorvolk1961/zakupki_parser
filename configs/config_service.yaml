@@ -30,3 +30,17 @@ deduplicate_requests: true
 search_criteria:
   active_only: false
   deadline_not_expired: false
+scoring:
+  # Порог 0.0 = предварительная фильтрация по векторной близости выключена (как в
+  # src/scoring_service/config.yaml). При включении — перекалибровать на исторической
+  # выборке (доля score_method=sim) после изменения render_profile_embedding.
+  embedding_filter_threshold: 0.0
+  giga_embedding_alpha: 0.0
+  giga_enabled: false
+  num_refine_rounds: 1
+  max_fit_score: 10.0
+  min_fit_score: 0.0
+  score_round_digits: 2
+  normalize_fit_for_score: true
+  tz_review_enabled: true
+  tz_download_timeout: 30.0

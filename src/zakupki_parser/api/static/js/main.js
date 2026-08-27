@@ -21,9 +21,11 @@ import { loadCustomers } from "./customers.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, profileFormDirty } from "./clients.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
 import {
+  loadScoreopsConfig,
   loadOpsConfig,
   loadLogConfig,
   loadParserConfig,
+  scoreopsDirty,
   opsDirty,
   logDirty,
   parserDirty,
@@ -50,6 +52,9 @@ const TAB_LOADERS = {
     if (!promptDirty) loadPromptList();
   },
   refs: loadRefTables,
+  scoreops: () => {
+    if (!scoreopsDirty) loadScoreopsConfig();
+  },
   cfgops: () => {
     if (!opsDirty) loadOpsConfig();
   },
@@ -75,6 +80,7 @@ ALL_TABS.forEach((t) => {
 window.addEventListener("beforeunload", (e) => {
   if (
     monitorDirty ||
+    scoreopsDirty ||
     opsDirty ||
     logDirty ||
     parserDirty ||

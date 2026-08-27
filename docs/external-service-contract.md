@@ -109,6 +109,8 @@ Content-Type: application/json
 выполняет парсер по порогам `config_score.yaml`. `sim` — предварительная
 фильтрация сервиса скоринга по векторной близости (близость ниже порога
 `embedding_filter_threshold`): LLM не выполнялся, `score=0` и `fit_score=0`.
+Порог задаётся аналитиком в `config_service.yaml -> scoring` (вкладка «Параметры
+мониторинга`) и применяется воркером через `GET /api/config/scoring`.
 
 ---
 

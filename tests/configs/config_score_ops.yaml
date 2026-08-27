@@ -1,0 +1,17 @@
+# Инфраструктурная конфигурация scoring_service (devops).
+llm_base_url: "https://api.openai.com/v1"
+llm_model: "gpt-4o-mini"
+llm_temperature: 0.0
+llm_request_timeout: 45.0
+llm_max_retries: 1
+llm_retry_max_attempts: 3
+llm_retry_backoff_seconds: 5.0
+parser_retry_backoff_seconds: 5.0
+score_use_stub: false
+giga_base_url: "https://gigachat.devices.sberbank.ru/api/v1"
+giga_embeddings_model: "EmbeddingsGigaR"
+giga_auth_url: "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+giga_auth_scope: "GIGACHAT_API_PERS"
+giga_timeout_seconds: 30.0
+giga_min_token_ttl_seconds: 60.0
+giga_verify_ssl: true

@@ -25,6 +25,7 @@ from zakupki_parser.config.models import (
     OpsConfig,
     ParserConfig,
     ScoreConfig,
+    ScoringOpsConfig,
     ServiceConfig,
 )
 
@@ -49,6 +50,7 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     ops_data = _load_yaml(base / CONFIG_FILES["ops"])
     logging_data = _load_yaml(base / CONFIG_FILES["logging"])
     score_data = _load_yaml(base / CONFIG_FILES["score"])
+    scoring_ops_data = _load_yaml(base / CONFIG_FILES["scoring_ops"])
 
     # chat_id каналов можно задать из env (как и токены) — подставляем ДО
     # валидации, т.к. включённый бэкенд без chat_id — ошибка конфигурации.
@@ -63,6 +65,7 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     logging_model = LoggingConfig.model_validate(logging_data)
     dom_model = DomConfig.model_validate(dom_data)
     score_model = ScoreConfig.model_validate(score_data)
+    scoring_ops_model = ScoringOpsConfig.model_validate(scoring_ops_data)
     ops_model = OpsConfig.model_validate(ops_data)
 
     # Относительный путь файла лога — относительно корня проекта (родителя configs).
@@ -90,4 +93,5 @@ def load_config(configs_dir: str | Path) -> AppConfig:
         ops=ops_model,
         logging=logging_model,
         score=score_model,
+        scoring_ops=scoring_ops_model,
     )

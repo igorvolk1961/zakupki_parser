@@ -170,6 +170,13 @@ verdict — дорого, используйте на ограниченном �
 `SCORE_*` env → `.env` → `config.yaml` → значения по умолчанию. Путь к файлу задаётся
 env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 
+**Аналитические** правила оценки (порог векторной близости, вес ветки, refine-итерации,
+шкала Fit, уточнение по ТЗ) задаются в парсере — `config_service.yaml -> scoring` (вкладка
+«Параметры мониторинга», роль аналитик) и применяются воркером в runtime через
+`GET /api/config/scoring` (без рестарта). Значения в этом `config.yaml` — лишь фоллбэк
+на случай недоступности парсера. **Инфраструктурные** параметры (LLM-провайдер, Giga,
+очереди, `score_use_stub`) — вкладка «Скоринг-сервис» (devops, `config_score_ops.yaml`).
+
 | Переменная | Назначение |
 |---|---|
 | `SCORE_LLM_BASE_URL` / `SCORE_LLM_API_KEY` / `SCORE_LLM_MODEL` | OpenAI-совместимая LLM |
@@ -180,7 +187,7 @@ env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 | `SCORE_NUM_REFINE_ROUNDS` | число итераций refine при `verdict=reject` |
 | `SCORE_USE_STUB` | заглушка: возвращать score, уже присутствующий в данных закупки, без LLM-пайплайна (по умолчанию `false`) |
 | `SCORE_NORMALIZE_FIT_FOR_SCORE` | приводить Fit (0–10) к шкале 0–1 при расчёте Score (по умолчанию `true`) |
-| `SCORE_EMBEDDING_FILTER_THRESHOLD` | порог предварительной фильтрации по векторной близости (по умолчанию `0.66`; `<= 0` — фильтрация выключена) |
+| `SCORE_EMBEDDING_FILTER_THRESHOLD` | фоллбэк порога предварительной фильтрации по векторной близости (`<= 0` — выключена); в runtime переопределяется `config_service.yaml -> scoring` |
 | `SCORE_LLM_REQUEST_TIMEOUT` / `SCORE_LLM_MAX_RETRIES` | таймаут одного LLM-запроса (сек) и число повторов на уровне SDK |
 | `SCORE_LLM_RETRY_MAX_ATTEMPTS` / `SCORE_LLM_RETRY_BACKOFF_SECONDS` | лимит возвратов задачи в очередь при транзиентном сбое LLM-провайдера и пауза перед повтором (по умолчанию `3` / `5.0`) |
 | `SCORE_AUTH_TOKEN` | опциональный Bearer-токен для `POST /score` (пусто = открыто) |

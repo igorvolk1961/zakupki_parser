@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
+from typing import Any
 
 import httpx
 import openai
@@ -17,8 +19,8 @@ import openai
 from scoring_common.parser_api import ParserApiClient
 from scoring_common.queue import StageQueue
 from scoring_service.profile import ProfileTexts
-from scoring_service.scoring import build_scorer
-from scoring_service.settings import Settings
+from scoring_service.scoring import Scorer, build_scorer
+from scoring_service.settings import Settings, apply_scoring_overrides
 
 logger = logging.getLogger(__name__)
 
@@ -31,41 +33,76 @@ class ScoringWorker:
         # Один run_id на всё время жизни воркера: все обработанные им задания
         # объединяются в одну LangFuse-сессию (одни гиперпараметры/промпты).
         self._run_id = uuid.uuid4().hex
-        self._scorer = build_scorer(settings)
+        # Скорer строится отложенно из актуальных аналитических скор-настроек
+        # (см. _ensure_scorer): при изменении config_service.yaml -> scoring парсер
+        # отдаёт новый snapshot, воркер пересобирает scorer без рестарта.
+        self._scorer: Scorer | None = None
+        self._scoring_snapshot: str | None = None
         self._queue = StageQueue(settings)
         self._parser = ParserApiClient(
             settings.parser_api_url, internal_token=settings.parser_internal_token
         )
-        self._competencies = settings.profile_texts()
         # Кэш нормализации профиля активного клиента: значение (str/dict) → ProfileTexts.
         # Профиль постоянен в рамках жизни воркера — не пересобираем его на каждую закупку.
+        # Fallback на конкретный профиль из файла НЕ используется: компетенции берутся
+        # только из активного профиля клиента (парсер). Если профиль недоступен —
+        # задача обрабатывается как ошибка (ретрай/снятие), но не скорится «чужим» профилем.
         self._profile_cache: tuple[object, ProfileTexts] | None = None
 
     async def _resolve_competencies(self) -> ProfileTexts:
-        """Профиль активного клиента (из парсера), fallback — файл.
+        """Профиль активного клиента (из парсера). Без fallback на файл.
 
         Парсер может отдать структурированный профиль (dict/YAML) или текст;
         нормализуем в пару ``ProfileTexts`` (llm/embedding) через ``profile_to_texts``.
+        Ошибки ``httpx.HTTPStatusError``/``httpx.TransportError`` прокидываются наверх —
+        там они обрабатываются как сбой парсера (ретрай/снятие). Если компетенции не
+        удалось извлечь — поднимаем ошибку: закупка не скорится без контекста компетенций.
         """
         from scoring_service.profile import profile_to_texts
 
-        try:
-            client = await self._parser.get_active_client(
-                internal_token=self._settings.parser_internal_token
+        client = await self._parser.get_active_client(
+            internal_token=self._settings.parser_internal_token
+        )
+        raw = (client or {}).get("competencies")
+        if self._profile_cache is not None and self._profile_cache[0] == raw:
+            return self._profile_cache[1]
+        texts = profile_to_texts(raw)
+        if texts is None or not texts.llm:
+            raise RuntimeError(
+                "Компетенции активного профиля не заданы — скоринг без контекста невозможен"
             )
-            raw = (client or {}).get("competencies")
-            if self._profile_cache is not None and self._profile_cache[0] == raw:
-                return self._profile_cache[1]
-            texts = profile_to_texts(raw)
-            if texts is not None and texts.llm:
-                self._profile_cache = (raw, texts)
-                return texts
-        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-            logger.warning(
-                "Не удалось получить активный клиентский профиль (%s) — компетенции из файла",
-                exc,
-            )
-        return self._competencies
+        self._profile_cache = (raw, texts)
+        return texts
+
+    def _scoring_snapshot_key(self, snapshot: dict[str, Any] | None) -> str:
+        """Ключ сравнения скор-настроек: пересобираем scorer только при изменении."""
+        if not snapshot:
+            return "base"
+        return json.dumps(snapshot, sort_keys=True, ensure_ascii=False, default=str)
+
+    async def _ensure_scorer(self) -> Scorer:
+        """Вернуть scorer, собранный под актуальные аналитические скор-настройки.
+
+        Snapshot берётся из парсера (``/api/config/scoring``, TTL-кэш). При изменении
+        конфигурации scorer пересобирается. Ошибки парсера прокидываются наверх —
+        там обрабатываются как сбой парсера (ретрай/снятие).
+        """
+        snapshot = await self._parser.get_scoring_config(
+            internal_token=self._settings.parser_internal_token
+        )
+        key = self._scoring_snapshot_key(snapshot)
+        if self._scorer is not None and key == self._scoring_snapshot:
+            return self._scorer
+        effective = apply_scoring_overrides(self._settings, snapshot)
+        self._scorer = build_scorer(effective)
+        self._scoring_snapshot = key
+        logger.info(
+            "scorer построен под скор-настройки (filter_threshold=%s, alpha=%s, refine=%s)",
+            effective.embedding_filter_threshold,
+            effective.giga_embedding_alpha,
+            effective.num_refine_rounds,
+        )
+        return self._scorer
 
     async def run_forever(self) -> None:
         await self._queue.connect()
@@ -88,7 +125,8 @@ class ScoringWorker:
             await self._queue.claim_processing(procurement_id, priority)
             record = await self._parser.get_procurement(procurement_id)
             competencies = await self._resolve_competencies()
-            result = self._scorer.score(record, competencies, procurement_id, run_id=self._run_id)
+            scorer = await self._ensure_scorer()
+            result = scorer.score(record, competencies, procurement_id, run_id=self._run_id)
             await self._queue.publish_result(
                 {
                     "procurement_id": procurement_id,

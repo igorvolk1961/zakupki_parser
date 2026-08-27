@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import (
@@ -203,6 +203,39 @@ class Settings(BaseSettings):
     def competencies(self) -> str:
         """Обратная совместимость: отрендеренный профиль поставщика."""
         return self.profile_text()
+
+
+# Поля Settings, которые переопределяются аналитиком (config_service.yaml -> scoring)
+# и применяются воркером без рестарта. Ключи совпадают с именами полей Settings —
+# snapshot из /api/config/scoring прокидывается как есть.
+SCORING_TUNABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "embedding_filter_threshold",
+        "giga_embedding_alpha",
+        "giga_enabled",
+        "num_refine_rounds",
+        "max_fit_score",
+        "min_fit_score",
+        "score_round_digits",
+        "normalize_fit_for_score",
+        "tz_review_enabled",
+        "tz_download_timeout",
+    }
+)
+
+
+def apply_scoring_overrides(settings: Settings, scoring: dict[str, Any] | None) -> Settings:
+    """Вернуть ``settings`` с применёнными аналитическими скор-настройками.
+
+    ``scoring`` — snapshot ``ServiceConfig.scoring`` (из парсера). Копируются только
+    известные поля; пустой/неизвестный snapshot не меняет базовые настройки.
+    """
+    if not scoring:
+        return settings
+    update = {k: v for k, v in scoring.items() if k in SCORING_TUNABLE_FIELDS and v is not None}
+    if not update:
+        return settings
+    return settings.model_copy(update=update)
 
 
 def get_settings() -> Settings:
