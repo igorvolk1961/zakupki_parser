@@ -27,6 +27,9 @@ from zakupki_parser.api.app.schemas import (
     ScoreUpdate,
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
+from zakupki_parser.browser.manager import BrowserManager
+from zakupki_parser.parser.detail_api import fetch_api_details
+from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.storage.db import User
 
 logger = logging.getLogger(__name__)
@@ -65,6 +68,60 @@ CSV_COLUMNS = [
     "score_method",
     "is_active",
 ]
+
+
+async def _fetch_details_for_score(state: Any, row: Any) -> None:
+    """Досборка деталей площадки ПОСЛЕ получения результата скоринга (BR-08).
+
+    Вызывается из обработчика ``POST /api/procurements/{id}/score`` ПЕРЕД записью
+    результата в БД: детали (ОКПД2/файлы/ИНН/статус/НМЦК) догружаются через
+    существующий интерфейс ``fetch_api_details`` с браузерной страницей (как в
+    обходе парсера — ``page.request``, тот же браузер/сессия). Контекст запроса
+    деталей (``detail_api``, need_id и т.п.) был сохранён при персисте на уровне
+    списка. Сбой деталей (напр. HTTP 402 от API mos.ru) НЕ роняет обработчик
+    скоринга: карточка остаётся на уровне списка, результат скоринга всё равно
+    записывается.
+    """
+    if state.repository is None:
+        return
+    platform = (state.cfg.dom.platforms or {}).get(row.platform_id)
+    if platform is None or not platform.detail.api_format:
+        return
+    api_fields = row.detail_api
+    if not api_fields:
+        return
+    browser = BrowserManager(state.cfg.parser.browser)
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        try:
+            detail_vars, files, api_inn = await fetch_api_details(
+                page, platform, {"number": row.number}, api_fields
+            )
+        finally:
+            await browser.save_session()
+        record = dict(row.detail_json or {})
+        # Не затираем значения уровня списка значением None (например, НМЦК,
+        # если API не отдал поле) — как в основном пути парсера.
+        record.update({k: v for k, v in detail_vars.items() if v is not None})
+        if files:
+            record["files_json"] = files
+        if api_inn and not record.get("inn"):
+            record["inn"] = api_inn
+        record["detail_json"] = json_safe(record)
+        await state.repository.update_details(row.id, record)
+        logger.info(
+            "Закупка %s: детали площадки догружены перед записью результата скоринга",
+            row.number,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Закупка %s: детали площадки не догружены (карточка остаётся на уровне списка): %s",
+            row.number,
+            exc,
+        )
+    finally:
+        await browser.close()
 
 
 def build_procurements_router(ctx: ApiContext) -> APIRouter:
@@ -241,6 +298,10 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             body.score_method,
             body.fit_score,
         )
+        # BR-08: детали площадки догружаются ПОСЛЕ получения результата скоринга,
+        # НО ПЕРЕД записью результата в БД — единый интерфейс fetch_api_details
+        # (лёгкий APIRequestContext, без DOM/браузера).
+        await _fetch_details_for_score(state, existing)
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт профилю (score_method не меняем).
             await _repo().update_rag_report(procurement_id, body.profile_id, body.rag_report)
