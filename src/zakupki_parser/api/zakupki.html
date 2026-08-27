@@ -51,7 +51,7 @@
       <button id="tab-prompts">Промпты</button>
       <button id="tab-refs">Справочники</button>
       <button id="tab-cfgops">Конфигурация</button>
-      <button id="tab-logcfg">Управление Логи</button>
+      <button id="tab-logcfg">Управление логами</button>
       <button id="tab-logs">Логи</button>
       <button id="tab-parser">Парсер</button>
     </div>
@@ -366,7 +366,7 @@
   </div>
   <div id="view-logcfg" style="display:none;">
     <div class="panel">
-      <div class="panel-title" title="config_log.yaml">Управление Логи</div>
+      <div class="panel-title" title="config_log.yaml">Управление логами</div>
       <div class="toolbar" style="margin-bottom:0;">
         <button class="primary" id="logcfg-save" title="Сохранить конфигурацию логирования. Изменения применяются при следующем старте сервиса.">Сохранить</button>
         <button id="logcfg-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
@@ -407,9 +407,16 @@
   </div>
   <div id="view-parser" style="display:none;">
     <div class="panel">
-      <div class="panel-title" title="config_parser.yaml — только чтение. Параметры парсера/браузера изменяются только в файле конфигурации; здесь — справочный просмотр.">Парсер</div>
+      <div class="panel-title" title="config_parser.yaml">Парсер</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <button class="primary" id="parser-save" title="Сохранить конфигурацию парсера. Изменения применяются при следующем старте сервиса.">Сохранить</button>
+        <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="parser-reload">Отменить изменения</button>
+        <span id="parser-status" class="muted"></span>
+      </div>
     </div>
     <div id="parser-form"></div>
+    <textarea id="parser-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
   </div>
 </main>
 

@@ -20,7 +20,14 @@ import {
 import { loadCustomers } from "./customers.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, profileFormDirty } from "./clients.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
-import { loadOpsConfig, loadLogConfig, loadParserConfig, opsDirty, logDirty } from "./ops_config.js";
+import {
+  loadOpsConfig,
+  loadLogConfig,
+  loadParserConfig,
+  opsDirty,
+  logDirty,
+  parserDirty,
+} from "./ops_config.js";
 import { loadUsers, closeUserModal } from "./users.js";
 import { loadLogs } from "./logs.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
@@ -50,7 +57,9 @@ const TAB_LOADERS = {
     if (!logDirty) loadLogConfig();
   },
   logs: loadLogs,
-  parser: loadParserConfig,
+  parser: () => {
+    if (!parserDirty) loadParserConfig();
+  },
 };
 
 ALL_TABS.forEach((t) => {
@@ -68,6 +77,7 @@ window.addEventListener("beforeunload", (e) => {
     monitorDirty ||
     opsDirty ||
     logDirty ||
+    parserDirty ||
     promptDirty ||
     profileFormDirty() ||
     refDirty()

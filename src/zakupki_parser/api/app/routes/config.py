@@ -1,13 +1,13 @@
 """Эндпоинты конфигурации: config_service.yaml (аналитик), config_ops.yaml,
-config_log.yaml, config_parser.yaml (devops, только чтение) и редактор промптов.
+config_log.yaml, config_parser.yaml (devops) и редактор промптов.
 
 Вкладки:
 - «Параметры мониторинга» (аналитик) — config_service.yaml (форма + расширенный
   режим YAML);
 - «Промпты» (аналитик) — файлы промптов сервисов;
 - «Конфигурация» (devops) — config_ops.yaml (форма + расширенный режим YAML);
-- «Управление Логи» (devops) — config_log.yaml (форма + расширенный режим YAML);
-- «Парсер» (devops) — config_parser.yaml, только чтение.
+- «Управление логами» (devops) — config_log.yaml (форма + расширенный режим YAML);
+- «Парсер» (devops) — config_parser.yaml (форма + расширенный режим YAML).
 
 Секреты (auth.secret, токены бэкендов) в YAML не пишутся и в форме не
 редактируются — они управляются через env. Включение авторизации
@@ -441,7 +441,7 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         validate=_validate_ops,
     )
 
-    # --- config_log.yaml: «Управление Логи» (devops) ---------------------
+    # --- config_log.yaml: «Управление логами» (devops) ---------------------
     def _validate_log(new_log: LoggingConfig) -> None:
         """Путь файла лога — только относительный (без выхода за корень проекта)."""
         file = new_log.file
@@ -465,19 +465,39 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         validate=_validate_log,
     )
 
-    # --- config_parser.yaml: «Парсер» (devops, только чтение) -------------
+    # --- config_parser.yaml: «Парсер» (devops) ---------------------------
+    def _prepare_parser(body: dict[str, Any]) -> None:
+        """Текстовое поле «диапазон задержек» превращается в кортеж чисел.
+
+        Веб-форма отдаёт ``delay_between_actions_seconds`` строкой «4.0, 12.0»;
+        модель ожидает ``tuple[float, float]`` — преобразуем до валидации.
+        """
+        browser = body.get("browser")
+        if isinstance(browser, dict) and isinstance(
+            browser.get("delay_between_actions_seconds"), str
+        ):
+            raw = browser["delay_between_actions_seconds"]
+            try:
+                parts = [float(x.strip()) for x in raw.replace(",", " ").replace(";", " ").split()]
+                browser["delay_between_actions_seconds"] = parts[:2]
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Диапазон задержек: ожидается два числа через запятую (например, 4, 12)",
+                ) from exc
+
     _register_config_endpoints(
         router,
         state=state,
         api_path="/api/config/parser",
         schema_path="/api/config/parser/schema",
-        raw_path=None,
+        raw_path="/api/config/parser/raw",
         filename="config_parser.yaml",
         model=ParserConfig,
         public=lambda m: m.model_dump(),
         require=require_devops,
         state_setter=lambda m: setattr(state.cfg, "parser", m),
-        read_only=True,
+        prepare=_prepare_parser,
     )
 
     _register_prompt_routes(

@@ -1,15 +1,12 @@
 "use strict";
 
-// Вкладки devops: «Конфигурация» (config_ops.yaml), «Управление Логи»
-// (config_log.yaml) — форма + расширенный режим; «Парсер» (config_parser.yaml) —
-// только чтение.
-import { $ } from "./utils.js";
-import { api } from "./api.js";
-import { renderSchemaForm } from "./form.js";
+// Вкладки devops: «Конфигурация» (config_ops.yaml), «Управление логами»
+// (config_log.yaml) и «Парсер» (config_parser.yaml) — форма + расширенный режим.
 import { createConfigView } from "./config_view.js";
 
 export let opsDirty = false;
 export let logDirty = false;
+export let parserDirty = false;
 
 const opsView = createConfigView("cfgops", "config/ops", {
   onDirty: (v) => {
@@ -21,6 +18,11 @@ const logView = createConfigView("logcfg", "config/log", {
     logDirty = v;
   },
 });
+const parserView = createConfigView("parser", "config/parser", {
+  onDirty: (v) => {
+    parserDirty = v;
+  },
+});
 
 export function loadOpsConfig() {
   return opsView.load();
@@ -30,10 +32,6 @@ export function loadLogConfig() {
   return logView.load();
 }
 
-export async function loadParserConfig() {
-  const [schemaData, cfg] = await Promise.all([
-    api("config/parser/schema"),
-    api("config/parser"),
-  ]);
-  renderSchemaForm($("#parser-form"), schemaData.schema, cfg, { readOnly: true });
+export function loadParserConfig() {
+  return parserView.load();
 }
