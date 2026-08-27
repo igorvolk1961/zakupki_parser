@@ -28,6 +28,11 @@ def test_service_schema_kinds() -> None:
     assert _find(schema, "default_cutoff_days")["kind"] == "int"
     assert _find(schema, "sort_by_date_only")["kind"] == "bool"
 
+    loop = _find(schema, "profiles_loop_order")
+    assert loop["kind"] == "select"
+    assert set(loop["options"]) == {"platform_then_profile", "profile_then_platform"}
+    assert _find(schema, "deduplicate_requests")["kind"] == "bool"
+
 
 def test_service_schema_platform_options() -> None:
     schema = build_schema(

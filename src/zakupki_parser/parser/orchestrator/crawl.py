@@ -270,7 +270,9 @@ class CrawlMixin(OrchestratorState):
                 number = list_vars.get("number")
                 # Оптимизация повторного прохода: закупка уже в БД — детальную
                 # страницу не открываем (как в DOM-обходе _process_container).
-                if self._is_known(number):
+                # Для мультипрофильного прохода пропуск невозможен: запись нужна
+                # каждому профилю (у другого профиля может ещё не быть оценки).
+                if self._is_known(number) and not self._multi_run:
                     logger.info("Закупка %s уже в БД — пропуск", number)
                     page_known += 1
                     crawl_known += 1

@@ -19,8 +19,8 @@ from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker
 from zakupki_parser.config.models import AppConfig, PlatformDom, SearchCriteria
 from zakupki_parser.notify import Notifier
+from zakupki_parser.parser.orchestrator.context import CrawlUnit, ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
-from zakupki_parser.storage.db import Profile
 from zakupki_parser.storage.repository import ProcurementRepository
 
 
@@ -41,9 +41,13 @@ class OrchestratorState:
     _transport: ScoringTransportClient | None
     _inn_cache: dict[str, str | None]
     _known_numbers: set[str] | None
-    _client_profile: Profile | None
-    _client_keywords: list[str]
-    _client_exclusion_words: list[str]
+    # Профили текущего поискового обхода (мультипрофильная ветка веерной фильтрации).
+    _profile_ctxs: list[ProfileRunContext]
+    _current_unit: CrawlUnit | None
+    # Несколько профилей в проходе: пропуск «уже в БД» небезопасен (records площадки
+    # общие, а новый профиль должен увидеть и обработать уже сохранённые закупки).
+    _multi_run: bool
+    _by_relevance: bool
     _platform_stats: dict[str, int]
     _normalized_active_statuses: set[str]
 

@@ -15,6 +15,7 @@ from zakupki_parser.storage.db import (
     Profile,
     ProfileExperience,
     ProfileLicense,
+    User,
 )
 from zakupki_parser.storage.repository.base import RepositoryMixin
 
@@ -68,6 +69,29 @@ class ProfileMixin(RepositoryMixin):
             rows = list((await session.execute(stmt)).scalars().all())
             total = int((await session.execute(count_stmt)).scalar_one())
         return rows, total
+
+    async def list_enabled_profiles_for_active_users(self) -> list[Profile]:
+        """Все включённые профили незаблокированных пользователей.
+
+        Возвращает ``Profile.enabled = true`` для пользователей с ролью ``user``
+        (профили принадлежат обычным пользователям, BR-07) и со статусом
+        ``active`` (не ``blocked``). Это рабочий набор профилей, которые парсер
+        обходит при постоянном мониторинге: включая не выбранные пользователем
+        (is_active=false), но только включённые (enabled=true). Постоянные
+        администраторы/devops, не имеющие профилей, не учитываются.
+        """
+        stmt = (
+            select(Profile)
+            .join(User, User.id == Profile.user_id)
+            .where(
+                Profile.enabled.is_(True),
+                User.status == "active",
+                User.roles.contains(["user"]),
+            )
+            .order_by(User.id.asc(), Profile.id.asc())
+        )
+        async with self._db.session() as session:
+            return list((await session.execute(stmt)).scalars().all())
 
     async def get_active_profile(self, user_id: int) -> Profile | None:
         """Активный профиль пользователя (per-user состояние).

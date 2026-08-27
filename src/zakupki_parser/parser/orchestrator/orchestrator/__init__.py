@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from playwright.async_api import Locator, Page
 
@@ -21,13 +21,13 @@ from zakupki_parser.config.models import AppConfig, PlatformDom, SearchCriteria
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.orchestrator.activity import ActivityMixin
+from zakupki_parser.parser.orchestrator.context import CrawlUnit, ProfileRunContext
 from zakupki_parser.parser.orchestrator.crawl import CrawlMixin
 from zakupki_parser.parser.orchestrator.persistence import PersistenceMixin
 from zakupki_parser.parser.orchestrator.processing import RecordProcessingMixin
 from zakupki_parser.parser.orchestrator.stop import StopMixin
 from zakupki_parser.parser.organization import resolve_inn
 from zakupki_parser.scoring import ScoringTransportClient
-from zakupki_parser.storage.db import Profile
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -80,11 +80,12 @@ class Orchestrator(
         # Номера уже сохранённых закупок площадки — оптимизация повторного прохода
         # (relevance-режим): детальные страницы известных закупок не открываем.
         self._known_numbers: set[str] | None = None
-        # Активный профиль (контекст клиентской фильтрации) и его слова
-        # (таблица keywords, канонический источник, R9). Задаются в ``run``.
-        self._client_profile: Profile | None = None
-        self._client_keywords: list[str] = []
-        self._client_exclusion_words: list[str] = []
+        # Профили текущего поискового обхода (мультипрофильная ветка веерной
+        # фильтрации, BR-07): задаются в ``run`` перед каждым ``_crawl``.
+        self._profile_ctxs: list[ProfileRunContext] = []
+        self._current_unit: CrawlUnit | None = None
+        self._multi_run = False
+        self._by_relevance = False
         # Агрегированная статистика прохода площадки (получено/сохранено/известно).
         self._platform_stats: dict[str, int] = {"received": 0, "saved": 0, "known": 0}
 
@@ -125,7 +126,9 @@ class Orchestrator(
 
         # Оптимизация повторного прохода: закупка уже в БД — детальную страницу
         # не открываем (upsert не обновляет известные записи, поведение не меняется).
-        if self._is_known(number):
+        # Для мультипрофильного прохода пропуск невозможен: запись нужна каждому
+        # профилю (у другого профиля может ещё не быть оценки).
+        if self._is_known(number) and not self._multi_run:
             logger.info("Закупка %s уже в БД — пропуск", number)
             return True, number, False
 
@@ -158,8 +161,20 @@ class Orchestrator(
 
         return await self._process_list_record(page, list_vars, detail_url, number)
 
-    async def run(self, page: Page) -> None:
-        """Запускает проход по площадке на заданной ``page``."""
+    async def run(
+        self,
+        page: Page,
+        *,
+        profiles: Sequence[ProfileRunContext] | None = None,
+    ) -> None:
+        """Запускает проход по площадке на заданной ``page``.
+
+        ``profiles`` — включённые профили незаблокированных пользователей,
+        обрабатываемые на этой площадке. Если не заданы (``None``) — сохраняется
+        прежнее поведение: активный профиль первого пользователя (dev/тесты).
+        Идентичные запросы (идентичные критерии) разных профилей к одной площадке
+        объединяются в один обход с веерной фильтрацией (BR-07).
+        """
         if not self._site_cb.allow_request():
             raise CircuitOpenError("Сайт недоступен (circuit open)")
 
@@ -168,30 +183,17 @@ class Orchestrator(
         by_relevance = (not self._cfg.service.sort_by_date_only) and bool(
             self._platform.sort and self._platform.sort.by_relevance
         )
-        if by_relevance:
-            # Сортировка по релевантности: по дате НЕ отсекаем, обходим до конца пагинации.
-            cutoff = None
-            logger.info(
-                "Площадка %s: сортировка по релевантности — фильтрация по дате отключена",
-                self._platform_id,
-            )
-        elif self._repository is None:
-            # БД недоступна (repository=None) — порог взять неоткуда, кроме default_cutoff_days.
-            cutoff = self._now - timedelta(days=self._cfg.service.default_cutoff_days)
+        self._by_relevance = by_relevance
+
+        # Набор профилей-потребителей для этой площадки.
+        explicit = profiles is not None
+        if profiles is not None:
+            run_profiles = [p for p in profiles if self._platform_selects(p)]
         else:
-            # Поле даты стоп-порога: update_date, если площадка его поддерживает
-            # (переменная update_date в карточке списка), иначе publication_date.
-            date_field = (
-                "update_date"
-                if any(v.name == "update_date" for v in self._platform.list_config.variables)
-                else "publication_date"
-            )
-            cutoff = await self._repository.last_processed_date(
-                self._platform_id,
-                self._now,
-                self._cfg.service.default_cutoff_days,
-                field=date_field,
-            )
+            run_profiles = await self._load_legacy_profiles()
+        self._multi_run = len(run_profiles) > 1
+
+        cutoff = await self._compute_cutoff(by_relevance, explicit, run_profiles)
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
         # Оптимизация повторного прохода: грузим номера сохранённых закупок, чтобы
@@ -205,81 +207,30 @@ class Orchestrator(
             )
 
         retry_cfg = self._cfg.parser.retry
-        search = self._platform.search
-        # Активный профиль сервис-аккаунта — контекст КЛИЕНТСКОЙ пост-фильтрации (R9):
-        # ключевые слова НЕ передаются на площадку; серверная фильтрация — только по
-        # кодам ОКПД2 (+ обход «без кода»). Слова читаются из таблицы keywords
-        # (канонический источник, ER: PROFILE -> KEYWORD).
-        if self._repository is not None:
-            user = await self._repository.first_user()
-            profile = (
-                await self._repository.get_active_profile(user.id) if user is not None else None
-            )
-            if profile is not None:
-                kw = await self._repository.get_profile_keywords(profile.id)
-                self._client_keywords = kw["keywords"]
-                self._client_exclusion_words = kw["exclusion_words"]
-            else:
-                self._client_keywords = []
-                self._client_exclusion_words = []
-        else:
-            profile = None
-            self._client_keywords = []
-            self._client_exclusion_words = []
-        self._client_profile = profile
-
         # R9: ключевые слова не участвуют в серверном запросе — обходы строятся
-        # только по кодам ОКПД2 (+ обход «без кода», только при
-        # search_criteria.no_code_search). Критерии поиска берутся из активного
-        # профиля (профиль → колонки okpd_codes/nmck_min/nmck_max); выбор по
-        # состоянию (active_only) — только из глобального config_service.yaml
-        # (search_criteria.active_only). Без профиля (dev/тесты) — fallback на
-        # глобальный config_service.yaml.
-        if self._client_profile is not None:
-            base = SearchCriteria(
-                okpd_codes=self._client_profile.okpd_codes or [],
-                nmck_min=self._client_profile.nmck_min,
-                nmck_max=self._client_profile.nmck_max,
-                active_only=self._cfg.service.search_criteria.active_only,
-            )
-        else:
-            base = self._cfg.service.search_criteria.model_copy()
-        # Обход по кодам ОКПД2 имеет смысл, только если площадка реально фильтрует
-        # по кодам (есть маппинг okpd2): иначе коды-only обход вернул бы весь список
-        # (например roseltorg, где okpd2 не подключён).
-        okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
-        # Обход «без кода» (R9): клиентская фильтрация словами профиля. Выполняется
-        # ОТДЕЛЬНЫМ проходом по всему реестру площадки (фильтр okpdPaths не ставится —
-        # пустой список кодов площадка воспринимает как «любой код»), чтобы не терять
-        # закупки, подходящие по словам, но вне заданных кодов ОКПД2. По умолчанию
-        # ВЫКЛЮЧЕН: запускается только при глобальном флаге config_service.yaml
-        # search_criteria.no_code_search (и наличии позитивных ключевых слов + search).
-        has_positive_keywords = bool(self._client_keywords)
-        no_code_walk = (
-            has_positive_keywords
-            and search is not None
-            and self._cfg.service.search_criteria.no_code_search
-        )
-        if has_positive_keywords and not no_code_walk:
-            logger.info(
-                "Площадка %s: позитивные слова есть, но обход «без кода» выключен "
-                "(search_criteria.no_code_search) — пропущен",
-                self._platform_id,
-            )
+        # только по кодам ОКПД2 (+ обход «без кода»). Критерии берутся из профилей;
+        # выбор по состоянию (active_only) — из глобального config_service.yaml.
+        # Идентичные критерии разных профилей объединяются (дедупликация запросов).
+        units = self._build_units(run_profiles)
 
-        crawled = False
-        if base.okpd_codes and okpd_mapped:
-            await self._crawl(page, cutoff, base, by_relevance, retry_cfg)
-            crawled = True
-        if no_code_walk:
-            no_code = base.model_copy(update={"okpd_codes": []})
+        for unit in units:
+            self._current_unit = unit
+            # Профили текущего обхода (веерная фильтрация, R9). Для мультипрофильного
+            # обхода ранний клиентский фильтр и пропуск «уже в БД» отключаются, чтобы
+            # каждый профиль получил запись и сформировал собственную оценку.
+            self._profile_ctxs = unit.profiles
+            scope = "коды ОКПД2: %s" % (unit.criteria.okpd_codes or "весь список")
             logger.info(
-                "Площадка %s: обход «без кода» (клиентская фильтрация словами профиля)",
+                "Площадка %s: обход %s (%s), профилей в обходе: %d",
                 self._platform_id,
+                "«без кода»" if unit.kind == "no_code" else "по кодам",
+                scope,
+                len(unit.profiles),
             )
-            await self._crawl(page, cutoff, no_code, by_relevance, retry_cfg)
-            crawled = True
-        if not crawled:
+            await self._crawl(page, cutoff, unit.criteria, by_relevance, retry_cfg)
+            self._profile_ctxs = []
+
+        if not units:
             logger.warning(
                 "Площадка %s: нет серверного фильтра (коды ОКПД2 не заданы/не подключены) "
                 "и обход «без кода» недоступен — проход пропущен",
@@ -294,6 +245,141 @@ class Orchestrator(
             self._platform_stats["known"],
         )
         self._site_cb.record_success()
+
+    def _platform_selects(self, ctx: ProfileRunContext) -> bool:
+        """True, если профиль относится к этой площадке.
+
+        Ограничение по ``target_etp`` (зарезервировано, сейчас обычно пусто):
+        пустой список — профиль участвует на всех площадках.
+        """
+        etp = set(ctx.profile.target_etp or [])
+        return not etp or self._platform_id in etp
+
+    async def _load_legacy_profiles(self) -> list[ProfileRunContext]:
+        """Прежнее поведение: активный профиль первого пользователя (dev/тесты).
+
+        Возвращает пустой список, если БД недоступна или профиля нет — тогда обход
+        строится по глобальным критериям config_service.yaml (как ``profile=None``).
+        """
+        if self._repository is None:
+            return []
+        user = await self._repository.first_user()
+        if user is None:
+            return []
+        profile = await self._repository.get_active_profile(user.id)
+        if profile is None:
+            return []
+        kw = await self._repository.get_profile_keywords(profile.id)
+        return [
+            ProfileRunContext(
+                profile=profile,
+                keywords=kw["keywords"],
+                exclusion_words=kw["exclusion_words"],
+            )
+        ]
+
+    async def _compute_cutoff(
+        self,
+        by_relevance: bool,
+        explicit: bool,
+        run_profiles: list[ProfileRunContext],
+    ) -> datetime | None:
+        """Стоп-порог по дате для прохода площадки.
+
+        В мультипрофильной ветке (несколько профилей, явный список) используем полное
+        окно ``now - default_cutoff_days`` — иначе новый профиль потерял бы историю
+        (``last_processed_date`` — инкремент от последней записи площадки).
+        """
+        if by_relevance:
+            logger.info(
+                "Площадка %s: сортировка по релевантности — фильтрация по дате отключена",
+                self._platform_id,
+            )
+            return None
+        if self._repository is None or (explicit and len(run_profiles) > 1):
+            return self._now - timedelta(days=self._cfg.service.default_cutoff_days)
+        # Поле даты стоп-порога: update_date, если площадка его поддерживает
+        # (переменная update_date в карточке списка), иначе publication_date.
+        date_field = (
+            "update_date"
+            if any(v.name == "update_date" for v in self._platform.list_config.variables)
+            else "publication_date"
+        )
+        return await self._repository.last_processed_date(
+            self._platform_id,
+            self._now,
+            self._cfg.service.default_cutoff_days,
+            field=date_field,
+        )
+
+    @staticmethod
+    def _criteria_units_key(criteria: SearchCriteria, kind: str) -> tuple[Any, ...]:
+        """Ключ дедупликации обхода: одинаковые запросы к площадке объединяются."""
+        return (
+            kind,
+            tuple(sorted(criteria.okpd_codes)),
+            criteria.nmck_min,
+            criteria.nmck_max,
+            criteria.active_only,
+        )
+
+    def _build_units(self, run_profiles: list[ProfileRunContext]) -> list[CrawlUnit]:
+        """Строит поисковые обходы (``CrawlUnit``) с дедупликацией запросов.
+
+        Для каждого профиля: обход по кодам ОКПД2 (если коды заданы и площадка
+        фильтрует по ним) и/или обход «без кода» (R9). Профили с одинаковыми
+        критериями объединяются в один обход — запрос к площадке выполняется один раз.
+        """
+        search = self._platform.search
+        sc = self._cfg.service.search_criteria
+        okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
+
+        if not run_profiles:
+            # Без профилей (dev/тесты) — единый обход по глобальным критериям конфига.
+            base = sc.model_copy()
+            if base.okpd_codes and okpd_mapped:
+                return [CrawlUnit(criteria=base, kind="codes", profiles=[])]
+            return []
+
+        dedup = self._cfg.service.deduplicate_requests
+        units: dict[tuple[Any, ...], CrawlUnit] = {}
+        unique = 0
+
+        def _emit(
+            key: tuple[Any, ...],
+            criteria: SearchCriteria,
+            kind: Literal["codes", "no_code"],
+            ctx: ProfileRunContext,
+        ) -> None:
+            nonlocal unique
+            if dedup:
+                units.setdefault(key, CrawlUnit(criteria=criteria, kind=kind)).profiles.append(ctx)
+            else:
+                unique += 1
+                units[(key, unique)] = CrawlUnit(criteria=criteria, kind=kind, profiles=[ctx])
+
+        for ctx in run_profiles:
+            base = SearchCriteria(
+                okpd_codes=ctx.profile.okpd_codes or [],
+                nmck_min=ctx.profile.nmck_min,
+                nmck_max=ctx.profile.nmck_max,
+                active_only=sc.active_only,
+            )
+            if base.okpd_codes and okpd_mapped:
+                _emit(self._criteria_units_key(base, "codes"), base, "codes", ctx)
+            # Обход «без кода» (R9): отдельный проход по всему реестру площадки.
+            has_positive = bool(ctx.keywords)
+            no_code_ok = has_positive and search is not None and sc.no_code_search
+            if has_positive and not no_code_ok:
+                logger.info(
+                    "Площадка %s: позитивные слова есть, но обход «без кода» выключен "
+                    "(search_criteria.no_code_search) — пропущен",
+                    self._platform_id,
+                )
+            if no_code_ok:
+                no_code = base.model_copy(update={"okpd_codes": []})
+                _emit(self._criteria_units_key(no_code, "no_code"), no_code, "no_code", ctx)
+        return list(units.values())
 
     def _log_crawl_summary(
         self,

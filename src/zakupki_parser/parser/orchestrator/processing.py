@@ -60,19 +60,23 @@ class RecordProcessingMixin(OrchestratorState):
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
             return False, number, False
 
-        # Ранняя клиентская фильтрация (R9): subject уже есть в карточке списка —
-        # применяем ключевые слова ДО запроса деталей, чтобы не тратить лимиты API
-        # площадки на заведомо неподходящие закупки (например mos.ru HTTP 402).
-        # Если subject в списке пуст — детали открываем, фильтр применится после.
+        ctxs = self._profile_ctxs
+        multi = len(ctxs) > 1
         early_subject = str(list_vars.get("subject") or "")
-        if early_subject and self._client_profile is not None:
-            if not keywords_match(list_vars, self._client_keywords):
+        # Ранняя клиентская фильтрация (R9) — только для одиночного профиля: subject
+        # уже есть в карточке списка, применяем слова ДО запроса деталей, чтобы не
+        # тратить лимиты API площадки на заведомо неподходящие закупки (mos.ru 402).
+        # Для мультипрофильного обхода ранний фильтр невозможен: запись нужна каждому
+        # профилю, слова применяются после получения записи (цикл по ctxs ниже).
+        if early_subject and not multi and ctxs:
+            first = ctxs[0]
+            if not keywords_match(list_vars, first.keywords):
                 logger.info(
                     "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
                     number,
                 )
                 return False, number, False
-            if exclusions_present(list_vars, self._client_exclusion_words):
+            if exclusions_present(list_vars, first.exclusion_words):
                 logger.info(
                     "Закупка %s отброшена: слова-исключения в описании",
                     number,
@@ -198,26 +202,6 @@ class RecordProcessingMixin(OrchestratorState):
         # выполняется на стороне клиента (репозиторий/API), а не при записи.
         record["is_active"] = self._is_active(record)
 
-        # Клиентская фильтрация (R9) для закупок, где subject в списке был пуст:
-        # фильтр по детальным данным (полное описание из карточки деталей).
-        if not early_subject and self._client_profile is not None:
-            if not keywords_match(record, self._client_keywords):
-                logger.info(
-                    "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
-                    number,
-                )
-                return False, number, False
-            if exclusions_present(record, self._client_exclusion_words):
-                logger.info(
-                    "Закупка %s отброшена: слова-исключения в описании",
-                    number,
-                )
-                return False, number, False
-
-        # Stop-условия по срокам (deadline).
-        if self._check_stop_conditions(record):
-            return False, number, False
-
         # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
         #    (имя и URL скачивания с ЭТП). Все файлы, включая ТЗ, — в files_json.
         if files:
@@ -231,55 +215,83 @@ class RecordProcessingMixin(OrchestratorState):
         #    результаты доп. обработки), чтобы снимок соответствовал сохранённому.
         record["detail_json"] = json_safe(record)
 
-        # 9) запись в БД + защита от дубликатов
-        saved = await self._persist(record)
-        if saved and self._known_numbers is not None:
-            self._known_numbers.add(str(number))
+        # Клиентская фильтрация (R9) и запись — ВЕЕРОМ по профилям текущего обхода.
+        # Для одиночного профиля ранний фильтр уже применён к subject из карточки;
+        # для группы профилей фильтруем каждого по полной записи.
+        early_applied = bool(early_subject and not multi and ctxs)
+        saved_any = False
+        pushed_scoring: set[int] = set()
+        for ctx in ctxs:
+            if not early_applied:
+                if not keywords_match(record, ctx.keywords):
+                    logger.info(
+                        "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
+                        number,
+                    )
+                    continue
+                if exclusions_present(record, ctx.exclusion_words):
+                    logger.info(
+                        "Закупка %s отброшена: слова-исключения в описании",
+                        number,
+                    )
+                    continue
 
-        # 9-бис) сохраняем ключевые слова, по которым закупка отобрана профилем (R9):
-        # они записываются в procurement_evaluations.matched_keywords ещё до внешнего
-        # скоринга (оценка find-or-create обновляется стадиями каскада).
-        if saved and self._repository is not None and self._client_profile is not None:
-            hit = matched_keywords(record, self._client_keywords)
-            if hit:
-                try:
-                    await self._repository.record_matched_keywords(
-                        int(record["id"]), self._client_profile.id, hit
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Не удалось записать matched_keywords закупки %s: %s",
-                        record.get("number"),
-                        exc,
-                    )
+            # Stop-условия по срокам (deadline).
+            if self._check_stop_conditions(record):
+                continue
 
-        # 10) авто-пуш задания на внешний скоринг (ADR-7): приоритет очереди — время
-        #     обновления/публикации закупки (новые обрабатываются раньше, ZPOPMAX берёт
-        #     больший score), как и в recovery (scheduler._recover_scoring_queue).
-        #     Уведомление подписчиков отправляется позже — в POST /score, после прихода
-        #     внешнего скора и проверки порога notify_min_fit_score (см. api/app.py).
-        #     Правила постановки совпадают с правилами записи в БД: в очередь попадает
-        #     любая сохранённая закупка, включая просроченные (deadline_not_expired=false).
-        if saved and self._transport is not None:
-            procurement_id = record.get("id")
-            if procurement_id is not None:
-                try:
-                    ts = record.get("update_date") or record.get("publication_date")
-                    priority = self._now.timestamp()
-                    if isinstance(ts, datetime):
-                        priority = ts.timestamp()
-                    elif isinstance(ts, str):
-                        with contextlib.suppress(ValueError):
-                            priority = datetime.fromisoformat(ts).timestamp()
-                    await self._transport.enqueue(int(procurement_id), priority)
-                    # Метка успешной постановки (recovery по ней догоняет закупки,
-                    # не попавшие в очередь — например, транспорт был недоступен).
-                    if self._repository is not None:
-                        await self._repository.mark_scoring_queued(int(procurement_id), self._now)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Не удалось поставить задание на скоринг закупки %s: %s",
-                        procurement_id,
-                        exc,
-                    )
-        return False, number, saved
+            # 9) запись в БД + защита от дубликатов (закупка общая, evaluations — своя).
+            saved = await self._persist(record)
+            if saved:
+                saved_any = True
+                if self._known_numbers is not None:
+                    self._known_numbers.add(str(number))
+
+            # 9-бис) ключевые слова, по которым закупка отобрана профилем (R9):
+            # они записываются в procurement_evaluations.matched_keywords ещё до
+            # внешнего скоринга (оценка find-or-create обновляется стадиями каскада).
+            # Записываем и для уже существующих закупок (saved=False) — важно в
+            # мультипрофильном обходе: новый профиль оценивает общую закупку.
+            if self._repository is not None and ctx is not None and record.get("id") is not None:
+                hit = matched_keywords(record, ctx.keywords)
+                if hit:
+                    try:
+                        await self._repository.record_matched_keywords(
+                            int(record["id"]), ctx.profile.id, hit
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "Не удалось записать matched_keywords закупки %s: %s",
+                            record.get("number"),
+                            exc,
+                        )
+
+            # 10) авто-пуш задания на внешний скоринг (ADR-7) — ОДИН раз на закупку,
+            #     а не на профиль (иначе записи в очереди дублировались бы). Приоритет —
+            #     время обновления/публикации закупки (ZPOPMAX берёт больший score).
+            if saved and self._transport is not None:
+                procurement_id = record.get("id")
+                if procurement_id is not None and procurement_id not in pushed_scoring:
+                    pushed_scoring.add(procurement_id)
+                    try:
+                        ts = record.get("update_date") or record.get("publication_date")
+                        priority = self._now.timestamp()
+                        if isinstance(ts, datetime):
+                            priority = ts.timestamp()
+                        elif isinstance(ts, str):
+                            with contextlib.suppress(ValueError):
+                                priority = datetime.fromisoformat(ts).timestamp()
+                        await self._transport.enqueue(int(procurement_id), priority)
+                        # Метка успешной постановки (recovery догоняет закупки,
+                        # не попавшие в очередь — например, транспорт был недоступен).
+                        if self._repository is not None:
+                            await self._repository.mark_scoring_queued(
+                                int(procurement_id), self._now
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "Не удалось поставить задание на скоринг закупки %s: %s",
+                            procurement_id,
+                            exc,
+                        )
+        return False, number, saved_any

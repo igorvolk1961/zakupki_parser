@@ -235,15 +235,18 @@ class ProcurementMixin(RepositoryMixin):
                 _apply_profile_score(row, row.evaluations, profile_id)
         return rows, total
 
-    async def exists(self, number: str, platform_id: str) -> bool:
-        """Проверяет наличие закупки с указанным номером на площадке."""
+    async def find_id(self, number: str, platform_id: str) -> int | None:
+        """id существующей закупки по номеру+площадке (или None)."""
         stmt = select(Procurement.id).where(
             Procurement.number == number,
             Procurement.platform_id == platform_id,
         )
         async with self._db.session() as session:
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none() is not None
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def exists(self, number: str, platform_id: str) -> bool:
+        """Проверяет наличие закупки с указанным номером на площадке."""
+        return await self.find_id(number, platform_id) is not None
 
     async def known_numbers(self, platform_id: str) -> set[str]:
         """Все номера закупок площадки — для пропуска повторной обработки.
@@ -283,7 +286,12 @@ class ProcurementMixin(RepositoryMixin):
             logger.warning("Пропуск записи: нет number/platform_id")
             return False
 
-        if await self.exists(number, platform_id):
+        existing_id = await self.find_id(number, platform_id)
+        if existing_id is not None:
+            # Отдаём id существующей записи в исходный dict — нужен для записи
+            # per-profile оценки (matched_keywords) другого профиля, оценивающего
+            # уже сохранённую закупку (мультипрофильный обход, BR-07).
+            data["id"] = existing_id
             logger.info("Дубликат: закупка № %s (%s) уже сохранена", number, platform_id)
             return False
 

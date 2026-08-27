@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -90,4 +92,21 @@ class ServiceConfig(_BaseConfig):
     )
     search_criteria: SearchCriteria = Field(
         default_factory=SearchCriteria, description="критерии поиска (тематика фильтра)"
+    )
+    profiles_loop_order: Literal["platform_then_profile", "profile_then_platform"] = Field(
+        default="platform_then_profile",
+        description=(
+            "порядок циклов по профилям и площадкам: 'platform_then_profile' — снаружи "
+            "площадки, внутри профили (кэшируемость одинаковых запросов, дефолт); "
+            "'profile_then_platform' — снаружи профиль (изоляция/параллелизм по профилю). "
+            "Влияет только на порядок, не на состав обрабатываемых профилей."
+        ),
+    )
+    deduplicate_requests: bool = Field(
+        default=True,
+        description=(
+            "объединять идентичные поисковые обходы одна и та же площадка + одинаковые "
+            "критерии (коды ОКПД2/НМЦК) разных профилей в один проход с веерной "
+            "фильтрацией по каждому профилю"
+        ),
     )

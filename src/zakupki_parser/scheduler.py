@@ -14,6 +14,7 @@ from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.logging_conf import setup_logging
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
+from zakupki_parser.parser.orchestrator.context import ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -60,52 +61,83 @@ class Scheduler:
         await self._db.dispose()
 
     async def run_once(self) -> None:
-        """Один проход по включённым площадкам активного профиля."""
-        # Recovery очереди скоринга: догоняем закупки, не попавшие в очередь,
-        # пока транспорт был недоступен (см. _recover_scoring_queue).
+        """Один проход: все включённые профили незаблокированных пользователей.
+
+        Recovery очереди скоринга (догоняем закупки, не попавшие в очередь).
+        Порядок циклов — ``profiles_loop_order``:
+
+        - ``platform_then_profile`` (дефолт): снаружи площадка, внутри профили.
+          Одинаковые запросы разных профилей к одной площадке объединяются.
+        - ``profile_then_platform``: снаружи профиль, внутри площадки (изоляция
+          по профилю, цена — потеря переиспользования обходов).
+        """
         await self._recover_scoring_queue()
-        profile_platforms = await self._active_profile_platforms()
         enabled_platforms = await self._repository.enabled_platform_ids()
-        for entry in self._cfg.service.sites:
-            if entry.platform_id not in enabled_platforms:
-                continue
-            if profile_platforms is not None and entry.platform_id not in profile_platforms:
-                logger.info(
-                    "Площадка %s не в списке площадок активного профиля — пропуск",
-                    entry.platform_id,
-                )
-                continue
-            platform = self._cfg.dom.platforms.get(entry.platform_id)
-            if platform is None:
-                logger.warning(
-                    "platform_id %s отсутствует в config_dom.yaml, пропуск",
-                    entry.platform_id,
-                )
-                continue
-            logger.info("Обработка площадки: %s", entry.platform_id)
-            try:
-                await self._parse_platform(entry.platform_id, platform)
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Ошибка обработки площадки %s: %s", entry.platform_id, exc)
-            if self._on_update is not None:
-                await self._on_update()
+        ctxs = await self._gather_profile_ctxs()
 
-    async def _active_profile_platforms(self) -> set[str] | None:
-        """Площадки активного профиля (``target_etp``).
+        if self._cfg.service.profiles_loop_order == "profile_then_platform":
+            for ctx in ctxs:
+                for platform_id in self._ordered_platforms_for_profile(ctx, enabled_platforms):
+                    await self._process_platform(platform_id, [ctx])
+        else:
+            for platform_id in self._ordered_enabled_platforms(enabled_platforms):
+                batch = [c for c in ctxs if self._profile_on_platform(c, platform_id)]
+                if not batch:
+                    continue
+                await self._process_platform(platform_id, batch)
 
-        Возвращает None, если ограничения нет (нет профиля либо список площадок
-        пуст) — тогда обрабатываются все активные площадки config_service.yaml.
+    def _ordered_enabled_platforms(self, enabled: set[str]) -> list[str]:
+        """Активные площадки в порядке config_service.yaml (конфиг — интерфейс)."""
+        return [s.platform_id for s in self._cfg.service.sites if s.platform_id in enabled]
+
+    async def _process_platform(self, platform_id: str, profiles: list[ProfileRunContext]) -> None:
+        """Обрабатывает одну площадку для набора профилей."""
+        platform = self._cfg.dom.platforms.get(platform_id)
+        if platform is None:
+            logger.warning(
+                "platform_id %s отсутствует в config_dom.yaml, пропуск",
+                platform_id,
+            )
+            return
+        logger.info("Обработка площадки: %s (профилей: %d)", platform_id, len(profiles))
+        try:
+            await self._parse_platform(platform_id, platform, profiles)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Ошибка обработки площадки %s: %s", platform_id, exc)
+        if self._on_update is not None:
+            await self._on_update()
+
+    def _profile_on_platform(self, ctx: ProfileRunContext, platform_id: str) -> bool:
+        """True, если профиль относится к площадке (``target_etp`` пуст — все)."""
+        etp = set(ctx.profile.target_etp or [])
+        return not etp or platform_id in etp
+
+    def _ordered_platforms_for_profile(
+        self, ctx: ProfileRunContext, enabled: set[str]
+    ) -> list[str]:
+        return [
+            p for p in self._ordered_enabled_platforms(enabled) if self._profile_on_platform(ctx, p)
+        ]
+
+    async def _gather_profile_ctxs(self) -> list[ProfileRunContext]:
+        """Включённые профили незаблокированных пользователей + слова (BR-07).
+
+        Пустой список — профилей нет: обходы не строятся (dev-режим).
         """
         if self._repository is None:
-            return None
-        user = await self._repository.first_user()
-        if user is None:
-            return None
-        profile = await self._repository.get_active_profile(user.id)
-        if profile is None:
-            return None
-        platforms = set(profile.target_etp or [])
-        return platforms or None
+            return []
+        profiles = await self._repository.list_enabled_profiles_for_active_users()
+        if not profiles:
+            return []
+        kw_map = await self._repository.list_profiles_keywords([p.id for p in profiles])
+        return [
+            ProfileRunContext(
+                profile=p,
+                keywords=kw_map.get(p.id, {}).get("keywords", []),
+                exclusion_words=kw_map.get(p.id, {}).get("exclusion_words", []),
+            )
+            for p in profiles
+        ]
 
     async def run_service(self) -> None:
         """Бесконечный цикл: проход -> ожидание таймера."""
@@ -164,7 +196,12 @@ class Scheduler:
                 len(items),
             )
 
-    async def _parse_platform(self, platform_id: str, platform: PlatformDom) -> None:
+    async def _parse_platform(
+        self,
+        platform_id: str,
+        platform: PlatformDom,
+        profiles: list[ProfileRunContext],
+    ) -> None:
         browser = BrowserManager(self._cfg.parser.browser)
         try:
             await browser.start()
@@ -182,7 +219,7 @@ class Scheduler:
                 on_record_saved=self._on_update,
             )
             try:
-                await orchestrator.run(page)
+                await orchestrator.run(page, profiles=profiles)
             except CircuitOpenError:
                 raise
             except Exception as exc:  # noqa: BLE001

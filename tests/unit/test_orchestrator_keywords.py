@@ -10,13 +10,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from playwright.async_api import Page
 
 from zakupki_parser.config.models import AppConfig, RetryConfig, SearchCriteria
 from zakupki_parser.parser.orchestrator import Orchestrator
+from zakupki_parser.parser.orchestrator.context import ProfileRunContext
+from zakupki_parser.storage.db import Profile
 
 
 class _OkCircuit:
@@ -33,6 +35,8 @@ class _Recorder(Orchestrator):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.crawled: list[SearchCriteria] = []
+        # Профили, участвовавшие в каждом обходе (мультипрофильная ветка).
+        self.crawled_profiles: list[list[Any]] = []
 
     async def _crawl(
         self,
@@ -43,6 +47,7 @@ class _Recorder(Orchestrator):
         retry_cfg: RetryConfig,
     ) -> None:
         self.crawled.append(criteria)
+        self.crawled_profiles.append(list(self._profile_ctxs))
 
 
 def _make_recorder(app_config: AppConfig) -> _Recorder:
@@ -68,11 +73,13 @@ class _FakeProfile:
     """Активный профиль: только okpd_codes влияет на выбор обходов."""
 
     id = 1
+    target_etp: list[str] = []
 
     def __init__(self, okpd_codes: list[str]) -> None:
         self.okpd_codes = okpd_codes
         self.nmck_min = None
         self.nmck_max = None
+        self.target_etp = []
 
 
 class _ProfileRepo:
@@ -168,3 +175,56 @@ async def test_codes_and_no_code_crawls_when_codes_present(app_config: AppConfig
     await recorder.run(page=object())  # type: ignore[arg-type]
 
     assert [c.okpd_codes for c in recorder.crawled] == [["62.02"], []]
+
+
+def _ctx(okpd: list[str], keywords: list[str], profile_id: int = 1) -> ProfileRunContext:
+    return ProfileRunContext(
+        profile=cast(Profile, _FakeProfile(okpd)), keywords=keywords, exclusion_words=[]
+    )
+
+
+@pytest.mark.asyncio
+async def test_multiple_profiles_same_criteria_single_crawl(app_config: AppConfig) -> None:
+    """Два профиля с одинаковыми кодами ОКПД2 -> ОДИН обход (дедупликация).
+
+    Идентичные запросы к площадке разных профилей объединяются: запрос
+    выполняется один раз, результаты раздаются каждому профилю веером.
+    """
+    recorder = _make_recorder(app_config)
+    await recorder.run(
+        page=object(),  # type: ignore[arg-type]
+        profiles=[_ctx(["62.02"], ["ИИ"]), _ctx(["62.02"], ["разработка"])],
+    )
+
+    assert len(recorder.crawled) == 1
+    assert recorder.crawled[0].okpd_codes == ["62.02"]
+    assert len(recorder.crawled_profiles[0]) == 2
+
+
+@pytest.mark.asyncio
+async def test_multiple_profiles_different_criteria_separate_crawls(
+    app_config: AppConfig,
+) -> None:
+    """Разные коды ОКПД2 -> разные обходы (по одному на набор кодов)."""
+    recorder = _make_recorder(app_config)
+    await recorder.run(
+        page=object(),  # type: ignore[arg-type]
+        profiles=[_ctx(["62.02"], ["ИИ"]), _ctx(["63.11"], ["разработка"])],
+    )
+
+    assert len(recorder.crawled) == 2
+    assert {tuple(c.okpd_codes) for c in recorder.crawled} == {("62.02",), ("63.11",)}
+
+
+@pytest.mark.asyncio
+async def test_deduplicate_disabled_splits_crawl(app_config: AppConfig) -> None:
+    """deduplicate_requests=false: одинаковые критерии разных профилей — раздельно."""
+    recorder = _make_recorder(app_config)
+    recorder._cfg.service.deduplicate_requests = False
+    await recorder.run(
+        page=object(),  # type: ignore[arg-type]
+        profiles=[_ctx(["62.02"], ["ИИ"]), _ctx(["62.02"], ["разработка"])],
+    )
+
+    assert len(recorder.crawled) == 2
+    assert all(c.okpd_codes == ["62.02"] for c in recorder.crawled)
