@@ -11,4 +11,3 @@ search_criteria:
   deadline_not_expired: true
 scoring:
   embedding_filter_threshold: 0.55
-  tz_review_enabled: false

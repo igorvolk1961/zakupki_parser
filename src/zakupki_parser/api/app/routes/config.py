@@ -279,8 +279,6 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
         "max_fit_score": "Максимальный Fit",
         "min_fit_score": "Минимальный Fit",
         "score_round_digits": "Округление score",
-        "normalize_fit_for_score": "Нормализовать Fit в score",
-        "tz_review_enabled": "Уточнение по тексту ТЗ",
         "tz_download_timeout": "Таймаут скачивания ТЗ",
     }
     for field in schema:

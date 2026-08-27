@@ -107,7 +107,7 @@ class ScoringConfig(_BaseConfig):
     num_refine_rounds: int = Field(
         default=1,
         ge=0,
-        description="Число повторных fit-итераций при вердикте судьи 'reject'",
+        description="пересчётов Fit после критики судьи при вердикте «reject» (0 — без повторов)",
     )
     max_fit_score: float = Field(
         default=10.0, gt=0, description="Максимальное значение Fit (шкала 0..max_fit_score)"
@@ -116,16 +116,8 @@ class ScoringConfig(_BaseConfig):
     score_round_digits: int = Field(
         default=2, ge=0, le=4, description="Округление итогового score до N знаков"
     )
-    normalize_fit_for_score: bool = Field(
-        default=True,
-        description="Приводить Fit (0..max_fit_score) к шкале score (0..1)",
-    )
-    tz_review_enabled: bool = Field(
-        default=True,
-        description="Включать ли уточнение скора по тексту ТЗ (requires_tz_review)",
-    )
     tz_download_timeout: float = Field(
-        default=30.0, gt=0, description="Таймаут скачивания файла ТЗ (сек)"
+        default=30.0, gt=0, description="лимит времени на скачивание файла ТЗ для уточнения (сек)"
     )
 
 

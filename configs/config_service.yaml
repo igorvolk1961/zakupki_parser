@@ -41,6 +41,4 @@ scoring:
   max_fit_score: 10.0
   min_fit_score: 0.0
   score_round_digits: 2
-  normalize_fit_for_score: true
-  tz_review_enabled: true
   tz_download_timeout: 30.0

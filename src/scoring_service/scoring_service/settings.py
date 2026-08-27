@@ -217,8 +217,6 @@ SCORING_TUNABLE_FIELDS: frozenset[str] = frozenset(
         "max_fit_score",
         "min_fit_score",
         "score_round_digits",
-        "normalize_fit_for_score",
-        "tz_review_enabled",
         "tz_download_timeout",
     }
 )

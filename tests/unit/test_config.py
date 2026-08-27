@@ -251,8 +251,13 @@ def test_service_config_scoring_defaults(app_config: AppConfig) -> None:
 
 def test_service_config_scoring_loaded_from_seed(app_config: AppConfig) -> None:
     """Значения из config_service.yaml -> scoring подхватываются загрузчиком."""
-    assert app_config.service.scoring.embedding_filter_threshold == 0.55
-    assert app_config.service.scoring.tz_review_enabled is False
+    scoring = app_config.service.scoring
+    assert scoring.embedding_filter_threshold == 0.55
+    # Технические флаги (нормализация Fit, уточнение по ТЗ) не настраиваются аналитиком.
+    assert not hasattr(scoring, "normalize_fit_for_score")
+    assert not hasattr(scoring, "tz_review_enabled")
+    # Обязательная нормализация Fit действует на уровне scoring_service.
+    assert scoring.tz_download_timeout > 0
 
 
 def test_scoring_ops_config_loaded(app_config: AppConfig) -> None:
