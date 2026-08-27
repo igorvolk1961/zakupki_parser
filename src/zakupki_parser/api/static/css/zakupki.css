@@ -106,6 +106,10 @@
   .tag .x:hover { color:var(--warn); }
   .tag-system { opacity:.8; cursor:default; border-style:dashed; }
   .tag-system:hover { opacity:.8; }
+  .tag-search-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .tag-search-row .tag-search { flex:1 1 auto; min-width:0; padding:6px 8px; background:var(--panel2);
+    color:var(--text); border:1px solid var(--line); border-radius:6px; font-size:13px; }
+  .tag-search-status { font-size:12px; white-space:nowrap; }
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }

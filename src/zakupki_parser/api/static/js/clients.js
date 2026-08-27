@@ -353,16 +353,27 @@ function setWordCount(el, n) {
   el.textContent = n ? String(n) : "";
 }
 
+// Реестр поиска по блокам тегов (wrapId -> текущая строка фильтра).
+// Фильтр скрывает несовпадающие чипы, не меняя источник данных (arr).
+const tagSearches = new Map();
+
 function renderTags(arr, wrapId) {
   const box = $(wrapId);
   if (!box) return;
   const tagsEl = box.querySelector(".tags");
   const fallback = box.querySelector(".tags-fallback");
   const label = (item) => (typeof item === "object" && item != null ? item.text : item);
+  const filter = (tagSearches.get(wrapId) || "").trim().toLocaleLowerCase();
+  const matches = (w) => !filter || w.toLocaleLowerCase().includes(filter);
+  let visible = 0;
   try {
     tagsEl.innerHTML = "";
     arr.forEach((item, i) => {
       const w = String(label(item));
+      // Несовпадающие с поиском слова скрываем, но индекс i остаётся
+      // корректным для arr.splice(i, 1) при удалении через «×».
+      if (!matches(w)) return;
+      visible++;
       const tag = document.createElement("span");
       tag.className = "tag";
       tag.textContent = w;
@@ -383,15 +394,25 @@ function renderTags(arr, wrapId) {
   } catch (err) {
     console.error("renderTags:", err);
   }
+  const shown = filter ? arr.filter((it) => matches(String(label(it)))) : arr;
   // Запасной вывод: если чипы не отрисовались, показываем список словами,
   // чтобы слова никогда не «исчезали» из формы.
-  if (arr.length && tagsEl.childElementCount !== arr.length) {
-    fallback.textContent = arr.map(label).join("; ");
+  if (shown.length && tagsEl.childElementCount !== shown.length) {
+    fallback.textContent = shown.map(label).join("; ");
     fallback.style.display = "";
     tagsEl.style.display = "none";
   } else {
     fallback.style.display = "none";
     tagsEl.style.display = "";
+  }
+  // Индикатор результата поиска: «показано X из N» при активном фильтре.
+  const status = box.closest("label")?.querySelector(".tag-search-status");
+  if (status) {
+    if (filter && arr.length) {
+      status.textContent = visible ? `показано ${visible} из ${arr.length}` : "ничего не найдено";
+    } else {
+      status.textContent = "";
+    }
   }
 }
 
@@ -417,6 +438,27 @@ function bindTagInput(wrapId, arr, makeItem) {
     renderTags(arr, wrapId);
     wordCounts();
     syncEntryFormState();
+  });
+}
+
+// Поиск по существующему списку тегов: фильтр скрывает несовпадающие чипы,
+// не затрагивая источник данных и счётчики (total на табах не меняется).
+function bindTagSearch(wrapId, arr) {
+  const box = $(wrapId);
+  const label = box && box.closest("label");
+  const input = label && label.querySelector(".tag-search");
+  if (!input) return;
+  const apply = () => {
+    tagSearches.set(wrapId, input.value);
+    renderTags(arr, wrapId);
+  };
+  input.addEventListener("input", apply);
+  input.addEventListener("search", apply);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      input.value = "";
+      apply();
+    }
   });
 }
 
@@ -1196,6 +1238,8 @@ $("#experience-cancel").addEventListener("click", () => {
 bindTagInput("#pf-keywords-tags", profileKeywords);
 bindTagInput("#pf-excl-tags", profileExcl);
 bindTagInput("#pf-questions-tags", profileQuestions, (w) => ({ id: "q" + questionSeq++, text: w }));
+bindTagSearch("#pf-keywords-tags", profileKeywords);
+bindTagSearch("#pf-excl-tags", profileExcl);
 $("#client-select").addEventListener("change", (ev) => {
   if (ev.target.value) switchClient(Number(ev.target.value));
 });
