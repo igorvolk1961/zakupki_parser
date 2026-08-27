@@ -102,6 +102,11 @@ def _apply_env_overrides(
     if env_transport_url:
         score_model.scoring_transport_url = env_transport_url
 
+    # Bearer-токен авторизации scoring_transport — из env (секрет, в YAML не хранится).
+    env_transport_token = os.environ.get("ZAKUPKI_SCORING_TRANSPORT_TOKEN")
+    if env_transport_token:
+        score_model.scoring_transport_token = env_transport_token
+
     # Каталог промптов scoring_service — из env (имеет приоритет над YAML).
     # В Docker это общий том (например, /app/prompts), чтобы правки из
     # web-интерфейса видел scoring_service при следующем старте.

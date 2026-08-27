@@ -51,6 +51,12 @@ class ScoreConfig(BaseModel):
         default=None,
         description="адрес scoring_transport для автопуша задания на внешний скоринг (ADR-7)",
     )
+    # Bearer-токен авторизации при автопуше в scoring_transport. Секрет: хранится
+    # только в env (ZAKUPKI_SCORING_TRANSPORT_TOKEN), в форму не выводится.
+    scoring_transport_token: str | None = Field(
+        default=None,
+        description="Bearer-токен авторизации для автопуша задания в scoring_transport",
+    )
     # TTL «постановки в очередь»: неотскорингованная закупка, чья метка
     # scoring_queued_at старше этого порога, снова ставится в очередь recovery
     # (задание могло быть потеряно: воркер упал/снял задачу, очередь очищена).

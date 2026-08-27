@@ -39,6 +39,12 @@ LOG_DIR="$ROOT_DIR/data/logs"
 PORT_PARSER="${PORT_PARSER:-8000}"
 PORT_TRANSPORT="${PORT_TRANSPORT:-8200}"
 
+# Токен авторизации scoring_transport — обязателен: задаётся и самому транспорту
+# (ingest), и парсеру (авто-пуш заданий). Для локального запуска — дефолт;
+# в проде переопределяется через окружение.
+SCORING_TRANSPORT_TOKEN="${SCORING_TRANSPORT_TOKEN:-dev-transport-token}"
+export SCORING_TRANSPORT_TOKEN
+
 CMD="${1:-up}"
 PID_FILE="$ROOT_DIR/.run_all.pids"
 REDIS_CONTAINER="zakupki_redis"
@@ -375,6 +381,7 @@ echo "Запуск scoring_transport на :$PORT_TRANSPORT..."
 ( cd "$ROOT_DIR/src/scoring_transport" \
     && PYTHONPATH="$SCORING_PYTHONPATH" \
     TRANSPORT_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
+    TRANSPORT_AUTH_TOKEN="$SCORING_TRANSPORT_TOKEN" \
     uv run python -m scoring_transport serve --host 127.0.0.1 --port "$PORT_TRANSPORT" ) \
     > "$LOG_DIR/scoring_transport.log" 2>&1 &
 BGPIDS+=($!)
@@ -402,6 +409,7 @@ if [[ "$ready" != 1 ]]; then
 fi
 
 echo "Фоновый стек поднят. Запустите парсер отдельно:"
-echo "  uv run zp --configs configs serve --host 0.0.0.0 --port $PORT_PARSER"
+echo "  ZAKUPKI_SCORING_TRANSPORT_TOKEN=\"$SCORING_TRANSPORT_TOKEN\" \\"
+echo "    uv run zp --configs configs serve --host 0.0.0.0 --port $PORT_PARSER"
 echo "Ctrl+C останавливает фоновые сервисы."
 wait

@@ -32,6 +32,9 @@ def _service_config_public(service: ServiceConfig) -> dict[str, Any]:
     канонический источник), глобальный конфиг их не содержит.
     """
     data = service.model_dump()
+    scoring = data.get("scoring")
+    if isinstance(scoring, dict):
+        scoring.pop("scoring_transport_token", None)
     sc = data.get("search_criteria")
     if isinstance(sc, dict):
         data["search_criteria"] = {

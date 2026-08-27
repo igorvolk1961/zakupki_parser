@@ -170,7 +170,10 @@ class Scheduler:
         """
         if not self._cfg.score.scoring_transport_url or self._repository is None:
             return
-        transport = ScoringTransportClient(self._cfg.score.scoring_transport_url)
+        transport = ScoringTransportClient(
+            self._cfg.score.scoring_transport_url,
+            auth_token=self._cfg.score.scoring_transport_token,
+        )
         now = datetime.now(UTC)
         ttl = self._cfg.score.recovery_ttl_seconds
         queued_before = now - timedelta(seconds=ttl) if ttl > 0 else None

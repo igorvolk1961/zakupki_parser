@@ -298,6 +298,9 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 - `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_ops.yaml -> db.dsn`);
 - `ZAKUPKI_SCORING_TRANSPORT_URL` — адрес `scoring_transport` (в Docker — имя сервиса
   `http://scoring-transport:8200`, в локальном запуске — `http://localhost:8200`);
+- `ZAKUPKI_SCORING_TRANSPORT_TOKEN` — Bearer-токен авторизации при автопуше задания в
+  `scoring_transport`. Обязателен и должен совпадать с `TRANSPORT_AUTH_TOKEN` транспорта
+  (в Docker по умолчанию берётся из `ZAKUPKI_INTERNAL_TOKEN`);
 - `ZAKUPKI_NOTIFY_BACKEND` — бэкенд уведомлений; `none` полностью отключает
   оповещения (в `docker/docker-compose.yml` задано `none`);
 - секреты уведомлений — берутся из файла `.env` в корне проекта (см. `env_file: ../.env` в `docker/docker-compose.yml`):
