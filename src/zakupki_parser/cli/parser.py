@@ -37,7 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--user", default="admin", help="логин пользователя (по умолчанию: admin)")
     seed.add_argument(
         "--file",
-        default="docs/references/profile.md",
+        default="docs/references/bbk-it-profile.md",
         help="файл с секциями **keywords**/**exclussion_words**/**competencies**",
     )
     return parser

@@ -325,7 +325,7 @@ class ProfileIn(BaseModel):
 
 
 class ProfileImportIn(BaseModel):
-    """Загрузка профиля из файла (разметка как у ``docs/references/profile.md``)."""
+    """Загрузка профиля из файла (разметка как у файла-сида профиля)."""
 
     content: str
 

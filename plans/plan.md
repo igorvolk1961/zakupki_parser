@@ -60,10 +60,10 @@
       target_etp, target_laws, min_fit_threshold, enabled, is_active); активный профиль
       пользователя (единственный; `POST /api/clients/{id}/activate`).
 - ✅ Таблица `keywords` — канонический источник (ER: PROFILE→KEYWORD; JSONB-поля профиля
-      убраны миграцией 1.30); парсер `docs/references/profile.md` (R8, секции keywords/
+      убраны миграцией 1.30); парсер `файл-сид профиля` (R8, секции keywords/
       exclussion_words/competencies), чтение/запись через таблицу.
-- ✅ Заполнение профиля словами — скрипт `zp seed-profile --user admin --file docs/references/profile.md`
-      (по умолчанию admin + docs/references/profile.md); при регистрации создаётся пустой профиль.
+- ✅ Заполнение профиля словами — скрипт `zp seed-profile --user admin --file <файл-сид>`
+      (по умолчанию admin + файл-сид профиля); при регистрации создаётся пустой профиль.
 - ✅ Критерии поиска (okpd_codes, nmck_min/max, active_only) переехали из
       `config_service.yaml -> search_criteria` в профиль (миграция 1.33, секции
       `**okpd_codes**`/`**nmck_min**`/`**nmck_max**`/`**active_only**` в profile.md);

@@ -138,7 +138,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         dependencies=[Depends(require_base)],
     )
     async def seed_client(user: User | None = Depends(require_base)) -> ProfileOut:
-        """Загружает/обновляет профиль из ``docs/references/profile.md``
+        """Загружает/обновляет профиль из файла-сида профиля
         (как CLI ``zp seed-profile``).
 
         Имя профиля берётся из файла (секция ``**name**``); при отсутствии —
@@ -151,7 +151,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
         logger.info(
-            "Профиль %s (id=%s) засижен из web-интерфейса (файл docs/references/profile.md)",
+            "Профиль %s (id=%s) засижен из web-интерфейса (файл-сид профиля)",
             name,
             profile.id,
         )
@@ -168,14 +168,18 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> ProfileOut:
         """Загружает/обновляет профиль из загруженного файла.
 
-        Разметка файла — как у ``docs/references/profile.md`` (секции ``**name**``,
+        Разметка файла — как у файла-сида профиля (секции ``**name**``,
         ``**Ключевые слова**`` и т.д.); имя профиля — из секции ``name``, при
-        отсутствии — ``default``.
+        отсутствии — ``default``. Если ``competencies`` — ссылка на файл
+        с текстом компетенций, подставляется его содержимое.
         """
-        from zakupki_parser.storage.keywords_parser import parse_keywords_text
+        from zakupki_parser.storage.keywords_parser import (
+            parse_keywords_text,
+            resolve_competencies_reference,
+        )
 
         eff_user = await _effective_user(user)
-        seed = parse_keywords_text(payload.content)
+        seed = resolve_competencies_reference(parse_keywords_text(payload.content))
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)

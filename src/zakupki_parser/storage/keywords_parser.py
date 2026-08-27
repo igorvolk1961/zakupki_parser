@@ -7,8 +7,9 @@
 - ``Минус слова`` / ``exclussion_words`` / ``exclusion_words`` — слова-исключения
   (type=exclusion);
 - ``Компетенции`` / ``competencies`` — текст компетенций (блок) ЛИБО путь к файлу
-  с текстом компетенций (например ``docs/references/bbk-it-site.md``) — в этом
-  случае содержимое файла подставляется при разборе ``parse_keywords_file``;
+  с текстом компетенций (например в ``docs/references/``) — в этом случае
+  содержимое файла подставляется при разборе ``parse_keywords_file`` или
+  через ``resolve_competencies_reference`` (web-импорт);
 - ``okpd_codes`` — коды ОКПД2 через запятую (критерий поиска профиля);
 - ``nmck_min`` / ``nmck_max`` — диапазон НМЦК (число).
 
@@ -57,11 +58,12 @@ def _repo_root() -> Path:
 
 
 def _default_path() -> Path:
-    """Путь к ``docs/references/profile.md`` относительно корня репозитория (или env-оверрайд)."""
+    """Путь к файлу-сиду профиля относительно корня репозитория
+    (или env-оверрайд ``ZAKUPKI_PROFILE_FILE``)."""
     override = os.environ.get("ZAKUPKI_PROFILE_FILE")
     if override:
         return Path(override)
-    return _repo_root() / "docs" / "references" / "profile.md"
+    return _repo_root() / "docs" / "references" / "bbk-it-profile.md"
 
 
 def _canonical_section(title: str) -> str | None:
@@ -121,21 +123,43 @@ def parse_keywords_text(text: str) -> dict[str, Any]:
     }
 
 
+def _resolve_competencies_file(comp: str, base_dirs: Iterable[Path]) -> str:
+    """Если ``comp`` — однострочная ссылка на файл, подставляет его содержимое.
+
+    Перебирает ``base_dirs`` (обычно каталог исходного файла и корень репозитория)
+    и возвращает либо содержимое найденного файла, либо исходную строку.
+    """
+    if not comp or "\n" in comp.strip():
+        return comp
+    candidate = Path(comp.strip())
+    for base in base_dirs:
+        ref = base / candidate
+        if ref.is_file():
+            return ref.read_text(encoding="utf-8")
+    return comp
+
+
+def resolve_competencies_reference(
+    seed: dict[str, Any], base_dirs: Iterable[Path] = ()
+) -> dict[str, Any]:
+    """Возвращает ``seed`` с подставленным содержимым ``competencies``-ссылки.
+
+    Применяется там, где контент разобран без знания каталога исходного файла
+    (например, web-импорт профиля): ссылки вида ``docs/references/…`` ищутся
+    относительно корня репозитория (и переданных ``base_dirs``).
+    """
+    seed = dict(seed)
+    seed["competencies"] = _resolve_competencies_file(
+        seed.get("competencies", ""), [*base_dirs, _repo_root()]
+    )
+    return seed
+
+
 def parse_keywords_file(path: Path | None = None) -> dict[str, Any]:
     """Читает и разбирает файл; компетенции-ссылку резолвит в содержимое файла."""
     target = path or _default_path()
     parsed = parse_keywords_text(target.read_text(encoding="utf-8"))
-    comp = parsed.get("competencies", "")
-    # Если компетенции — однострочная ссылка на файл, подставляем его содержимое
-    # (относительно каталога исходного файла или корня репозитория).
-    if comp and "\n" not in comp.strip():
-        candidate = Path(comp.strip())
-        for base in (target.parent, _repo_root()):
-            ref = base / candidate
-            if ref.is_file():
-                parsed["competencies"] = ref.read_text(encoding="utf-8")
-                break
-    return parsed
+    return resolve_competencies_reference(parsed, (target.parent,))
 
 
 def _dedupe(items: Iterable[str]) -> list[str]:

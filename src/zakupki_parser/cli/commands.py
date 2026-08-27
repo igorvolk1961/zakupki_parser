@@ -54,8 +54,9 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
 async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: Path) -> int:
     """Заполняет default-профиль пользователя словами/компетенциями из файла (R8).
 
-    Файл (по умолчанию ``docs/references/profile.md``) содержит секции ``**keywords**``,
-    ``**exclussion_words**``, ``**competencies**`` (см. ``keywords_parser``).
+    Файл-сид (путь задаётся через ``--file`` или ``ZAKUPKI_PROFILE_FILE``) содержит
+    секции ``**keywords**``, ``**exclussion_words**``, ``**competencies**``
+    (см. ``keywords_parser``).
     """
     from zakupki_parser.migrations import run_migrations
     from zakupki_parser.storage.db import Database

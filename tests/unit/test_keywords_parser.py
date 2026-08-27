@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from zakupki_parser.storage.keywords_parser import parse_keywords_file, parse_keywords_text
+from zakupki_parser.storage.keywords_parser import (
+    parse_keywords_file,
+    parse_keywords_text,
+    resolve_competencies_reference,
+)
 
 SAMPLE = """
 **Ключевые слова**
@@ -91,14 +95,14 @@ def test_parse_keywords_empty() -> None:
 
 def test_parse_real_profile_file() -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    path = repo_root / "docs" / "references" / "profile.md"
+    path = repo_root / "docs" / "references" / "bbk-it-profile.md"
     assert path.is_file()
     parsed = parse_keywords_file(path)
-    # Новый формат profile.md: имя профиля + компетенции-ссылка на файл.
+    # Новый формат bbk-it-profile.md: имя профиля + компетенции-ссылка на файл.
     assert parsed["name"] == "bbk-it"
     assert parsed["keywords"]
     assert parsed["exclusion_words"]
-    # Компетенции подставлены из docs/references/bbk-it-site.md (ссылка в файле).
+    # Компетенции подставлены из docs/references/bbk-it-competencies.json (ссылка в файле).
     assert "ИИ-юристы" in parsed["competencies"]
     # Формы из файла: усечения слов и близость (…~N).
     assert any("*" in w for w in parsed["keywords"])
@@ -129,10 +133,27 @@ bbk-it
 
 
 def test_parse_profile_file_seedable() -> None:
-    """Сид из profile.md: имя, слова и компетенции извлекаются напрямую (R8)."""
+    """Сид из bbk-it-profile.md: имя, слова и компетенции извлекаются напрямую (R8)."""
     repo_root = Path(__file__).resolve().parents[2]
-    parsed = parse_keywords_file(repo_root / "docs" / "references" / "profile.md")
+    parsed = parse_keywords_file(repo_root / "docs" / "references" / "bbk-it-profile.md")
     assert parsed["name"] == "bbk-it"
     assert isinstance(parsed["keywords"], list)
     assert isinstance(parsed["exclusion_words"], list)
     assert isinstance(parsed["competencies"], str)
+
+
+def test_resolve_competencies_reference_content() -> None:
+    """Компетенции-ссылка подставляется содержимым файла (web-импорт, R8)."""
+    seed = {"name": "bbk-it", "competencies": "docs/references/bbk-it-competencies.json"}
+    out = resolve_competencies_reference(seed)
+    assert '"positioning"' in out["competencies"]
+    assert "ИИ-юристы" in out["competencies"]
+    # Исходный словарь не мутируется.
+    assert seed["competencies"] == "docs/references/bbk-it-competencies.json"
+
+
+def test_resolve_competencies_reference_keeps_block() -> None:
+    """Многострочный блок компетенций не считается ссылкой на файл."""
+    text = "Поставщик — BBK IT.\nОсновные компетенции: ИИ, автоматизация."
+    out = resolve_competencies_reference({"competencies": text})
+    assert out["competencies"] == text

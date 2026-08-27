@@ -91,7 +91,7 @@ class Keyword(Base):
     ``type`` — ``keyword`` (позитивное) или ``exclusion`` (слово-исключение).
     Слова НЕ дублируются в JSONB-полях профиля (ER: PROFILE -> KEYWORD); рабочий
     набор парсера/фильтрации читается из этой таблицы (см. ``Profile.keywords_rel``).
-    Сид для профиля — скрипт ``zp seed-profile`` из ``docs/references/profile.md`` (R8).
+    Сид для профиля — скрипт ``zp seed-profile`` из файла-сида профиля (R8).
     """
 
     __tablename__ = "keywords"

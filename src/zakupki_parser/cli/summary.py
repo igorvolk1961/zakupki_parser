@@ -66,7 +66,7 @@ def _print_summary(cfg: AppConfig) -> None:
         "  Критерии поиска — из активного профиля (таблица profiles: okpd_codes/"
         "nmck_min/nmck_max; слова — таблица keywords, R9; выбор по состоянию "
         "active_only — глобальный search_criteria). Сид: zp seed-profile "
-        "(docs/references/profile.md)"
+        "(файл-сид профиля)"
     )
     mode = "все площадки по дате" if cfg.service.sort_by_date_only else "по конфигурации площадок"
     print(f"  Порог дат (дней): {cfg.service.default_cutoff_days} (режим: {mode})")

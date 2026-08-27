@@ -167,9 +167,8 @@
   <div id="view-profiles" style="display:none;">
     <div class="toolbar">
       <button class="primary" id="profile-new">Создать профиль</button>
-      <button class="ghost" id="profile-import" title="Загрузить профиль из файла (разметка как в docs/references/profile.md)">Загрузить из файла</button>
+      <button class="ghost" id="profile-import" title="Загрузить профиль из файла (markdown-разметка: секции **name**, **Ключевые слова**, **Компетенции**)">Загрузить из файла</button>
       <input type="file" id="profile-import-file" accept=".md,.markdown,.txt" style="display:none;">
-      <button class="ghost" id="profile-seed" title="Загрузить слова и компетенции из docs/references/profile.md">Загрузить из profile.md</button>
       <span id="profile-status" class="muted"></span>
     </div>
     <div class="table-wrap" id="profiles"></div>
@@ -244,8 +243,8 @@
                   <input type="text" placeholder="исключение, Enter" spellcheck="false">
                 </div>
               </label>
-              <label title="Баллы за неперечисленный, но близкий к компетенциям кейс">Штраф за неперекрытый, но близкий кейс <input type="number" step="0.1" id="pf-comp-penalty"></label>
               <div class="profile-checks">
+                <label title="Баллы за неперечисленный, но близкий к компетенциям кейс">Штраф за неперекрытый, но близкий кейс <input type="number" step="0.1" id="pf-comp-penalty" style="width:70px;"></label>
                 <label title="Диапазон Fit-оценок при неоднозначности предмета">Неоднозначность от <input type="number" step="0.5" id="pf-comp-range-lo" style="width:70px;"></label>
                 <label title="Верхняя граница диапазона неоднозначности">до <input type="number" step="0.5" id="pf-comp-range-hi" style="width:70px;"></label>
               </div>

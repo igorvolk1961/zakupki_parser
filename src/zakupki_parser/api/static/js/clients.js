@@ -113,7 +113,7 @@ function renderProfiles(list) {
     </tr>`;
     })
     .join("");
-  wrap.innerHTML = `<div class="table-wrap"><table>
+  wrap.innerHTML = `<div class="table-wrap"><table class="cust">
     <thead><tr><th>Имя</th><th>Активность</th><th>Включён</th><th>Слов</th><th>ОКПД2</th><th>НМЦК</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
   wrap.querySelectorAll("button[data-action]").forEach((btn) => {
@@ -503,7 +503,7 @@ function renderCompList() {
     el.style.cssText = "border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;";
     const exId = "pf-comp-examples-" + i;
     el.innerHTML = `
-      <label>Направление <input data-comp-area value="${escapeHtml(comp.area)}"></label>
+      <label>Кейс <input data-comp-area value="${escapeHtml(comp.area)}"></label>
       <label>Описание <textarea data-comp-desc rows="2" spellcheck="false">${escapeHtml(comp.description)}</textarea></label>
       <label>Примеры
         <div class="tag-input comp-examples" id="${exId}">
@@ -559,26 +559,20 @@ function switchCompMode() {
   renderCompForm();
 }
 
-function compWordCount() {
+function compCount() {
+  // Счётчик «направлений»: количество карточек компетенций (не слов).
   if (compMode !== "structured") {
-    return $("#pf-competencies").value.trim()
-      ? $("#pf-competencies").value.trim().split(/\s+/).length
-      : 0;
+    const parsed = parseComp($("#pf-competencies").value);
+    return parsed && parsed.competencies ? parsed.competencies.length : 0;
   }
-  const c = collectComp();
-  const text = [
-    c.positioning,
-    ...c.competencies.flatMap((x) => [x.area, x.description, ...(x.examples || [])]),
-    ...c.exclusions,
-  ].join(" ");
-  return text.trim() ? text.trim().split(/\s+/).length : 0;
+  return collectComp().competencies.length;
 }
 
 function wordCounts() {
   setWordCount($("#pf-cnt-keywords"), profileKeywords.length);
   setWordCount($("#pf-cnt-excl"), profileExcl.length);
   setWordCount($("#pf-cnt-questions"), profileQuestions.length);
-  setWordCount($("#pf-cnt-comp"), compWordCount());
+  setWordCount($("#pf-cnt-comp"), compCount());
   // Счётчик площадок — только видимые (активные) строки таблицы профиля.
   const catalogMap = new Map(platformCatalog.map((p) => [p.platform_id, p]));
   setWordCount(
@@ -1043,21 +1037,6 @@ async function doDeleteProfile() {
   }
 }
 
-async function seedProfile() {
-  try {
-    const r = await apiJSON("/api/clients/seed", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    if (!r.ok) throw new Error(await r.text());
-    setProfileStatus("Профиль загружен из docs/references/profile.md");
-    await loadProfiles();
-    await loadActiveClient();
-  } catch (e) {
-    setProfileStatus("Ошибка загрузки: " + e.message);
-  }
-}
-
 async function importProfileFile() {
   const fileInput = $("#profile-import-file");
   const file = fileInput.files && fileInput.files[0];
@@ -1138,7 +1117,6 @@ export {
   switchClient,
   openProfileEditor,
   closeProfileEditor,
-  seedProfile,
   isProfileDirty,
   profileFormDirty,
   confirmDeleteProfile,
@@ -1147,7 +1125,6 @@ export {
 };
 
 $("#profile-new").addEventListener("click", () => openProfileEditor(null));
-$("#profile-seed").addEventListener("click", seedProfile);
 $("#profile-import").addEventListener("click", () => $("#profile-import-file").click());
 $("#profile-import-file").addEventListener("change", importProfileFile);
 $("#profile-save").addEventListener("click", saveProfile);
