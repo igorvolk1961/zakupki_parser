@@ -28,6 +28,12 @@ def _cmd_serve(settings: Settings, host: str, port: int) -> int:
 
     from scoring_transport.web.app import create_app
 
+    # Авторизация обязательна: сервис не стартует без токена (TRANSPORT_AUTH_TOKEN).
+    if not settings.auth_token:
+        raise SystemExit(
+            "Ошибка: авторизация обязательна — задайте TRANSPORT_AUTH_TOKEN "
+            "(иначе эндпоинт /api/scoring/jobs не защищён)"
+        )
     uvicorn.run(create_app(settings), host=host, port=port)
     return 0
 

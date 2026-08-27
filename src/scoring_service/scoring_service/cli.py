@@ -138,6 +138,12 @@ def _cmd_serve(settings: Settings, host: str, port: int) -> int:
 
     from scoring_service.web.app import create_app
 
+    # Авторизация обязательна: сервис не стартует без токена (SCORE_AUTH_TOKEN).
+    if not settings.auth_token:
+        raise SystemExit(
+            "Ошибка: авторизация обязательна — задайте SCORE_AUTH_TOKEN "
+            "(иначе web-эндпоинт /score не защищён)"
+        )
     app = create_app(settings)
     uvicorn.run(app, host=host, port=port)
     return 0
