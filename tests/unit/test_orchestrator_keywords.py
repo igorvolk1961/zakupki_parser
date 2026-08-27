@@ -155,8 +155,7 @@ async def test_no_code_crawl_runs_with_flag(app_config: AppConfig) -> None:
     """
     recorder = _make_recorder(app_config)
     recorder._cfg.service.search_criteria.no_code_search = True
-    recorder._repository = _ProfileRepo(_FakeProfile([]), ["ИИ"])  # type: ignore[assignment]
-    await recorder.run(page=object())  # type: ignore[arg-type]
+    await recorder.run(page=object(), profiles=[_ctx([], ["ИИ"])])  # type: ignore[arg-type]
 
     assert len(recorder.crawled) == 1
     assert recorder.crawled[0].okpd_codes == []
@@ -171,8 +170,7 @@ async def test_codes_and_no_code_crawls_when_codes_present(app_config: AppConfig
     """
     recorder = _make_recorder(app_config)
     recorder._cfg.service.search_criteria.no_code_search = True
-    recorder._repository = _ProfileRepo(_FakeProfile(["62.02"]), ["ИИ"])  # type: ignore[assignment]
-    await recorder.run(page=object())  # type: ignore[arg-type]
+    await recorder.run(page=object(), profiles=[_ctx(["62.02"], ["ИИ"])])  # type: ignore[arg-type]
 
     assert [c.okpd_codes for c in recorder.crawled] == [["62.02"], []]
 

@@ -184,8 +184,15 @@ class Scheduler:
             for item in items:
                 ts = item["update_date"] or item["publication_date"]
                 priority = ts.timestamp() if ts is not None else now.timestamp()
+                # Пер-профильная постановка (BR-07): задание ставится для каждого
+                # профиля, отобравшего закупку (matched_keywords непуст). Без профиля
+                # задание ставиться не может — скоринг привязан к компетенциям профиля.
+                profile_ids = await self._repository.list_matched_profile_ids(item["id"])
+                if not profile_ids:
+                    continue
                 try:
-                    await transport.enqueue(item["id"], priority)
+                    for profile_id in profile_ids:
+                        await transport.enqueue(item["id"], priority, profile_id=profile_id)
                     await self._repository.mark_scoring_queued(item["id"], now)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(

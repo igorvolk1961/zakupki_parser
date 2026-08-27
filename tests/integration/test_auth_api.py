@@ -80,7 +80,7 @@ def auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient
     shutil.copytree(src, cfgdir, dirs_exist_ok=True)
     ops = cfgdir / "config_ops.yaml"
     ops.write_text(
-        ops.read_text(encoding="utf-8") + "\nauth:\n  enabled: true\n  token_ttl_seconds: 3600\n",
+        ops.read_text(encoding="utf-8") + "\nauth:\n  token_ttl_seconds: 3600\n",
         encoding="utf-8",
     )
 

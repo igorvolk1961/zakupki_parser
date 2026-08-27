@@ -18,7 +18,7 @@ from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
 from zakupki_parser.notify import Notifier
 from zakupki_parser.scoring import ScoringTransportClient
-from zakupki_parser.storage.db import Database, User
+from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -30,9 +30,6 @@ class AppState:
         self.configs_dir = configs_dir
         self.db: Database | None = None
         self.repository: ProcurementRepository | None = None
-        # Кеш сервис-аккаунта (первый пользователь): backfill осиротевших профилей и
-        # сид default-профиля выполняются один раз, а не на каждый запрос.
-        self.service_account: User | None = None
         # Управление парсером (запуск/остановка из web-интерфейса).
         self.parser_lock = asyncio.Lock()
         self.parser_task: asyncio.Task[None] | None = None
@@ -85,14 +82,15 @@ async def _run_parser(state: AppState) -> None:
 
 
 async def _enqueue_next_stage(
-    state: AppState, procurement_id: int, stage: str, priority: float
+    state: AppState, procurement_id: int, stage: str, priority: float, profile_id: int
 ) -> bool:
     """Поставить задачу следующей стадии каскада через транспорт (best-effort).
 
-    Возвращает True, если транспорт настроен и постановка выполнена. Постановка
-    идемпотентна: повторная доставка результата той же стадии не дублирует задачу
-    (ZADD по одному члену очереди). Ошибки постановки не роняют обработчик — они
-    обрабатываются как «каскад не продолжился» (fallback-уведомление в set_score).
+    ``profile_id`` — профиль, для которого это on-demand действие (пер-профильно,
+    BR-07). Возвращает True, если транспорт настроен и постановка выполнена.
+    Постановка идемпотентна: повторная доставка результата той же стадии не
+    дублирует задачу (ZADD по одному члену очереди). Ошибки постановки не роняют
+    обработчик — они обрабатываются как «каскад не продолжился».
     """
     if state.score_transport is None:
         logger.warning(
@@ -102,7 +100,9 @@ async def _enqueue_next_stage(
         )
         return False
     try:
-        await state.score_transport.enqueue(procurement_id, priority, stage=stage)
+        await state.score_transport.enqueue(
+            procurement_id, priority, stage=stage, profile_id=profile_id
+        )
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning(

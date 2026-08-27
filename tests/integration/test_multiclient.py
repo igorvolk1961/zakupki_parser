@@ -8,6 +8,7 @@ rag_report, изоляцию данных между пользователям�
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from collections.abc import Iterator
 
@@ -16,21 +17,22 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.api.app import create_app
-from zakupki_parser.auth import ROLE_ADMIN
+from zakupki_parser.auth import ROLE_ADMIN, ROLE_USER, create_token
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
+AUTH_SECRET = "test-secret"
 
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
 
 
 async def _seed_default_profile(repo: ProcurementRepository) -> int:
-    """Создаёт сервис-аккаунт (admin) и его активный профиль default; возвращает user_id."""
+    """Создаёт пользователя (админ + user) и его активный профиль default; возвращает user_id."""
     user = await repo.first_user()
     if user is None:
-        user = await repo.create_user("admin", "test-hash", [ROLE_ADMIN])
+        user = await repo.create_user("admin", "test-hash", [ROLE_ADMIN, ROLE_USER])
     profile = await repo.upsert_profile(
         {
             "name": "default",
@@ -49,7 +51,7 @@ async def _seed_default_profile(repo: ProcurementRepository) -> int:
 
 @pytest.fixture(scope="module")
 def mc_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
-    async def _setup() -> None:
+    async def _setup() -> int:
         engine = create_async_engine(TEST_DSN)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
@@ -59,19 +61,23 @@ def mc_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            await _seed_default_profile(repo)
+            return await _seed_default_profile(repo)
         finally:
             await db.dispose()
 
-    asyncio.run(_setup())
+    user_id = asyncio.run(_setup())
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
-    # dev-режим: выключаем авторизацию явно (репозиторий .env может включать её).
-    os.environ["ZAKUPKI_AUTH_ENABLED"] = "false"
+    # Авторизация всегда включена: задаём секрет и внутренний токен (обязательны).
+    os.environ["ZAKUPKI_AUTH_SECRET"] = AUTH_SECRET
+    os.environ["ZAKUPKI_INTERNAL_TOKEN"] = "internal-123"
     app = create_app()
     with TestClient(app) as client:
+        token = create_token(user_id, [ROLE_ADMIN, ROLE_USER], AUTH_SECRET, 3600)
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client
     os.environ.pop("ZAKUPKI_DB_DSN", None)
-    os.environ.pop("ZAKUPKI_AUTH_ENABLED", None)
+    os.environ.pop("ZAKUPKI_AUTH_SECRET", None)
+    os.environ.pop("ZAKUPKI_INTERNAL_TOKEN", None)
 
 
 def _seed_procurement() -> int:
@@ -114,11 +120,11 @@ def test_clients_crud(mc_client: TestClient) -> None:
     assert listed.json()["total"] >= 2
 
 
-def test_profile_export_endpoint(mc_client: TestClient) -> None:
-    """Экспорт профиля: markdown-файл с именем профиля + датой/временем.
+def test_profile_export_import_roundtrip(mc_client: TestClient) -> None:
+    """Экспорт профиля единым JSON-файлом и повторная загрузка (round-trip).
 
-    ``include_competencies=false`` — компетенции встроены в файл профиля; ``true`` —
-    отдельный файл компетенций + ссылка на него в файле профиля.
+    ``profile_content`` — полный JSON с обёрткой ``profile`` и подобъектом
+    ``competencies``; файл самодостаточен и импортируется обратно без потерь.
     """
     client = mc_client
     created = client.post(
@@ -137,32 +143,63 @@ def test_profile_export_endpoint(mc_client: TestClient) -> None:
     profile_id = created.json()["id"]
     name = created.json()["name"]
 
-    # Без отдельного файла компетенций.
-    plain = client.get(f"/api/clients/{profile_id}/export")
-    assert plain.status_code == 200
-    body = plain.json()
+    exported = client.get(f"/api/clients/{profile_id}/export")
+    assert exported.status_code == 200
+    body = exported.json()
+    assert body["profile_filename"].endswith(".json")
     assert name in body["profile_filename"]
-    assert body["profile_filename"].endswith(".md")
-    assert body["competencies_filename"] is None
-    assert body["competencies_content"] is None
-    assert "**name**" in body["profile_content"]
-    assert "Export Co." in body["profile_content"]
-    assert "ИИ" in body["profile_content"]
-    assert "автоматизация" in body["profile_content"]
 
-    # С отдельным файлом компетенций.
-    with_comp = client.get(
-        f"/api/clients/{profile_id}/export", params={"include_competencies": "true"}
+    content = json.loads(body["profile_content"])
+    assert content["schema"] == "zakupki-profile"
+    assert content["version"] == 1
+    assert content["profile"]["name"] == name
+    assert content["profile"]["okpd_codes"] == ["62.02"]
+    assert content["profile"]["keywords"] == ["ИИ", "автоматизация"]
+    assert content["profile"]["exclusion_words"] == ["ремонт"]
+    # Legacy-текст компетенций — как подобъект raw, а не как отдельный файл/ссылка.
+    assert content["competencies"]["mode"] == "raw"
+    assert "Export Co." in content["competencies"]["text"]
+
+    # Повторная загрузка того же файла не теряет компетенции.
+    imported = client.post("/api/clients/import", json={"content": body["profile_content"]})
+    assert imported.status_code == 200
+    imported_body = imported.json()
+    assert imported_body["name"] == name
+    assert "Export Co." in imported_body["competencies"]
+    assert imported_body["keywords"] == ["ИИ", "автоматизация"]
+
+
+def test_profile_export_structured_competencies(mc_client: TestClient) -> None:
+    """JSON-экспорт структурированных компетенций — подобъект как модель scoring Profile."""
+    client = mc_client
+    structured = {
+        "positioning": "Внедряем ИИ и автоматизируем процессы",
+        "breadth": "broad",
+        "competencies": [
+            {"area": "Аудит", "description": "обследование процессов", "examples": ["кейс1"]}
+        ],
+        "exclusions": ["поставка оборудования"],
+        "scoring_policy": {"uncovered_penalty": 3.0, "ambiguous_range": [5.0, 7.0]},
+    }
+    created = client.post(
+        "/api/clients",
+        json={"name": "struct-export", "competencies": json.dumps(structured)},
     )
-    assert with_comp.status_code == 200
-    body = with_comp.json()
-    assert body["competencies_filename"]
-    assert body["competencies_filename"].endswith("_competencies.md")
-    assert body["competencies_content"]
-    assert "Export Co." in body["competencies_content"]
-    # В файле профиля — ссылка на файл компетенций, а не текст.
-    assert body["competencies_filename"] in body["profile_content"]
-    assert "Export Co." not in body["profile_content"]
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    exported = client.get(f"/api/clients/{profile_id}/export")
+    assert exported.status_code == 200
+    body = exported.json()
+    content = json.loads(body["profile_content"])
+    assert content["competencies"]["mode"] == "structured"
+    assert content["competencies"]["positioning"] == "Внедряем ИИ и автоматизируем процессы"
+    assert content["competencies"]["competencies"][0]["area"] == "Аудит"
+
+    imported = client.post("/api/clients/import", json={"content": body["profile_content"]})
+    assert imported.status_code == 200
+    imported_body = imported.json()
+    assert json.loads(imported_body["competencies"]) == structured
 
 
 def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:

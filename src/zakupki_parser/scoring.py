@@ -38,14 +38,22 @@ class ScoringTransportClient:
         priority: float,
         transport: httpx.AsyncBaseTransport | None = None,
         stage: str = "fit",
+        profile_id: int | None = None,
     ) -> None:
         """Поставить задание на скоринг: POST /api/scoring/jobs.
 
         ``stage`` — стадия (fit/pwin/margin/analysis); транспорт направляет задание
-        в соответствующую Redis-очередь.
+        в соответствующую Redis-очередь. ``profile_id`` — профиль, по компетенциям
+        которого считается скор (пер-профильно, BR-07); обязателен для fit-стадии.
         """
         url = f"{self._base}/api/scoring/jobs"
-        payload = {"procurement_id": procurement_id, "priority": priority, "stage": stage}
+        payload = {
+            "procurement_id": procurement_id,
+            "priority": priority,
+            "stage": stage,
+        }
+        if profile_id is not None:
+            payload["profile_id"] = profile_id
         headers = self._headers()
         if transport is not None:
             async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:

@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.api.app import create_app
-from zakupki_parser.auth import ALL_ROLES, hash_password
+from zakupki_parser.auth import ALL_ROLES, create_token, hash_password
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -32,9 +32,9 @@ SECRET = "reference-test-secret"
 
 @pytest.fixture(scope="module")
 def ref_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
-    """Приложение с выключенной авторизацией (dev-режим): эндпоинты открыты."""
+    """Приложение с обязательной авторизацией; токен — на пользователя admin+user."""
 
-    async def _setup() -> None:
+    async def _setup() -> int:
         engine = create_async_engine(TEST_DSN)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
@@ -60,18 +60,23 @@ def ref_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
                 user.id,
             )
             await repo.ensure_reference_data()
+            return user.id
         finally:
             await db.dispose()
 
-    asyncio.run(_setup())
+    user_id = asyncio.run(_setup())
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
-    # dev-режим: выключаем авторизацию явно (репозиторий .env может включать её).
-    os.environ["ZAKUPKI_AUTH_ENABLED"] = "false"
+    # Авторизация всегда включена: задаём секрет и внутренний токен (обязательны).
+    os.environ["ZAKUPKI_AUTH_SECRET"] = SECRET
+    os.environ["ZAKUPKI_INTERNAL_TOKEN"] = "internal-123"
     app = create_app()
     with TestClient(app) as client:
+        token = create_token(user_id, list(ALL_ROLES), SECRET, 3600)
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client
     os.environ.pop("ZAKUPKI_DB_DSN", None)
-    os.environ.pop("ZAKUPKI_AUTH_ENABLED", None)
+    os.environ.pop("ZAKUPKI_AUTH_SECRET", None)
+    os.environ.pop("ZAKUPKI_INTERNAL_TOKEN", None)
 
 
 @pytest.fixture(scope="module")
@@ -117,20 +122,20 @@ def ref_auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestCl
     shutil.copytree(src, cfgdir, dirs_exist_ok=True)
     ops = cfgdir / "config_ops.yaml"
     ops.write_text(
-        ops.read_text(encoding="utf-8") + "\nauth:\n  enabled: true\n  token_ttl_seconds: 3600\n",
+        ops.read_text(encoding="utf-8") + "\nauth:\n  token_ttl_seconds: 3600\n",
         encoding="utf-8",
     )
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
-    os.environ["ZAKUPKI_AUTH_ENABLED"] = "true"
     os.environ["ZAKUPKI_AUTH_SECRET"] = SECRET
+    os.environ["ZAKUPKI_INTERNAL_TOKEN"] = "internal-123"
     os.environ.pop("ZAKUPKI_ADMIN_USERNAME", None)
     os.environ.pop("ZAKUPKI_ADMIN_PASSWORD", None)
     app = create_app(str(cfgdir))
     with TestClient(app) as client:
         yield client
     os.environ.pop("ZAKUPKI_DB_DSN", None)
-    os.environ.pop("ZAKUPKI_AUTH_ENABLED", None)
     os.environ.pop("ZAKUPKI_AUTH_SECRET", None)
+    os.environ.pop("ZAKUPKI_INTERNAL_TOKEN", None)
 
 
 def _login(client: TestClient, username: str, password: str) -> str:

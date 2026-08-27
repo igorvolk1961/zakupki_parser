@@ -57,14 +57,12 @@ def limited_user_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Te
     src = Path(__file__).resolve().parents[2] / "tests" / "configs"
     shutil.copytree(src, cfgdir, dirs_exist_ok=True)
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
-    os.environ["ZAKUPKI_AUTH_ENABLED"] = "true"
     os.environ["ZAKUPKI_AUTH_SECRET"] = _SECRET
     os.environ["ZAKUPKI_INTERNAL_TOKEN"] = "internal-secret"
     app = create_app(str(cfgdir))
     with TestClient(app) as client:
         yield client
     os.environ.pop("ZAKUPKI_DB_DSN", None)
-    os.environ.pop("ZAKUPKI_AUTH_ENABLED", None)
     os.environ.pop("ZAKUPKI_AUTH_SECRET", None)
     os.environ.pop("ZAKUPKI_INTERNAL_TOKEN", None)
 

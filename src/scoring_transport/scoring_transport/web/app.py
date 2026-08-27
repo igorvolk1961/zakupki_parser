@@ -43,6 +43,9 @@ class ScoringJobRequest(BaseModel):
     """Запрос на скоринг закупки."""
 
     procurement_id: int
+    profile_id: int = Field(
+        description="профиль, по компетенциям которого считается скор (BR-07)",
+    )
     priority: float | None = Field(
         default=None,
         description="априорный приоритет (дефолтный score); если пуст — возьмётся из карточки",
@@ -55,6 +58,7 @@ class ScoringJobRequest(BaseModel):
 
 class ScoringJobOut(BaseModel):
     procurement_id: int
+    profile_id: int
     priority: float
     status: str = "enqueued"
 
@@ -126,15 +130,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ) from exc
 
         priority = body.priority if body.priority is not None else settings.priority_default
-        await queue.enqueue(body.procurement_id, priority, stage=body.stage)
+        await queue.enqueue(
+            body.procurement_id, priority, stage=body.stage, profile_id=body.profile_id
+        )
         logger.info(
-            "Задача на скоринг закупки %s поставлена (stage=%s, priority=%.2f)",
+            "Задача на скоринг закупки %s поставлена (stage=%s, profile=%s, priority=%.2f)",
             body.procurement_id,
             body.stage,
+            body.profile_id,
             priority,
         )
         return ScoringJobOut(
-            procurement_id=body.procurement_id, priority=priority, status="enqueued"
+            procurement_id=body.procurement_id,
+            profile_id=body.profile_id,
+            priority=priority,
+            status="enqueued",
         )
 
     return app

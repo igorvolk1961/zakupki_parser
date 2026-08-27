@@ -44,7 +44,9 @@ class _OkParser:
     async def get_procurement(self, procurement_id: int) -> dict:
         return {"id": procurement_id, "score": 0.5}
 
-    async def get_active_client(self, internal_token: str | None = None) -> dict:
+    async def get_active_client(
+        self, internal_token: str | None = None, profile_id: int | None = None
+    ) -> dict:
         return {"competencies": "test competencies"}
 
     async def get_scoring_config(self, internal_token: str | None = None) -> dict:
@@ -55,7 +57,9 @@ class _OkParser:
 class _NoCompetenciesParser(_OkParser):
     """Имитация парсера без компетенций активного профиля (скоринг невозможен)."""
 
-    async def get_active_client(self, internal_token: str | None = None) -> dict:
+    async def get_active_client(
+        self, internal_token: str | None = None, profile_id: int | None = None
+    ) -> dict:
         return {"competencies": ""}
 
 
@@ -117,23 +121,23 @@ async def test_transient_parser_error_requeues_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _UnreachableParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(133, 27100.0)
+    await worker._queue.enqueue(133, 27100.0, profile_id=1)
     await worker._process_once()
     # Задача должна вернуться в очередь с прежним приоритетом.
-    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:133")
+    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:133:pf:1")
     assert score == 27100.0
     # И быть снятой с обработки.
     processing = worker._queue._settings.processing_key
-    assert await worker._queue._client.zscore(processing, "proc:133") is None
+    assert await worker._queue._client.zscore(processing, "proc:133:pf:1") is None
 
 
 async def test_http_500_requeues_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _InternalErrorParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(5, 100.0)
+    await worker._queue.enqueue(5, 100.0, profile_id=1)
     await worker._process_once()
-    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:5")
+    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:5:pf:1")
     assert score == 100.0
 
 
@@ -141,10 +145,12 @@ async def test_http_404_drops_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _MissingParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(7, 50.0)
+    await worker._queue.enqueue(7, 50.0, profile_id=1)
     await worker._process_once()
     # 404 — закупка удалена у парсера: задача снимается навсегда.
-    assert await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:7") is None
+    assert (
+        await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:7:pf:1") is None
+    )
 
 
 async def test_missing_competencies_drops_job_without_file_fallback(worker_queue) -> None:
@@ -152,10 +158,12 @@ async def test_missing_competencies_drops_job_without_file_fallback(worker_queue
     worker = worker_queue
     worker._parser = _NoCompetenciesParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(77, 1.0)
+    await worker._queue.enqueue(77, 1.0, profile_id=1)
     await worker._process_once()
     # Компетенции не заданы: задача снимается, файловый профиль-фallback НЕ используется.
-    assert await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:77") is None
+    assert (
+        await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:77:pf:1") is None
+    )
     results = worker._queue._settings.results_key
     assert await worker._queue._client.llen(results) == 0
 
@@ -179,17 +187,19 @@ async def test_llm_timeout_requeues_job(worker_queue) -> None:
     # Snapshot «base» (пустые переопределения): _ensure_scorer не пересобирает fake.
     worker._scoring_snapshot = "base"
     assert worker._queue._client is not None
-    await worker._queue.enqueue(306, 1781072448.0)
+    await worker._queue.enqueue(306, 1781072448.0, profile_id=1)
     await worker._process_once()
     # Задача должна вернуться в очередь с прежним приоритетом (не потеряться).
-    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:306")
+    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:306:pf:1")
     assert score == 1781072448.0
     # И счётчик ретраев инкрементирован.
-    retries = await worker._queue._client.hget(worker._queue._settings.jobs_retry_key, "proc:306")
+    retries = await worker._queue._client.hget(
+        worker._queue._settings.jobs_retry_key, "proc:306:pf:1"
+    )
     assert retries == "1"
     # И быть снятой с обработки.
     processing = worker._queue._settings.processing_key
-    assert await worker._queue._client.zscore(processing, "proc:306") is None
+    assert await worker._queue._client.zscore(processing, "proc:306:pf:1") is None
 
 
 async def test_llm_timeout_dropped_after_max_attempts(worker_queue) -> None:
@@ -200,12 +210,17 @@ async def test_llm_timeout_dropped_after_max_attempts(worker_queue) -> None:
     assert worker._queue._client is not None
     # До обработки уже было llm_retry_max_attempts неудач.
     for _ in range(worker._settings.llm_retry_max_attempts):
-        await worker._queue.increment_retries(306)
-    await worker._queue.enqueue(306, 1.0)
+        await worker._queue.increment_retries(306, 1)
+    await worker._queue.enqueue(306, 1.0, profile_id=1)
     await worker._process_once()
     # Лимит исчерпан: задача снимается навсегда, счётчик обнулён.
-    assert await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:306") is None
-    retries = await worker._queue._client.hget(worker._queue._settings.jobs_retry_key, "proc:306")
+    assert (
+        await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:306:pf:1")
+        is None
+    )
+    retries = await worker._queue._client.hget(
+        worker._queue._settings.jobs_retry_key, "proc:306:pf:1"
+    )
     assert retries is None
 
 
@@ -215,11 +230,16 @@ async def test_llm_rejection_drops_job(worker_queue) -> None:
     worker._scorer = _RejectedScorer()
     worker._scoring_snapshot = "base"
     assert worker._queue._client is not None
-    await worker._queue.enqueue(400, 1.0)
+    await worker._queue.enqueue(400, 1.0, profile_id=1)
     await worker._process_once()
     # 4xx — постоянная ошибка: задача снимается навсегда без ретраев.
-    assert await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:400") is None
-    retries = await worker._queue._client.hget(worker._queue._settings.jobs_retry_key, "proc:400")
+    assert (
+        await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:400:pf:1")
+        is None
+    )
+    retries = await worker._queue._client.hget(
+        worker._queue._settings.jobs_retry_key, "proc:400:pf:1"
+    )
     assert retries is None
 
 
@@ -230,10 +250,12 @@ async def test_success_resets_retries(worker_queue) -> None:
     assert worker._queue._client is not None
     # Были сбои LLM, потом успех — счётчик обнуляется.
     for _ in range(2):
-        await worker._queue.increment_retries(9)
-    await worker._queue.enqueue(9, 1.0)
+        await worker._queue.increment_retries(9, 1)
+    await worker._queue.enqueue(9, 1.0, profile_id=1)
     await worker._process_once()
-    retries = await worker._queue._client.hget(worker._queue._settings.jobs_retry_key, "proc:9")
+    retries = await worker._queue._client.hget(
+        worker._queue._settings.jobs_retry_key, "proc:9:pf:1"
+    )
     assert retries is None
     # И результат опубликован.
     results = worker._queue._settings.results_key

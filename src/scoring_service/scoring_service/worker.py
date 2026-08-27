@@ -49,29 +49,29 @@ class ScoringWorker:
         # задача обрабатывается как ошибка (ретрай/снятие), но не скорится «чужим» профилем.
         self._profile_cache: tuple[object, ProfileTexts] | None = None
 
-    async def _resolve_competencies(self) -> ProfileTexts:
-        """Профиль активного клиента (из парсера). Без fallback на файл.
+    async def _resolve_competencies(self, profile_id: int) -> ProfileTexts:
+        """Компетенции профиля (из парсера). Без fallback на файл.
 
-        Парсер может отдать структурированный профиль (dict/YAML) или текст;
-        нормализуем в пару ``ProfileTexts`` (llm/embedding) через ``profile_to_texts``.
-        Ошибки ``httpx.HTTPStatusError``/``httpx.TransportError`` прокидываются наверх —
-        там они обрабатываются как сбой парсера (ретрай/снятие). Если компетенции не
-        удалось извлечь — поднимаем ошибку: закупка не скорится без контекста компетенций.
+        Профиль известен из задания очереди (пер-профильно, BR-07): скоринг
+        считается по компетенциям именно этого профиля. Парсер может отдать
+        структурированный профиль (dict/YAML) или текст; нормализуем в пару
+        ``ProfileTexts`` (llm/embedding) через ``profile_to_texts``. Ошибки
+        ``httpx.HTTPStatusError``/``httpx.TransportError`` прокидываются наверх —
+        там они обрабатываются как сбой парсера (ретрай/снятие). Если компетенции
+        не удалось извлечь — поднимаем ошибку: закупка не скорится без контекста.
         """
         from scoring_service.profile import profile_to_texts
 
         client = await self._parser.get_active_client(
-            internal_token=self._settings.parser_internal_token
+            internal_token=self._settings.parser_internal_token, profile_id=profile_id
         )
         raw = (client or {}).get("competencies")
-        if self._profile_cache is not None and self._profile_cache[0] == raw:
+        if self._profile_cache is not None and self._profile_cache[0] == (profile_id, raw):
             return self._profile_cache[1]
         texts = profile_to_texts(raw)
         if texts is None or not texts.llm:
-            raise RuntimeError(
-                "Компетенции активного профиля не заданы — скоринг без контекста невозможен"
-            )
-        self._profile_cache = (raw, texts)
+            raise RuntimeError("Компетенции профиля не заданы — скоринг без контекста невозможен")
+        self._profile_cache = ((profile_id, raw), texts)
         return texts
 
     def _scoring_snapshot_key(self, snapshot: dict[str, Any] | None) -> str:
@@ -119,17 +119,23 @@ class ScoringWorker:
         job = await self._queue.pop_job()
         if job is None:
             return
-        procurement_id, priority = job
-        logger.info("Processing procurement %s (priority=%.2f)", procurement_id, priority)
+        procurement_id, profile_id, priority = job
+        logger.info(
+            "Processing procurement %s (profile %s, priority=%.2f)",
+            procurement_id,
+            profile_id,
+            priority,
+        )
         try:
-            await self._queue.claim_processing(procurement_id, priority)
+            await self._queue.claim_processing(procurement_id, profile_id, priority)
             record = await self._parser.get_procurement(procurement_id)
-            competencies = await self._resolve_competencies()
+            competencies = await self._resolve_competencies(profile_id)
             scorer = await self._ensure_scorer()
             result = scorer.score(record, competencies, procurement_id, run_id=self._run_id)
             await self._queue.publish_result(
                 {
                     "procurement_id": procurement_id,
+                    "profile_id": profile_id,
                     "score": result.score,
                     "fit_score": result.fit_multiplier,
                     "score_method": result.score_method,
@@ -138,7 +144,7 @@ class ScoringWorker:
                 }
             )
             # Успех: обнуляем счётчик ретраев (если до этого были сбои LLM).
-            await self._queue.reset_retries(procurement_id)
+            await self._queue.reset_retries(procurement_id, profile_id)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code >= 500:
                 logger.warning(
@@ -146,7 +152,7 @@ class ScoringWorker:
                     exc.response.status_code,
                     procurement_id,
                 )
-                await self._queue.enqueue(procurement_id, priority)
+                await self._queue.enqueue(procurement_id, priority, profile_id)
                 await asyncio.sleep(self._settings.parser_retry_backoff_seconds)
             else:
                 logger.warning(
@@ -164,7 +170,7 @@ class ScoringWorker:
                 procurement_id,
                 exc,
             )
-            await self._queue.enqueue(procurement_id, priority)
+            await self._queue.enqueue(procurement_id, priority, profile_id)
             await asyncio.sleep(self._settings.parser_retry_backoff_seconds)
         except openai.APIConnectionError as exc:
             # LLM-провайдер недоступен или не ответил в llm_request_timeout
@@ -173,6 +179,7 @@ class ScoringWorker:
             # общий except и была бы снята навсегда (см. лог «Request timed out»).
             await self._retry_llm_or_drop(
                 procurement_id,
+                profile_id,
                 priority,
                 f"LLM-провайдер недоступен: {exc}",
             )
@@ -182,6 +189,7 @@ class ScoringWorker:
             if exc.status_code >= 500 or isinstance(exc, openai.RateLimitError):
                 await self._retry_llm_or_drop(
                     procurement_id,
+                    profile_id,
                     priority,
                     f"LLM-провайдер ответил HTTP {exc.status_code}",
                 )
@@ -195,16 +203,18 @@ class ScoringWorker:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Scoring failed for %s: %s", procurement_id, exc)
         finally:
-            await self._queue.finish_processing(procurement_id)
+            await self._queue.finish_processing(procurement_id, profile_id)
 
-    async def _retry_llm_or_drop(self, procurement_id: int, priority: float, reason: str) -> None:
+    async def _retry_llm_or_drop(
+        self, procurement_id: int, profile_id: int, priority: float, reason: str
+    ) -> None:
         """Вернуть задачу в очередь при транзиентном сбое LLM (с лимитом попыток).
 
         Счётчик ретраев хранится в Redis (``jobs_retry_key``): после
         ``llm_retry_max_attempts`` неудач подряд задача снимается навсегда, чтобы
         не крутить её вечно при стабильном падении провайдера.
         """
-        retries = await self._queue.increment_retries(procurement_id)
+        retries = await self._queue.increment_retries(procurement_id, profile_id)
         if retries > self._settings.llm_retry_max_attempts:
             logger.error(
                 "LLM-провайдер стабильно недоступен для закупки %s после %d попыток "
@@ -213,7 +223,7 @@ class ScoringWorker:
                 retries,
                 reason,
             )
-            await self._queue.reset_retries(procurement_id)
+            await self._queue.reset_retries(procurement_id, profile_id)
             return
         logger.warning(
             "Закупка %s возвращена в очередь из-за сбоя LLM (попытка %d/%d): %s",
@@ -222,7 +232,7 @@ class ScoringWorker:
             self._settings.llm_retry_max_attempts,
             reason,
         )
-        await self._queue.enqueue(procurement_id, priority)
+        await self._queue.enqueue(procurement_id, priority, profile_id)
         await asyncio.sleep(self._settings.llm_retry_backoff_seconds)
 
 

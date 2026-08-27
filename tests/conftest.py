@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -12,6 +13,12 @@ from playwright.async_api import Page, async_playwright
 
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
+
+# Авторизация всегда включена (auth.enabled удалён): конфиги тестов требуют
+# секрет и внутренний токен. Задаём значения по умолчанию для тестового окружения
+# (конкретные тесты могут переопределить/снять их через monkeypatch/os.environ).
+os.environ.setdefault("ZAKUPKI_AUTH_SECRET", "test-secret")
+os.environ.setdefault("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Тесты грузят ВЫДЕЛЕННЫЙ тестовый набор конфигов (tests/configs), а не рабочие

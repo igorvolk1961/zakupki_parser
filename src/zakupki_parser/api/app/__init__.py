@@ -69,11 +69,12 @@ def create_app(configs_dir: str = "configs") -> FastAPI:
         else:
             # Сид начального администратора — отдельный try: его сбой не должен
             # «ломать» общее состояние БД (иначе весь API уйдёт в 503).
-            if state.cfg.ops.auth.enabled:
-                try:
-                    await ctx._seed_initial_admin()
-                except Exception as exc:  # noqa: BLE001
-                    logger.error("Не удалось создать начального администратора: %s", exc)
+            # Авторизация всегда включена — админ-сид (env ZAKUPKI_ADMIN_*) нужен
+            # для первого развёртывания.
+            try:
+                await ctx._seed_initial_admin()
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Не удалось создать начального администратора: %s", exc)
         yield
         if state.db is not None:
             await state.db.dispose()

@@ -230,6 +230,9 @@ class ScoreUpdate(BaseModel):
     """Обновление score внешним сервисом (по его инициативе)."""
 
     score: float
+    profile_id: int = Field(
+        description="профиль, для которого посчитан результат (пер-профильно, BR-07)"
+    )
     fit_score: float | None = None
     p_win: float | None = None
     margin: float | None = None
@@ -334,18 +337,16 @@ class ProfileImportIn(BaseModel):
 
 
 class ProfileExportOut(BaseModel):
-    """Экспорт профиля в markdown-файл (разметка как у файла-сида профиля).
+    """Экспорт профиля единым JSON-файлом (компетенции — подобъект внутри).
 
-    ``profile_content`` — файл профиля; если выбран экспорт компетенций отдельным
-    файлом, ``competencies_filename``/``competencies_content`` непусты, а в
-    ``**competencies**`` профильного файла подставляется имя файла компетенций
-    (как ссылка в seed-файле). В противном случае компетенции встроены в профиль.
+    ``profile_content`` — полный JSON профиля: поля ``profile`` (name, okpd_codes,
+    nmck_min/max, keywords, exclusion_words, questions, …) и ``competencies``
+    (подобъект компетенций). Файл самодостаточен: его можно повторно загрузить
+    через ``/api/clients/import`` без внешних ссылок.
     """
 
     profile_filename: str
     profile_content: str
-    competencies_filename: str | None = None
-    competencies_content: str | None = None
 
 
 class ProfileOut(BaseModel):

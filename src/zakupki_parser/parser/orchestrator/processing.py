@@ -220,7 +220,7 @@ class RecordProcessingMixin(OrchestratorState):
         # для группы профилей фильтруем каждого по полной записи.
         early_applied = bool(early_subject and not multi and ctxs)
         saved_any = False
-        pushed_scoring: set[int] = set()
+        pushed_scoring: set[tuple[int, int]] = set()
         for ctx in ctxs:
             if not early_applied:
                 if not keywords_match(record, ctx.keywords):
@@ -266,32 +266,38 @@ class RecordProcessingMixin(OrchestratorState):
                             exc,
                         )
 
-            # 10) авто-пуш задания на внешний скоринг (ADR-7) — ОДИН раз на закупку,
-            #     а не на профиль (иначе записи в очереди дублировались бы). Приоритет —
-            #     время обновления/публикации закупки (ZPOPMAX берёт больший score).
-            if saved and self._transport is not None:
-                procurement_id = record.get("id")
-                if procurement_id is not None and procurement_id not in pushed_scoring:
-                    pushed_scoring.add(procurement_id)
-                    try:
-                        ts = record.get("update_date") or record.get("publication_date")
-                        priority = self._now.timestamp()
-                        if isinstance(ts, datetime):
-                            priority = ts.timestamp()
-                        elif isinstance(ts, str):
-                            with contextlib.suppress(ValueError):
-                                priority = datetime.fromisoformat(ts).timestamp()
-                        await self._transport.enqueue(int(procurement_id), priority)
-                        # Метка успешной постановки (recovery догоняет закупки,
-                        # не попавшие в очередь — например, транспорт был недоступен).
-                        if self._repository is not None:
-                            await self._repository.mark_scoring_queued(
-                                int(procurement_id), self._now
-                            )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning(
-                            "Не удалось поставить задание на скоринг закупки %s: %s",
-                            procurement_id,
-                            exc,
-                        )
+                    # 10) авто-пуш задания на внешний скоринг (ADR-7) — ПО КАЖДОМУ профилю,
+                    #     отобравшему закупку (пер-профильно, BR-07): результат стадии
+                    #     засчитывается именно этому профилю. Дедупликация — по паре
+                    #     (procurement_id, profile_id). Приоритет — время обновления/
+                    #     публикации закупки (ZPOPMAX берёт больший score).
+                    if self._transport is not None:
+                        key = (int(record["id"]), ctx.profile.id)
+                        if key not in pushed_scoring:
+                            pushed_scoring.add(key)
+                            ts = record.get("update_date") or record.get("publication_date")
+                            priority = self._now.timestamp()
+                            if isinstance(ts, datetime):
+                                priority = ts.timestamp()
+                            elif isinstance(ts, str):
+                                with contextlib.suppress(ValueError):
+                                    priority = datetime.fromisoformat(ts).timestamp()
+                            try:
+                                await self._transport.enqueue(
+                                    int(record["id"]), priority, profile_id=ctx.profile.id
+                                )
+                                # Метка успешной постановки (recovery догоняет закупки,
+                                # не попавшие в очередь — например, транспорт был
+                                # недоступен).
+                                await self._repository.mark_scoring_queued(
+                                    int(record["id"]), self._now
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning(
+                                    "Не удалось поставить задание на скоринг закупки %s "
+                                    "(профиль %s): %s",
+                                    record.get("number"),
+                                    ctx.profile.id,
+                                    exc,
+                                )
         return False, number, saved_any

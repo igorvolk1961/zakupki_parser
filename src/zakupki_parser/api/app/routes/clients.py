@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
@@ -18,7 +19,7 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import _broadcast
 from zakupki_parser.storage.db import User
-from zakupki_parser.storage.keywords_parser import serialize_profile_text
+from zakupki_parser.storage.profile_json import parse_profile_json, serialize_profile_json
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +88,17 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     state = ctx.state
     _repo = ctx._repo
-    _effective_user = ctx._effective_user
     _active_context = ctx._active_context
     _profile_out = ctx._profile_out
     _validate_profile_entries = ctx._validate_profile_entries
     require_base = ctx.require_base
     require_user_or_internal = ctx.require_user_or_internal
+
+    def _require_user(user: User | None) -> User:
+        """Реальный пользователь (авторизация всегда включена)."""
+        if user is None:
+            raise HTTPException(status_code=401, detail="Требуется авторизация")
+        return user
 
     @router.get(
         "/api/clients/active",
@@ -100,10 +106,34 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         dependencies=[Depends(require_user_or_internal)],
     )
     async def active_client(
+        request: Request,
         user: User | None = Depends(require_user_or_internal),
     ) -> ProfileOut:
-        """Активный профиль эффективного пользователя (внутренний токен — сервис-аккаунт)."""
-        _, profile = await _active_context(user)
+        """Профиль для анализа: активный профиль пользователя или явный профиль конвейера.
+
+        - реальный пользователь: его активный профиль (контекст фильтрации BR-07);
+        - внутренний вызов конвейера (``X-Internal-Token``): профиль из заголовка
+          ``X-Profile-ID`` (системный скоуп, без сервис-аккаунта).
+        """
+        if user is None:
+            raw = request.headers.get("X-Profile-ID")
+            if not raw:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Внутренний вызов: укажите профиль заголовком X-Profile-ID",
+                )
+            try:
+                profile_id = int(raw)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400, detail="X-Profile-ID должен быть целым числом"
+                ) from None
+            profile = await _repo().get_profile_by_id(profile_id)
+            if profile is None:
+                raise HTTPException(status_code=404, detail="Профиль не найден")
+            return await _profile_out(profile, include_facts=True)
+        _, profile = await _active_context(_require_user(user))
+        assert profile is not None
         return await _profile_out(profile, include_facts=True)
 
     @router.get(
@@ -116,7 +146,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         offset: int = Query(default=0, ge=0),
         user: User | None = Depends(require_base),
     ) -> ProfileListOut:
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         rows, total = await _repo().list_profiles(user_id=eff_user.id, limit=limit, offset=offset)
         # Батч-чтение слов профилей (без N+1 по таблице keywords).
         keywords = await _repo().list_profiles_keywords([r.id for r in rows])
@@ -130,7 +160,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         dependencies=[Depends(require_base)],
     )
     async def get_client(client_id: int, user: User | None = Depends(require_base)) -> ProfileOut:
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         row = await _repo().get_profile(eff_user.id, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
@@ -143,36 +173,24 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     )
     async def export_client(
         client_id: int,
-        include_competencies: bool = Query(default=False),
         user: User | None = Depends(require_base),
     ) -> ProfileExportOut:
-        """Экспорт профиля в markdown-файл (разметка файла-сида профиля).
+        """Экспорт профиля единым JSON-файлом (компетенции — подобъект внутри).
 
-        Имя файла — из имени профиля и даты/времени. При ``include_competencies``
-        компетенции выгружаются отдельным файлом, а в профильном файле
-        подставляется ссылка на него (как в seed-файле); иначе компетенции
-        встроены в профильный файл.
+        Имя файла — из имени профиля и даты/времени. Файл самодостаточен: его
+        можно повторно загрузить через ``/api/clients/import``.
         """
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         row = await _repo().get_profile(eff_user.id, client_id)
         if row is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
         profile = await _profile_out(row)
         data = profile.model_dump()
         safe = _safe_filename(data["name"] or "profile")
-        ts = _export_timestamp()
-        profile_filename = f"{safe}_{ts}.md"
-        competencies_content = (data.get("competencies") or "").strip()
-        competencies_filename: str | None = None
-        if include_competencies and competencies_content:
-            competencies_filename = f"{safe}_{ts}_competencies.md"
+        profile_filename = f"{safe}_{_export_timestamp()}.json"
         return ProfileExportOut(
             profile_filename=profile_filename,
-            profile_content=serialize_profile_text(
-                data, competencies_reference=competencies_filename
-            ),
-            competencies_filename=competencies_filename,
-            competencies_content=competencies_content if competencies_filename else None,
+            profile_content=serialize_profile_json(data),
         )
 
     @router.post(
@@ -183,7 +201,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     async def create_client(
         body: ProfileIn, user: User | None = Depends(require_base)
     ) -> ProfileOut:
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         await _validate_profile_entries(body)
         return await _profile_out(
             await _repo().upsert_profile(body.model_dump(exclude_none=True), eff_user.id)
@@ -197,7 +215,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     async def update_client(
         client_id: int, body: ProfileIn, user: User | None = Depends(require_base)
     ) -> ProfileOut:
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         existing = await _repo().get_profile(eff_user.id, client_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
@@ -219,7 +237,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         client_id: int, user: User | None = Depends(require_base)
     ) -> ProfileOut:
         """Делает профиль активным (per-user состояние; остальные деактивируются)."""
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         try:
             profile = await _repo().set_active_profile(eff_user.id, client_id)
         except ValueError as exc:
@@ -233,7 +251,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     )
     async def delete_client(client_id: int, user: User | None = Depends(require_base)) -> None:
         """Удаляет профиль (нельзя удалить активный или последний)."""
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         try:
             await _repo().delete_profile(eff_user.id, client_id)
         except ValueError as exc:
@@ -254,7 +272,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         """
         from zakupki_parser.storage.keywords_parser import parse_keywords_file
 
-        eff_user = await _effective_user(user)
+        eff_user = _require_user(user)
         seed = parse_keywords_file()
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
@@ -276,18 +294,22 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> ProfileOut:
         """Загружает/обновляет профиль из загруженного файла.
 
-        Разметка файла — как у файла-сида профиля (секции ``**name**``,
-        ``**Ключевые слова**`` и т.д.); имя профиля — из секции ``name``, при
-        отсутствии — ``default``. Если ``competencies`` — ссылка на файл
-        с текстом компетенций, подставляется его содержимое.
+        Основной формат — единый JSON-файл (компетенции — подобъект внутри).
+        Для обратной совместимости поддерживается и markdown-разметка файла-сида
+        (секции ``**name**``, ``**Ключевые слова**`` и т.д.); имя профиля — из
+        секции/поля ``name``, при отсутствии — ``default``.
         """
-        from zakupki_parser.storage.keywords_parser import (
-            parse_keywords_text,
-            resolve_competencies_reference,
-        )
+        eff_user = _require_user(user)
+        text = payload.content
+        try:
+            seed = parse_profile_json(text)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            from zakupki_parser.storage.keywords_parser import (
+                parse_keywords_text,
+                resolve_competencies_reference,
+            )
 
-        eff_user = await _effective_user(user)
-        seed = resolve_competencies_reference(parse_keywords_text(payload.content))
+            seed = resolve_competencies_reference(parse_keywords_text(text))
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)

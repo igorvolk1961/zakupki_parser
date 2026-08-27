@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 
 from zakupki_parser.auth import has_default_profile_role
 from zakupki_parser.storage.db import (
@@ -47,6 +48,16 @@ class ProfileMixin(RepositoryMixin):
 
     async def get_profile(self, user_id: int, profile_id: int) -> Profile | None:
         stmt = select(Profile).where(Profile.id == profile_id, Profile.user_id == user_id)
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def get_profile_by_id(self, profile_id: int) -> Profile | None:
+        """Профиль по ``profile_id`` без привязки к пользователю (системный скоуп).
+
+        Используется внутренним конвейером, когда он явно указывает профиль
+        (``X-Profile-ID``) вместо сервис-аккаунта.
+        """
+        stmt = select(Profile).where(Profile.id == profile_id)
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
 
@@ -441,15 +452,29 @@ class ProfileMixin(RepositoryMixin):
                 )
             ).scalar_one_or_none()
             if profile is None:
-                profile = Profile(
-                    name=self.DEFAULT_PROFILE_NAME,
-                    user_id=user_id,
-                    enabled=True,
-                    is_active=True,
-                    competencies="",
-                )
-                session.add(profile)
-                await session.commit()
+                try:
+                    profile = Profile(
+                        name=self.DEFAULT_PROFILE_NAME,
+                        user_id=user_id,
+                        enabled=True,
+                        is_active=True,
+                        competencies="",
+                    )
+                    session.add(profile)
+                    await session.commit()
+                except IntegrityError:
+                    # Гонка двух одновременных созданий default-профиля: констрейнт
+                    # uq_profiles_user_name побеждает. Откатываем и перечитываем
+                    # уже существующую строку (идемпотентно).
+                    await session.rollback()
+                    profile = (
+                        await session.execute(
+                            select(Profile).where(
+                                Profile.user_id == user_id,
+                                Profile.name == self.DEFAULT_PROFILE_NAME,
+                            )
+                        )
+                    ).scalar_one_or_none()
         return profile
 
     async def delete_profiles_without_default_role(self) -> int:
@@ -508,6 +533,15 @@ class ProfileMixin(RepositoryMixin):
         При ``is_active=true`` остальные профили пользователя деактивируются
         (гарантия единственного активного профиля).
         """
+        return await self._upsert_profile(data, user_id, profile_id, _retry_left=1)
+
+    async def _upsert_profile(
+        self,
+        data: dict[str, Any],
+        user_id: int,
+        profile_id: int | None,
+        _retry_left: int,
+    ) -> Profile:
         name = data.get("name")
         if not name:
             raise ValueError("profiles.name обязателен")
@@ -560,34 +594,45 @@ class ProfileMixin(RepositoryMixin):
                 )
                 profile.is_active = True
             # Нужен id профиля до записи дочерних таблиц (новая строка ещё не в БД).
-            await session.flush()
-            # Ключевые слова — полная замена в той же транзакции.
-            if wants_keywords:
-                await session.execute(delete(Keyword).where(Keyword.profile_id == profile.id))
-                rows = [
-                    Keyword(profile_id=profile.id, word=word, type=kind)
-                    for kind, words in (
-                        ("keyword", data.get("keywords") or []),
-                        ("exclusion", data.get("exclusion_words") or []),
+            try:
+                # flush() выполняет INSERT новой строки — гонка на (user_id, name)
+                # всплывает здесь, а не на commit() (см. except ниже).
+                await session.flush()
+                # Ключевые слова — полная замена в той же транзакции.
+                if wants_keywords:
+                    await session.execute(delete(Keyword).where(Keyword.profile_id == profile.id))
+                    rows = [
+                        Keyword(profile_id=profile.id, word=word, type=kind)
+                        for kind, words in (
+                            ("keyword", data.get("keywords") or []),
+                            ("exclusion", data.get("exclusion_words") or []),
+                        )
+                        for word in dict.fromkeys(words)
+                    ]
+                    session.add_all(rows)
+                # Лицензии и опыт — часть профиля (BR-03): полная замена в той же
+                # транзакции (веб-редактор держит их в форме до «Сохранить профиль»).
+                if "licenses" in data:
+                    await session.execute(
+                        delete(ProfileLicense).where(ProfileLicense.profile_id == profile.id)
                     )
-                    for word in dict.fromkeys(words)
-                ]
-                session.add_all(rows)
-            # Лицензии и опыт — часть профиля (BR-03): полная замена в той же
-            # транзакции (веб-редактор держит их в форме до «Сохранить профиль»).
-            if "licenses" in data:
-                await session.execute(
-                    delete(ProfileLicense).where(ProfileLicense.profile_id == profile.id)
-                )
-                for entry in data.get("licenses") or []:
-                    session.add(ProfileLicense(profile_id=profile.id, **entry))
-            if "experience" in data:
-                await session.execute(
-                    delete(ProfileExperience).where(ProfileExperience.profile_id == profile.id)
-                )
-                for entry in data.get("experience") or []:
-                    session.add(ProfileExperience(profile_id=profile.id, **entry))
-            await session.commit()
+                    for entry in data.get("licenses") or []:
+                        session.add(ProfileLicense(profile_id=profile.id, **entry))
+                if "experience" in data:
+                    await session.execute(
+                        delete(ProfileExperience).where(ProfileExperience.profile_id == profile.id)
+                    )
+                    for entry in data.get("experience") or []:
+                        session.add(ProfileExperience(profile_id=profile.id, **entry))
+                await session.commit()
+            except IntegrityError:
+                if _retry_left <= 0:
+                    raise
+                # Гонка двух одновременных созданий профиля с одним (user_id, name):
+                # констрейнт uq_profiles_user_name. Откатываем и пробуем ещё раз —
+                # на повторном проходе строка уже существует, выполнится update.
+                await session.rollback()
+                return await self._upsert_profile(data, user_id, profile_id, _retry_left - 1)
             # updated_at (server onupdate) генерируется в БД: с expire_on_commit=False
             # SQLAlchemy не подставляет его в объект без refresh. После выхода из
             # сессии объект detached, и _profile_out упадёт с DetachedInstanceError.

@@ -21,17 +21,17 @@ async def queue():
 
 
 async def test_enqueue_sets_priority(queue) -> None:
-    await queue.enqueue(7, 100.0)
+    await queue.enqueue(7, 100.0, profile_id=1)
     assert queue._client is not None
-    score = await queue._client.zscore(queue._settings.jobs_key, "proc:7")
+    score = await queue._client.zscore(queue._settings.jobs_key, "proc:7:pf:1")
     assert score == 100.0
 
 
 async def test_enqueue_stage_analysis_routes_to_analysis_queue(queue) -> None:
-    await queue.enqueue(9, 50.0, stage="analysis")
+    await queue.enqueue(9, 50.0, stage="analysis", profile_id=1)
     assert queue._client is not None
-    assert await queue._client.zscore(queue._settings.analysis_jobs_key, "proc:9") == 50.0
-    assert await queue._client.zscore(queue._settings.jobs_key, "proc:9") is None
+    assert await queue._client.zscore(queue._settings.analysis_jobs_key, "proc:9:pf:1") == 50.0
+    assert await queue._client.zscore(queue._settings.jobs_key, "proc:9:pf:1") is None
 
 
 async def test_results_keys_include_analysis(queue) -> None:

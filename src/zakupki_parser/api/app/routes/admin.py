@@ -58,19 +58,18 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     async def ws_updates(websocket: WebSocket) -> None:
         """Канал живых обновлений: шлёт 'data-changed' при изменении БД.
 
-        При включённой авторизации токен передаётся query-параметром ``?token=``
+        Авторизация всегда включена — токен передаётся query-параметром ``?token=``
         (браузер не может задать заголовок WebSocket-запроса).
         """
-        if state.cfg.ops.auth.enabled:
-            token = websocket.query_params.get("token")
-            payload = decode_token(token or "", state.cfg.ops.auth.secret or "")
-            if payload is None:
-                await websocket.close(code=1008)
-                return
-            user = await _repo().get_user(payload["sub"])
-            if user is None or user.status == "blocked":
-                await websocket.close(code=1008)
-                return
+        token = websocket.query_params.get("token")
+        payload = decode_token(token or "", state.cfg.ops.auth.secret or "")
+        if payload is None:
+            await websocket.close(code=1008)
+            return
+        user = await _repo().get_user(payload["sub"])
+        if user is None or user.status == "blocked":
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         state.ws_clients.add(websocket)
         try:
@@ -179,7 +178,9 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
         threshold = body.min_fit_score if body is not None else 0.4
         _, profile = await _active_context(user)
-        deleted = await _repo().delete_irrelevant(threshold, profile_id=profile.id)
+        deleted = await _repo().delete_irrelevant(
+            threshold, profile_id=profile.id if profile is not None else None
+        )
         logger.info("Удалены нерелевантные закупки из web-интерфейса: %s", deleted)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}

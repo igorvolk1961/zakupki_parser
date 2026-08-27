@@ -64,6 +64,7 @@ class ResultsConsumer:
                 p_win=payload.get("p_win"),
                 margin=payload.get("margin"),
                 rag_report=payload.get("rag_report"),
+                profile_id=payload.get("profile_id"),
                 retry_max=self._settings.retry_max,
                 retry_backoff=self._settings.retry_backoff_seconds,
                 internal_token=self._settings.parser_internal_token,

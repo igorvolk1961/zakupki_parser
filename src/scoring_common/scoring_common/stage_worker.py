@@ -25,26 +25,29 @@ async def process_stage_job(
     queue: StageQueue,
     parser: ParserApiClient,
     procurement_id: int,
+    profile_id: int,
     priority: float,
     *,
     retry_backoff_seconds: float,
-    compute: Callable[[dict[str, Any], int], Awaitable[dict[str, Any]]]
-    | Callable[[dict[str, Any], int], dict[str, Any]],
+    compute: Callable[[dict[str, Any], int, int], Awaitable[dict[str, Any]]]
+    | Callable[[dict[str, Any], int, int], dict[str, Any]],
 ) -> None:
     """Обработать одно задание стадии каскада.
 
-    ``compute(record, procurement_id)`` — стадие-специфичный расчёт: возвращает
-    payload результата (содержит ``procurement_id``, ``score``, ``score_method`` и
-    компоненты стадии). Ошибки парсера: HTTP 5xx/транспортные → задача возвращается
-    в очередь с прежним приоритетом (best-effort, как в fit-воркере); HTTP 4xx
-    (404 — закупка удалена) → задача снимается навсегда.
+    ``compute(record, procurement_id, profile_id)`` — стадие-специфичный расчёт:
+    возвращает payload результата (содержит ``procurement_id``, ``profile_id``,
+    ``score``, ``score_method`` и компоненты стадии). Ошибки парсера: HTTP 5xx/
+    транспортные → задача возвращается в очередь с прежним приоритетом
+    (best-effort, как в fit-воркере); HTTP 4xx (404 — закупка удалена) → задача
+    снимается навсегда.
     """
     try:
-        await queue.claim_processing(procurement_id, priority)
+        await queue.claim_processing(procurement_id, profile_id, priority)
         record = await parser.get_procurement(procurement_id)
-        result = compute(record, procurement_id)
+        result = compute(record, procurement_id, profile_id)
         payload = await result if inspect.iscoroutine(result) else result
         assert isinstance(payload, dict)
+        payload.setdefault("profile_id", profile_id)
         await queue.publish_result(payload)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code >= 500:
@@ -53,7 +56,7 @@ async def process_stage_job(
                 exc.response.status_code,
                 procurement_id,
             )
-            await queue.enqueue(procurement_id, priority)
+            await queue.enqueue(procurement_id, priority, profile_id)
             await asyncio.sleep(retry_backoff_seconds)
         else:
             logger.warning(
@@ -67,9 +70,9 @@ async def process_stage_job(
             procurement_id,
             exc,
         )
-        await queue.enqueue(procurement_id, priority)
+        await queue.enqueue(procurement_id, priority, profile_id)
         await asyncio.sleep(retry_backoff_seconds)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Обработка стадии для %s упала: %s", procurement_id, exc)
     finally:
-        await queue.finish_processing(procurement_id)
+        await queue.finish_processing(procurement_id, profile_id)

@@ -45,7 +45,9 @@ async def _cmd_consumer(settings: Settings) -> int:
     return 0
 
 
-async def _cmd_enqueue(settings: Settings, procurement_id: int, priority: float | None) -> int:
+async def _cmd_enqueue(
+    settings: Settings, procurement_id: int, profile_id: int, priority: float | None
+) -> int:
     from scoring_transport.broker.redis_queue import TransportQueue
 
     # Приоритет передаётся явно (из парсера, авто-пуш, ADR-7);
@@ -56,8 +58,8 @@ async def _cmd_enqueue(settings: Settings, procurement_id: int, priority: float 
     queue = TransportQueue(settings)
     await queue.connect()
     try:
-        await queue.enqueue(procurement_id, priority)
-        print(f"proc:{procurement_id} enqueued with priority {priority}")
+        await queue.enqueue(procurement_id, priority, profile_id=profile_id)
+        print(f"proc:{procurement_id} pf:{profile_id} enqueued with priority {priority}")
     finally:
         await queue.close()
     return 0
@@ -75,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_enq = sub.add_parser("enqueue", help="ручная постановка задачи")
     p_enq.add_argument("procurement_id", type=int)
+    p_enq.add_argument("profile_id", type=int)
     p_enq.add_argument("--priority", type=float, default=None)
 
     return parser
@@ -90,7 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "consumer":
         return asyncio.run(_cmd_consumer(settings))
     if args.command == "enqueue":
-        return asyncio.run(_cmd_enqueue(settings, args.procurement_id, args.priority))
+        return asyncio.run(
+            _cmd_enqueue(settings, args.procurement_id, args.profile_id, args.priority)
+        )
     return 2
 
 

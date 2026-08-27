@@ -168,8 +168,8 @@
   <div id="view-profiles" style="display:none;">
     <div class="toolbar">
       <button class="primary" id="profile-new">Создать профиль</button>
-      <button class="ghost" id="profile-import" title="Загрузить профиль из файла (markdown-разметка: секции **name**, **Ключевые слова**, **Компетенции**)">Загрузить из файла</button>
-      <input type="file" id="profile-import-file" accept=".md,.markdown,.txt" style="display:none;">
+      <button class="ghost" id="profile-import" title="Загрузить профиль из файла (JSON: профиль и компетенции внутри)">Загрузить из файла</button>
+      <input type="file" id="profile-import-file" accept=".json,.md,.markdown,.txt" style="display:none;">
       <span id="profile-status" class="muted"></span>
     </div>
     <div class="table-wrap" id="profiles"></div>
@@ -507,10 +507,7 @@
     <span class="close" onclick="closeExportProfileModal()">×</span>
     <h2>Экспорт профиля</h2>
     <p class="muted" style="margin-top:0;" id="export-profile-name"></p>
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Если включено, компетенции выгружаются отдельным файлом, а в файле профиля на него ставится ссылка. Если выключено — компетенции встроены в файл профиля.">
-      <input type="checkbox" id="export-profile-competencies" checked> Также выгрузить файл с компетенциями
-    </label>
-    <p class="muted" style="font-size:12px; margin-bottom:0;" id="export-profile-hint">Браузер предложит выбрать папку; файлы сохранятся с именем из названия профиля и даты/времени.</p>
+    <p class="muted" style="font-size:12px; margin-bottom:0;" id="export-profile-hint">Браузер предложит выбрать папку; профиль сохранится одним JSON-файлом, компетенции — внутри как подобъект.</p>
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="export-profile-cancel">Отмена</button>
       <button class="primary" id="export-profile-confirm">Экспортировать</button>

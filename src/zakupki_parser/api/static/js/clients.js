@@ -1153,7 +1153,6 @@ function downloadProfileFile(content, filename) {
 async function doExportProfile() {
   const id = exportProfileId;
   if (id == null) return;
-  const includeCompetencies = $("#export-profile-competencies").checked;
   closeExportProfileModal();
   setProfileStatus("Экспорт профиля…");
   // Папку выбираем до сетевого запроса — выбор папки требует свежего жеста
@@ -1173,34 +1172,13 @@ async function doExportProfile() {
     }
   }
   try {
-    const data = await api(`clients/${id}/export`, {
-      include_competencies: includeCompetencies ? "true" : "false",
-    });
+    const data = await api(`clients/${id}/export`);
     if (usePicker && dirHandle) {
       await writeToDir(dirHandle, data.profile_filename, data.profile_content);
-      if (data.competencies_filename && data.competencies_content != null) {
-        await writeToDir(dirHandle, data.competencies_filename, data.competencies_content);
-      }
-      const files = data.competencies_filename
-        ? `${data.profile_filename} и ${data.competencies_filename}`
-        : data.profile_filename;
-      setProfileStatus(`Профиль сохранён в выбранную папку: ${files}`);
+      setProfileStatus(`Профиль сохранён в выбранную папку: ${data.profile_filename}`);
       return;
     }
     downloadProfileFile(data.profile_content, data.profile_filename);
-    if (data.competencies_filename && data.competencies_content != null) {
-      // Браузеры без выбора папки ограничивают скачивание нескольких файлов
-      // одним жестом. Второй файл запускаем отдельно и предупреждаем, что
-      // браузер может запросить разрешение на несколько файлов — иначе файл
-      // компетенций потеряется «молча».
-      setTimeout(() => {
-        downloadProfileFile(data.competencies_content, data.competencies_filename);
-      }, 700);
-      setProfileStatus(
-        "Профиль выгружен. Если браузер спросит про несколько файлов — разрешите, чтобы сохранился и файл компетенций."
-      );
-      return;
-    }
     setProfileStatus("Профиль выгружен ✓");
   } catch (e) {
     setProfileStatus("Ошибка экспорта: " + e.message);

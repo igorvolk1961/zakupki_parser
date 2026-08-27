@@ -7,10 +7,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import secrets
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -49,9 +47,7 @@ class ApiContext:
 
     state: AppState
     _repo: Callable[[], ProcurementRepository]
-    _ensure_service_account: Callable[[], Awaitable[User]]
-    _effective_user: Callable[[User | None], Awaitable[User]]
-    _active_context: Callable[[User | None], Awaitable[tuple[User, Profile]]]
+    _active_context: Callable[[User | None], Awaitable[tuple[User | None, Profile | None]]]
     _profile_out: Callable[..., Awaitable[ProfileOut]]
     _owned_profile: Callable[[User | None, int], Awaitable[Profile]]
     _license_types_map: Callable[[], Awaitable[dict[int, LicenseTypeOut]]]
@@ -60,14 +56,13 @@ class ApiContext:
     _license_out: Callable[[Any, dict[int, LicenseTypeOut]], LicenseOut]
     _experience_out: Callable[[Any, dict[int, ConfirmationTypeOut]], ExperienceOut]
     _extract_bearer: Callable[[Request], str | None]
-    require_user: Callable[[Request], Awaitable[User | None]]
+    require_user: Callable[[Request], Awaitable[User]]
     require_admin: Callable[[User | None], User | None]
     require_analyst: Callable[[User | None], User | None]
     require_devops: Callable[[User | None], User | None]
     require_base: Callable[[User | None], User | None]
     require_internal: Callable[[Request], None]
     require_user_or_internal: Callable[[Request], Awaitable[User | None]]
-    _auth_disabled: Callable[[], None]
     _seed_initial_admin: Callable[[], Awaitable[None]]
 
     def __init__(self, state: AppState) -> None:
@@ -83,59 +78,23 @@ def build_context(state: AppState) -> ApiContext:
             raise HTTPException(status_code=503, detail="БД недоступна")
         return state.repository
 
-    async def _ensure_service_account() -> User:
-        """Сервис-аккаунт: первый пользователь (admin), осиротевшие профили — его.
-
-        Используется в dev-режиме (auth off) и конвейером скоринга: профиль
-        «активного клиента» теперь принадлежит пользователю (BR-07). Создаёт
-        пользователя, если таблица пуста (env-сид ZAKUPKI_ADMIN_* или fallback
-        «admin» со сгенерированным паролем), и присваивает профили без user_id.
-        """
-        cached: User | None = getattr(state, "service_account", None)
-        if cached is not None:
-            return cached
-        user = await _repo().first_user()
-        if user is not None:
-            await _repo().backfill_orphaned_profiles(user.id)
-        else:
-            username = os.environ.get("ZAKUPKI_ADMIN_USERNAME") or "administrator"
-            password = os.environ.get("ZAKUPKI_ADMIN_PASSWORD") or secrets.token_urlsafe(24)
-            user = await _repo().create_user(
-                username, await asyncio.to_thread(hash_password, password), list(ALL_ROLES)
-            )
-            logger.warning(
-                "Создан сервис-аккаунт %s (пароль %s)",
-                username,
-                "из env" if os.environ.get("ZAKUPKI_ADMIN_PASSWORD") else "сгенерирован",
-            )
-            await _repo().backfill_orphaned_profiles(user.id)
-        # Профиль default создаётся пустым (слова загружаются скриптом seed-profile, R8);
-        # сервис-аккаунт имеет роль user/analyst — профиль положен.
-        await _repo().ensure_default_profile(user.id, user.roles)
-        state.service_account = user
-        return user
-
-    async def _effective_user(user: User | None) -> User:
-        """Текущий пользователь; при выключенной авторизации — сервис-аккаунт."""
-        if user is not None:
-            return user
-        return await _ensure_service_account()
-
-    async def _active_context(user: User | None) -> tuple[User, Profile]:
-        """Эффективный пользователь и его активный профиль (BR-07).
+    async def _active_context(user: User | None) -> tuple[User | None, Profile | None]:
+        """Контекст запроса: пользователь и его активный профиль (BR-07).
 
         Оценки (procurement_evaluations) ключуются по ``profile_id`` (оценки относятся
-        к профилю), профиль — контекст фильтрации. Возвращает пару, чтобы не резолвить
-        пользователя дважды.
+        к профилю), профиль — контекст фильтрации. Для внутренних вызовов конвейера
+        (``user is None``) контекст — системный (без профиля): эндпоинты используют
+        ``profile_id=None`` (системный скоуп данных), а не профиль сервис-аккаунта.
         """
-        eff_user = await _effective_user(user)
-        profile = await _repo().get_active_profile(eff_user.id)
+        if user is None:
+            return None, None
+        profile = await _repo().get_active_profile(user.id)
         if profile is None:
             raise HTTPException(
                 status_code=503,
                 detail="Активный профиль не найден (примените миграции)",
             )
-        return eff_user, profile
+        return user, profile
 
     async def _profile_out(
         profile: Profile,
@@ -161,9 +120,11 @@ def build_context(state: AppState) -> ApiContext:
 
         Лицензии/опыт привязаны к профилю, профиль — к пользователю: проверка
         владения обязательна для всех вложенных эндпоинтов (как в get_client).
+        Авторизация всегда включена, поэтому ``user`` всегда задан.
         """
-        eff_user = await _effective_user(user)
-        profile = await _repo().get_profile(eff_user.id, client_id)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Требуется авторизация")
+        profile = await _repo().get_profile(user.id, client_id)
         if profile is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
         return profile
@@ -204,10 +165,8 @@ def build_context(state: AppState) -> ApiContext:
             return None
         return authz[len("Bearer ") :].strip()
 
-    async def require_user(request: Request) -> User | None:
-        """Текущий пользователь по bearer-токену; None при выключенной авторизации."""
-        if not state.cfg.ops.auth.enabled:
-            return None
+    async def require_user(request: Request) -> User:
+        """Текущий пользователь по bearer-токену (авторизация всегда включена)."""
         token = _extract_bearer(request)
         if token is None:
             raise HTTPException(status_code=401, detail="Требуется авторизация")
@@ -224,8 +183,8 @@ def build_context(state: AppState) -> ApiContext:
     def _require_roles(*required: str) -> Callable[[User | None], User | None]:
         """Зависимость: пользователь с хотя бы одной из требуемых ролей.
 
-        При выключенной авторизации (user=None) запрос пропускается — как в
-        прежнем ``require_admin`` (dev-режим).
+        Авторизация всегда включена — ``require_user`` возвращает пользователя
+        или бросает 401/403.
         """
 
         def require_roles(user: User | None = Depends(require_user)) -> User | None:
@@ -249,11 +208,9 @@ def build_context(state: AppState) -> ApiContext:
 
         Применяется к служебным эндпоинтам (POST /score, POST /customers/{id}/rating),
         которые вызывают компоненты конвейера, а не пользователи. Fail-closed:
-        при включённой авторизации без заданного токена эндпоинты закрыты
-        (конфиг-валидатор отклоняет такой запуск ещё на старте; ветка — страховка).
+        без заданного токена эндпоинты закрыты (конфиг-валидатор отклоняет такой
+        запуск ещё на старте; ветка — страховка).
         """
-        if not state.cfg.ops.auth.enabled:
-            return
         internal = state.cfg.ops.auth.internal_token
         if not internal:
             raise HTTPException(
@@ -267,18 +224,13 @@ def build_context(state: AppState) -> ApiContext:
         """Пользователь ИЛИ внутренний токен конвейера (например, /api/clients/active).
 
         Конвейер скоринга (scoring_service/analysis_service) не имеет пользовательского
-        токена, но читает активный профиль клиента: внутренний токен пропускает запрос.
+        токена, но работает в системном скоупе: внутренний токен пропускает запрос
+        с ``user=None`` (эндпоинты используют ``profile_id=None``).
         """
-        if not state.cfg.ops.auth.enabled:
-            return None
         internal = state.cfg.ops.auth.internal_token
         if internal and request.headers.get("X-Internal-Token") == internal:
             return None
         return await require_user(request)
-
-    def _auth_disabled() -> None:
-        if not state.cfg.ops.auth.enabled:
-            raise HTTPException(status_code=404, detail="Авторизация отключена")
 
     async def _seed_initial_admin() -> None:
         """Создаёт первого администратора из env, если таблица пользователей пуста.
@@ -296,8 +248,6 @@ def build_context(state: AppState) -> ApiContext:
         logger.info("Создан начальный администратор %s (из env)", username)
 
     ctx._repo = _repo
-    ctx._ensure_service_account = _ensure_service_account
-    ctx._effective_user = _effective_user
     ctx._active_context = _active_context
     ctx._profile_out = _profile_out
     ctx._owned_profile = _owned_profile
@@ -314,6 +264,5 @@ def build_context(state: AppState) -> ApiContext:
     ctx.require_base = require_base
     ctx.require_internal = require_internal
     ctx.require_user_or_internal = require_user_or_internal
-    ctx._auth_disabled = _auth_disabled
     ctx._seed_initial_admin = _seed_initial_admin
     return ctx

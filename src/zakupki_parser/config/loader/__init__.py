@@ -57,8 +57,8 @@ def load_config(configs_dir: str | Path) -> AppConfig:
     # Уведомления относятся к эксплуатационному (devops) конфигу.
     _inject_chat_ids(ops_data)
 
-    # Параметры авторизации из env (секрет, включение, внутренний токен) — ДО
-    # валидации: при auth.enabled=true без секрета конфигурация невалидна (fail fast).
+    # Параметры авторизации из env (секрет подписи, внутренний токен) — ДО
+    # валидации: без секрета конфигурация невалидна (auth всегда включён, fail fast).
     _apply_auth_env(ops_data)
 
     service_model = ServiceConfig.model_validate(service_data)

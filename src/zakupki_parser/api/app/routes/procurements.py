@@ -97,6 +97,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     ) -> ProcurementListOut:
         # Per-profile скоринг активного профиля пользователя (BR-07).
         _, profile = await _active_context(user)
+        assert profile is not None
         rows, total = await _repo().list_procurements(
             number=number,
             platform_id=platform_id,
@@ -130,6 +131,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         """
         threshold = body.min_fit_score if body is not None else 0.4
         _, profile = await _active_context(user)
+        assert profile is not None
         rows, _ = await _repo().list_procurements(
             active=True,
             min_fit_score=threshold,
@@ -165,7 +167,9 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         procurement_id: int, user: User | None = Depends(require_user_or_internal)
     ) -> ProcurementDetailOut:
         _, profile = await _active_context(user)
-        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
+        row = await _repo().get_by_id(
+            procurement_id, profile_id=profile.id if profile is not None else None
+        )
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return _procurement_detail_out(row)
@@ -185,7 +189,9 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         файл заново не скачивается и не конвертируется.
         """
         _, profile = await _active_context(user)
-        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
+        row = await _repo().get_by_id(
+            procurement_id, profile_id=profile.id if profile is not None else None
+        )
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         record = {"files_json": row.files_json or []}
@@ -214,10 +220,11 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     async def set_score(procurement_id: int, body: ScoreUpdate) -> ProcurementDetailOut:
         """Обновление score внешним сервисом по его инициативе.
 
-        Результат пишется в per-user скоринг (``procurement_evaluations``) сервис-аккаунта;
-        базовые колонки ``procurements`` обновляются для совместимости (дефолтный скор).
-        Автокаскад Fit -> P(win) -> Margin отключён: P(win)/Margin вычисляются только по
-        явному запросу тендеролога.
+        Результат пишется профилю из ``body.profile_id`` (пер-профильно, BR-07):
+        скор привязан к компетенциям конкретного профиля, поэтому «раздача одного
+        скора всем профилям-участникам» не используется. Автокаскад Fit -> P(win)
+        -> Margin отключён: P(win)/Margin вычисляются только по явному запросу
+        тендеролога.
 
         RAG-отчёт (``rag_report``) сохраняется отдельно и не меняет score_method.
         Уведомляет подписчиков ПОСЛЕ стадии (fit/pwin/margin), когда результат
@@ -226,19 +233,17 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         existing = await _repo().get_by_id(procurement_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
-        # Внутренний вызов конвейера: результат пишется под активный профиль
-        # сервис-аккаунта (оценки относятся к профилю, BR-07).
-        _, profile = await _active_context(None)
         logger.info(
-            "Получен результат скоринга закупки %s: score=%s method=%s fit=%s",
+            "Получен результат скоринга закупки %s (профиль %s): score=%s method=%s fit=%s",
             procurement_id,
+            body.profile_id,
             body.score,
             body.score_method,
             body.fit_score,
         )
         if body.rag_report is not None:
-            # Анализ стоп-условий: сохраняем отчёт, результат скоринга не меняем.
-            await _repo().update_rag_report(procurement_id, profile.id, body.rag_report)
+            # Анализ стоп-условий: сохраняем отчёт профилю (score_method не меняем).
+            await _repo().update_rag_report(procurement_id, body.profile_id, body.rag_report)
         # Результат стадии каскада (fit/pwin/margin/sim) применяется и вместе с
         # rag_report: rag_report не отменяет скоринг. Чисто аналитический результат
         # (rag_report без fit_score/p_win/margin) скоринг не трогает — у analysis-воркера
@@ -249,30 +254,17 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if body.rag_report is None or has_stage_result:
             await _repo().upsert_score(
                 procurement_id,
-                profile.id,
+                body.profile_id,
                 score=body.score,
                 fit_score=body.fit_score,
                 p_win=body.p_win,
                 margin=body.margin,
                 score_method=body.score_method,
-                embedding_similarity=body.embedding_similarity,
-                langfuse_trace_url=body.langfuse_trace_url,
-            )
-            # Один общий скор — раздаём всем профилям-участникам (отобравшим закупку
-            # по matched_keywords), чтобы каждый показывал результат в своей таблице.
-            await _repo().fan_out_score(
-                procurement_id,
-                from_profile_id=profile.id,
-                score=body.score,
-                fit_score=body.fit_score,
-                score_method=body.score_method,
-                p_win=body.p_win,
-                margin=body.margin,
                 embedding_similarity=body.embedding_similarity,
                 langfuse_trace_url=body.langfuse_trace_url,
             )
         await _broadcast(state)
-        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
+        row = await _repo().get_by_id(procurement_id, profile_id=body.profile_id)
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
 
@@ -304,12 +296,13 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if state.score_transport is None:
             raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
         _, profile = await _active_context(user)
+        assert profile is not None
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
             current = await _repo().get_score(procurement_id, profile.id)
             if current is None or current.fit_score is None:
-                await _enqueue_next_stage(state, procurement_id, "fit", 0.5)
-            await _enqueue_next_stage(state, procurement_id, "analysis", 0.5)
+                await _enqueue_next_stage(state, procurement_id, "fit", 0.5, profile.id)
+            await _enqueue_next_stage(state, procurement_id, "analysis", 0.5, profile.id)
             queued.append(procurement_id)
         logger.info("Поставлено на обработку (fit+analysis): %s", queued)
         return {"status": "queued", "procurement_ids": queued}
@@ -326,13 +319,14 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if state.score_transport is None:
             raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
         cfg = state.cfg.score
-        await _active_context(user)
+        _, profile = await _active_context(user)
+        assert profile is not None
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
             if cfg.pwin_enabled:
-                await _enqueue_next_stage(state, procurement_id, "pwin", 0.5)
+                await _enqueue_next_stage(state, procurement_id, "pwin", 0.5, profile.id)
             if cfg.margin_enabled:
-                await _enqueue_next_stage(state, procurement_id, "margin", 0.5)
+                await _enqueue_next_stage(state, procurement_id, "margin", 0.5, profile.id)
             queued.append(procurement_id)
         logger.info("Поставлено на оценку P(win)/Margin: %s", queued)
         return {"status": "queued", "procurement_ids": queued}

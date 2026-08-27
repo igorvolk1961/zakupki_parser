@@ -117,40 +117,36 @@ def _configs_copy(tmp_path: Path) -> Path:
     return cfgdir
 
 
-def test_auth_enabled_without_secret_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """ZAKUPKI_AUTH_ENABLED=true без ZAKUPKI_AUTH_SECRET — ошибка конфигурации.
+def test_auth_without_secret_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Авторизация всегда включена: без ZAKUPKI_AUTH_SECRET — ошибка конфигурации.
 
     Защита от пустого HMAC-ключа: env-переопределение применяется ДО валидации,
-    поэтому валидатор AuthConfig (enabled без секрета) срабатывает.
+    поэтому валидатор AuthConfig (нет секрета) срабатывает.
     """
     from zakupki_parser.config.loader import load_config
 
     cfgdir = _configs_copy(tmp_path)
-    monkeypatch.setenv("ZAKUPKI_AUTH_ENABLED", "true")
     monkeypatch.delenv("ZAKUPKI_AUTH_SECRET", raising=False)
     monkeypatch.delenv("ZAKUPKI_INTERNAL_TOKEN", raising=False)
     with pytest.raises(ValueError, match="ZAKUPKI_AUTH_SECRET"):
         load_config(str(cfgdir))
 
 
-def test_auth_enabled_with_secrets_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """enabled=true + секрет + внутренний токен — конфигурация валидна."""
+def test_auth_with_secrets_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Секрет + внутренний токен — конфигурация валидна (auth всегда включён)."""
     from zakupki_parser.config.loader import load_config
 
     cfgdir = _configs_copy(tmp_path)
-    monkeypatch.setenv("ZAKUPKI_AUTH_ENABLED", "true")
     monkeypatch.setenv("ZAKUPKI_AUTH_SECRET", "test-secret")
     monkeypatch.setenv("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
     cfg = load_config(str(cfgdir))
-    assert cfg.ops.auth.enabled is True
     assert cfg.ops.auth.secret == "test-secret"
     assert cfg.ops.auth.internal_token == "internal-123"
+    assert not hasattr(cfg.ops.auth, "enabled")
 
 
-def test_auth_enabled_without_internal_token_fails(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """enabled=true без внутреннего токена — ошибка конфигурации (fail-closed).
+def test_auth_without_internal_token_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Без внутреннего токена — ошибка конфигурации (fail-closed).
 
     Иначе служебные эндпоинты конвейера остались бы открытыми «с предупреждением» —
     внутренний токен не защищал бы ничего.
@@ -158,7 +154,6 @@ def test_auth_enabled_without_internal_token_fails(
     from zakupki_parser.config.loader import load_config
 
     cfgdir = _configs_copy(tmp_path)
-    monkeypatch.setenv("ZAKUPKI_AUTH_ENABLED", "true")
     monkeypatch.setenv("ZAKUPKI_AUTH_SECRET", "test-secret")
     monkeypatch.delenv("ZAKUPKI_INTERNAL_TOKEN", raising=False)
     with pytest.raises(ValueError, match="ZAKUPKI_INTERNAL_TOKEN"):
@@ -169,8 +164,7 @@ def test_internal_token_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     from zakupki_parser.config.loader import load_config
 
     cfgdir = _configs_copy(tmp_path)
+    monkeypatch.setenv("ZAKUPKI_AUTH_SECRET", "test-secret")
     monkeypatch.setenv("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
-    monkeypatch.delenv("ZAKUPKI_AUTH_ENABLED", raising=False)
-    monkeypatch.delenv("ZAKUPKI_AUTH_SECRET", raising=False)
     cfg = load_config(str(cfgdir))
     assert cfg.ops.auth.internal_token == "internal-123"

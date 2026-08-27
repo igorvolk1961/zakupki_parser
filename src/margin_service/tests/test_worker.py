@@ -60,7 +60,7 @@ async def test_margin_publishes_result(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _StubParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(1, 0.35)
+    await worker._queue.enqueue(1, 0.35, profile_id=1)
     await worker._process_once()
 
     results = worker._queue._settings.results_key
@@ -80,7 +80,7 @@ async def test_margin_applies_rate(worker_queue) -> None:
     worker._parser = _StubParser()
     worker._settings.margin_rate = 0.5
     assert worker._queue._client is not None
-    await worker._queue.enqueue(2, 0.35)
+    await worker._queue.enqueue(2, 0.35, profile_id=1)
     await worker._process_once()
 
     results = worker._queue._settings.results_key
@@ -94,9 +94,9 @@ async def test_transient_parser_error_requeues_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _UnreachableParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(133, 0.5)
+    await worker._queue.enqueue(133, 0.5, profile_id=1)
     await worker._process_once()
-    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:133")
+    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:133:pf:1")
     assert score == 0.5
 
 
@@ -104,9 +104,9 @@ async def test_http_500_requeues_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _InternalErrorParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(5, 0.4)
+    await worker._queue.enqueue(5, 0.4, profile_id=1)
     await worker._process_once()
-    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:5")
+    score = await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:5:pf:1")
     assert score == 0.4
 
 
@@ -114,6 +114,8 @@ async def test_http_404_drops_job(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _MissingParser()
     assert worker._queue._client is not None
-    await worker._queue.enqueue(7, 0.3)
+    await worker._queue.enqueue(7, 0.3, profile_id=1)
     await worker._process_once()
-    assert await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:7") is None
+    assert (
+        await worker._queue._client.zscore(worker._queue._settings.jobs_key, "proc:7:pf:1") is None
+    )

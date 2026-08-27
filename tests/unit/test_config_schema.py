@@ -51,7 +51,7 @@ def test_ops_schema_no_secrets() -> None:
     auth = _find(schema, "auth")
     auth_keys = {f["key"] for f in auth["fields"]}
     # Секреты (secret/internal_token) в форму не выводятся — только env.
-    assert auth_keys == {"enabled", "token_ttl_seconds"}
+    assert auth_keys == {"token_ttl_seconds"}
 
     notif = _find(schema, "notifications")
     notif_keys = {f["key"] for f in notif["fields"]}

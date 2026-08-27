@@ -442,9 +442,9 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
   `POST /api/auth/logout` — выход (stateless, токен удаляется клиентом).
 - Пароли хранятся как PBKDF2-хэши (`zakupki_parser/auth.py`), токены —
   HMAC-SHA256-подпись (payload: `sub`, `role`, `exp`).
-- Включение: `config_ops.yaml -> auth.enabled` (env `ZAKUPKI_AUTH_ENABLED`),
-  секрет подписи — env `ZAKUPKI_AUTH_SECRET`. При выключенной авторизации
-  эндпоинты открыты (dev-режим).
+- Авторизация всегда включена (переключателя `auth.enabled` нет): секрет подписи —
+  env `ZAKUPKI_AUTH_SECRET`, отсутствие секрета — ошибка конфигурации (fail fast).
+  Dev-режим с открытыми эндпоинтами отсутствует.
 - Защита эндпоинтов: без токена — 401; админ-операции (управление парсером,
   очистка БД, правка конфигурации и промптов) — только `admin` (403 для остальных).
   Служебные вызовы конвейера (`POST /score`, `POST /customers/{id}/rating`) защищены

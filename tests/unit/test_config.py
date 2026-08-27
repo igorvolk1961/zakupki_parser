@@ -207,6 +207,7 @@ def test_ops_config_accepts_devops_keys() -> None:
         {
             "timeout_seconds": 7200,
             "db": {"dsn": "postgresql+asyncpg://u:p@h:5432/db", "enabled": True},
+            "auth": {"secret": "test-secret", "internal_token": "internal-123"},
             "notifications": {"backend": "none"},
             "export_dir": "/tmp/export",
             "circuit_breaker_failure_threshold": 3,

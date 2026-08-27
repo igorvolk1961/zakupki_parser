@@ -10,21 +10,14 @@ from zakupki_parser.config.models.ops.base import _BaseConfig
 class AuthConfig(_BaseConfig):
     """Параметры аутентификации API (config_ops.yaml -> auth).
 
+    Авторизация всегда включена (переключателя ``enabled`` нет — dev-режим закрыт).
     Секрет подписи токенов и внутренний токен конвейера не хранятся в YAML —
     подкладываются из env (``ZAKUPKI_AUTH_SECRET``, ``ZAKUPKI_INTERNAL_TOKEN``)
-    в ``config/loader.py`` (как токены уведомлений). При ``enabled=true`` без
-    секрета или внутреннего токена конфигурация невалидна (fail fast), иначе
-    служебные эндпоинты конвейера остались бы открытыми с «предупреждением» —
-    то есть токен не защищал бы ничего.
+    в ``config/loader.py`` (как токены уведомлений). Без секрета или внутреннего
+    токена конфигурация невалидна (fail fast): иначе служебные эндпоинты конвейера
+    остались бы открытыми с «предупреждением» — токен не защищал бы ничего.
     """
 
-    enabled: bool = Field(
-        default=False,
-        description=(
-            "требовать ли авторизацию на эндпоинтах API (кроме /health, / и /api/auth/login); "
-            "пока вход по логину/паролю, позже — OAuth2 через Сбер ID"
-        ),
-    )
     secret: str | None = Field(
         default=None,
         description="секрет подписи bearer-токенов; из env ZAKUPKI_AUTH_SECRET, в YAML не пишется",
@@ -40,16 +33,12 @@ class AuthConfig(_BaseConfig):
     token_ttl_seconds: int = Field(default=12 * 3600, ge=60, description="время жизни токена (сек)")
 
     @model_validator(mode="after")
-    def _require_secrets_when_enabled(self) -> AuthConfig:
-        if not self.enabled:
-            return self
+    def _require_secrets(self) -> AuthConfig:
         if not self.secret:
-            raise ValueError(
-                "auth.enabled=true, но не задан секрет: установите env ZAKUPKI_AUTH_SECRET"
-            )
+            raise ValueError("не задан секрет подписи токенов: установите env ZAKUPKI_AUTH_SECRET")
         if not self.internal_token:
             raise ValueError(
-                "auth.enabled=true, но не задан внутренний токен: установите env "
+                "не задан внутренний токен конвейера: установите env "
                 "ZAKUPKI_INTERNAL_TOKEN и одноимённые значения в .env сервисов "
                 "конвейера (TRANSPORT_PARSER_INTERNAL_TOKEN, "
                 "SCORE_PARSER_INTERNAL_TOKEN, ANALYSIS_PARSER_INTERNAL_TOKEN)"

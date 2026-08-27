@@ -29,14 +29,17 @@ class TransportQueue:
         if self._client is not None:
             await self._client.aclose()
 
-    async def enqueue(self, procurement_id: int, priority: float, stage: str = "fit") -> None:
+    async def enqueue(
+        self, procurement_id: int, priority: float, stage: str = "fit", profile_id: int = 0
+    ) -> None:
         """Постановка задачи с приоритетом = дефолтным score.
 
-        ``stage`` — стадия каскада (fit/pwin/margin): определяет Redis-очередь задач.
+        ``stage`` — стадия каскада (fit/pwin/margin/analysis): определяет Redis-очередь.
+        ``profile_id`` — профиль, для которого считается результат (пер-профильно, BR-07).
         """
         assert self._client is not None
         key = self._jobs_key_for(stage)
-        await self._client.zadd(key, {f"proc:{procurement_id}": priority})
+        await self._client.zadd(key, {f"proc:{procurement_id}:pf:{profile_id}": priority})
 
     def _jobs_key_for(self, stage: str) -> str:
         if stage == "pwin":

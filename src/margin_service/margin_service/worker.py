@@ -45,22 +45,26 @@ class MarginWorker:
         job = await self._queue.pop_job()
         if job is None:
             return
-        procurement_id, priority = job
+        procurement_id, profile_id, priority = job
         logger.info(
-            "Processing Margin for procurement %s (priority=%.2f)",
+            "Processing Margin for procurement %s (profile %s, priority=%.2f)",
             procurement_id,
+            profile_id,
             priority,
         )
         await process_stage_job(
             self._queue,
             self._parser,
             procurement_id,
+            profile_id,
             priority,
             retry_backoff_seconds=self._settings.parser_retry_backoff_seconds,
             compute=self._compute_payload,
         )
 
-    def _compute_payload(self, record: dict[str, Any], procurement_id: int) -> dict[str, Any]:
+    def _compute_payload(
+        self, record: dict[str, Any], procurement_id: int, profile_id: int
+    ) -> dict[str, Any]:
         """Расчёт Margin и накопленного score = fit × p_win × margin."""
         margin = compute_margin(record, self._settings.margin_rate)
         fit_score = float(record.get("fit_score") or 0.0)
@@ -68,6 +72,7 @@ class MarginWorker:
         score = round(fit_score * p_win * margin, self._settings.score_round_digits)
         return {
             "procurement_id": procurement_id,
+            "profile_id": profile_id,
             "score": score,
             "fit_score": fit_score,
             "p_win": p_win,

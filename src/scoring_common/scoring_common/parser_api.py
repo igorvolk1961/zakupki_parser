@@ -54,20 +54,25 @@ class ParserApiClient:
             data: dict[str, Any] = resp.json()
             return data
 
-    async def get_active_client(self, internal_token: str | None = None) -> dict[str, Any]:
-        """Активный клиентский профиль (компетенции, слова, вопросы к ТЗ).
+    async def get_active_client(
+        self, internal_token: str | None = None, profile_id: int | None = None
+    ) -> dict[str, Any]:
+        """Профиль клиента для анализа (компетенции, слова, вопросы к ТЗ).
 
-        ``internal_token`` — внутренний токен парсера (заголовок X-Internal-Token):
-        эндпоинт /api/clients/active открыт и для конвейера, и для пользователей.
-        Ответ кешируется на ``_ACTIVE_CLIENT_TTL_SECONDS`` (профиль меняется редко).
+        ``internal_token`` — внутренний токен парсера (заголовок X-Internal-Token).
+        ``profile_id`` — конкретный профиль: передаётся заголовком ``X-Profile-ID``
+        (пер-профильный скоринг, BR-07). Без него эндпоинт отдаёт 400 — сервис-аккаунта
+        нет. Ответ кешируется на ``_ACTIVE_CLIENT_TTL_SECONDS`` (профиль меняется редко).
         """
-        cache_key = self._resolve_token(internal_token) or ""
+        cache_key = f"{self._resolve_token(internal_token) or ''}:{profile_id or ''}"
         now = time.monotonic()
         cached = _active_client_cache.get(cache_key)
         if cached is not None and now - cached[0] < _ACTIVE_CLIENT_TTL_SECONDS:
             return cached[1]
         url = f"{self._base}/api/clients/active"
         headers = self._headers(internal_token)
+        if profile_id is not None:
+            headers = {**(headers or {}), "X-Profile-ID": str(profile_id)}
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
@@ -106,6 +111,7 @@ class ParserApiClient:
         p_win: float | None = None,
         margin: float | None = None,
         rag_report: dict[str, Any] | None = None,
+        profile_id: int | None = None,
         retry_max: int = 3,
         retry_backoff: float = 2.0,
         internal_token: str | None = None,
@@ -115,9 +121,12 @@ class ParserApiClient:
         ``internal_token`` — внутренний токен парсера (заголовок X-Internal-Token):
         служебные эндпоинты парсера (POST /score) доступны только конвейеру.
         ``rag_report`` — результат RAG-анализа стоп-условий (analysis_service).
+        ``profile_id`` — профиль, для которого посчитан результат (пер-профильно, BR-07).
         """
         url = f"{self._base}/api/procurements/{procurement_id}/score"
         payload = {"score": score, "score_method": score_method}
+        if profile_id is not None:
+            payload["profile_id"] = profile_id
         if fit_score is not None:
             payload["fit_score"] = fit_score
         if embedding_similarity is not None:

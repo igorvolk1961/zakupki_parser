@@ -14,13 +14,19 @@ class _FakeTransport:
     """Записывает enqueue-вызовы; при ``fail_on`` бросает исключение."""
 
     def __init__(self, fail_on: int | None = None) -> None:
-        self.enqueued: list[tuple[int, float, str]] = []
+        self.enqueued: list[tuple[int, float, str, int | None]] = []
         self._fail_on = fail_on
 
-    async def enqueue(self, procurement_id: int, priority: float, stage: str = "fit") -> None:
+    async def enqueue(
+        self,
+        procurement_id: int,
+        priority: float,
+        stage: str = "fit",
+        profile_id: int | None = None,
+    ) -> None:
         if self._fail_on is not None and len(self.enqueued) >= self._fail_on:
             raise RuntimeError("transport down")
-        self.enqueued.append((procurement_id, priority, stage))
+        self.enqueued.append((procurement_id, priority, stage, profile_id))
 
 
 class _FakeRepo:
@@ -58,6 +64,10 @@ class _FakeRepo:
     async def mark_scoring_queued(self, procurement_id: int, queued_at: datetime) -> bool:
         self.marked.append(procurement_id)
         return True
+
+    async def list_matched_profile_ids(self, procurement_id: int) -> list[int]:
+        # В recovery-тестах каждая закупка отобрана одним профилем (id=1).
+        return [1]
 
 
 def _item(
@@ -104,7 +114,9 @@ async def test_recover_enqueues_unscored_with_time_priority(
     # Приоритет = epoch времени: у записи 2 — update_date (новее, выше приоритет).
     assert fake_transport.enqueued[0][1] == datetime(2026, 8, 10, 12, 0, tzinfo=UTC).timestamp()
     assert fake_transport.enqueued[1][1] == datetime(2026, 8, 15, 12, 0, tzinfo=UTC).timestamp()
-    assert all(stage == "fit" for _, _, stage in fake_transport.enqueued)
+    assert all(
+        stage == "fit" and profile_id == 1 for _, _, stage, profile_id in fake_transport.enqueued
+    )
     assert repo.marked == [1, 2]
 
 

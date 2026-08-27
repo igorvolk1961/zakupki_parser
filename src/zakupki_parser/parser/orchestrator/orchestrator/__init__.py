@@ -258,27 +258,14 @@ class Orchestrator(
         return not etp or self._platform_id in etp
 
     async def _load_legacy_profiles(self) -> list[ProfileRunContext]:
-        """Прежнее поведение: активный профиль первого пользователя (dev/тесты).
+        """Разрешение обхода без явно переданных профилей (dev/тесты).
 
-        Возвращает пустой список, если БД недоступна или профиля нет — тогда обход
-        строится по глобальным критериям config_service.yaml (как ``profile=None``).
+        Возвращает пустой список: строится единый обход по глобальным критериям
+        config_service.yaml (как ``profile=None``). Рабочий обход всегда получает
+        профили от ``Scheduler._gather_profile_ctxs`` (мультитенантный источник),
+        а не от «первого пользователя».
         """
-        if self._repository is None:
-            return []
-        user = await self._repository.first_user()
-        if user is None:
-            return []
-        profile = await self._repository.get_active_profile(user.id)
-        if profile is None:
-            return []
-        kw = await self._repository.get_profile_keywords(profile.id)
-        return [
-            ProfileRunContext(
-                profile=profile,
-                keywords=kw["keywords"],
-                exclusion_words=kw["exclusion_words"],
-            )
-        ]
+        return []
 
     async def _compute_cutoff(
         self,

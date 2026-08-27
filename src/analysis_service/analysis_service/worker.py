@@ -60,11 +60,11 @@ class AnalysisWorker:
         finally:
             await self._queue.close()
 
-    async def _resolve_questions(self) -> list[dict[str, Any]]:
-        """Вопросы активного клиентского профиля (из парсера); None при сбое."""
+    async def _resolve_questions(self, profile_id: int) -> list[dict[str, Any]]:
+        """Вопросы профиля (из парсера); None при сбое."""
         try:
             client = await self._parser.get_active_client(
-                internal_token=self._settings.parser_internal_token
+                internal_token=self._settings.parser_internal_token, profile_id=profile_id
             )
             questions = (client or {}).get("questions") or []
             return [q for q in questions if isinstance(q, dict)]
@@ -72,8 +72,8 @@ class AnalysisWorker:
             logger.warning("Не удалось получить вопросы клиента: %s", exc)
             return []
 
-    async def _resolve_profile_facts(self) -> dict[str, Any]:
-        """Факты активного профиля для сопоставления с фактами ТЗ (Stage B).
+    async def _resolve_profile_facts(self, profile_id: int) -> dict[str, Any]:
+        """Факты профиля для сопоставления с фактами ТЗ (Stage B).
 
         Лицензии/подтверждённый опыт приходят из ответа ``/api/clients/active``
         (тот же кэшируемый вызов, что и вопросы). При сбое — пустые факты:
@@ -82,7 +82,7 @@ class AnalysisWorker:
         """
         try:
             client = await self._parser.get_active_client(
-                internal_token=self._settings.parser_internal_token
+                internal_token=self._settings.parser_internal_token, profile_id=profile_id
             )
             facts = (client or {}).get("facts")
             if isinstance(facts, dict):
@@ -98,19 +98,21 @@ class AnalysisWorker:
         job = await self._queue.pop_job()
         if job is None:
             return
-        procurement_id, priority = job
+        procurement_id, profile_id, priority = job
         logger.info(
-            "Processing analysis for procurement %s (priority=%.2f)",
+            "Processing analysis for procurement %s (profile %s, priority=%.2f)",
             procurement_id,
+            profile_id,
             priority,
         )
 
-        async def compute(record: dict[str, Any], pid: int) -> dict[str, Any]:
-            questions = await self._resolve_questions()
-            profile_facts = await self._resolve_profile_facts()
+        async def compute(record: dict[str, Any], pid: int, pfd: int) -> dict[str, Any]:
+            questions = await self._resolve_questions(pfd)
+            profile_facts = await self._resolve_profile_facts(pfd)
             report = await self._analyzer.analyze(record, questions, profile_facts)
             return {
                 "procurement_id": pid,
+                "profile_id": pfd,
                 "score": 0.0,
                 "score_method": "fit",
                 "rag_report": report,
@@ -120,6 +122,7 @@ class AnalysisWorker:
             self._queue,
             self._parser,
             procurement_id,
+            profile_id,
             priority,
             retry_backoff_seconds=self._settings.parser_retry_backoff_seconds,
             compute=compute,

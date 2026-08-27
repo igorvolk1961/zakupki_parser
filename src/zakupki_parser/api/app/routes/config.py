@@ -10,9 +10,9 @@ config_log.yaml, config_parser.yaml (devops) и редактор промпто�
 - «Парсер» (devops) — config_parser.yaml (форма + расширенный режим YAML).
 
 Секреты (auth.secret, токены бэкендов) в YAML не пишутся и в форме не
-редактируются — они управляются через env. Включение авторизации
-(``auth.enabled``) также управляется через env (ZAKUPKI_AUTH_ENABLED) и через
-API не меняется: иначе devops мог бы отключить авторизацию для всего сервиса.
+редактируются — они управляются через env. Авторизация всегда включена
+(переключателя ``enabled`` нет) и через API не меняется: иначе devops мог бы
+отключить авторизацию для всего сервиса.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ def _register_config_endpoints(
     """GET/PUT (форма + raw YAML) и схема для одного конфига.
 
     ``prepare`` — модификация тела ДО валидации (например, подмешивание env-секретов);
-    ``validate`` — пост-валидационная проверка (например, запрет смены auth.enabled);
+    ``validate`` — пост-валидационная проверка (например, запрет смены auth-секретов);
     ``public`` — сериализация для формы/YAML без секретов.
     """
 
@@ -450,7 +450,7 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
 
     # --- config_ops.yaml: «Конфигурация» (devops) ------------------------
     def _prepare_ops(body: dict[str, Any]) -> None:
-        """Перед валидацией подмешиваем env-секреты (auth.enabled=true требует secret)."""
+        """Перед валидацией подмешиваем env-секреты (secret/internal_token из env)."""
         current = state.cfg.ops
         auth = body.setdefault("auth", {})
         auth.setdefault("secret", current.auth.secret)
@@ -464,14 +464,6 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
             block = notif.setdefault(key, {})
             block.setdefault("token", current_block.token)
 
-    def _validate_ops(new_ops: OpsConfig) -> None:
-        """Запрет смены включения авторизации через API (управляется env)."""
-        if new_ops.auth.enabled != state.cfg.ops.auth.enabled:
-            raise HTTPException(
-                status_code=409,
-                detail="Включение авторизации управляется через env (ZAKUPKI_AUTH_ENABLED)",
-            )
-
     _register_config_endpoints(
         router,
         state=state,
@@ -484,7 +476,6 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         require=require_devops,
         state_setter=lambda m: setattr(state.cfg, "ops", m),
         prepare=_prepare_ops,
-        validate=_validate_ops,
     )
 
     # --- config_log.yaml: «Управление логами» (devops) ---------------------

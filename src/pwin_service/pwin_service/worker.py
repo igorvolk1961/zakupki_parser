@@ -45,22 +45,26 @@ class PwinWorker:
         job = await self._queue.pop_job()
         if job is None:
             return
-        procurement_id, priority = job
+        procurement_id, profile_id, priority = job
         logger.info(
-            "Processing P(win) for procurement %s (priority=%.2f)",
+            "Processing P(win) for procurement %s (profile %s, priority=%.2f)",
             procurement_id,
+            profile_id,
             priority,
         )
         await process_stage_job(
             self._queue,
             self._parser,
             procurement_id,
+            profile_id,
             priority,
             retry_backoff_seconds=self._settings.parser_retry_backoff_seconds,
             compute=self._compute_payload,
         )
 
-    def _compute_payload(self, record: dict[str, Any], procurement_id: int) -> dict[str, Any]:
+    def _compute_payload(
+        self, record: dict[str, Any], procurement_id: int, profile_id: int
+    ) -> dict[str, Any]:
         """Расчёт P(win) и накопленного score = fit × p_win.
 
         В режиме заглушки (``use_stub``) P(win) = константа ``stub_pwin``
@@ -76,6 +80,7 @@ class PwinWorker:
         score = round(fit_score * p_win, self._settings.score_round_digits)
         return {
             "procurement_id": procurement_id,
+            "profile_id": profile_id,
             "score": score,
             "fit_score": fit_score,
             "p_win": p_win,

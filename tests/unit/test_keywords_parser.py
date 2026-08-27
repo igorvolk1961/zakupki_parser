@@ -8,7 +8,6 @@ from zakupki_parser.storage.keywords_parser import (
     parse_keywords_file,
     parse_keywords_text,
     resolve_competencies_reference,
-    serialize_profile_text,
 )
 
 SAMPLE = """
@@ -158,55 +157,3 @@ def test_resolve_competencies_reference_keeps_block() -> None:
     text = "Поставщик — BBK IT.\nОсновные компетенции: ИИ, автоматизация."
     out = resolve_competencies_reference({"competencies": text})
     assert out["competencies"] == text
-
-
-def test_serialize_profile_text_roundtrip() -> None:
-    """Сериализация в markdown и обратный разбор сохраняют данные профиля."""
-    data = {
-        "name": "bbk-it",
-        "competencies": "Поставщик — BBK IT.\nКомпетенции: ИИ, автоматизация.",
-        "keywords": ["услуг* программирован*", "разработ* ИИ", "(автоматизир* систем* учет*)~2"],
-        "exclusion_words": ["радиопрограмм*", "точная фраза"],
-        "okpd_codes": ["62.02", "62.01"],
-        "nmck_min": 100000.0,
-        "nmck_max": 5000000.0,
-    }
-    text = serialize_profile_text(data)
-    assert "**name**\nbbk-it" in text
-    assert "**competencies**" in text
-    assert "**okpd_codes**" in text
-    assert "62.02" in text and "62.01" in text
-    assert "**nmck_min**\n100000.0" in text
-    assert "**keywords**" in text
-    assert "**exclussion_words**" in text
-    parsed = parse_keywords_text(text)
-    assert parsed["name"] == "bbk-it"
-    assert parsed["keywords"] == data["keywords"]
-    assert parsed["exclusion_words"] == data["exclusion_words"]
-    assert parsed["okpd_codes"] == data["okpd_codes"]
-    assert parsed["nmck_min"] == data["nmck_min"]
-    assert parsed["nmck_max"] == data["nmck_max"]
-    assert "ИИ, автоматизация" in parsed["competencies"]
-
-
-def test_serialize_profile_text_competencies_reference() -> None:
-    """Ссылка на файл компетенций подставляется вместо текста."""
-    data = {
-        "name": "bbk-it",
-        "competencies": "Поставщик — BBK IT.",
-        "keywords": ["ИИ"],
-        "exclusion_words": [],
-    }
-    ref = "bbk-it_2026-08-27_14-31-50_competencies.md"
-    text = serialize_profile_text(data, competencies_reference=ref)
-    assert "**competencies**\n" + ref in text
-    assert "Поставщик — BBK IT." not in text
-    # Слова-исключения не выводятся пустыми.
-    assert "**exclussion_words**" not in text
-
-
-def test_serialize_profile_text_empty() -> None:
-    assert serialize_profile_text({}) == ""
-    assert serialize_profile_text({"name": "x", "nmck_min": None, "nmck_max": None}) == (
-        "**name**\nx\n"
-    )

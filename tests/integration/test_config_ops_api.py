@@ -71,7 +71,7 @@ def ops_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
     shutil.copytree(src, cfgdir, dirs_exist_ok=True)
     ops = cfgdir / "config_ops.yaml"
     ops.write_text(
-        ops.read_text(encoding="utf-8") + "\nauth:\n  enabled: true\n  token_ttl_seconds: 3600\n",
+        ops.read_text(encoding="utf-8") + "\nauth:\n  token_ttl_seconds: 3600\n",
         encoding="utf-8",
     )
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
@@ -111,7 +111,7 @@ def test_ops_schema_hides_secrets(ops_client: TestClient) -> None:
     schema = {f["key"]: f for f in body["schema"]}
     assert {"auth", "db", "notifications", "export_dir"} <= set(schema)
     auth_keys = {f["key"] for f in schema["auth"]["fields"]}
-    assert auth_keys == {"enabled", "token_ttl_seconds"}
+    assert auth_keys == {"token_ttl_seconds"}
 
 
 def test_ops_put_updates_yaml(ops_client: TestClient) -> None:
@@ -145,19 +145,6 @@ def test_ops_put_updates_yaml(ops_client: TestClient) -> None:
     r2 = ops_client.put("/api/config/ops", headers=h, content=y)
     assert r2.status_code == 200, r2.text
     assert r2.json()["export_dir"] == "data/export_yaml"
-
-
-def test_ops_put_auth_enabled_blocked(ops_client: TestClient) -> None:
-    """Смена включения авторизации через API запрещена (управляется env)."""
-    headers = _auth(ops_client)
-    cfg = ops_client.get("/api/config/ops", headers=headers).json()
-    current = cfg["auth"]["enabled"]
-    cfg["auth"]["enabled"] = not current
-    r = ops_client.put("/api/config/ops", headers=headers, json=cfg)
-    assert r.status_code == 409
-    # Текущее значение не изменилось.
-    after = ops_client.get("/api/config/ops", headers=headers).json()
-    assert after["auth"]["enabled"] == current
 
 
 def test_log_config_rejects_absolute_file(ops_client: TestClient) -> None:

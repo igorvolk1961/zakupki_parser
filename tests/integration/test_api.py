@@ -15,32 +15,33 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.api.app import create_app
+from zakupki_parser.auth import ROLE_ADMIN, ROLE_USER, create_token
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
+AUTH_SECRET = "test-secret"
 
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
 
 
 @pytest.fixture(scope="module")
 def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestClient, Path]]:
-    async def _setup() -> None:
+    async def _setup() -> int:
         engine = create_async_engine(TEST_DSN)
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
         await engine.dispose()
-        # Сид сервис-аккаунта и default-профиля под ним (в проде — миграция 1.27/1.29
-        # и ensure_service_account на старте).
+        # Сид пользователя и его default-профиля.
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
             repo = ProcurementRepository(db)
             user = await repo.first_user()
             if user is None:
-                user = await repo.create_user("admin", "test-hash", ["admin"])
+                user = await repo.create_user("admin", "test-hash", [ROLE_ADMIN, ROLE_USER])
             await repo.upsert_profile(
                 {
                     "name": "default",
@@ -53,20 +54,25 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
                 },
                 user.id,
             )
+            return user.id
         finally:
             await db.dispose()
 
-    asyncio.run(_setup())
+    user_id = asyncio.run(_setup())
     docs = tmp_path_factory.mktemp("docs")
 
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
-    # dev-режим: выключаем авторизацию явно (репозиторий .env может включать её).
-    os.environ["ZAKUPKI_AUTH_ENABLED"] = "false"
+    # Авторизация всегда включена: задаём секрет и внутренний токен (обязательны).
+    os.environ["ZAKUPKI_AUTH_SECRET"] = AUTH_SECRET
+    os.environ["ZAKUPKI_INTERNAL_TOKEN"] = "internal-123"
     app = create_app()
     with TestClient(app) as client:
+        token = create_token(user_id, [ROLE_ADMIN, ROLE_USER], AUTH_SECRET, 3600)
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client, docs
     os.environ.pop("ZAKUPKI_DB_DSN", None)
-    os.environ.pop("ZAKUPKI_AUTH_ENABLED", None)
+    os.environ.pop("ZAKUPKI_AUTH_SECRET", None)
+    os.environ.pop("ZAKUPKI_INTERNAL_TOKEN", None)
 
 
 @pytest.fixture(scope="module")

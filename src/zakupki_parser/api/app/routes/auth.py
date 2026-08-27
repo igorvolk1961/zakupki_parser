@@ -20,13 +20,11 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     state = ctx.state
     _repo = ctx._repo
-    _auth_disabled = ctx._auth_disabled
     require_user = ctx.require_user
 
     @router.post("/api/auth/login", response_model=TokenOut)
     async def login(body: LoginIn) -> TokenOut:
         """Вход по логину и паролю: возвращает bearer-токен и профиль пользователя."""
-        _auth_disabled()
         user = await _repo().get_user_by_username(body.username)
         # PBKDF2 (600k итераций) — CPU-bound: не блокируем event loop (~190 мс).
         ok = user is not None and await asyncio.to_thread(
@@ -44,14 +42,11 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
     @router.post("/api/auth/logout", include_in_schema=False)
     async def logout(user: User | None = Depends(require_user)) -> dict[str, str]:
         """Выход (stateless: клиент удаляет токен; серверная сессия не ведётся)."""
-        _auth_disabled()
         return {"status": "ok"}
 
     @router.get("/api/auth/me", response_model=UserOut)
     async def me(user: User | None = Depends(require_user)) -> UserOut:
-        """Текущий пользователь. 404 — авторизация отключена (клиент не логинится)."""
-        if user is None:
-            raise HTTPException(status_code=404, detail="Авторизация отключена")
+        """Текущий пользователь (по bearer-токену)."""
         return UserOut.model_validate(user)
 
     @router.post("/api/auth/register", response_model=TokenOut)
@@ -62,7 +57,6 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
         admin/analyst/devops регистрацией не выдаются — их задаёт администратор
         во вкладке «Пользователи».
         """
-        _auth_disabled()
         if await _repo().get_user_by_username(body.username) is not None:
             raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
         password_hash = await asyncio.to_thread(hash_password, body.password)
