@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -252,3 +252,48 @@ async def test_tender_223_details_no_number_returns_empty() -> None:
     assert files == []
     assert inn is None
     page.request.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_extract_details_api_and_dom_same_interface() -> None:
+    """extract_details — единый интерфейс: API- и DOM-площадки вызываются одинаково."""
+    from zakupki_parser.parser.detail import extract_details
+
+    # API-площадка: детали через JSON (fetch_api_details).
+    api_platform = _platform("mos", "https://zakupki.mos.ru")
+    api_page: Any = _FakePage(
+        gets=[
+            {
+                "items": [{"okpd": {"code": "61.10.20.110", "name": "Услуги связи"}}],
+                "files": [{"name": "Документация.docx", "id": 281353068}],
+            }
+        ]
+    )
+    vars_, files, inn = await extract_details(
+        api_page, api_platform, {"number": "6177179"}, None, {"need_id": 6177179}
+    )
+    assert vars_["okpd2_code"] == "61.10.20.110"
+    assert files[0]["name"] == "Документация.docx"
+    assert inn is None
+
+    # DOM-площадка (api_format пуст): детальная страница открывается.
+    dom_platform = _platform("", "https://dom.example.ru")
+    # Для DOM-ветки мокаем функции извлечения со страницы.
+    with (
+        patch("zakupki_parser.parser.detail.open_detail", new=AsyncMock()),
+        patch(
+            "zakupki_parser.parser.detail.extract_detail_vars",
+            return_value={"subject": "Полный предмет", "nmck": 123.0},
+        ),
+        patch("zakupki_parser.parser.detail.capture_customer_link", return_value=None),
+        patch("zakupki_parser.parser.detail.detail_files", return_value=[]),
+        patch("zakupki_parser.parser.detail.resolve_inn", return_value=None),
+    ):
+        dom_page: Any = _FakePage(gets=[])
+        vars_, files, inn = await extract_details(
+            dom_page, dom_platform, {"number": "D1"}, "/proc/D1", None
+        )
+    assert vars_["subject"] == "Полный предмет"
+    assert vars_["nmck"] == 123.0
+    assert files == []
+    assert inn is None

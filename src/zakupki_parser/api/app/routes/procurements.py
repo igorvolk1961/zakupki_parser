@@ -28,7 +28,7 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.browser.manager import BrowserManager
-from zakupki_parser.parser.detail_api import fetch_api_details
+from zakupki_parser.parser.detail import extract_details
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.storage.db import User
 
@@ -75,28 +75,29 @@ async def _fetch_details_for_score(state: Any, row: Any) -> None:
 
     Вызывается из обработчика ``POST /api/procurements/{id}/score`` ПЕРЕД записью
     результата в БД: детали (ОКПД2/файлы/ИНН/статус/НМЦК) догружаются через
-    существующий интерфейс ``fetch_api_details`` с браузерной страницей (как в
-    обходе парсера — ``page.request``, тот же браузер/сессия). Контекст запроса
-    деталей (``detail_api``, need_id и т.п.) был сохранён при персисте на уровне
-    списка. Сбой деталей (напр. HTTP 402 от API mos.ru) НЕ роняет обработчик
-    скоринга: карточка остаётся на уровне списка, результат скоринга всё равно
-    записывается.
+    единый интерфейс ``extract_details`` с браузерной страницей — одинаково для
+    API-площадок (``fetch_api_details``) и DOM-площадок (детальная страница).
+    Контекст запроса деталей (``detail_api``: need_id и т.п.) был сохранён при
+    персисте на уровне списка. Сбой деталей (напр. HTTP 402 от API mos.ru) НЕ
+    роняет обработчик скоринга: карточка остаётся на уровне списка, результат
+    скоринга всё равно записывается.
     """
     if state.repository is None:
         return
     platform = (state.cfg.dom.platforms or {}).get(row.platform_id)
-    if platform is None or not platform.detail.api_format:
+    if platform is None:
         return
-    api_fields = row.detail_api
-    if not api_fields:
+    d = platform.detail
+    # Нет источника деталей (ни API, ни DOM) — досборка не нужна.
+    if not (d.api_format or d.variables or d.files or d.additional_pages):
         return
     browser = BrowserManager(state.cfg.parser.browser)
     try:
         await browser.start()
         page = await browser.new_page()
         try:
-            detail_vars, files, api_inn = await fetch_api_details(
-                page, platform, {"number": row.number}, api_fields
+            detail_vars, files, api_inn = await extract_details(
+                page, platform, {"number": row.number}, row.url, row.detail_api
             )
         finally:
             await browser.save_session()

@@ -1,4 +1,11 @@
-"""Работа со страницей детальной информации о закупке."""
+"""Работа со страницей детальной информации о закупке.
+
+Единый интерфейс извлечения деталей ``extract_details`` (BR-08): для API-площадок
+(``detail.api_format``) — ``fetch_api_details``, для DOM-площадок — переход на
+детальную страницу и извлечение ``detail.variables``/файлов/ИНН. Вызывается
+из обработчика ``POST /score`` ПОСЛЕ получения результата скоринга (одинаково
+для всех площадок).
+"""
 
 from __future__ import annotations
 
@@ -8,7 +15,9 @@ from typing import Any
 from playwright.async_api import Page
 
 from zakupki_parser.config.models import PlatformDom
+from zakupki_parser.parser.detail_api import fetch_api_details
 from zakupki_parser.parser.extractor import extract_from_scope
+from zakupki_parser.parser.organization import capture_customer_link, resolve_inn
 
 logger = logging.getLogger(__name__)
 
@@ -112,3 +121,67 @@ async def detail_files(page: Page, platform: PlatformDom) -> list[dict[str, str]
                 url = platform.url.rstrip("/") + url
             result.append({"name": (name or "").strip(), "url": url})
     return result
+
+
+async def extract_details(
+    page: Page,
+    platform: PlatformDom,
+    list_vars: dict[str, Any],
+    detail_url: str | None,
+    api_fields: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
+    """Единый интерфейс извлечения деталей закупки (BR-08).
+
+    Одинаково для всех площадок:
+    - API-площадки (``detail.api_format``) — ``fetch_api_details`` (JSON);
+    - DOM-площадки — переход на детальную страницу + ``detail.variables``,
+      доп. страницы, файловая страница, файлы и ИНН заказчика.
+
+    Возвращает ``(detail_vars, files, inn)`` — те же поля, что у API-пути,
+    чтобы обработчик POST /score не зависел от типа площадки.
+    """
+    if platform.detail.api_format:
+        return await fetch_api_details(page, platform, list_vars, api_fields)
+
+    if not detail_url:
+        logger.debug("Детали: нет ссылки на детальную страницу")
+        return {}, [], None
+    await open_detail(page, detail_url, platform)
+    detail_vars = await extract_detail_vars(page, platform)
+    customer_link = await capture_customer_link(page, platform)
+    # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход по
+    # ссылке с детальной страницы и извлечение дополнительных переменных.
+    for spec in platform.detail.additional_pages:
+        try:
+            link = page.locator(spec.link_selector).first
+            if await link.count() == 0:
+                continue
+            href = await link.get_attribute("href")
+            if not href:
+                continue
+            page_url = href if href.startswith("http") else platform.url.rstrip("/") + href
+            await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
+            await page.wait_for_timeout(3000)
+            extra = await extract_from_scope(page, spec.variables)
+            # Не затираем значение основной страницы, если на доп. странице поле
+            # отсутствует (extract_from_scope вернул default=None).
+            detail_vars.update({k: v for k, v in extra.items() if v is not None})
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Доп. страница деталей не обработана: %s", exc)
+    # Файловая страница (например, ЕИС documents.html): URL = детальный URL
+    # с заменой имени html-файла. У 223-ФЗ путь документов иной — переход может
+    # не найтись, это не критично.
+    files_page = platform.detail.files_page
+    if files_page:
+        try:
+            await page.goto(
+                files_page_url(detail_url, files_page),
+                wait_until="domcontentloaded",
+                timeout=45000,
+            )
+            await page.wait_for_timeout(3000)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
+    files = await detail_files(page, platform)
+    inn = await resolve_inn(page, platform, customer_link)
+    return detail_vars, files, inn
