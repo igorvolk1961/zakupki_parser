@@ -59,6 +59,10 @@ class ProcurementEvaluation(Base):
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Ключевые слова профиля, по которым закупка прошла клиентскую фильтрацию (R9).
     matched_keywords: Mapped[list[str] | None] = mapped_column(JSONB)
+    # Метка успешной постановки задания в очередь внешнего скоринга — по профилю
+    # (пер-профильно, BR-07): recovery догоняет (закупка, профиль), которые не
+    # попали в очередь, а не только закупку целиком.
+    scoring_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # status/rejection_reason зарезервированы под Эпик 5 («В работу»/«Отклонить») —
     # пост-MVP (этап 7); сейчас всегда status='new', rejection_reason=NULL.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")

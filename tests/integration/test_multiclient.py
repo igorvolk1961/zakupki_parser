@@ -222,7 +222,13 @@ def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
     }
     r = client.post(
         f"/api/procurements/{procurement_id}/score",
-        json={"score": 10.0, "fit_score": 0.7, "score_method": "fit", "rag_report": report},
+        json={
+            "profile_id": 1,
+            "score": 10.0,
+            "fit_score": 0.7,
+            "score_method": "fit",
+            "rag_report": report,
+        },
     )
     assert r.status_code == 200
     card = r.json()
@@ -249,7 +255,7 @@ def test_list_uses_active_user_scores(mc_client: TestClient) -> None:
     procurement_id = _seed_procurement()
     client.post(
         f"/api/procurements/{procurement_id}/score",
-        json={"score": 10.0, "fit_score": 0.9, "score_method": "fit"},
+        json={"profile_id": 1, "score": 10.0, "fit_score": 0.9, "score_method": "fit"},
     )
     data = client.get("/api/procurements").json()
     item = next((i for i in data["items"] if i["id"] == procurement_id), None)

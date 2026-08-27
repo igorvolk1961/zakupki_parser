@@ -379,7 +379,7 @@ def test_list_filter_min_fit_score(api_client: tuple[TestClient, Path], inserted
     # Задаём закупке фит-скор (выше порога по умолчанию 0.4).
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 123.5, "fit_score": 0.85, "score_method": "fit"},
+        json={"profile_id": 1, "score": 123.5, "fit_score": 0.85, "score_method": "fit"},
     )
     assert resp.status_code == 200
 
@@ -467,6 +467,7 @@ def test_sim_filtered_record_visible_with_fit_score(
     resp = client.post(
         f"/api/procurements/{sim_id}/score",
         json={
+            "profile_id": 1,
             "score": 0.0,
             "fit_score": 0.0,
             "score_method": "sim",
@@ -589,7 +590,7 @@ def test_set_score_by_external_service(
     client, _ = api_client
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 123.5, "fit_score": 0.85, "score_method": "fit"},
+        json={"profile_id": 1, "score": 123.5, "fit_score": 0.85, "score_method": "fit"},
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -620,7 +621,7 @@ def test_set_score_notifies_above_threshold(
     # отсечка по векторной близости, ADR-8).
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 50.0, "fit_score": 0.3, "score_method": "sim"},
+        json={"profile_id": 1, "score": 50.0, "fit_score": 0.3, "score_method": "sim"},
     )
     assert resp.status_code == 200
     assert calls == []
@@ -628,7 +629,7 @@ def test_set_score_notifies_above_threshold(
     # Выше порога (по fit_score) — уведомление с обновлённой карточкой.
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 150.0, "fit_score": 0.9, "score_method": "fit"},
+        json={"profile_id": 1, "score": 150.0, "fit_score": 0.9, "score_method": "fit"},
     )
     assert resp.status_code == 200
     assert len(calls) == 1
@@ -638,7 +639,13 @@ def test_set_score_notifies_above_threshold(
 
 def test_set_score_404(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
-    assert client.post("/api/procurements/999999/score", json={"score": 1.0}).status_code == 404
+    assert (
+        client.post(
+            "/api/procurements/999999/score",
+            json={"profile_id": 1, "score": 1.0, "score_method": "fit"},
+        ).status_code
+        == 404
+    )
 
 
 def test_set_score_rejects_unknown_method(
@@ -653,7 +660,7 @@ def test_set_score_rejects_unknown_method(
     client, _ = api_client
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
-        json={"score": 50.0, "fit_score": 0.3, "score_method": "unknown-stage"},
+        json={"profile_id": 1, "score": 50.0, "fit_score": 0.3, "score_method": "unknown-stage"},
     )
     assert resp.status_code == 422
 

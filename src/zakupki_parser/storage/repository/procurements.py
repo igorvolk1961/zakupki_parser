@@ -436,61 +436,59 @@ class ProcurementMixin(RepositoryMixin):
         ).scalar_one()
         return obj.id
 
-    async def mark_scoring_queued(self, procurement_id: int, queued_at: datetime) -> bool:
-        """Отмечает закупку как успешно поставленную в очередь внешнего скоринга.
+    async def mark_scoring_queued(
+        self, procurement_id: int, profile_id: int, queued_at: datetime
+    ) -> bool:
+        """Отмечает пару (закупка, профиль) как успешно поставленную в очередь.
 
-        Возвращает True, если закупка найдена и отметка проставлена. Метку пишем
-        только после успешного enqueue: по её отсутствию recovery находит закупки,
-        не попавшие в очередь (например, транспорт был недоступен при сохранении).
+        Per-profile (BR-07): метка пишется в ``procurement_evaluations`` по
+        ``(procurement_id, profile_id)`` — только после успешного enqueue. По её
+        отсутствию recovery находит (закупка, профиль), не попавшие в очередь
+        (например, транспорт был недоступен при сохранении).
         """
         async with self._db.session() as session:
-            obj = await session.get(Procurement, procurement_id)
-            if obj is None:
-                return False
-            obj.scoring_queued_at = queued_at
+            cursor = cast(
+                CursorResult[Any],
+                await session.execute(
+                    update(ProcurementEvaluation)
+                    .where(
+                        ProcurementEvaluation.procurement_id == procurement_id,
+                        ProcurementEvaluation.profile_id == profile_id,
+                    )
+                    .values(scoring_queued_at=queued_at)
+                ),
+            )
             await session.commit()
-            return True
+            return (cursor.rowcount or 0) > 0
 
     async def find_unscored(
         self,
         limit: int | None = None,
         queued_before: datetime | None = None,
     ) -> list[dict[str, Any]]:
-        """Закупки, которым требуется (повторная) постановка в очередь скоринга.
+        """Пары (закупка, профиль), которым требуется (повторная) постановка в очередь.
 
-        Критерий (recovery после восстановления связи с транспортом):
-        - внешний скоринг не выполнен: нет оценки в ``procurement_evaluations``
-          с ``fit_score IS NOT NULL`` — задача не дошла до стадии fit или её
-          результат не записан;
-        - задача не была поставлена (``scoring_queued_at IS NULL``) ИЛИ запись
-          обновлялась после постановки (``update_date > scoring_queued_at``) —
-          «по времени обновления»;
+        Пер-профильный recovery (BR-07): критерий — по ``procurement_evaluations``,
+        а не по закупке целиком. Условия:
+        - профиль отобрал закупку (``matched_keywords IS NOT NULL``);
+        - для ЭТОГО профиля результат fit не записан (``fit_score IS NULL``);
+        - задача не поставлена (``scoring_queued_at IS NULL``) ИЛИ закупка
+          обновлялась после постановки (``update_date > scoring_queued_at``);
         - при ``queued_before`` — метка постановки старше порога
-          (``scoring_queued_at < queued_before``): задание могло быть потеряно
-          (воркер снял задачу, очередь очищена), ставим закупку снова.
+          (``scoring_queued_at < queued_before``): задание могло быть потеряно.
 
-        Просроченные закупки (deadline < now) НЕ исключаются: правила постановки
-        в очередь совпадают с правилами записи закупок в БД (см. config_service.yaml
-        search_criteria.deadline_not_expired).
-
-        Возвращает список dict'ов: id, number, platform_id, update_date,
-        publication_date (для приоритета по времени).
+        Возвращает список dict'ов: id, profile_id, number, platform_id, update_date,
+        publication_date (priority — по времени обновления/публикации).
         """
-        scored_exists = (
-            select(ProcurementEvaluation.id)
-            .where(
-                ProcurementEvaluation.procurement_id == Procurement.id,
-                ProcurementEvaluation.fit_score.is_not(None),
-            )
-            .exists()
-        )
         conditions: list[ColumnElement[bool]] = [
-            ~scored_exists,
+            ProcurementEvaluation.profile_id.is_not(None),
+            ProcurementEvaluation.matched_keywords.is_not(None),
+            ProcurementEvaluation.fit_score.is_(None),
             or_(
-                Procurement.scoring_queued_at.is_(None),
-                Procurement.update_date > Procurement.scoring_queued_at,
+                ProcurementEvaluation.scoring_queued_at.is_(None),
+                Procurement.update_date > ProcurementEvaluation.scoring_queued_at,
                 *(
-                    [Procurement.scoring_queued_at < queued_before]
+                    [ProcurementEvaluation.scoring_queued_at < queued_before]
                     if queued_before is not None
                     else []
                 ),
@@ -498,14 +496,16 @@ class ProcurementMixin(RepositoryMixin):
         ]
         stmt = (
             select(
-                Procurement.id,
+                ProcurementEvaluation.procurement_id,
+                ProcurementEvaluation.profile_id,
                 Procurement.number,
                 Procurement.platform_id,
                 Procurement.update_date,
                 Procurement.publication_date,
             )
+            .join(Procurement, Procurement.id == ProcurementEvaluation.procurement_id)
             .where(*conditions)
-            .order_by(Procurement.id.asc())
+            .order_by(Procurement.update_date.desc())
         )
         if limit is not None:
             stmt = stmt.limit(limit)
@@ -513,7 +513,8 @@ class ProcurementMixin(RepositoryMixin):
             rows = (await session.execute(stmt)).all()
         return [
             {
-                "id": int(r.id),
+                "id": int(r.procurement_id),
+                "profile_id": int(r.profile_id),
                 "number": r.number,
                 "platform_id": r.platform_id,
                 "update_date": r.update_date,

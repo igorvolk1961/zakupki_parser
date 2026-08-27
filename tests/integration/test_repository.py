@@ -416,32 +416,40 @@ async def _upsert(repo: ProcurementRepository, number: str, **extra: object) -> 
 
 @pytest.mark.asyncio
 async def test_find_unscored_returns_unscored_and_mark_excludes(db: Database) -> None:
-    """find_unscored возвращает непоставленные закупки; mark_scoring_queued исключает."""
+    """find_unscored возвращает пары (закупка, профиль); mark_scoring_queued исключает."""
     repo = ProcurementRepository(db)
+    user = await repo.create_user("q-user", "hash", ["user"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
     pid = await _upsert(repo, "Q-1")
-    await _upsert(repo, "Q-2")
+    pid2 = await _upsert(repo, "Q-2")
+    await repo.record_matched_keywords(pid, profile.id, ["авт*"])
+    await repo.record_matched_keywords(pid2, profile.id, ["авт*"])
 
     found = await repo.find_unscored()
     assert {item["number"] for item in found} == {"Q-1", "Q-2"}
+    assert all(item["profile_id"] == profile.id for item in found)
 
     now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
-    assert await repo.mark_scoring_queued(pid, now) is True
+    assert await repo.mark_scoring_queued(pid, profile.id, now) is True
     found = await repo.find_unscored()
     assert [item["number"] for item in found] == ["Q-2"]
 
 
 @pytest.mark.asyncio
 async def test_find_unscored_excludes_scored_only(db: Database) -> None:
-    """Оценённые в очередь recovery не ставятся; просроченные (не оценённые) — ставятся."""
+    """Оценённые (по профилю) в recovery не ставятся; неоценённые — ставятся."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("q-user", "hash", ["admin"])
     profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
     assert profile.id is not None
     scored = await _upsert(repo, "Q-3")
+    await repo.record_matched_keywords(scored, profile.id, ["авт*"])
     await repo.upsert_score(scored, profile.id, fit_score=0.8, score_method="fit")
     # Просроченная (deadline < now) попадает в очередь: правила постановки такие же,
     # как при записи в БД (deadline_not_expired=false в config_service.yaml).
     expired = await _upsert(repo, "Q-4", deadline=datetime(2026, 8, 1, tzinfo=UTC))
+    await repo.record_matched_keywords(expired, profile.id, ["авт*"])
 
     found = await repo.find_unscored()
     assert [item["number"] for item in found] == ["Q-4"]
@@ -452,9 +460,13 @@ async def test_find_unscored_excludes_scored_only(db: Database) -> None:
 async def test_find_unscored_reenqueues_after_update(db: Database) -> None:
     """Обновление записи после постановки (update_date новее метки) — снова в очереди."""
     repo = ProcurementRepository(db)
+    user = await repo.create_user("q-user", "hash", ["user"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
     pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 8, 10, 10, 0, tzinfo=UTC))
+    await repo.record_matched_keywords(pid, profile.id, ["авт*"])
     now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
-    await repo.mark_scoring_queued(pid, now)
+    await repo.mark_scoring_queued(pid, profile.id, now)
     assert await repo.find_unscored() == []
 
     # Площадка обновила закупку после постановки в очередь.
@@ -472,25 +484,37 @@ async def test_find_unscored_reenqueues_after_update(db: Database) -> None:
 
 @pytest.mark.asyncio
 async def test_find_unscored_reenqueues_stale_queued(db: Database) -> None:
-    """Метка постановки старше порога (queued_before) — закупка снова в очереди."""
+    """Метка постановки старше порога (queued_before) — пара снова в очереди."""
     repo = ProcurementRepository(db)
+    user = await repo.create_user("q-user", "hash", ["user"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
     pid = await _upsert(repo, "Q-5", update_date=datetime(2026, 7, 30, 10, 0, tzinfo=UTC))
+    await repo.record_matched_keywords(pid, profile.id, ["авт*"])
     # Поставлена в очередь «давно», запись не обновлялась — без порога не возвращается.
-    await repo.mark_scoring_queued(pid, datetime(2026, 8, 1, 12, 0, tzinfo=UTC))
+    await repo.mark_scoring_queued(pid, profile.id, datetime(2026, 8, 1, 12, 0, tzinfo=UTC))
     assert await repo.find_unscored() == []
 
     found = await repo.find_unscored(queued_before=datetime(2026, 8, 15, 12, 0, tzinfo=UTC))
     assert [item["number"] for item in found] == ["Q-5"]
 
     # Свежая метка (новее порога) — закупка НЕ дублируется.
-    await repo.mark_scoring_queued(pid, datetime(2026, 8, 16, 12, 0, tzinfo=UTC))
+    await repo.mark_scoring_queued(pid, profile.id, datetime(2026, 8, 16, 12, 0, tzinfo=UTC))
     found = await repo.find_unscored(queued_before=datetime(2026, 8, 15, 12, 0, tzinfo=UTC))
     assert found == []
+
+
+@pytest.mark.asyncio
+async def test_find_unscored_returns_timestamps(db: Database) -> None:
     """find_unscored отдаёт update_date/publication_date для приоритета по времени."""
     repo = ProcurementRepository(db)
+    user = await repo.create_user("q-user", "hash", ["user"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
     pub = datetime(2026, 8, 15, 10, 0, tzinfo=UTC)
     upd = datetime(2026, 8, 18, 10, 0, tzinfo=UTC)
     pid = await _upsert(repo, "Q-6", publication_date=pub, update_date=upd)
+    await repo.record_matched_keywords(pid, profile.id, ["авт*"])
 
     found = await repo.find_unscored()
     item = next(i for i in found if i["number"] == "Q-6")
@@ -559,30 +583,22 @@ async def test_delete_profiles_without_default_role(db: Database) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fan_out_score_to_participants(db: Database) -> None:
-    """Один общий скор раздаётся профилям-участникам (matched_keywords)."""
+async def test_upsert_score_is_per_profile(db: Database) -> None:
+    """Скор пишется в конкретный profile_id (пер-профильно), без fan-out."""
     repo = ProcurementRepository(db)
-    src_user = await repo.create_user("fan-src", "h", ["user"])
-    src = await repo.upsert_profile({"name": "default", "competencies": "s"}, src_user.id)
-    part_user = await repo.create_user("fan-part", "h", ["user"])
-    part = await repo.upsert_profile({"name": "default", "competencies": "p"}, part_user.id)
+    user = await repo.create_user("pf-user", "h", ["user"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": "x"}, user.id)
+    other_user = await repo.create_user("pf-other", "h", ["user"])
+    other = await repo.upsert_profile({"name": "default", "competencies": "y"}, other_user.id)
 
-    pid = await _upsert(repo, "FAN-1")
-    await repo.record_matched_keywords(pid, part.id, ["авт*"])
-    await repo.upsert_score(pid, src.id, score=0.9, fit_score=0.9, score_method="fit")
+    pid = await _upsert(repo, "PF-1")
+    await repo.record_matched_keywords(pid, profile.id, ["авт*"])
+    got = await repo.upsert_score(pid, profile.id, score=0.9, fit_score=0.9, score_method="fit")
+    assert got.fit_score == 0.9
+    assert got.score_method == "fit"
+    profile_eval = await repo.get_score(pid, profile.id)
+    assert profile_eval is not None
+    assert profile_eval.fit_score == 0.9
 
-    updated = await repo.fan_out_score(
-        pid, from_profile_id=src.id, score=0.9, fit_score=0.9, score_method="fit"
-    )
-    assert updated == 1
-    part_eval = await repo.get_score(pid, part.id)
-    assert part_eval is not None
-    assert part_eval.fit_score == 0.9
-    assert part_eval.score_method == "fit"
-
-    # Профиль без matched_keywords (не участник) не получает скор.
-    non_participant_user = await repo.create_user("fan-none", "h", ["user"])
-    non_part = await repo.upsert_profile(
-        {"name": "default", "competencies": "n"}, non_participant_user.id
-    )
-    assert (await repo.get_score(pid, non_part.id)) is None
+    # Другой профиль скор НЕ получает (пер-профильно, fan-out не применяется).
+    assert (await repo.get_score(pid, other.id)) is None

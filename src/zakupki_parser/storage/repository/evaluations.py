@@ -58,23 +58,6 @@ class EvaluationMixin(RepositoryMixin):
                 len(matched),
             )
 
-    async def list_matched_profile_ids(self, procurement_id: int) -> list[int]:
-        """id профилей, отобравших закупку (непустой ``matched_keywords``), BR-07.
-
-        Используется recovery очереди: пер-профильная постановка задания требует
-        знать, для каких профилей закупка релевантна.
-        """
-        async with self._db.session() as session:
-            rows = (
-                await session.execute(
-                    select(ProcurementEvaluation.profile_id).where(
-                        ProcurementEvaluation.procurement_id == procurement_id,
-                        ProcurementEvaluation.matched_keywords.is_not(None),
-                    )
-                )
-            ).scalars()
-            return [pid for pid in rows if pid is not None]
-
     async def upsert_score(
         self,
         procurement_id: int,
@@ -127,74 +110,3 @@ class EvaluationMixin(RepositoryMixin):
             evaluation.rag_report = rag_report
             await session.commit()
         return evaluation
-
-    async def fan_out_score(
-        self,
-        procurement_id: int,
-        *,
-        from_profile_id: int | None = None,
-        score: float | None,
-        fit_score: float | None,
-        score_method: str,
-        p_win: float | None = None,
-        margin: float | None = None,
-        embedding_similarity: float | None = None,
-        langfuse_trace_url: str | None = None,
-    ) -> int:
-        """Раздаёт ОДИН общий скор всем профилям-участникам закупки (BR-07).
-
-        Оценка считается один раз (в системном скоупе, ``from_profile_id=None`` —
-        без сервис-аккаунта) и копируется всем профилям, которые отобрали закупку
-        (у них непустой ``matched_keywords``): тогда каждый профиль видит этот
-        агрегат в своей таблице. Возвращает число обновлённых профилей.
-        """
-        async with self._db.session() as session:
-            stmt = select(ProcurementEvaluation.profile_id).where(
-                ProcurementEvaluation.procurement_id == procurement_id,
-                ProcurementEvaluation.matched_keywords.is_not(None),
-            )
-            if from_profile_id is not None:
-                stmt = stmt.where(ProcurementEvaluation.profile_id != from_profile_id)
-            participants = (await session.execute(stmt)).scalars().all()
-            for pid in [p for p in participants if p is not None]:
-                evaluation = await self._find_or_create_evaluation(session, procurement_id, pid)
-                if score is not None:
-                    evaluation.score = _round_score(score)
-                if fit_score is not None:
-                    evaluation.fit_score = _round_score(fit_score)
-                if p_win is not None:
-                    evaluation.p_win = _round_score(p_win)
-                if margin is not None:
-                    evaluation.margin = _round_score(margin)
-                evaluation.score_method = score_method
-                if embedding_similarity is not None:
-                    evaluation.embedding_similarity = embedding_similarity
-                if langfuse_trace_url is not None:
-                    evaluation.langfuse_trace_url = langfuse_trace_url
-            await session.commit()
-        return len(participants)
-
-    async def fan_out_rag_report(self, procurement_id: int, rag_report: dict[str, Any]) -> int:
-        """Сохраняет RAG-отчёт анализа ТЗ всем профилям-участникам закупки (BR-07).
-
-        Анализ стоп-условий выполняется один раз в системном скоупе (без
-        сервис-аккаунта) — отчёт копируется каждому профилю, отобравшему закупку.
-        """
-        async with self._db.session() as session:
-            participants = (
-                (
-                    await session.execute(
-                        select(ProcurementEvaluation.profile_id).where(
-                            ProcurementEvaluation.procurement_id == procurement_id,
-                            ProcurementEvaluation.matched_keywords.is_not(None),
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            for pid in [p for p in participants if p is not None]:
-                evaluation = await self._find_or_create_evaluation(session, procurement_id, pid)
-                evaluation.rag_report = rag_report
-            await session.commit()
-        return len(participants)

@@ -154,19 +154,18 @@ class Scheduler:
             await self.stop()
 
     async def _recover_scoring_queue(self) -> None:
-        """Догоняющая постановка закупок в очередь скоринга (после сбоев транспорта).
+        """Догоняющая постановка пар (закупка, профиль) в очередь скоринга.
 
-        Ищет в БД закупки с невыполненным внешним скорингом (``fit_score IS NULL``),
-        не поставленные в очередь (``scoring_queued_at IS NULL``), обновлённые
-        после постановки либо с меткой постановки старше ``recovery_ttl_seconds``
-        (задание потеряно — воркер снял задачу, очередь очищена), и ставит их в
-        очередь fit с приоритетом по времени обновления/публикации (новые —
-        раньше, ZPOPMAX берёт больший score).
+        Ищет в БД пары (закупка, профиль), у которых профиль отобрал закупку
+        (``matched_keywords`` непуст), но для ЭТОГО профиля результат fit не записан
+        (``fit_score IS NULL``), и она не поставлена в очередь (``scoring_queued_at
+        IS NULL``) либо обновлялась после постановки / метка старше
+        ``recovery_ttl_seconds`` (задание потеряно — воркер снял задачу, очередь
+        очищена). Ставит задание fit с приоритетом по времени обновления/публикации.
 
-        Идемпотентно: метка проставляется только после успешного enqueue, поэтому
-        повторно уже поставленные закупки не дублируются. При первом же сбое
-        enqueue (транспорт снова недоступен) recovery прекращается до следующего
-        цикла.
+        Идемпотентно: метка пишется только после успешного enqueue, поэтому
+        повторно уже поставленные пары не дублируются. При первом же сбое enqueue
+        (транспорт снова недоступен) recovery прекращается до следующего цикла.
         """
         if not self._cfg.score.scoring_transport_url or self._repository is None:
             return
@@ -184,25 +183,23 @@ class Scheduler:
             for item in items:
                 ts = item["update_date"] or item["publication_date"]
                 priority = ts.timestamp() if ts is not None else now.timestamp()
-                # Пер-профильная постановка (BR-07): задание ставится для каждого
-                # профиля, отобравшего закупку (matched_keywords непуст). Без профиля
-                # задание ставиться не может — скоринг привязан к компетенциям профиля.
-                profile_ids = await self._repository.list_matched_profile_ids(item["id"])
-                if not profile_ids:
-                    continue
+                # Пер-профильная постановка (BR-07): задания ставятся/отмечаются для
+                # каждого профиля, отобравшего закупку (matched_keywords непуст);
+                # без profile_id задание ставиться не может — скоринг привязан к
+                # компетенциям профиля.
                 try:
-                    for profile_id in profile_ids:
-                        await transport.enqueue(item["id"], priority, profile_id=profile_id)
-                    await self._repository.mark_scoring_queued(item["id"], now)
+                    await transport.enqueue(item["id"], priority, profile_id=item["profile_id"])
+                    await self._repository.mark_scoring_queued(item["id"], item["profile_id"], now)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
-                        "Recovery очереди скоринга прерван: %s не поставлена (%s)",
+                        "Recovery очереди скоринга прерван: %s (профиль %s) не поставлена (%s)",
                         item["id"],
+                        item["profile_id"],
                         exc,
                     )
                     return
             logger.info(
-                "Recovery очереди скоринга: поставлено закупок в очередь: %d",
+                "Recovery очереди скоринга: поставлено пар (закупка, профиль): %d",
                 len(items),
             )
 

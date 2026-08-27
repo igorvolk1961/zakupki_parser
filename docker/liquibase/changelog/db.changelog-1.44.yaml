@@ -1,0 +1,12 @@
+databaseChangeLog:
+- changeSet:
+    id: 45
+    author: zakupki-parser
+    comment: 'procurement_evaluations: колонка scoring_queued_at — метка успешной постановки в очередь внешнего скоринга по профилю (пер-профильно, BR-07); recovery догоняет пары (закупка, профиль), не попавшие в очередь'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS scoring_queued_at TIMESTAMPTZ;
+          COMMENT ON COLUMN procurement_evaluations.scoring_queued_at IS
+            'Метка успешной постановки задания в очередь внешнего скоринга по профилю (пер-профильно, BR-07): recovery догоняет (закупка, профиль), не попавшие в очередь';

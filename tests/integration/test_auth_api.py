@@ -185,14 +185,14 @@ def test_pipeline_endpoints_require_internal_token(auth_client: TestClient) -> N
     # Без внутреннего токена — 401 (даже для анонима).
     resp = client.post(
         f"/api/procurements/{procurement_id}/score",
-        json={"score": 10.0, "fit_score": 0.9, "score_method": "fit"},
+        json={"profile_id": 1, "score": 10.0, "fit_score": 0.9, "score_method": "fit"},
     )
     assert resp.status_code == 401
 
     # С корректным внутренним токеном — работает (вызывается конвейером).
     ok = client.post(
         f"/api/procurements/{procurement_id}/score",
-        json={"score": 10.0, "fit_score": 0.9, "score_method": "fit"},
+        json={"profile_id": 1, "score": 10.0, "fit_score": 0.9, "score_method": "fit"},
         headers={"X-Internal-Token": "internal-secret"},
     )
     assert ok.status_code == 200
@@ -200,7 +200,7 @@ def test_pipeline_endpoints_require_internal_token(auth_client: TestClient) -> N
     # С неверным токеном — 401.
     bad = client.post(
         f"/api/procurements/{procurement_id}/score",
-        json={"score": 10.0, "fit_score": 0.9, "score_method": "fit"},
+        json={"profile_id": 1, "score": 10.0, "fit_score": 0.9, "score_method": "fit"},
         headers={"X-Internal-Token": "wrong"},
     )
     assert bad.status_code == 401

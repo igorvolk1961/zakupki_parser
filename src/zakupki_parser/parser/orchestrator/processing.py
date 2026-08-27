@@ -286,11 +286,10 @@ class RecordProcessingMixin(OrchestratorState):
                                 await self._transport.enqueue(
                                     int(record["id"]), priority, profile_id=ctx.profile.id
                                 )
-                                # Метка успешной постановки (recovery догоняет закупки,
-                                # не попавшие в очередь — например, транспорт был
-                                # недоступен).
+                                # Метка успешной постановки по паре (закупка, профиль)
+                                # (recovery догоняет, не попавшие в очередь).
                                 await self._repository.mark_scoring_queued(
-                                    int(record["id"]), self._now
+                                    int(record["id"]), ctx.profile.id, self._now
                                 )
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning(

@@ -30,7 +30,7 @@ class _FakeTransport:
 
 
 class _FakeRepo:
-    """Фейковый репозиторий: find_unscored исключает отмеченные как поставленные."""
+    """Фейковый репозиторий: find_unscored возвращает пары (закупка, профиль)."""
 
     def __init__(
         self,
@@ -61,13 +61,14 @@ class _FakeRepo:
             items.append(item)
         return items[: limit or len(items)]
 
-    async def mark_scoring_queued(self, procurement_id: int, queued_at: datetime) -> bool:
+    async def mark_scoring_queued(
+        self, procurement_id: int, profile_id: int, queued_at: datetime
+    ) -> bool:
         self.marked.append(procurement_id)
         return True
 
     async def list_matched_profile_ids(self, procurement_id: int) -> list[int]:
-        # В recovery-тестах каждая закупка отобрана одним профилем (id=1).
-        return [1]
+        return []
 
 
 def _item(
@@ -75,9 +76,11 @@ def _item(
     *,
     update_date: datetime | None = None,
     publication_date: datetime | None = None,
+    profile_id: int = 1,
 ) -> dict[str, Any]:
     return {
         "id": pid,
+        "profile_id": profile_id,
         "number": f"N-{pid}",
         "platform_id": "zakupki_mos",
         "update_date": update_date,
