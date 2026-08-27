@@ -48,7 +48,9 @@ class Settings(BaseSettings):
     retry_max: int = 5
     retry_backoff_seconds: float = 2.0
 
-    # Опциональная авторизация HTTP-эндпоинтов (None = выключено, dev)
+    # Обязательный Bearer-токен авторизации HTTP-эндпоинтов (env TRANSPORT_AUTH_TOKEN).
+    # Тип оставлен Optional, чтобы consumer (не отдающий HTTP) загружался без токена;
+    # при запуске веб-сервиса токен обязателен (fail-fast).
     auth_token: str | None = None
 
 

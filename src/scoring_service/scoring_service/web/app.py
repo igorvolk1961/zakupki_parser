@@ -21,18 +21,19 @@ from scoring_service.settings import Settings, get_settings
 
 
 def _auth_dependency(settings: Settings) -> Callable[[str | None], None]:
-    """FastAPI-зависимость опциональной авторизации по Bearer-токену.
+    """FastAPI-зависимость обязательной авторизации по Bearer-токену.
 
-    Если ``auth_token`` не задан — доступ открыт (dev). Иначе требует
-    ``Authorization: Bearer <token>``.
+    Требует ``Authorization: Bearer <token>``. Токен (``SCORE_AUTH_TOKEN``)
+    обязателен: без него веб-сервис не стартует (fail-fast на этапе сборки).
     """
+
+    if not settings.auth_token:
+        raise RuntimeError("SCORE_AUTH_TOKEN не задан: авторизация эндпоинтов обязательна")
+    expected = f"Bearer {settings.auth_token}"
 
     def _require_authorization(
         authorization: str | None = Header(default=None),
     ) -> None:
-        if not settings.auth_token:
-            return
-        expected = f"Bearer {settings.auth_token}"
         if authorization != expected:
             raise HTTPException(status_code=401, detail="Unauthorized")
 

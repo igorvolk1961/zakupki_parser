@@ -54,7 +54,7 @@ docker compose -f docker/docker-compose.yml up --build
 | `TRANSPORT_PARSER_API_URL` | адрес REST API парсера |
 | `TRANSPORT_PRIORITY_DEFAULT` | приоритет по умолчанию, если в задаче не передан (обычно приходит из парсера) |
 | `TRANSPORT_RETRY_MAX` / `TRANSPORT_RETRY_BACKOFF_SECONDS` | ретраи возврата результата в парсер |
-| `TRANSPORT_AUTH_TOKEN` | опциональный Bearer-токен для `POST /api/scoring/jobs` (пусто = открыто) |
+| `TRANSPORT_AUTH_TOKEN` | обязательный Bearer-токен для `POST /api/scoring/jobs`; без него веб-сервис не стартует |
 
 ## Тесты / линтеры
 ```bash

@@ -89,5 +89,5 @@ langfuse_public_key:
 langfuse_secret_key:
 langfuse_host:
 
-# Опциональная авторизация HTTP-эндпоинтов (пусто = открыто, dev)
-auth_token:
+# Токен авторизации HTTP-эндпоинтов (SCORE_AUTH_TOKEN) — секрет, задаётся через env,
+# в файл не пишется: без него веб-сервис не стартует.

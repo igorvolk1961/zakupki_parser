@@ -192,7 +192,7 @@ env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 | `SCORE_EMBEDDING_FILTER_THRESHOLD` | фоллбэк порога предварительной фильтрации по векторной близости (`<= 0` — выключена); в runtime переопределяется `config_service.yaml -> scoring` |
 | `SCORE_LLM_REQUEST_TIMEOUT` / `SCORE_LLM_MAX_RETRIES` | таймаут одного LLM-запроса (сек) и число повторов на уровне SDK |
 | `SCORE_LLM_RETRY_MAX_ATTEMPTS` / `SCORE_LLM_RETRY_BACKOFF_SECONDS` | лимит возвратов задачи в очередь при транзиентном сбое LLM-провайдера и пауза перед повтором (по умолчанию `3` / `5.0`) |
-| `SCORE_AUTH_TOKEN` | опциональный Bearer-токен для `POST /score` (пусто = открыто) |
+| `SCORE_AUTH_TOKEN` | обязательный Bearer-токен для `POST /score`; без него веб-сервис не стартует |
 | `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` / `LANGFUSE_HOST` | LangFuse |
 
 Надёжность очереди: Redis даёт at-most-once; воркер при старте/в цикле возвращает

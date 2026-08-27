@@ -49,14 +49,20 @@ class _FakeQueue:
         return None
 
 
+TEST_TOKEN = "t0ken"
+
+
 def _make_app() -> tuple[TestClient, _FakeQueue]:
-    settings = Settings(parser_api_url="http://parser", redis_url="redis://fake")
+    settings = Settings(
+        parser_api_url="http://parser", redis_url="redis://fake", auth_token=TEST_TOKEN
+    )
     app_module.ParserApiClient = _FakeParser  # type: ignore[assignment]
     fake_queue = _FakeQueue(settings)
     app_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
     results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
-    app = app_module.create_app(settings)
-    return TestClient(app), fake_queue
+    client = TestClient(app_module.create_app(settings))
+    client.headers["Authorization"] = f"Bearer {TEST_TOKEN}"
+    return client, fake_queue
 
 
 def test_ingest_without_priority_uses_priority_default() -> None:
@@ -94,7 +100,7 @@ def test_health() -> None:
 
 def test_ingest_requires_token_when_set() -> None:
     settings = Settings(
-        parser_api_url="http://parser", redis_url="redis://fake", auth_token="t0ken"
+        parser_api_url="http://parser", redis_url="redis://fake", auth_token=TEST_TOKEN
     )
     app_module.ParserApiClient = _FakeParser  # type: ignore[assignment]
     fake_queue = _FakeQueue(settings)
@@ -132,12 +138,14 @@ def test_ingest_passes_internal_token_to_parser() -> None:
         parser_api_url="http://parser",
         redis_url="redis://fake",
         parser_internal_token="sekret",
+        auth_token=TEST_TOKEN,
     )
     app_module.ParserApiClient = _SpyParser  # type: ignore[assignment]
     fake_queue = _FakeQueue(settings)
     app_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
     results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
     client = TestClient(app_module.create_app(settings))
+    client.headers["Authorization"] = f"Bearer {TEST_TOKEN}"
 
     resp = client.post("/api/scoring/jobs", json={"procurement_id": 42})
     assert resp.status_code == 202
@@ -162,12 +170,15 @@ class _AuthErrorParser:
 
 def test_ingest_502_includes_upstream_status() -> None:
     """Сбой апстрима (например, 401 от парсера) отдаётся как 502 с реальным кодом."""
-    settings = Settings(parser_api_url="http://parser", redis_url="redis://fake")
+    settings = Settings(
+        parser_api_url="http://parser", redis_url="redis://fake", auth_token=TEST_TOKEN
+    )
     app_module.ParserApiClient = _AuthErrorParser  # type: ignore[assignment]
     fake_queue = _FakeQueue(settings)
     app_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
     results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
     client = TestClient(app_module.create_app(settings))
+    client.headers["Authorization"] = f"Bearer {TEST_TOKEN}"
 
     resp = client.post("/api/scoring/jobs", json={"procurement_id": 1})
     assert resp.status_code == 502

@@ -162,7 +162,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("langfuse_host", "LANGFUSE_HOST"),
     )
 
-    # Опциональная авторизация HTTP-эндпоинтов (None = выключено, dev)
+    # Обязательный Bearer-токен авторизации HTTP-эндпоинта (задаётся через env
+    # SCORE_AUTH_TOKEN). Тип оставлен Optional, чтобы воркер/CLI (не отдающие HTTP)
+    # загружались без токена; при запуске веб-сервера токен обязателен (fail-fast).
     auth_token: str | None = None
 
     @classmethod
