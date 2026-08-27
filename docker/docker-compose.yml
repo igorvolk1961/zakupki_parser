@@ -260,6 +260,9 @@ services:
       TRANSPORT_REDIS_URL: redis://redis:6379/0
       TRANSPORT_PARSER_API_URL: http://api:8000
       TRANSPORT_PARSER_INTERNAL_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
+      # Bearer-токен для inbound-запросов (авто-пуш от парсера): тот же внутренний
+      # service-to-service секрет, что и у парсера. serve без него не стартует.
+      TRANSPORT_AUTH_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
     ports:
       - "8200:8200"
     restart: unless-stopped

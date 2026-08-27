@@ -94,7 +94,8 @@ async def test_recover_enqueues_unscored_with_time_priority(
     )
     scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
     monkeypatch.setattr(
-        "zakupki_parser.scheduler.ScoringTransportClient", lambda url: fake_transport
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
     )
 
     await scheduler._recover_scoring_queue()  # noqa: SLF001
@@ -117,7 +118,8 @@ async def test_recover_stops_on_transport_failure(
     repo = _FakeRepo([_item(1), _item(2)])
     scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
     monkeypatch.setattr(
-        "zakupki_parser.scheduler.ScoringTransportClient", lambda url: fake_transport
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
     )
 
     await scheduler._recover_scoring_queue()  # noqa: SLF001
@@ -157,7 +159,8 @@ async def test_recover_reenqueues_stale_queued(
     )
     scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
     monkeypatch.setattr(
-        "zakupki_parser.scheduler.ScoringTransportClient", lambda url: fake_transport
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
     )
 
     await scheduler._recover_scoring_queue()  # noqa: SLF001
@@ -182,7 +185,8 @@ async def test_recover_skips_fresh_queued_when_ttl_disabled(
     )
     scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
     monkeypatch.setattr(
-        "zakupki_parser.scheduler.ScoringTransportClient", lambda url: fake_transport
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
     )
 
     await scheduler._recover_scoring_queue()  # noqa: SLF001

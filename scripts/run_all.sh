@@ -39,6 +39,17 @@ LOG_DIR="$ROOT_DIR/data/logs"
 PORT_PARSER="${PORT_PARSER:-8000}"
 PORT_TRANSPORT="${PORT_TRANSPORT:-8200}"
 
+# Внутренний service-to-service секрет (ZAKUPKI_INTERNAL_TOKEN) — Bearer-токен
+# авторизации scoring_transport (serve без токена не стартует). Он же уходит от
+# парсера при автопуше заданий. Берём из .env, если он там задан.
+if [[ -f "$ROOT_DIR/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/.env"
+    set +a
+fi
+TRANSPORT_AUTH_TOKEN="${TRANSPORT_AUTH_TOKEN:-${ZAKUPKI_INTERNAL_TOKEN:-}}"
+
 CMD="${1:-up}"
 PID_FILE="$ROOT_DIR/.run_all.pids"
 REDIS_CONTAINER="zakupki_redis"
@@ -375,6 +386,7 @@ echo "Запуск scoring_transport на :$PORT_TRANSPORT..."
 ( cd "$ROOT_DIR/src/scoring_transport" \
     && PYTHONPATH="$SCORING_PYTHONPATH" \
     TRANSPORT_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
+    TRANSPORT_AUTH_TOKEN="$TRANSPORT_AUTH_TOKEN" \
     uv run python -m scoring_transport serve --host 127.0.0.1 --port "$PORT_TRANSPORT" ) \
     > "$LOG_DIR/scoring_transport.log" 2>&1 &
 BGPIDS+=($!)

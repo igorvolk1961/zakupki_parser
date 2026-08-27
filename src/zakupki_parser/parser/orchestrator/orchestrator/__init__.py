@@ -71,7 +71,9 @@ class Orchestrator(
         # Авто-пуш задания на внешний скоринг в транспорт (ADR-7). Если адрес не задан —
         # внешний скоринг не запускается, закупка остаётся с дефолтным score.
         self._transport = (
-            ScoringTransportClient(cfg.score.scoring_transport_url)
+            ScoringTransportClient(
+                cfg.score.scoring_transport_url, auth_token=cfg.ops.auth.internal_token
+            )
             if cfg.score.scoring_transport_url
             else None
         )
