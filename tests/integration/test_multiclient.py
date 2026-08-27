@@ -157,7 +157,7 @@ def test_profile_export_endpoint(mc_client: TestClient) -> None:
     assert with_comp.status_code == 200
     body = with_comp.json()
     assert body["competencies_filename"]
-    assert body["competencies_filename"].endswith("_компетенции.md")
+    assert body["competencies_filename"].endswith("_competencies.md")
     assert body["competencies_content"]
     assert "Export Co." in body["competencies_content"]
     # В файле профиля — ссылка на файл компетенций, а не текст.

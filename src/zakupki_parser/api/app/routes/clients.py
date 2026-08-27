@@ -23,9 +23,58 @@ from zakupki_parser.storage.keywords_parser import serialize_profile_text
 logger = logging.getLogger(__name__)
 
 
+_TRANSLIT: dict[str, str] = {
+    "а": "a",
+    "б": "b",
+    "в": "v",
+    "г": "g",
+    "д": "d",
+    "е": "e",
+    "ё": "e",
+    "ж": "zh",
+    "з": "z",
+    "и": "i",
+    "й": "y",
+    "к": "k",
+    "л": "l",
+    "м": "m",
+    "н": "n",
+    "о": "o",
+    "п": "p",
+    "р": "r",
+    "с": "s",
+    "т": "t",
+    "у": "u",
+    "ф": "f",
+    "х": "h",
+    "ц": "ts",
+    "ч": "ch",
+    "ш": "sh",
+    "щ": "sch",
+    "ъ": "",
+    "ы": "y",
+    "ь": "",
+    "э": "e",
+    "ю": "yu",
+    "я": "ya",
+}
+
+
+def _transliterate(text: str) -> str:
+    """Переводит кириллицу в латиницу; прочие не-ASCII символы отбрасывает."""
+    out: list[str] = []
+    for ch in text:
+        repl = _TRANSLIT.get(ch.casefold())
+        if repl is not None:
+            out.append(repl.upper() if ch.isupper() else repl)
+        elif ch.isascii():
+            out.append(ch)
+    return "".join(out)
+
+
 def _safe_filename(name: str) -> str:
-    """Имя файла из имени профиля: недопустимые символы/пробелы — в подчёркивания."""
-    cleaned = re.sub(r'[\\/:*?"<>|\s]+', "_", name).strip("._")
+    """Имя файла из имени профиля: латиница, недопустимые символы/пробелы — в подчёркивания."""
+    cleaned = re.sub(r'[\\/:*?"<>|\s]+', "_", _transliterate(name)).strip("._")
     return cleaned or "profile"
 
 
@@ -116,7 +165,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         competencies_content = (data.get("competencies") or "").strip()
         competencies_filename: str | None = None
         if include_competencies and competencies_content:
-            competencies_filename = f"{safe}_{ts}_компетенции.md"
+            competencies_filename = f"{safe}_{ts}_competencies.md"
         return ProfileExportOut(
             profile_filename=profile_filename,
             profile_content=serialize_profile_text(

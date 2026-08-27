@@ -197,7 +197,7 @@ def test_serialize_profile_text_competencies_reference() -> None:
         "keywords": ["ИИ"],
         "exclusion_words": [],
     }
-    ref = "bbk-it_2026-08-27_14-31-50_компетенции.md"
+    ref = "bbk-it_2026-08-27_14-31-50_competencies.md"
     text = serialize_profile_text(data, competencies_reference=ref)
     assert "**competencies**\n" + ref in text
     assert "Поставщик — BBK IT." not in text
