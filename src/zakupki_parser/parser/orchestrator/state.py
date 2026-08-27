@@ -50,10 +50,6 @@ class OrchestratorState:
     _by_relevance: bool
     _platform_stats: dict[str, int]
     _normalized_active_statuses: set[str]
-    # Закупки, сохранённые на уровне списка и ожидающие дозагрузки деталей площадки
-    # (отдельный best-effort проход ПОСЛЕ постановки в очередь скоринга, BR-08).
-    # Элемент: {"id", "number", "list_vars", "detail_url", "api_fields", "record"}.
-    _pending_details: list[dict[str, Any]]
 
     # Методы, определённые в других миксинах/базовом классе (типизация).
 

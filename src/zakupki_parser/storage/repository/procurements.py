@@ -314,6 +314,9 @@ class ProcurementMixin(RepositoryMixin):
             files_json=data.get("files_json"),
             is_active=bool(data.get("is_active", True)),
             detail_json=data.get("detail_json"),
+            # Контекст досборки деталей ПОСЛЕ скоринга (BR-08): api_fields сохраняются
+            # при персисте на уровне списка; NULL — досборка не требуется.
+            detail_api=data.get("detail_api") or None,
         )
         async with self._db.session() as session:
             record.customer_id = await self._resolve_customer_id(
@@ -356,9 +359,72 @@ class ProcurementMixin(RepositoryMixin):
                 record.customer_id = await self._resolve_customer_id(
                     session, data.get("customer"), data.get("inn")
                 )
+            record.details_fetched_at = datetime.now(UTC)
             await session.commit()
         logger.info("Обновлена карточка закупки id=%s (детали дособраны)", procurement_id)
         return True
+
+    async def find_scored_without_details(
+        self, platform_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Закупки площадки, получившие результат скоринга, но без деталей (BR-08).
+
+        Детали с площадки дособираются отдельным проходом ТОЛЬКО ПОСЛЕ того, как
+        парсер получил результат скоринга (``procurement_evaluations.fit_score IS
+        NOT NULL`` — внешний сервис вернул результат через POST /score). Возвращает
+        записи с ``detail_api IS NOT NULL`` (есть контекст досборки) и
+        ``details_fetched_at IS NULL`` (досборка ещё не выполнена).
+        """
+        scored = (
+            select(ProcurementEvaluation.procurement_id)
+            .where(ProcurementEvaluation.fit_score.is_not(None))
+            .distinct()
+        )
+        conditions: list[ColumnElement[bool]] = [
+            Procurement.platform_id == platform_id,
+            Procurement.detail_api.is_not(None),
+            Procurement.details_fetched_at.is_(None),
+            Procurement.id.in_(scored),
+        ]
+        stmt = (
+            select(
+                Procurement.id,
+                Procurement.number,
+                Procurement.url,
+                Procurement.detail_api,
+                Procurement.detail_json,
+            )
+            .where(*conditions)
+            .order_by(Procurement.update_date.desc().nullslast())
+        )
+        if limit:
+            stmt = stmt.limit(limit)
+        async with self._db.session() as session:
+            rows = (await session.execute(stmt)).all()
+        return [
+            {
+                "id": row.id,
+                "number": row.number,
+                "url": row.url,
+                "detail_api": row.detail_api,
+                "detail_json": row.detail_json,
+            }
+            for row in rows
+        ]
+
+    async def mark_details_fetched(self, procurement_id: int) -> bool:
+        """Отмечает закупку как получившую дособранные детали (BR-08)."""
+        async with self._db.session() as session:
+            cursor = cast(
+                CursorResult[Any],
+                await session.execute(
+                    update(Procurement)
+                    .where(Procurement.id == procurement_id)
+                    .values(details_fetched_at=datetime.now(UTC))
+                ),
+            )
+            await session.commit()
+            return (cursor.rowcount or 0) > 0
 
     async def _resolve_customer_id(
         self, session: AsyncSession, name: str | None, inn: str | None

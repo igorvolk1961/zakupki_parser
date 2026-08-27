@@ -166,6 +166,11 @@ class Procurement(Base):
         Boolean, nullable=False, server_default=text("true"), default=True
     )
     detail_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Контекст досборки деталей ПОСЛЕ скоринга (BR-08): api_fields (need_id и т.п.),
+    # сохранённые при персисте на уровне списка. NULL — детали дособраны/не требуются.
+    detail_api: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Метка успешной досборки деталей площадки (BR-08): NULL — досборка не выполнена.
+    details_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

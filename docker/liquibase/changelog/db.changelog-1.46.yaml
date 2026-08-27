@@ -1,0 +1,12 @@
+databaseChangeLog:
+- changeSet:
+    id: 47
+    author: zakupki-parser
+    comment: 'procurements: детали дособираются ПОСЛЕ скоринга (BR-08) — контекст досборки detail_api (api_fields) и метка details_fetched_at (NULL = досборка не выполнена)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS detail_api JSONB;
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS details_fetched_at TIMESTAMPTZ;

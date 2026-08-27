@@ -3,9 +3,10 @@
 Выделено из прежнего ``parser/orchestrator/orchestrator.py``: метод
 ``_process_list_record`` класса Orchestrator перенесён в миксин
 ``RecordProcessingMixin`` без изменения логики. С BR-08 платформенные детали
-(ОКПД2/файлы/ИНН) не блокируют постановку в очередь скоринга: запись идёт по
-данным уровня списка, а детали дособираются отдельным best-effort проходом
-``_collect_pending_details`` ПОСЛЕ постановки (сбой деталей не роняет проход).
+(ОКПД2/файлы/ИНН) не запрашиваются до скоринга: запись идёт по данным уровня
+списка, а детали дособираются отдельным best-effort проходом
+``_collect_pending_details`` ТОЛЬКО ПОСЛЕ получения результата скоринга
+(``procurement_evaluations.fit_score IS NOT NULL``; сбой деталей не роняет проход).
 """
 
 from __future__ import annotations
@@ -86,8 +87,8 @@ class RecordProcessingMixin(OrchestratorState):
                 )
                 return False, number, False
 
-        # 3) детали ПЕРЕНЕСЕНЫ в отдельный best-effort проход ПОСЛЕ постановки в очередь
-        #    скоринга (BR-08). Здесь фиксируем источник деталей (api_fields / detail_url)
+        # 3) детали ПЕРЕНЕСЕНЫ в отдельный проход ПОСЛЕ получения результата скоринга
+        #    (BR-08). Здесь фиксируем источник деталей (api_fields / detail_url) в БД
         #    и сразу переходим к записи по данным УРОВНЯ СПИСКА, чтобы сбой API деталей
         #    площадки (напр. mos.ru 402) не блокировал скоринг и не валил проход.
         record: dict[str, Any] = {**list_vars}
@@ -103,6 +104,12 @@ class RecordProcessingMixin(OrchestratorState):
         # досборке деталей (ниже), чтобы не блокировать очередь на этом шаге.
         if list_vars.get("inn"):
             record["inn"] = list_vars["inn"]
+
+        # Контекст досборки деталей (BR-08): api_fields для API-площадок (need_id и т.п.);
+        # для DOM-площадок достаточно detail_url (уже в url) — ставим маркер, чтобы
+        # find_scored_without_details знал, что досборка ещё не выполнена.
+        if self._has_detail_source:
+            record["detail_api"] = api_fields if api_fields is not None else {"source": "dom"}
 
         # Активна ли закупка (is_active): не активна, если задан неактивный статус
         # (не входит в active_statuses). Проверка срока актуальности (deadline)
@@ -202,21 +209,6 @@ class RecordProcessingMixin(OrchestratorState):
                                     exc,
                                 )
 
-        # Досборка деталей площадки (BR-08): новосохранённые закупки на уровне списка
-        # ставятся в очередь скоринга без платформенных деталей; сами детали (ОКПД2,
-        # файлы, ИНН, статус, НМЦК) догружаются отдельным best-effort проходом ПОСЛЕ
-        # постановки. Сбой деталей (например, mos.ru HTTP 402) не блокирует скоринг.
-        if saved_any and record.get("id") is not None and self._has_detail_source:
-            self._pending_details.append(
-                {
-                    "id": record["id"],
-                    "number": number,
-                    "list_vars": {**list_vars},
-                    "detail_url": detail_url,
-                    "api_fields": api_fields,
-                    "record": {**record},
-                }
-            )
         return False, number, saved_any
 
     @property
@@ -231,31 +223,41 @@ class RecordProcessingMixin(OrchestratorState):
         return bool(d.api_format or d.variables or d.files or d.additional_pages)
 
     async def _collect_pending_details(self, page: Page) -> None:
-        """Досборка деталей площадки best-effort ПОСЛЕ постановки в скоринг (BR-08).
+        """Досборка деталей площадки best-effort ПОСЛЕ получения результата скоринга.
 
-        Итерируется по ``_pending_details`` (закупки, сохранённые на уровне списка),
-        догружает ОКПД2/файлы/ИНН/статус/НМЦК и обновляет сохранённую карточку. Любой
-        сбой (в т.ч. HTTP 402 от API деталей) НЕ роняет проход: карточка остаётся
-        на уровне списка, досборка пропускается до следующего прохода.
+        BR-08: детали дособираются ТОЛЬКО для закупок, по которым парсер уже получил
+        результат скоринга (``procurement_evaluations.fit_score IS NOT NULL`` — внешний
+        сервис вернул результат через POST /score). Проход идёт по БД
+        (``find_scored_without_details``), а не по только что сохранённым записям:
+        новые закупки в этом же цикле скоринг ещё не получали, поэтому досборка
+        происходит на следующих проходах планировщика. Любой сбой (в т.ч. HTTP 402 от
+        API деталей) НЕ роняет проход: карточка остаётся на уровне списка, досборка
+        повторится в следующем цикле.
         """
-        if not self._pending_details:
+        if self._repository is None or not self._has_detail_source:
+            return
+        items = await self._repository.find_scored_without_details(
+            self._platform_id, limit=self._cfg.parser.details_batch
+        )
+        if not items:
             return
         logger.info(
-            "Площадка %s: досборка деталей для %d закупок (best-effort)",
+            "Площадка %s: досборка деталей для %d закупок ПОСЛЕ скоринга (best-effort)",
             self._platform_id,
-            len(self._pending_details),
+            len(items),
         )
-        for item in self._pending_details:
+        for item in items:
             number = item["number"]
             try:
+                list_vars = {"number": number}
                 detail_vars, files, api_inn, customer_link = await self._fetch_record_details(
                     page,
-                    item["list_vars"],
-                    item["detail_url"],
-                    item["api_fields"],
+                    list_vars,
+                    item["url"],
+                    item["detail_api"],
                     number,
                 )
-                record = {**item["record"]}
+                record = dict(item["detail_json"] or {})
                 # Не затираем значения уровня списка значением None (например, НМЦК,
                 # если детальная SPA не успела отрисовать поле) — как в основном пути.
                 record.update({k: v for k, v in detail_vars.items() if v is not None})
@@ -268,9 +270,7 @@ class RecordProcessingMixin(OrchestratorState):
                     record["inn"] = await self._resolve_customer_inn(page, customer_link)
                 record["is_active"] = self._is_active(record)
                 record["detail_json"] = json_safe(record)
-                await self._repository.update_details(  # type: ignore[union-attr]
-                    int(item["id"]), record
-                )
+                await self._repository.update_details(int(item["id"]), record)
                 logger.info(
                     "Площадка %s: догружены детали закупки %s",
                     self._platform_id,

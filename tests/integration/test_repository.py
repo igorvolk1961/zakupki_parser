@@ -129,6 +129,45 @@ async def test_update_details_enriches_existing(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_details_fetched_only_after_score(db: Database) -> None:
+    """Детали дособираются только ПОСЛЕ получения результата скоринга (BR-08).
+
+    find_scored_without_details возвращает закупку с контекстом досборки
+    (detail_api) только когда для неё записан fit_score (внешний сервис вернул
+    результат через POST /score). Без скоринга закупка в выборку не попадает;
+    после успешной досборки (mark_details_fetched) — тоже исключается.
+    """
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("sd-user", "hash", ["analyst"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": "C"}, user.id)
+    assert profile.id is not None
+    await repo.upsert(
+        {
+            "number": "SD-1",
+            "platform_id": "zakupki_mos",
+            "subject": "ИТ-услуги",
+            "detail_api": {"need_id": "42"},
+            "detail_json": {"subject": "ИТ-услуги", "number": "SD-1"},
+        }
+    )
+    pid = await repo.find_id("SD-1", "zakupki_mos")
+    assert pid is not None
+
+    # Скоринга ещё нет — досборка не положена.
+    assert await repo.find_scored_without_details("zakupki_mos") == []
+
+    # Результат скоринга получен (fit_score записан) — закупка попадает в выборку.
+    await repo.upsert_score(pid, profile.id, score=0.5, fit_score=0.5, score_method="fit")
+    pending = await repo.find_scored_without_details("zakupki_mos")
+    assert [p["id"] for p in pending] == [pid]
+    assert pending[0]["detail_api"] == {"need_id": "42"}
+
+    # Успешная досборка — закупка исключается из выборки.
+    await repo.mark_details_fetched(pid)
+    assert await repo.find_scored_without_details("zakupki_mos") == []
+
+
+@pytest.mark.asyncio
 async def test_upsert_procedure_type_resolved(db: Database) -> None:
     """purchase_type резолвится в справочник procedure_types и отдаётся по связи."""
     repo = ProcurementRepository(db)

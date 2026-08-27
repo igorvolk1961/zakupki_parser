@@ -104,6 +104,11 @@ class _ProfileRepo:
     async def last_processed_date(self, *args: Any, **kwargs: Any) -> datetime:
         return datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
 
+    async def find_scored_without_details(
+        self, platform_id: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        return []
+
 
 @pytest.mark.asyncio
 async def test_server_crawl_has_no_keywords(app_config: AppConfig) -> None:

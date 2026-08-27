@@ -37,18 +37,11 @@ sequenceDiagram
             S->>L: next container
             L->>E: extract_from_scope(list.variables)
             E-->>S: list_vars
-            S->>D: open_detail(detail_url)
-            D-->>S: страница деталей
-            S->>E: extract_from_scope(detail.variables)
-            E-->>S: detail_vars
-            S->>S: merge record + stop_conditions
+            S->>S: клиентская пост-фильтрация словами (R9) + stop_conditions
             alt условие stop (deadline истёк)
                 Note over S: закупка пропускается
-            else файлы (метаданные)
-                Note over S: files_json (включая ТЗ)<br/>(глубокая обработка — внешний сервис, ADR-5)
             end
-            S->>S: score (default / deadline_expired)
-            S->>R: upsert(record) (контроль дубликатов)
+            S->>R: upsert(record) (уровень списка, контроль дубликатов)
             alt новая запись (score_method=default)
                 S->>TR: POST /api/scoring/jobs {id, default_score, stage="fit"}
                 TR->>RS: ZADD scoring:jobs (по приоритету)
@@ -105,10 +98,16 @@ sequenceDiagram
   с датой публикации **старее** порога. Сравнение — по календарному дню; порог
   берётся из БД (`MAX(update_date)` по площадке), а при отсутствии записей — из
   `default_cutoff_days`.
-- **stop_conditions** проверяются после извлечения деталей: если срок приёма заявок истёк
+- **stop_conditions** проверяются по данным уровня списка, ДО записи: если срок приёма заявок истёк
   (или до него меньше `min_deadline_days`) — закупка пропускается (не сохраняется,
   не уведомляется).
-- **Файлы**: в основном режиме не скачиваются — сохраняются только метаданные
+- **Детали площадки — досборка ПОСЛЕ скоринга (BR-08).** Закупка сохраняется на уровне
+  списка (ОКПД2/файлы/ИНН НЕ запрашиваются), скоринг идёт по данным уровня списка
+  (ADR-10 п.4). Планировщик в последующих проходах догружает платформенные детали
+  (`find_scored_without_details` + контекст `detail_api`) ТОЛЬКО для закупок с записанным
+  `fit_score` — т.е. после того, как внешний сервис вернул результат через `POST /score`.
+  Сбой деталей (например, HTTP 402 от API mos.ru) не роняет проход.
+- **Файлы**: парсер не скачивает файлы — сохраняются только метаданные
   в `files_json` (включая ТЗ). Глубокую обработку (PDF/DOCX/ZIP, поиск ТЗ)
   выполняет **внешний сервис** (ADR-5).
 - **Скоринг (ADR-7/ADR-9)**: при сохранении ставится `default` (или `deadline_expired` для
