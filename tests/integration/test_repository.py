@@ -563,6 +563,30 @@ async def test_ensure_default_profile_gated_by_role(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_enabled_profiles_includes_analyst(db: Database) -> None:
+    """Профиль пользователя с ролью analyst включается в обход парсера (BR-07).
+
+    Регрессия: отбор шёл строго по роли ``user`` (``roles.contains(["user"])``),
+    из-за чего профиль пользователя с ролью только ``analyst`` не попадал в
+    парсинг — импортированный профиль не заполнялся результатами.
+    """
+    repo = ProcurementRepository(db)
+    prof_user = await repo.create_user("crawl-user", "h", ["user"])
+    prof_analyst = await repo.create_user("crawl-analyst", "h", ["analyst"])
+    admin = await repo.create_user("crawl-admin", "h", ["admin"])
+
+    await repo.upsert_profile({"name": "default", "competencies": "u"}, prof_user.id)
+    await repo.upsert_profile({"name": "default", "competencies": "a"}, prof_analyst.id)
+    await repo.upsert_profile({"name": "default", "competencies": "adm"}, admin.id)
+
+    profiles = await repo.list_enabled_profiles_for_active_users()
+    owner_ids = {p.user_id for p in profiles}
+    assert prof_user.id in owner_ids
+    assert prof_analyst.id in owner_ids
+    assert admin.id not in owner_ids
+
+
+@pytest.mark.asyncio
 async def test_delete_profiles_without_default_role(db: Database) -> None:
     """Профили пользователей без ролей user/analyst удаляются."""
     repo = ProcurementRepository(db)

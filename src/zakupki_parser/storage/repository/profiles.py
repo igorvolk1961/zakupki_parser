@@ -9,7 +9,7 @@ from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
-from zakupki_parser.auth import has_default_profile_role
+from zakupki_parser.auth import DEFAULT_PROFILE_ROLES, has_default_profile_role
 from zakupki_parser.storage.db import (
     ExperienceConfirmationType,
     Keyword,
@@ -85,12 +85,13 @@ class ProfileMixin(RepositoryMixin):
     async def list_enabled_profiles_for_active_users(self) -> list[Profile]:
         """Все включённые профили незаблокированных пользователей.
 
-        Возвращает ``Profile.enabled = true`` для пользователей с ролью ``user``
-        (профили принадлежат обычным пользователям, BR-07) и со статусом
-        ``active`` (не ``blocked``). Это рабочий набор профилей, которые парсер
-        обходит при постоянном мониторинге: включая не выбранные пользователем
-        (is_active=false), но только включённые (enabled=true). Постоянные
-        администраторы/devops, не имеющие профилей, не учитываются.
+        Возвращает ``Profile.enabled = true`` для пользователей с ролью, которой
+        положен профиль (``DEFAULT_PROFILE_ROLES``: ``user`` или ``analyst``,
+        BR-07) и со статусом ``active`` (не ``blocked``). Это рабочий набор
+        профилей, которые парсер обходит при постоянном мониторинге: включая не
+        выбранные пользователем (is_active=false), но только включённые
+        (enabled=true). Постоянные администраторы/devops, не имеющие профилей,
+        не учитываются.
         """
         stmt = (
             select(Profile)
@@ -98,7 +99,7 @@ class ProfileMixin(RepositoryMixin):
             .where(
                 Profile.enabled.is_(True),
                 User.status == "active",
-                User.roles.contains(["user"]),
+                or_(*[User.roles.contains([role]) for role in DEFAULT_PROFILE_ROLES]),
             )
             .order_by(User.id.asc(), Profile.id.asc())
         )
