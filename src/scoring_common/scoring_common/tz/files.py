@@ -68,11 +68,18 @@ def _normalize(name: str | None) -> str:
 
 
 def is_tz(name: str | None) -> bool:
-    """Содержит ли имя файла маркер ТЗ (без учёта регистра)."""
+    """Содержит ли имя файла маркер ТЗ (без учёта регистра).
+
+    Площадки часто генерируют имена файлов с разделителями-подчёркиваниями
+    (например, ``техническое_задание_по_модернизации.docx``), поэтому фразы
+    сопоставляются по имени, где ``_`` и ``-`` приведены к пробелу. Аббревиатура
+    ``тз`` по-прежнему ищется по границам слова на исходном имени.
+    """
     low = _normalize(name)
     if re.search(r"(^|[^а-яa-z])(тз)($|[^а-яa-z])", low):
         return True
-    return any(phrase in low for phrase in _TZ_PHRASES)
+    spaced = re.sub(r"[_-]+", " ", low)
+    return any(phrase in spaced for phrase in _TZ_PHRASES)
 
 
 def is_archive(name: str | None) -> bool:
