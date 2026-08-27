@@ -330,6 +330,36 @@ class ProcurementMixin(RepositoryMixin):
         logger.info("Сохранена закупка id=%s (№ %s, %s)", record.id, number, platform_id)
         return True
 
+    async def update_details(self, procurement_id: int, data: dict[str, Any]) -> bool:
+        """Обновляет карточку закупки деталями, дособранными ПОСЛЕ записи (BR-08).
+
+        Персист на уровне списка сохраняет только поля списка; ОКПД2/файлы/ИНН/статус/
+        НМЦК догружаются отдельным проходом и обновляют существующую запись (без
+        дублирования — быстрый ``UPDATE``, в отличие от ``upsert``, который отбрасывает
+        повторную запись). Возвращает True, если запись найдена и обновлена.
+        """
+        detail = data.get("detail_json")
+        async with self._db.session() as session:
+            record = await session.get(Procurement, procurement_id)
+            if record is None:
+                return False
+            record.subject = data.get("subject") or record.subject
+            record.nmck = data.get("nmck") if data.get("nmck") is not None else record.nmck
+            record.okpd2_codes = data.get("okpd2_codes") or data.get("okpd2_code")
+            record.kpgz_codes = data.get("kpgz_codes") or data.get("kpgz_code")
+            if data.get("files_json") is not None:
+                record.files_json = data["files_json"]
+            if detail is not None:
+                record.detail_json = detail
+            record.is_active = bool(data.get("is_active", record.is_active))
+            if data.get("inn") and not record.customer_rel:
+                record.customer_id = await self._resolve_customer_id(
+                    session, data.get("customer"), data.get("inn")
+                )
+            await session.commit()
+        logger.info("Обновлена карточка закупки id=%s (детали дособраны)", procurement_id)
+        return True
+
     async def _resolve_customer_id(
         self, session: AsyncSession, name: str | None, inn: str | None
     ) -> int | None:

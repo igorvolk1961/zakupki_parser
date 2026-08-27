@@ -72,6 +72,63 @@ async def test_upsert_no_duplicate(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_details_enriches_existing(db: Database) -> None:
+    """update_details дособирает детали в уже сохранённую карточку (BR-08).
+
+    Персист на уровне списка не дублирует запись (в отличие от upsert): обновляется
+    существующая строка — ОКПД2, файлы, ИНН заказчика, detail_json, is_active.
+    """
+    repo = ProcurementRepository(db)
+    ok = await repo.upsert(
+        {
+            "number": "UP-1",
+            "platform_id": "zakupki_mos",
+            "subject": "ИТ-услуги",
+            "nmck": 100.0,
+            "url": "https://example.com/need/1",
+            "detail_json": {"subject": "ИТ-услуги", "nmck": 100.0},
+        }
+    )
+    assert ok is True
+    pid = await repo.find_id("UP-1", "zakupki_mos")
+    assert pid is not None
+
+    updated = await repo.update_details(
+        pid,
+        {
+            "subject": "ИТ-услуги",
+            "nmck": 100.0,
+            "okpd2_codes": "62.01.10",
+            "kpgz_codes": "49.1",
+            "files_json": [{"name": "ТЗ.docx", "url": "https://example.com/f/1"}],
+            "customer": "ООО Ромашка",
+            "inn": "7701234567",
+            "is_active": True,
+            "detail_json": {
+                "subject": "ИТ-услуги",
+                "nmck": 100.0,
+                "okpd2_code": "62.01.10",
+                "files": [{"name": "ТЗ.docx"}],
+            },
+        },
+    )
+    assert updated is True
+
+    row = await repo.get_by_id(pid, profile_id=None)
+    assert row is not None
+    assert row.okpd2_codes == "62.01.10"
+    assert row.kpgz_codes == "49.1"
+    assert row.files_json == [{"name": "ТЗ.docx", "url": "https://example.com/f/1"}]
+    assert row.detail_json is not None
+    assert row.detail_json["okpd2_code"] == "62.01.10"
+    assert row.customer_rel is not None and row.customer_rel.name == "ООО Ромашка"
+    assert row.customer_rel.inn == "7701234567"
+
+    # Несуществующая закупка: медленный путь обновления не создаёт дубликат.
+    assert await repo.update_details(999999, {"subject": "x"}) is False
+
+
+@pytest.mark.asyncio
 async def test_upsert_procedure_type_resolved(db: Database) -> None:
     """purchase_type резолвится в справочник procedure_types и отдаётся по связи."""
     repo = ProcurementRepository(db)

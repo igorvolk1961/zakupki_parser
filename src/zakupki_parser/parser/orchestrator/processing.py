@@ -1,8 +1,11 @@
-"""Обработка одной записи списка (DOM/API): детали, stop-условия, скоринг, запись.
+"""Обработка одной записи списка (DOM/API): фильтр, запись, скоринг, детали.
 
 Выделено из прежнего ``parser/orchestrator/orchestrator.py``: метод
 ``_process_list_record`` класса Orchestrator перенесён в миксин
-``RecordProcessingMixin`` без изменения логики.
+``RecordProcessingMixin`` без изменения логики. С BR-08 платформенные детали
+(ОКПД2/файлы/ИНН) не блокируют постановку в очередь скоринга: запись идёт по
+данным уровня списка, а детали дособираются отдельным best-effort проходом
+``_collect_pending_details`` ПОСЛЕ постановки (сбой деталей не роняет проход).
 """
 
 from __future__ import annotations
@@ -83,105 +86,11 @@ class RecordProcessingMixin(OrchestratorState):
                 )
                 return False, number, False
 
-        # stop-условия по данным из деталей проверяются после извлечения деталей.
-        # 3) детали: либо через открытый API площадки (детальная страница не
-        #    открывается), либо переход на детальную страницу в отдельной вкладке,
-        #    чтобы не терять страницу списка (итерация по контейнерам и пагинация
-        #    продолжаются). «Возврат к списку» (п.10 ТЗ) — закрытие этой вкладки.
-        files: list[dict[str, str]] = []
-        customer_link: str | None = None
-        api_inn: str | None = None
-        detail_page: Page | None = None
-        close_detail = False
-        try:
-            retry_cfg = self._cfg.parser.retry
-            if self._platform.detail.api_format:
-                detail_vars, files, api_inn = await run_with_retry(
-                    partial(fetch_api_details, page, self._platform, list_vars, api_fields),
-                    retry=retry_cfg,
-                    circuit=self._site_cb,
-                    label=f"Детали {number}",
-                )
-            else:
-                if self._new_page is not None:
-                    detail_page = await self._new_page()
-                    close_detail = True
-                else:
-                    detail_page = page
-                await run_with_retry(
-                    lambda: open_detail(detail_page, detail_url, self._platform),
-                    retry=retry_cfg,
-                    circuit=self._site_cb,
-                    label=f"Детали {number}",
-                )
-                detail_vars = await extract_detail_vars(detail_page, self._platform)
-                customer_link = await capture_customer_link(detail_page, self._platform)
-                # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход
-                # по ссылке с детальной страницы и извлечение дополнительных переменных.
-                for spec in self._platform.detail.additional_pages:
-                    try:
-                        link = detail_page.locator(spec.link_selector).first
-                        if await link.count() == 0:
-                            continue
-                        href = await link.get_attribute("href")
-                        if not href:
-                            continue
-                        page_url = (
-                            href
-                            if href.startswith("http")
-                            else self._platform.url.rstrip("/") + href
-                        )
-
-                        async def _open_additional(_url: str = page_url) -> None:
-                            await detail_page.goto(
-                                _url, wait_until="domcontentloaded", timeout=45000
-                            )
-                            await detail_page.wait_for_timeout(3000)
-
-                        await run_with_retry(
-                            _open_additional,
-                            retry=retry_cfg,
-                            circuit=self._site_cb,
-                            label=f"Доп. страница {number}",
-                        )
-                        extra = await extract_from_scope(detail_page, spec.variables)
-                        # Не затираем значение основной страницы, если на доп. странице
-                        # поле отсутствует (extract_from_scope вернул default=None).
-                        detail_vars.update({k: v for k, v in extra.items() if v is not None})
-                    except Exception as exc:  # noqa: BLE001
-                        logger.debug("Доп. страница деталей не обработана: %s", exc)
-                # Файлы: если задана отдельная страница файлов (напр. ЕИС documents.html) —
-                # переходим на неё (URL = детальный URL с заменой имени html-файла).
-                # У 223-ФЗ путь документов иной — переход может не найтись, это не критично.
-                files_page = self._platform.detail.files_page
-                if files_page:
-                    try:
-
-                        async def _open_files() -> None:
-                            await detail_page.goto(
-                                files_page_url(detail_url, files_page),
-                                wait_until="domcontentloaded",
-                                timeout=45000,
-                            )
-                            await detail_page.wait_for_timeout(3000)
-
-                        await run_with_retry(
-                            _open_files,
-                            retry=retry_cfg,
-                            circuit=self._site_cb,
-                            label=f"Файлы {number}",
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
-                files = await detail_files(detail_page, self._platform)
-        finally:
-            if close_detail and detail_page is not None:
-                await detail_page.close()
-
+        # 3) детали ПЕРЕНЕСЕНЫ в отдельный best-effort проход ПОСЛЕ постановки в очередь
+        #    скоринга (BR-08). Здесь фиксируем источник деталей (api_fields / detail_url)
+        #    и сразу переходим к записи по данным УРОВНЯ СПИСКА, чтобы сбой API деталей
+        #    площадки (напр. mos.ru 402) не блокировал скоринг и не валил проход.
         record: dict[str, Any] = {**list_vars}
-        # Не затираем значения из списка значением None с детальной страницы (например,
-        # НМЦК, если детальная SPA не успела отрисовать поле). Аналогично доп. страницам.
-        record.update({k: v for k, v in detail_vars.items() if v is not None})
         record["url"] = (
             detail_url
             if detail_url.startswith("http")
@@ -189,35 +98,23 @@ class RecordProcessingMixin(OrchestratorState):
         )
         record["platform_id"] = self._platform_id
 
-        # ИНН заказчика (универсальный механизм, ADR-4). При сбое — None (nullable).
-        # Через API (detail.api_format) ИНН приходит прямо в ответе — DOM не нужен.
-        # Если ИНН отдаёт уже API списка (например mos.ru) — сохраняем его как есть.
-        if api_inn:
-            record["inn"] = api_inn
-        elif customer_link:
-            record["inn"] = await self._resolve_customer_inn(page, customer_link)
+        # ИНН заказчика (ADR-4). Если ИНН отдаёт уже API списка (например mos.ru) —
+        # сохраняем как есть. Остальные источники (API деталей, org-страница) — в
+        # досборке деталей (ниже), чтобы не блокировать очередь на этом шаге.
+        if list_vars.get("inn"):
+            record["inn"] = list_vars["inn"]
 
         # Активна ли закупка (is_active): не активна, если задан неактивный статус
         # (не входит в active_statuses). Проверка срока актуальности (deadline)
         # выполняется на стороне клиента (репозиторий/API), а не при записи.
         record["is_active"] = self._is_active(record)
 
-        # 5) файлы: парсер НЕ скачивает файлы — сохраняются только метаданные
-        #    (имя и URL скачивания с ЭТП). Все файлы, включая ТЗ, — в files_json.
-        if files:
-            record["files_json"] = files
-
-        # 6) дефолтный скоринг УДАЛЁН: закупка сохраняется без оценки; результат
-        #    внешнего каскада приходит через POST /score и пишется в
-        #    procurement_evaluations (per-profile, ADR-7).
-
-        # 8) JSONB-карточка формируется из ФИНАЛЬНОЙ записи (включая файлы и
-        #    результаты доп. обработки), чтобы снимок соответствовал сохранённому.
+        # 8) JSONB-карточка на уровне списка (детали дособираются ниже, в досборке).
         record["detail_json"] = json_safe(record)
 
         # Клиентская фильтрация (R9) и запись — ВЕЕРОМ по профилям текущего обхода.
         # Для одиночного профиля ранний фильтр уже применён к subject из карточки;
-        # для группы профилей фильтруем каждого по полной записи.
+        # для группы профилей фильтруем каждого по полной (уровень списка) записи.
         early_applied = bool(early_subject and not multi and ctxs)
         saved_any = False
         pushed_scoring: set[tuple[int, int]] = set()
@@ -299,4 +196,187 @@ class RecordProcessingMixin(OrchestratorState):
                                     ctx.profile.id,
                                     exc,
                                 )
+
+        # Досборка деталей площадки (BR-08): новосохранённые закупки на уровне списка
+        # ставятся в очередь скоринга без платформенных деталей; сами детали (ОКПД2,
+        # файлы, ИНН, статус, НМЦК) догружаются отдельным best-effort проходом ПОСЛЕ
+        # постановки. Сбой деталей (например, mos.ru HTTP 402) не блокирует скоринг.
+        if saved_any and record.get("id") is not None and self._has_detail_source:
+            self._pending_details.append(
+                {
+                    "id": record["id"],
+                    "number": number,
+                    "list_vars": {**list_vars},
+                    "detail_url": detail_url,
+                    "api_fields": api_fields,
+                    "record": {**record},
+                }
+            )
         return False, number, saved_any
+
+    @property
+    def _has_detail_source(self) -> bool:
+        """Есть ли у площадки источник деталей для досборки (API или DOM).
+
+        API-площадки (``detail.api_format``) отдают детали по JSON; DOM-площадки —
+        переходят на детальную страницу и извлекают ``detail.variables``/файлы.
+        Если деталей нет вовсе — досборка не нужна (закупка остаётся на уровне списка).
+        """
+        d = self._platform.detail
+        return bool(d.api_format or d.variables or d.files or d.additional_pages)
+
+    async def _collect_pending_details(self, page: Page) -> None:
+        """Досборка деталей площадки best-effort ПОСЛЕ постановки в скоринг (BR-08).
+
+        Итерируется по ``_pending_details`` (закупки, сохранённые на уровне списка),
+        догружает ОКПД2/файлы/ИНН/статус/НМЦК и обновляет сохранённую карточку. Любой
+        сбой (в т.ч. HTTP 402 от API деталей) НЕ роняет проход: карточка остаётся
+        на уровне списка, досборка пропускается до следующего прохода.
+        """
+        if not self._pending_details:
+            return
+        logger.info(
+            "Площадка %s: досборка деталей для %d закупок (best-effort)",
+            self._platform_id,
+            len(self._pending_details),
+        )
+        for item in self._pending_details:
+            number = item["number"]
+            try:
+                detail_vars, files, api_inn, customer_link = await self._fetch_record_details(
+                    page,
+                    item["list_vars"],
+                    item["detail_url"],
+                    item["api_fields"],
+                    number,
+                )
+                record = {**item["record"]}
+                # Не затираем значения уровня списка значением None (например, НМЦК,
+                # если детальная SPA не успела отрисовать поле) — как в основном пути.
+                record.update({k: v for k, v in detail_vars.items() if v is not None})
+                if files:
+                    record["files_json"] = files
+                if api_inn and not record.get("inn"):
+                    record["inn"] = api_inn
+                # ИНН с org-страницы (DOM-площадки): только если список/API его не дали.
+                if customer_link and not record.get("inn"):
+                    record["inn"] = await self._resolve_customer_inn(page, customer_link)
+                record["is_active"] = self._is_active(record)
+                record["detail_json"] = json_safe(record)
+                await self._repository.update_details(  # type: ignore[union-attr]
+                    int(item["id"]), record
+                )
+                logger.info(
+                    "Площадка %s: догружены детали закупки %s",
+                    self._platform_id,
+                    number,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Площадка %s: детали закупки %s не догружены (карточка остаётся "
+                    "на уровне списка): %s",
+                    self._platform_id,
+                    number,
+                    exc,
+                )
+
+    async def _fetch_record_details(
+        self,
+        page: Page,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+        number: Any,
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str | None, str | None]:
+        """Извлекает детали закупки (API или DOM) для досборки (BR-08).
+
+        Повторяет прежний блок «3) детали»: API-площадки — ``fetch_api_details``,
+        DOM-площадки — переход на детальную страницу в отдельной вкладке + доп.
+        страницы и файловая страница. Возвращает
+        ``(detail_vars, files, api_inn, customer_link)``.
+        """
+        files: list[dict[str, str]] = []
+        api_inn: str | None = None
+        customer_link: str | None = None
+        detail_page: Page | None = None
+        close_detail = False
+        retry_cfg = self._cfg.parser.retry
+        try:
+            if self._platform.detail.api_format:
+                detail_vars, files, api_inn = await run_with_retry(
+                    partial(fetch_api_details, page, self._platform, list_vars, api_fields),
+                    retry=retry_cfg,
+                    circuit=self._site_cb,
+                    label=f"Детали {number}",
+                )
+                return detail_vars, files, api_inn, None
+
+            if self._new_page is not None:
+                detail_page = await self._new_page()
+                close_detail = True
+            else:
+                detail_page = page
+            if not detail_url:
+                logger.debug("Детали %s: нет ссылки на детальную страницу", number)
+                return {}, [], None, None
+            await run_with_retry(
+                lambda: open_detail(detail_page, detail_url, self._platform),
+                retry=retry_cfg,
+                circuit=self._site_cb,
+                label=f"Детали {number}",
+            )
+            detail_vars = await extract_detail_vars(detail_page, self._platform)
+            customer_link = await capture_customer_link(detail_page, self._platform)
+            # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list).
+            for spec in self._platform.detail.additional_pages:
+                try:
+                    link = detail_page.locator(spec.link_selector).first
+                    if await link.count() == 0:
+                        continue
+                    href = await link.get_attribute("href")
+                    if not href:
+                        continue
+                    page_url = (
+                        href if href.startswith("http") else self._platform.url.rstrip("/") + href
+                    )
+
+                    async def _open_additional(_url: str = page_url) -> None:
+                        await detail_page.goto(_url, wait_until="domcontentloaded", timeout=45000)
+                        await detail_page.wait_for_timeout(3000)
+
+                    await run_with_retry(
+                        _open_additional,
+                        retry=retry_cfg,
+                        circuit=self._site_cb,
+                        label=f"Доп. страница {number}",
+                    )
+                    extra = await extract_from_scope(detail_page, spec.variables)
+                    detail_vars.update({k: v for k, v in extra.items() if v is not None})
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Доп. страница деталей не обработана: %s", exc)
+            # Файловая страница (например, ЕИС documents.html).
+            files_page = self._platform.detail.files_page
+            if files_page:
+                try:
+
+                    async def _open_files() -> None:
+                        await detail_page.goto(
+                            files_page_url(detail_url, files_page),
+                            wait_until="domcontentloaded",
+                            timeout=45000,
+                        )
+                        await detail_page.wait_for_timeout(3000)
+
+                    await run_with_retry(
+                        _open_files,
+                        retry=retry_cfg,
+                        circuit=self._site_cb,
+                        label=f"Файлы {number}",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
+            files = await detail_files(detail_page, self._platform)
+            return detail_vars, files, api_inn, customer_link
+        finally:
+            if close_detail and detail_page is not None:
+                await detail_page.close()
