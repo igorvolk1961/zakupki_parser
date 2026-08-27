@@ -15,35 +15,53 @@ function logLevel(line) {
 }
 
 async function loadLogs() {
-  const params = {
-    lines: $("#logs-lines").value,
-    level: $("#logs-level").value,
-    q: $("#logs-q").value.trim() || undefined,
-  };
-  const fromVal = $("#logs-from").value;
-  const toVal = $("#logs-to").value;
-  if (fromVal) params.from = new Date(fromVal).toISOString();
-  if (toVal) params.to = new Date(toVal).toISOString();
-
-  const data = await api("logs/tail", params);
   const view = $("#logs-view");
-  const lines = data.lines || [];
-  view.innerHTML = "";
-  if (!data.file_exists) {
-    view.innerHTML = `<div class="muted">файл лога не найден${data.path ? ": " + escapeHtml(data.path) : ""}</div>`;
-  } else if (!lines.length) {
-    view.innerHTML = '<div class="muted">строк, соответствующих фильтру, нет</div>';
-  } else {
-    lines.forEach((l) => {
-      const span = document.createElement("span");
-      span.className = "log-line " + logLevel(l);
-      span.textContent = l;
-      view.appendChild(span);
-    });
+  const status = $("#logs-status");
+  const btn = $("#logs-refresh");
+  // Кнопка «Обновить» и авто-опрос видны, что загрузка реально идёт.
+  btn.disabled = true;
+  const prevStatus = status.textContent;
+  status.textContent = "обновление…";
+  try {
+    const params = {
+      lines: $("#logs-lines").value,
+      level: $("#logs-level").value,
+      q: $("#logs-q").value.trim() || undefined,
+    };
+    const fromVal = $("#logs-from").value;
+    const toVal = $("#logs-to").value;
+    if (fromVal) params.from = new Date(fromVal).toISOString();
+    if (toVal) params.to = new Date(toVal).toISOString();
+
+    const data = await api("logs/tail", params);
+    const lines = data.lines || [];
+    view.innerHTML = "";
+    status.classList.remove("log-error");
+    if (!data.file_exists) {
+      view.innerHTML = `<div class="muted">файл лога не найден${data.path ? ": " + escapeHtml(data.path) : ""}</div>`;
+    } else if (!lines.length) {
+      view.innerHTML = '<div class="muted">строк, соответствующих фильтру, нет</div>';
+    } else {
+      lines.forEach((l) => {
+        const span = document.createElement("span");
+        span.className = "log-line " + logLevel(l);
+        span.textContent = l;
+        view.appendChild(span);
+      });
+    }
+    status.textContent = data.file_exists
+      ? `${data.path} · строк: ${data.count}${data.truncated ? " (обрезано)" : ""}`
+      : "файл лога не найден";
+  } catch (e) {
+    // Не оставляем вкладку молча пустой: показываем причину (401/403/сеть/парсинг).
+    const msg = e && e.message ? e.message : String(e);
+    view.innerHTML = `<div class="muted">ошибка загрузки лога: ${escapeHtml(msg)}</div>`;
+    status.textContent = "ошибка загрузки лога";
+    status.classList.add("log-error");
+  } finally {
+    btn.disabled = false;
+    if (!status.textContent || status.textContent === "обновление…") status.textContent = prevStatus;
   }
-  $("#logs-status").textContent = data.file_exists
-    ? `${data.path} · строк: ${data.count}${data.truncated ? " (обрезано)" : ""}`
-    : "файл лога не найден";
 }
 
 function setupAutoRefresh() {

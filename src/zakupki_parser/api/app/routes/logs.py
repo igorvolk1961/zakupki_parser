@@ -113,8 +113,10 @@ def build_logs_router(ctx: ApiContext) -> APIRouter:
                 "truncated": False,
             }
         path = Path(raw_path).resolve()
-        # Файл лога читается только внутри корня проекта.
-        root = Path(state.configs_dir).resolve().parent
+        # Файл лога читается только внутри корня проекта. Корень — resolved-каталог
+        # конфигов (cfg.configs_dir), а не сырой аргумент: последний может быть
+        # относительным и зависеть от рабочей директории процесса.
+        root = Path(state.cfg.configs_dir).resolve().parent
         if not path.is_relative_to(root):
             raise HTTPException(status_code=403, detail="Путь файла лога вне корня проекта")
         if not path.is_file():

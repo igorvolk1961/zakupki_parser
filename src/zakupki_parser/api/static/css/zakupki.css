@@ -234,6 +234,7 @@
   .log-line { display:block; }
   .log-line.error { color:#f87171; background:rgba(239,68,68,.08); }
   .log-line.warning { color:#fbbf24; background:rgba(245,158,11,.08); }
+  .log-error { color:#f87171; font-weight:600; }
   /* Пользователи: роли и статус. */
   .users-table td.actions { white-space:nowrap; }
   .users-table .btn-mini { padding:4px 8px; font-size:12px; margin-right:6px; }

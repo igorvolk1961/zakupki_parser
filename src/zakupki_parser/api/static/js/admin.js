@@ -4,6 +4,7 @@
 import { $, fmtDT } from "./utils.js";
 import { state } from "./store.js";
 import { api, apiJSON, authToken } from "./api.js";
+import { canAccessBase } from "./roles.js";
 import { loadProc, renderProc } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 
@@ -56,7 +57,7 @@ function pollParser() {
       prevRunning = false;
       clearInterval(parserTimer);
       parserTimer = null;
-      await loadProc();
+      if (canAccessBase()) await loadProc();
     } else {
       clearInterval(parserTimer);
       parserTimer = null;
@@ -82,8 +83,10 @@ async function dbClearRequest(url, body) {
     return;
   }
   const res = await r.json();
-  await loadProc();
-  await loadCustomers();
+  if (canAccessBase()) {
+    await loadProc();
+    await loadCustomers();
+  }
   const d = res.deleted;
   const cnt =
     typeof d === "number"

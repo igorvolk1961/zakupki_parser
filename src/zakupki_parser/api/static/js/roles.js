@@ -59,6 +59,13 @@ export function isDevops() {
   return hasRole("devops");
 }
 
+// Базовые вкладки (Закупки/Заказчики/Профили) доступны ролям user/analyst.
+// Для devops/admin-only аккаунтов их не грузим вовсе — иначе каждая такая
+// загрузка падает 403 («Требуется одна из ролей: user, analyst»).
+export function canAccessBase() {
+  return hasRole("user") || hasRole("analyst");
+}
+
 export function visibleTabs() {
   const set = new Set();
   userRoles().forEach((r) => {

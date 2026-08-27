@@ -35,7 +35,7 @@ import { loadLogs } from "./logs.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
 import { loadRefTables, refDirty } from "./reference.js";
-import { ALL_TABS, switchTo, updateRolesUI } from "./roles.js";
+import { ALL_TABS, canAccessBase, switchTo, updateRolesUI } from "./roles.js";
 
 // --- Переключение верхних вкладок --------------------------------------
 // При уходе с формы редактирования профиля с несохранёнными изменениями
@@ -139,12 +139,15 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
   if (authActive && !state.authUser) return;
   connectWS();
   refreshParserStatus();
-  try {
-    await loadPlatforms();
-    await loadProc();
-    await loadCustomers();
-    await loadActiveClient();
-  } catch (err) {
-    $("#proc-rows").innerHTML = `<tr><td colspan="4" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
+  // Базовые вкладки грузим только аккаунтам с доступом (user/analyst).
+  if (canAccessBase()) {
+    try {
+      await loadPlatforms();
+      await loadProc();
+      await loadCustomers();
+      await loadActiveClient();
+    } catch (err) {
+      $("#proc-rows").innerHTML = `<tr><td colspan="4" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
+    }
   }
 })();

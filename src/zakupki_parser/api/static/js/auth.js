@@ -8,7 +8,7 @@ import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadActiveClient } from "./clients.js";
 import { updateControls } from "./admin.js";
-import { roleLabelList, updateRolesUI } from "./roles.js";
+import { canAccessBase, roleLabelList, updateRolesUI } from "./roles.js";
 
 let loginMode = "login"; // "login" | "register"
 
@@ -98,7 +98,11 @@ async function doLogin(register) {
     hideLogin();
     renderAuth();
     connectWS();
-    loadProc(); loadCustomers(); loadPlatforms(); loadActiveClient();
+    // Базовые вкладки грузим только тем, у кого есть доступ (user/analyst);
+    // devops/admin-only аккаунтам они не положены и упали бы 403.
+    if (canAccessBase()) {
+      loadProc(); loadCustomers(); loadPlatforms(); loadActiveClient();
+    }
   } catch (e) {
     err.textContent = "Ошибка: " + e.message;
   } finally {
