@@ -330,11 +330,13 @@ docker compose -f docker/docker-compose.yml up --build
 `api` (FastAPI на `http://localhost:8000/`). Сервисы связаны по имени (api ↔
 `scoring-transport` ↔ redis), поэтому конвейер каскада скоринга (Fit → P(win) →
 Margin), возврат результата в `POST /score` и RAG-анализ работают из коробки.
-В штатный compose-стек также входит **LangFuse** (профиль `langfuse`, UI
-`http://localhost:3000`) — он нужен для трассировки LLM-вызовов `scoring_service`
-и `analysis_service` (поднимается целиком: `langfuse-db`, `clickhouse`, `minio`,
-`langfuse-web`, `langfuse-worker`). Отключить LangFuse (быстрый dev-стек) можно
-`scripts/compose.sh up --no-langfuse`.
+В штатный compose-стек также входит **LangFuse** (профиль `langfuse`) — он нужен для
+трассировки LLM-вызовов `scoring_service` и `analysis_service` (поднимается целиком:
+`langfuse-db`, `clickhouse`, `minio`, `langfuse-web`, `langfuse-worker`). UI — по
+умолчанию `http://localhost:3000`; host-порты LangFuse настраиваются через
+`LANGFUSE_*_PORT` в `docker/.env` (в примере `docker/.env` они уже отведены от
+дефолтных, чтобы dev-стек не конфликтовал с другим запущенным). Отключить LangFuse
+(быстрый dev-стек) можно `scripts/compose.sh up --no-langfuse`.
 Команду запускать из корня репозитория —
 контекст сборки и файл `.env` резолвятся относительно `docker/docker-compose.yml`.
 
@@ -343,6 +345,8 @@ Margin), возврат результата в `POST /score` и RAG-анали�
 scripts/compose.sh                     # up (собрать + поднять в фоне, --build; включает LangFuse)
 scripts/compose.sh up                  # то же
 scripts/compose.sh up --no-langfuse    # то же, но без LangFuse (быстрый dev-стек)
+scripts/compose.sh demo up             # изолированный демо-стек (свой project/порты/тома)
+scripts/compose.sh demo down           # остановить и удалить демо-стек
 scripts/compose.sh down                # остановить и удалить контейнеры (том БД сохраняется)
 scripts/compose.sh stop                # то же, что down: останавливает и освобождает порты (том БД сохраняется)
 scripts/compose.sh start               # запустить остановленные контейнеры (если не удалялись)
@@ -354,6 +358,13 @@ scripts/compose.sh config --quiet      # проверить манифест (do
 scripts/compose.sh free-port [порт]    # освободить порт (по умолчанию 5432), занятый контейнером
 scripts/compose.sh free-port --force   # то же без запроса подтверждения
 ```
+
+**Демо-режим (`scripts/compose.sh demo …`)** — отдельный изолированный стек для показа: свой
+`--project-name zakupki-demo` (отдельные контейнеры/сети/тома) и отдельные host-порты, поэтому
+не мешает dev и не зависит от него. Порт демо = «1» + dev-порт: `api` `18000`, `db` `15432`,
+`scoring-transport` `18200`, LangFuse UI `13001`, minio `19002`/`19003`, langfuse-db `15434`.
+Поддерживаются те же подкоманды (`demo up`/`down`/`ps`/`logs`/`config`).
+
 `free-port` пригодится, если порт 5432 занят локальным контейнером БД из `scripts/db_up.sh`
 (ошибка `Bind for 0.0.0.0:5432 failed: port is already allocated`) — он остановит контейнер,
 данные в volume сохранятся. Перед `up` скрипт сам заметит занятый порт 5432 и спросит,

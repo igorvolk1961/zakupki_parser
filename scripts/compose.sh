@@ -9,6 +9,8 @@
 #   scripts/compose.sh                   # то же, что: up
 #   scripts/compose.sh up                # собрать и поднять стек в фоне (up -d --build)
 #   scripts/compose.sh up --no-langfuse   # поднять стек БЕЗ LangFuse (быстрый dev-стек)
+#   scripts/compose.sh demo up [args]    # изолированный демо-стек: свой project и свои
+#                                        # host-порты (не конфликтует с dev); demo down/ps/logs/config тоже работают
 #   scripts/compose.sh down              # остановить и удалить контейнеры (тома БД сохраняются)
 #   scripts/compose.sh stop              # остановить и удалить контейнеры (освобождает порты; том БД сохраняется)
 #   scripts/compose.sh start             # запустить остановленные контейнеры (если не удалялись)
@@ -38,6 +40,20 @@ PROFILE="langfuse"
 
 CMD="${1:-up}"
 shift || true
+
+# Демо-режим: `scripts/compose.sh demo up` — изолированный стек для демонстрации.
+# Отдельный --project-name (свои контейнеры/сети/тома) и свой набор host-портов для
+# всех сервисов, поэтому не конфликтует с dev и не зависит от него.
+DEMO=0
+if [[ "$CMD" == "demo" ]]; then
+    DEMO=1
+    CMD="${1:-up}"
+    shift || true
+    PROJECT="zakupki-demo"
+    export ZAKUPKI_DB_PORT=15432 API_PORT=18000 TRANSPORT_PORT=18200 \
+        LANGFUSE_DB_PORT=15434 LANGFUSE_S3_PORT=19002 \
+        LANGFUSE_S3_CONSOLE_PORT=19003 LANGFUSE_UI_PORT=13001
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "Ошибка: docker не установлен." >&2
@@ -102,25 +118,38 @@ case "$CMD" in
             esac
         done
 
+        # Окружение/профиль читаем из docker/.env (если есть), чтобы проверки ниже
+        # учитывали переопределения портов и токен конвейера.
+        env_file="$ROOT_DIR/docker/.env"
+        if [[ -f "$env_file" ]]; then
+            set -a
+            # shellcheck disable=SC1091
+            source "$env_file"
+            set +a
+        fi
+
+        # Демо-порты: переопределяют host-порты всех сервисов, чтобы стек демонстрации
+        # жил на отдельном наборе портов и не пересекался с dev.
+        if (( DEMO == 1 )); then
+            export ZAKUPKI_DB_PORT=15432 API_PORT=18000 TRANSPORT_PORT=18200 \
+                LANGFUSE_DB_PORT=15434 LANGFUSE_S3_PORT=19002 \
+                LANGFUSE_S3_CONSOLE_PORT=19003 LANGFUSE_UI_PORT=13001
+        fi
+
         # Внутренний токен конвейера обязателен: воркеры/транспорт шлют его в API
         # (X-Internal-Token), иначе api отвечает 401 на служебные эндпоинты.
         # Проверяем до up, чтобы не поднять заведомо сломанный стек. Значение
         # берётся из docker/.env (должно совпадать с корневым .env).
-        env_file="$ROOT_DIR/docker/.env"
-        token=""
-        if [[ -f "$env_file" ]]; then
-            token="$(grep -E '^[[:space:]]*ZAKUPKI_INTERNAL_TOKEN=' "$env_file" | tail -n1 | cut -d= -f2- | tr -d '[:space:]')" || true
-        fi
-        if [[ -z "$token" ]]; then
+        if [[ -z "${ZAKUPKI_INTERNAL_TOKEN:-}" ]]; then
             echo "Ошибка: ZAKUPKI_INTERNAL_TOKEN не задан в docker/.env." >&2
             echo "Он обязателен и должен совпадать со значением в корневом .env." >&2
             exit 1
         fi
 
-        # LangFuse-порты (при включённом профиле): 5433 (langfuse-db), 9000/9001
-        # (minio), 3000 (langfuse-web). Порт 5432 проверяем чуть ниже.
+        # Host-порты LangFuse (переопределяются в docker/.env: LANGFUSE_*_PORT;
+        # дефолтные — 5433/9000/9001/3000). Порт 5432 проверяем чуть ниже.
         if [[ -n "$PROFILE" ]]; then
-            for lf_port in 5433 9000 9001 3000; do
+            for lf_port in "${LANGFUSE_DB_PORT:-5433}" "${LANGFUSE_S3_PORT:-9000}" "${LANGFUSE_S3_CONSOLE_PORT:-9001}" "${LANGFUSE_UI_PORT:-3000}"; do
                 if docker ps --filter "publish=$lf_port" --format '{{.Names}}' | grep -q .; then
                     echo "Внимание: порт $lf_port занят Docker-контейнером(ами):"
                     docker ps --filter "publish=$lf_port" --format '  - {{.Names}}'
@@ -191,7 +220,7 @@ case "$CMD" in
         free_port "$FP_PORT" "$FP_FORCE"
         ;;
     *)
-        echo "Неизвестная команда: $CMD (используйте: up|down|stop|start|restart|build|config|ps|logs|free-port)" >&2
+        echo "Неизвестная команда: $CMD (используйте: up|down|stop|start|restart|build|config|ps|logs|free-port, или префикс demo <команда>)" >&2
         exit 2
         ;;
 esac

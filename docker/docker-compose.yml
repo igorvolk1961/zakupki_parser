@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: zakupki_dev
     ports:
-      - "5432:5432"
+      - "${ZAKUPKI_DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -58,7 +58,9 @@ services:
       POSTGRES_PASSWORD: ${LANG_PG_PASSWORD:-}
       POSTGRES_DB: ${LANG_PG_DB:-langfuse}
     ports:
-      - "5433:5432"
+      # Host-порт langfuse-db настраивается (LANGFUSE_DB_PORT), чтобы несколько
+      # стеков (например, dev и демо) не дрались за один и тот же порт 5433.
+      - "${LANGFUSE_DB_PORT:-5433}:5432"
     volumes:
       - langfuse_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -94,8 +96,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${LANGFUSE_S3_PORT:-9000}:9000"
+      - "${LANGFUSE_S3_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
     restart: unless-stopped
@@ -174,7 +176,7 @@ services:
       LANGFUSE_INIT_USER_NAME: ${LANG_INIT_USER_NAME:-admin}
       LANGFUSE_INIT_USER_PASSWORD: ${LANG_ADMIN_PASSWORD:-}
     ports:
-      - "3000:3000"
+      - "${LANGFUSE_UI_PORT:-3000}:3000"
     restart: unless-stopped
 
   langfuse-worker:
@@ -272,7 +274,7 @@ services:
       # service-to-service секрет, что и у парсера. serve без него не стартует.
       TRANSPORT_AUTH_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
     ports:
-      - "8200:8200"
+      - "${TRANSPORT_PORT:-8200}:8200"
     restart: unless-stopped
 
   pwin-service:
@@ -383,7 +385,7 @@ services:
       # analysis_service читает при следующем старте.
       ZAKUPKI_ANALYSIS_PROMPTS_DIR: /app/analysis-prompts
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     command: >
       uv run zp --configs /app/configs serve --host 0.0.0.0 --port 8000
     volumes:
