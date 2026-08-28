@@ -20,6 +20,20 @@ from zakupki_parser.config.models import AppConfig
 os.environ.setdefault("ZAKUPKI_AUTH_SECRET", "test-secret")
 os.environ.setdefault("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
 
+
+@pytest.fixture(autouse=True)
+def _auth_env_defaults() -> None:
+    """Восстановить значения по умолчанию авторизации перед каждым тестом.
+
+    Тесты интеграции с авторизацией снимают секрет/токен на teardown через
+    ``os.environ.pop``; ``setdefault`` на уровне модуля выполняется один раз,
+    поэтому «утечка» снятых переменных ломает последующие тесты (OpsConfig не
+    валидируется без секрета). Перед каждым тестом снова выставляем дефолты.
+    """
+    os.environ.setdefault("ZAKUPKI_AUTH_SECRET", "test-secret")
+    os.environ.setdefault("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
+
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 # Тесты грузят ВЫДЕЛЕННЫЙ тестовый набор конфигов (tests/configs), а не рабочие
 # configs/* — чтобы результат не зависел от пользовательских настроек.
