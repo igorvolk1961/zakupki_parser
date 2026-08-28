@@ -164,22 +164,23 @@ case "$CMD" in
             done
         fi
 
-        # Порт 5432 нужен сервису db; если его занимает локальный контейнер
-        # (например zakupki_db из db_up.sh) — спросить и освободить.
-        if docker ps --filter "publish=5432" --format '{{.Names}}' | grep -q .; then
-            echo "Внимание: порт 5432 занят Docker-контейнером(ами):"
-            docker ps --filter "publish=5432" --format '  - {{.Names}}'
+        # Порт БД (ZAKUPKI_DB_PORT, по умолчанию 5432) нужен сервису db; если его
+        # занимает локальный контейнер (например zakupki_db из db_up.sh) — спросить.
+        db_port="${ZAKUPKI_DB_PORT:-5432}"
+        if docker ps --filter "publish=$db_port" --format '{{.Names}}' | grep -q .; then
+            echo "Внимание: порт $db_port занят Docker-контейнером(ами):"
+            docker ps --filter "publish=$db_port" --format '  - {{.Names}}'
             read -r -p "Освободить порт (остановить их, данные сохранятся)? [y/N] " ans
             if [[ "$ans" =~ ^[yYдД] ]]; then
-                free_port 5432 1
+                free_port "$db_port" 1
             else
-                echo "Отменено: стек не поднят, пока порт 5432 занят." >&2
+                echo "Отменено: стек не поднят, пока порт $db_port занят." >&2
                 exit 1
             fi
         fi
         cd "$ROOT_DIR"
         COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d --build
-        echo "Стек поднят. API: http://localhost:8000/  (лог: scripts/compose.sh logs)"
+        echo "Стек поднят. API: http://localhost:${API_PORT:-8000}/  (лог: scripts/compose.sh logs)"
         ;;
     down)
         cd "$ROOT_DIR"
