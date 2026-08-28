@@ -7,6 +7,7 @@ config_log.yaml, config_parser.yaml (только чтение), raw-YAML и с�
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 from collections.abc import Iterator
@@ -27,6 +28,18 @@ TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
 
 SECRET = "ops-test-secret"
+# Компетенции — всегда канонический JSON схемы Profile (BR-07): raw-строка не
+# проходит валидацию при сохранении профиля в сиде.
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +68,7 @@ def ops_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
                     "name": "default",
                     "enabled": True,
                     "is_active": True,
-                    "competencies": "Тестовые компетенции",
+                    "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
                     "questions": [],
@@ -171,15 +184,18 @@ def test_log_config_get_put(ops_client: TestClient) -> None:
     assert "level: DEBUG" in raw
 
 
-def test_parser_config_readonly(ops_client: TestClient) -> None:
+def test_parser_config_editable(ops_client: TestClient) -> None:
+    """Вкладка «Парсер» редактируемая (BR: форма + расширенный режим)."""
     headers = _auth(ops_client)
     body = ops_client.get("/api/config/parser", headers=headers).json()
     assert "browser" in body
     assert "retry" in body
     schema = ops_client.get("/api/config/parser/schema", headers=headers).json()["schema"]
     assert {f["key"] for f in schema} >= {"browser", "retry", "request_limits"}
-    # Только чтение.
-    assert ops_client.put("/api/config/parser", headers=headers, json={}).status_code == 405
+    # Правка в разумных пределах: GET->PUT round-trip сохраняет конфиг.
+    r = ops_client.put("/api/config/parser", headers=headers, json=body)
+    assert r.status_code == 200
+    assert r.json()["retry"] == body["retry"]
 
 
 def test_service_raw_and_schema(ops_client: TestClient) -> None:
@@ -188,7 +204,8 @@ def test_service_raw_and_schema(ops_client: TestClient) -> None:
     assert "sites:" in raw
     schema = ops_client.get("/api/config/service/schema", headers=headers).json()["schema"]
     sites = next(f for f in schema if f["key"] == "sites")
-    # Площадки в форме — из dom-конфигов.
+    # Площадки в форме — из справочника platforms: platform_id вводится ключом,
+    # название/URL подтягиваются (derived), поэтому в форме это plain-строка.
     platform = next(f for f in sites["item"] if f["key"] == "platform_id")
-    assert platform["kind"] == "select"
-    assert platform["options"]
+    assert platform["kind"] == "str"
+    assert platform["plain"] is True

@@ -9,6 +9,7 @@ admin/analyst/devops), недоступность роли «user» для вы�
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 from collections.abc import Iterator
@@ -30,6 +31,18 @@ TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
 
 SECRET = "roles-test-secret"
+# Компетенции — всегда канонический JSON схемы Profile (BR-07): raw-строка не
+# проходит валидацию при сохранении профиля в сиде.
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
 
 
 @pytest.fixture(scope="module")
@@ -58,7 +71,7 @@ def roles_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClien
                     "name": "default",
                     "enabled": True,
                     "is_active": True,
-                    "competencies": "Тестовые компетенции",
+                    "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
                     "questions": [],

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 from collections.abc import AsyncIterator, Iterator
@@ -15,13 +16,52 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.api.app import create_app
-from zakupki_parser.auth import ROLE_ADMIN, ROLE_USER, create_token
+from zakupki_parser.auth import ROLE_ADMIN, ROLE_ANALYST, ROLE_DEVOPS, ROLE_USER, create_token
 from zakupki_parser.config.models import DbConfig
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 AUTH_SECRET = "test-secret"
+# Служебные эндпоинты конвейера (POST /score, /customers/{id}/rating) закрыты
+# внутренним токеном (X-Internal-Token) и не принимают пользовательский bearer.
+INTERNAL_HEADERS = {"X-Internal-Token": "internal-123"}
+# Компетенции — всегда канонический JSON схемы Profile (BR-07): raw-строка не
+# проходит валидацию при сохранении профиля в сиде.
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
+
+
+@pytest.fixture(scope="module")
+def analyst_headers() -> dict[str, str]:
+    """Bearer-токен пользователя с ролью analyst для конфиг/промпт-эндпоинтов."""
+
+    async def _mk() -> int:
+        engine = create_async_engine(TEST_DSN)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await engine.dispose()
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            user = await repo.create_user("analyst", "test-hash", [ROLE_ANALYST, ROLE_USER])
+            return user.id
+        finally:
+            await db.dispose()
+
+    user_id = asyncio.run(_mk())
+    token = create_token(user_id, [ROLE_ANALYST, ROLE_USER], AUTH_SECRET, 3600)
+    return {"Authorization": f"Bearer {token}"}
+
 
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
 
@@ -41,13 +81,15 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
             repo = ProcurementRepository(db)
             user = await repo.first_user()
             if user is None:
-                user = await repo.create_user("admin", "test-hash", [ROLE_ADMIN, ROLE_USER])
+                user = await repo.create_user(
+                    "admin", "test-hash", [ROLE_ADMIN, ROLE_USER, ROLE_DEVOPS]
+                )
             await repo.upsert_profile(
                 {
                     "name": "default",
                     "enabled": True,
                     "is_active": True,
-                    "competencies": "Тестовые компетенции",
+                    "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
                     "questions": [],
@@ -67,7 +109,7 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
     os.environ["ZAKUPKI_INTERNAL_TOKEN"] = "internal-123"
     app = create_app()
     with TestClient(app) as client:
-        token = create_token(user_id, [ROLE_ADMIN, ROLE_USER], AUTH_SECRET, 3600)
+        token = create_token(user_id, [ROLE_ADMIN, ROLE_USER, ROLE_DEVOPS], AUTH_SECRET, 3600)
         client.headers["Authorization"] = f"Bearer {token}"
         yield client, docs
     os.environ.pop("ZAKUPKI_DB_DSN", None)
@@ -226,7 +268,10 @@ def test_db_clear_irrelevant(api_client: tuple[TestClient, Path]) -> None:
 
 def test_websocket_receives_broadcast(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
-    with client.websocket_connect("/ws") as ws:
+    # Авторизация всегда включена: /ws требует токен query-параметром ?token=
+    # (браузер не может задать заголовок WebSocket-запроса).
+    token = client.headers["Authorization"].removeprefix("Bearer ")
+    with client.websocket_connect(f"/ws?token={token}") as ws:
         # Запрос, меняющий БД, шлёт клиенту "data-changed".
         r = client.post("/api/db/clear")
         assert r.status_code == 200
@@ -380,6 +425,7 @@ def test_list_filter_min_fit_score(api_client: tuple[TestClient, Path], inserted
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
         json={"profile_id": 1, "score": 123.5, "fit_score": 0.85, "score_method": "fit"},
+        headers=INTERNAL_HEADERS,
     )
     assert resp.status_code == 200
 
@@ -473,6 +519,7 @@ def test_sim_filtered_record_visible_with_fit_score(
             "score_method": "sim",
             "embedding_similarity": 0.62,
         },
+        headers=INTERNAL_HEADERS,
     )
     assert resp.status_code == 200
 
@@ -591,6 +638,7 @@ def test_set_score_by_external_service(
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
         json={"profile_id": 1, "score": 123.5, "fit_score": 0.85, "score_method": "fit"},
+        headers=INTERNAL_HEADERS,
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -622,6 +670,7 @@ def test_set_score_notifies_above_threshold(
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
         json={"profile_id": 1, "score": 50.0, "fit_score": 0.3, "score_method": "sim"},
+        headers=INTERNAL_HEADERS,
     )
     assert resp.status_code == 200
     assert calls == []
@@ -630,6 +679,7 @@ def test_set_score_notifies_above_threshold(
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
         json={"profile_id": 1, "score": 150.0, "fit_score": 0.9, "score_method": "fit"},
+        headers=INTERNAL_HEADERS,
     )
     assert resp.status_code == 200
     assert len(calls) == 1
@@ -643,6 +693,7 @@ def test_set_score_404(api_client: tuple[TestClient, Path]) -> None:
         client.post(
             "/api/procurements/999999/score",
             json={"profile_id": 1, "score": 1.0, "score_method": "fit"},
+            headers=INTERNAL_HEADERS,
         ).status_code
         == 404
     )
@@ -661,6 +712,7 @@ def test_set_score_rejects_unknown_method(
     resp = client.post(
         f"/api/procurements/{inserted_id}/score",
         json={"profile_id": 1, "score": 50.0, "fit_score": 0.3, "score_method": "unknown-stage"},
+        headers=INTERNAL_HEADERS,
     )
     assert resp.status_code == 422
 
@@ -700,18 +752,25 @@ def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted
     assert got.status_code == 200
     assert got.json()["name"] == "Заказчик ООО"
 
-    rated = client.post(f"/api/customers/{customer_id}/rating", json={"rating": 0.9})
+    rated = client.post(
+        f"/api/customers/{customer_id}/rating", json={"rating": 0.9}, headers=INTERNAL_HEADERS
+    )
     assert rated.status_code == 200
     assert rated.json()["rating"] == 0.9
 
 
 def test_customer_rating_404(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
-    assert client.post("/api/customers/999999/rating", json={"rating": 1.0}).status_code == 404
+    assert (
+        client.post(
+            "/api/customers/999999/rating", json={"rating": 1.0}, headers=INTERNAL_HEADERS
+        ).status_code
+        == 404
+    )
     assert client.get("/api/customers/999999").status_code == 404
 
 
-def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
+def test_config_get_redacts_and_put_saves(tmp_path: Path, analyst_headers: dict[str, str]) -> None:
     """Конфиг-сервис: GET отдаёт без секретов, PUT валидирует и пишет в YAML.
 
     Используем копию configs в tmp_path, чтобы не трогать реальный конфиг.
@@ -724,6 +783,7 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path) -> None:
     os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
     app = create_app(str(cfgdir))
     with TestClient(app) as client:
+        client.headers.update(analyst_headers)
         cfg = client.get("/api/config").json()
         assert "sites" in cfg
         # Эксплуатационные параметры (таймер, БД, уведомления) не отдаются через API —
@@ -811,7 +871,7 @@ def test_export_csv_download(api_client: tuple[TestClient, Path], inserted_id: i
     assert "EXPORT-INACTIVE" not in content
 
 
-def test_prompts_list_get_put_validate(tmp_path: Path) -> None:
+def test_prompts_list_get_put_validate(tmp_path: Path, analyst_headers: dict[str, str]) -> None:
     """Промпты: список, чтение, сохранение; JSON валидируется, traversal запрещён.
 
     Используем копию tests/configs и отдельный каталог промптов в tmp_path,
@@ -830,6 +890,7 @@ def test_prompts_list_get_put_validate(tmp_path: Path) -> None:
     os.environ["ZAKUPKI_PROMPTS_DIR"] = str(prompts_dir)
     app = create_app(str(cfgdir))
     with TestClient(app) as client:
+        client.headers.update(analyst_headers)
         # Список: только md/json внутри prompts_dir.
         files = client.get("/api/prompts").json()["files"]
         names = [f["name"] for f in files]
@@ -866,7 +927,7 @@ def test_prompts_list_get_put_validate(tmp_path: Path) -> None:
     os.environ.pop("ZAKUPKI_PROMPTS_DIR", None)
 
 
-def test_analysis_prompts_list_get_put(tmp_path: Path) -> None:
+def test_analysis_prompts_list_get_put(tmp_path: Path, analyst_headers: dict[str, str]) -> None:
     """Промпты analysis_service: список, чтение, сохранение.
 
     Используем отдельный каталог промптов анализатора в tmp_path (env
@@ -884,6 +945,7 @@ def test_analysis_prompts_list_get_put(tmp_path: Path) -> None:
     os.environ["ZAKUPKI_ANALYSIS_PROMPTS_DIR"] = str(analysis_prompts_dir)
     app = create_app(str(cfgdir))
     with TestClient(app) as client:
+        client.headers.update(analyst_headers)
         # Список: только md/json внутри каталога промптов анализатора.
         files = client.get("/api/analysis-prompts").json()["files"]
         names = [f["name"] for f in files]

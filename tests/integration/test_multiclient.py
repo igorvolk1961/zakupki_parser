@@ -35,6 +35,9 @@ COMP_JSON = json.dumps(
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 AUTH_SECRET = "test-secret"
+# Служебные эндпоинты конвейера (POST /score, /customers/{id}/rating) закрыты
+# внутренним токеном (X-Internal-Token) и не принимают пользовательский bearer.
+INTERNAL_HEADERS = {"X-Internal-Token": "internal-123"}
 
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
 
@@ -243,6 +246,7 @@ def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
             "score_method": "fit",
             "rag_report": report,
         },
+        headers=INTERNAL_HEADERS,
     )
     assert r.status_code == 200
     card = r.json()
@@ -270,6 +274,7 @@ def test_list_uses_active_user_scores(mc_client: TestClient) -> None:
     client.post(
         f"/api/procurements/{procurement_id}/score",
         json={"profile_id": 1, "score": 10.0, "fit_score": 0.9, "score_method": "fit"},
+        headers=INTERNAL_HEADERS,
     )
     data = client.get("/api/procurements").json()
     item = next((i for i in data["items"] if i["id"] == procurement_id), None)

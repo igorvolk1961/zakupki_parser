@@ -45,6 +45,11 @@ _SCRIPT_RE = re.compile(r"<script[^>]*>.*?</script>", re.DOTALL | re.IGNORECASE)
 
 @pytest.fixture(scope="session")
 def app_config() -> AppConfig:
+    # Сессионная фикстура создаётся лениво и может запускаться ПОСЛЕ интеграционных
+    # тестов, которые снимают auth-переменные на teardown (os.environ.pop). Убеждаемся,
+    # что дефолты на месте до загрузки конфига (иначе OpsConfig невалиден).
+    os.environ.setdefault("ZAKUPKI_AUTH_SECRET", "test-secret")
+    os.environ.setdefault("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
     return load_config(CONFIGS_DIR)
 
 
