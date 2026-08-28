@@ -20,6 +20,7 @@ _TZ_PHRASES: tuple[str, ...] = (
 
 # Расширения архивированных файлов, внутри которых ищем ТЗ.
 _ARCHIVE_EXTENSIONS: tuple[str, ...] = (
+    ".7z",
     ".zip",
     ".tar",
     ".gz",

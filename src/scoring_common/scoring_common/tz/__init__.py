@@ -8,7 +8,7 @@
 Стратегия поиска:
 1. прямой файл — имя содержит маркер ТЗ (``техническое задание`` / ``тз``);
 2. файл внутри архива — если прямого файла нет, перебираем архивы
-   (zip/tar и др.) и ищем запись с маркером ТЗ в имени.
+   (zip/tar/7z и др.) и ищем запись с маркером ТЗ в имени.
 
 Если файл не найден или текст не извлекается — возвращается ``None``.
 
@@ -27,6 +27,7 @@ from typing import Any
 
 from scoring_common.tz.archives import (
     _decode_member_name,
+    _extract_from_7z,
     _extract_from_zip,
     find_tz_in_archives,
 )
@@ -94,8 +95,12 @@ def extract_text(ref: FileRef, timeout: float = 30.0) -> str | None:
     name = _normalize(ref.name)
     if ".zip#" in ref.url:
         return _extract_from_zip(ref, timeout=timeout)
+    if ".7z#" in ref.url:
+        return _extract_from_7z(ref, timeout=timeout)
+    if name.endswith(".7z"):
+        return _extract_from_7z(ref, timeout=timeout)
     if is_archive(name):
-        return None  # прочие архивы (rar/7z/tar) — требуют внешних утилит
+        return None  # прочие архивы (rar/tar) — требуют внешних утилит
     raw = _download(url, timeout=timeout)
     if raw is None:
         return None

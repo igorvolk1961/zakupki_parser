@@ -12,6 +12,8 @@ dependencies = [
     "pyyaml>=6.0",
     # Конвертация docx/pdf в Markdown (заголовки/таблицы) для извлечения текста ТЗ.
     "markitdown[docx,pdf]>=0.1.7",
+    # Чтение 7z-архивов закупок (Закупочная_документация.7z и т.п.).
+    "py7zr>=0.20",
 ]
 
 [dependency-groups]
