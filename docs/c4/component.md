@@ -15,8 +15,8 @@ flowchart TB
         ORG["Organization<br/>ИНН / нормализация заказчика"]
         CUT["Cutoff<br/>порог дат последней обработки"]
         FILES["Files<br/>метаданные файлов / ТЗ"]
-        SCD["Scoring<br/>default / deadline_expired + push в транспорт"]
-        CSC["Cascade<br/>Fit → P(win) → Margin:<br/>переходы по порогам,<br/>постадийные уведомления"]
+        SCD["Scoring<br/>deadline_expired + push fit в транспорт"]
+        CSC["Каскад/скоринг (FastAPI)<br/>Fit → P(win) → Margin:<br/>per-profile результаты,<br/>постадийные уведомления"]
     end
 
     subgraph Store["Слой хранения"]
@@ -28,7 +28,7 @@ flowchart TB
     subgraph Infra["Инфраструктура"]
         CB["CircuitBreaker<br/>CLOSED / OPEN / HALF_OPEN"]
         RETR["Retry<br/>экспоненциальный backoff"]
-        TRC["Transport client<br/>POST /api/scoring/jobs {id, default_score, stage}"]
+        TRC["Transport client<br/>POST /api/scoring/jobs {id, priority, stage, profile_id}"]
     end
 
     ORC --> LST
@@ -58,15 +58,17 @@ flowchart TB
 - **stop_conditions** обрабатываются в **Orchestrator** перед сохранением.
 - **Обработка файлов** (PDF/DOCX/ZIP, поиск ТЗ) вынесена во **внешний сервис** (ADR-5):
   парсер хранит метаданные, результат внешний сервис возвращает через API.
-- **Scoring**: при сохранении проставляется дефолтный score и `fit_score`
-  (`default`, fit-множитель по ОКПД2) или `deadline_expired` для просроченных; затем
-  **Transport client** автоматически отправляет задание в транспорт скоринга
-  (`POST /api/scoring/jobs` с приоритетом = дефолтным score и `stage="fit"`).
-- **Cascade** (в FastAPI-слое): после возврата результата стадии в `POST /score`
-  переход к следующей стадии (Fit → P(win) → Margin) выполняется по порогам
-  `pwin_fit_threshold`/`margin_pwin_threshold` (`config_score.yaml`), если стадия
-  включена (`pwin_enabled`/`margin_enabled`); стадия сохраняет свой множитель
-  (`fit_score`/`p_win`/`margin`), `score` — накопленное произведение (ADR-7/ADR-9).
+- **Scoring**: закупка сохраняется **без оценки** (дефолтный скор удалён, миграция 1.34);
+  для просроченных выставляется `deadline_expired`. **Transport client** автоматически
+  отправляет задание в транспорт скоринга (`POST /api/scoring/jobs` со `stage="fit"`,
+  приоритет = время обновления/публикации, `profile_id` — пер-профильно, BR-07).
+- **Каскад/скоринг** (в FastAPI-слое): результат стадии в `POST /score` пишется профилю
+  из `body.profile_id` (BR-07); множители (`fit_score`/`p_win`/`margin`) сохраняются в
+  `procurement_evaluations`, `score` — накопленное произведение. Автокаскад
+  Fit → P(win) → Margin отключён: P(win)/Margin запускаются по явному запросу тендеролога
+  (`POST /api/procurements/pwin-margin`, флаги `pwin_enabled`/`margin_enabled`); пороги
+  `pwin_fit_threshold`/`margin_pwin_threshold` удалены (ADR-10). Дополнительно
+  `analysis_service` выполняет on-demand RAG-анализ ТЗ (стоп-условия, маркеры).
 - **Уведомления** подписчиков отправляются **не в движке**, а в FastAPI-слое —
   в обработчике `POST /api/procurements/{id}/score` **после каждой стадии** каскада
   (fit/pwin/margin), когда значение стадии прошло её порог

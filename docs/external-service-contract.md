@@ -53,62 +53,73 @@
 
 ### 3.0 Каскад скоринга Fit → P(win) → Margin
 
-Внешний скоринг состоит из трёх независимых стадий, соединённых очередями Redis:
+Внешний скоринг — каскад из независимых стадий, соединённых очередями Redis:
 
-1. **Fit** (`scoring_service`) — LLM-пайплайн, возвращает `fit_score` (0..1).
-2. **P(win)** (`pwin_service`) — если `fit_score >= pwin_fit_threshold`, закупка
-   ставится в очередь `pwin:jobs`; сервис считает `P(win) = base_pwin × k_smp ×
-   k_license × k_large × k_procedure × k_ai` и возвращает `p_win`.
-3. **Margin** (`margin_service`) — если `p_win >= margin_pwin_threshold`, закупка
-   ставится в очередь `margin:jobs`; сервис считает маржу (`НМЦК × margin_rate`)
-   и возвращает `margin`.
+1. **Fit** (`scoring_service`) — LLM-пайплайн, возвращает `fit_score` (0..1) и
+   `score_method=fit`.
+2. **P(win)** (`pwin_service`) — считает `P(win) = base_pwin × k_smp × k_license ×
+   k_large × k_procedure × k_ai` и возвращает `p_win` (`score_method=pwin`).
+3. **Margin** (`margin_service`) — считает маржу (`НМЦК × margin_rate`) и возвращает
+   `margin` (`score_method=margin`).
 
-Три множителя хранятся в БД **отдельными полями** (`fit_score`, `p_win`, `margin`);
-`score` — накопленное произведение (после финальной стадии = `fit × p_win × margin`).
+Множители хранятся в БД **per-profile** (`procurement_evaluations`) **отдельными
+полями** (`fit_score`, `p_win`, `margin`); `score` — накопленное произведение
+(после завершённой стадии = `fit × p_win × margin`).
 
-**Оркестрация — парсером**: обработчик `POST /api/procurements/{id}/score` после
-записи результата стадии сравнивает **возвращаемое значение стадии** (не произведение
-score) с порогом следующей (`pwin_fit_threshold` — по `fit_score`, `margin_pwin_threshold` —
-по `p_win`, из `config_score.yaml`) и через транспорт ставит задачу следующей
-стадии (параметр `stage` в `POST /api/scoring/jobs`).
+**Оркестрация — парсером**: обработчик `POST /api/procurements/{id}/score` пишет
+результат стадии профилю из `body.profile_id` (BR-07). **Автокаскад отключён**:
+после сохранения закупки ставится только авто-Fit; P(win)/Margin вычисляются по
+явному запросу тендеролога (`POST /api/procurements/pwin-margin` — обе стадии сразу,
+флаги `pwin_enabled`/`margin_enabled`). Пороги переходов `pwin_fit_threshold`/
+`margin_pwin_threshold` удалены (ADR-10).
 
 ### 3.1 Постановка задачи на скоринг (конвейер, ADR-7)
 
 Внешний скоринг выполняется асинхронным конвейером `scoring_transport` + сервисы
 стадий + Redis:
 1. Парсер после сохранения новой закупки передаёт задание в **транспорт**:
-   `POST /api/scoring/jobs {procurement_id, priority=default_score, stage="fit"}`.
-2. Транспорт ставит задание в Redis-очередь соответствующей стадии
-   (`scoring:jobs`/`pwin:jobs`/`margin:jobs`); сервис стадии обрабатывает его и
-   публикует результат; транспорт возвращает его в парсер через `POST /score`
-   (см. п. 3.2).
+   `POST /api/scoring/jobs {procurement_id, priority, stage="fit", profile_id}`.
+   Приоритет — время обновления/публикации закупки; `profile_id` — профиль, по
+   компетенциям которого считается скор (пер-профильно, BR-07).
+2. Транспорт маршрутизирует задание по `stage` в Redis-очередь соответствующей стадии
+   (`scoring:jobs`/`pwin:jobs`/`margin:jobs`/`analysis:jobs`); сервис стадии
+   обрабатывает его и публикует результат; транспорт возвращает его в парсер через
+   `POST /score` (см. п. 3.2).
 
 > Прежние способы прямого вызова внешнего сервиса парсером (`external_call_mode:
 > before_save` — `POST external_service_url` перед записью; `external_call_mode: worker` —
-> воркер по записям со `score_method=default` с пометкой `calculating`) удалены (ADR-7) —
-> внешний скоринг идёт только через конвейер транспорт + сервис скоринга.
+> воркер по записям со `score_method=default`) удалены (ADR-7) — внешний скоринг идёт
+> только через конвейер транспорт + сервис скоринга.
 
 ### 3.2 Возврат score (через транспорт)
 ```
 POST /api/procurements/{id}/score
 Content-Type: application/json
+X-Internal-Token: <ZAKUPKI_INTERNAL_TOKEN>
 
 {
   "score": 0.35,
-  "score_method": "margin",
+  "score_method": "fit",
   "fit_score": 0.7,
   "p_win": 0.5,
-  "margin": 200.0
+  "margin": 200.0,
+  "profile_id": 1,
+  "embedding_similarity": 0.81,
+  "rag_report": { ... }
 }
 ```
 Ответ: `200` с обновлённой карточкой. `404` — закупка не найдена.
 
+Эндпоинт защищён внутренним токеном `X-Internal-Token` (env `ZAKUPKI_INTERNAL_TOKEN`).
+`profile_id` — профиль, которому пишется результат (пер-профильно, BR-07);
+`rag_report` сохраняется отдельно и не меняет `score_method`.
+
 Значения `score_method`: `default` | `fit` | `pwin` | `margin` | `deadline_expired` | `sim`
 (`deadline_expired` выставляется парсером при просроченном сроке подачи, `score=0`).
-`fit`/`pwin`/`margin` — стадии внешнего каскада скоринга; переход между стадиями
-выполняет парсер по порогам `config_score.yaml`. `sim` — предварительная
-фильтрация сервиса скоринга по векторной близости (близость ниже порога
-`embedding_filter_threshold`): LLM не выполнялся, `score=0` и `fit_score=0`.
+`fit`/`pwin`/`margin` — стадии внешнего каскада скоринга; авто-переход между стадиями
+отключён — P(win)/Margin запускаются только по запросу тендеролога. `sim` —
+предварительная фильтрация сервиса скоринга по векторной близости (близость ниже
+порога `embedding_filter_threshold`): LLM не выполнялся, `score=0` и `fit_score=0`.
 Порог задаётся аналитиком в `config_service.yaml -> scoring` (вкладка «Параметры
 мониторинга`) и применяется воркером через `GET /api/config/scoring`.
 
@@ -117,7 +128,11 @@ Content-Type: application/json
 ## 4. Ограничения и согласования
 - **ZIP-кейс**: парсер не определяет ТЗ внутри архива — это ответственность внешнего
   сервиса (ADR-5).
-- **Авторизация API** записи (`/score`) — на согласовании
-  (TODO: токен/подпись для внешних сервисов).
+- **Авторизация** служебных вызовов конвейера — внутренний токен
+  `X-Internal-Token` (env `ZAKUPKI_INTERNAL_TOKEN`); транспорт передаёт его через
+  `TRANSPORT_PARSER_INTERNAL_TOKEN`.
+- **Анализ ТЗ** (`analysis_service`) — доставка результата проходит тем же конвейером:
+  парсер ставит задание `stage="analysis"` (через `POST /api/procurements/analyze`),
+  сервис возвращает `rag_report` через `POST /score` (см. п. 3.2).
 - Форматы payload и порядок согласуются при интеграции парсера в общую архитектуру
   (ADR-3, ADR-5).

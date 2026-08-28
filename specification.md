@@ -36,7 +36,7 @@
 | `dom/` (`<platform_id>.yaml`) | URL площадки, имена переменных, селекторы контейнеров и значений, селекторы сортировки и фильтров (блоки `sort`/`filters`), пагинация (`page_param`/`page_size`/`next_page`) и селектор общего числа результатов (`total_results_selector`/`total_results_regex`). |
 | `config_service.yaml`| **Аналитические** настройки: список сайтов (`sites`), порог дат (`default_cutoff_days`), критерии поиска (`search_criteria`), stop-условия. |
 | `config_ops.yaml`    | **Эксплуатационные** настройки (devops): таймер (`timeout_seconds`), БД (`db`), уведомления (`notifications`, постадийные пороги и флаги `notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`, `notify_{fit,pwin,margin}_enabled`), `export_dir` (каталог выгрузки CSV), параметры circuit breaker. Управляется devops, через API не редактируется. |
-| `config_score.yaml`  | Скоринг: fit-таблица ОКПД2, `default_fit`, `empty_code_fit`, `p_win`, `margin_rate`, адрес транспорта `scoring_transport_url`. Дефолтный score и `fit_score` вычисляются в парсере; внешний score приходит через конвейер transport + scoring_service (ADR-7). |
+| `config_score.yaml`  | Внешний скоринг: адрес транспорта `scoring_transport_url`, флаги доступности стадий `pwin_enabled`/`margin_enabled`, TTL самовосстановления `recovery_ttl_seconds`. Дефолтного (внутреннего) скоринга нет: закупка сохраняется без оценки, результат приходит через конвейер transport + стадии каскада (ADR-7) и пишется в `procurement_evaluations` (per-profile). Аналитические правила оценки — в `config_service.yaml -> scoring`. |
 | `config_log.yaml`    | Конфигурация логирования.                                           |
 
 Все параметры загружаются и валидируются через pydantic-модели
@@ -145,8 +145,10 @@
       **на уровне списка** — платформенные детали (ОКПД2/файлы/ИНН) на этом шаге
       НЕ запрашиваются;
    5. для новой записи — **автоматическая отправка задания на скоринг в транспорт**
-      (`POST /api/scoring/jobs {procurement_id, priority=default_score}`), задание
-      ставится в Redis-очередь по приоритету (ADR-7);
+      (`POST /api/scoring/jobs {procurement_id, priority, stage="fit", profile_id}`).
+      Приоритет очереди — время обновления/публикации закупки (берётся `ZPOPMAX`);
+      профиль передаётся пер-профильно (BR-07): результат стадии засчитывается
+      конкретному профилю. Задание ставится только после успешного сохранения (ADR-7);
    6. при наличии у площадки источника деталей (`detail.api_format` или
       `detail.variables`/файлы) в БД сохраняется контекст досборки (`detail_api`);
    7. обновление даты последней обработки;
@@ -197,11 +199,13 @@
 
 ## 6. Хранилище (PostgreSQL + SQLAlchemy + Liquibase)
 - Доступ к БД — SQLAlchemy 2.x (async, asyncpg).
-- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.27`).
+- Миграции — **Liquibase** (чанги в YAML, master — до `db.changelog-1.47`).
   Таблицы: `procurements`, справочники `customers` (ADR-4), `platforms` (1.21),
   `procedure_types` + `procedure_type_mappings` (1.20; маппинги площадок — до 1.25),
-  `users` (1.26; администратор/тендеролог, PBKDF2-хэши паролей),
-  `client_profiles` + `procurement_scores` (1.27; многоклиентный скоринг, ADR-10).
+  `users` (1.26; роли user/admin/analyst/devops, PBKDF2-хэши паролей),
+  `profiles` + `keywords` + `procurement_evaluations` (1.29–1.31; мультитенантность
+  BR-07), `license_types`/`experience_confirmation_types`/`profile_licenses`/
+  `profile_experience` (1.37; справочники и факты для проверки ТЗ, BR-03).
 - Защита от повторной записи: уникальный констрейнт
   `uq_procurement_number_platform` + явная проверка существования номера до вставки.
 - `procurements` (колонки): `id`, `number`, `platform_id`, `url`, `customer_id`
@@ -214,18 +218,22 @@
 - **Справочник заказчиков** `customers` (ADR-4, реализован): `name`, `normalized_name`
   (ключ дедупликации, UNIQUE), `inn`, `rating`; связь `procurements.customer_id → customers.id`
   (ON DELETE SET NULL). Денормализованная колонка `customer` удалена.
-- **Скоринг в БД** (каскад Fit → P(win) → Margin, ADR-7/ADR-9): `score` — накопленное
-  произведение (после финальной стадии = fit × p_win × margin);
-  `fit_score` (миграция 1.15) — множитель Fit (дефолтный 0..1 из `fit_table` по ОКПД2,
-  либо нормализованный внешний 0..1); `p_win`/`margin` (миграция 1.19) — множители
-  стадий P(win) и Margin; `score_method` — `default | fit | pwin | margin |
-  deadline_expired | sim`; `embedding_similarity` (миграция 1.16) —
-  косинусная близость ветки Giga Embedder (NULL, если ветка выключена/не настроена/сбой);
-  `is_active` (миграция 1.14) — активна ли закупка по статусу: выставляется парсером
-  по текстовому `status` из `detail_json` (`list_config.active_statuses`). Срок
-  актуальности (`deadline`) при записи НЕ проверяется — текущая дата учитывается
-  на стороне клиента (фильтр `active` в `list_procurements` и эффективная активность
-  в API-ответах).
+- **Скоринг в БД** — per-profile, таблица `procurement_evaluations` (BR-07, UNIQUE
+  `(procurement_id, profile_id)`): `fit_score`/`p_win`/`margin` — множители стадий
+  каскада, `score` — накопленное произведение (после завершённой стадии =
+  fit × p_win × margin), `score_method` — `default | fit | pwin | margin |
+  deadline_expired | sim`; `embedding_similarity` — косинусная близость ветки
+  Giga Embedder; `rag_report` — отчёт анализа стоп-условий (ADR-10); `comp_hash` —
+  хэш канонического содержания компетенций (дедупликация скоринга по группе, BR-07);
+  `matched_keywords` — ключевые слова профиля, по которым закупка прошла фильтрацию
+  (R9); `scoring_queued_at` — метка постановки задания в очередь (recovery догоняет
+  пропущенных); `status`/`rejection_reason` зарезервированы под Эпик 5 (пост-MVP).
+  Дефолтный скор на уровне `procurements` удалён (миграция 1.34): закупка сохраняется
+  без оценки, множители пишутся в `procurement_evaluations`. `procurements.is_active`
+  (миграция 1.14) — активна ли закупка по статусу: выставляется парсером по текстовому
+  `status` из `detail_json` (`list_config.active_statuses`). Срок актуальности
+  (`deadline`) при записи НЕ проверяется — текущая дата учитывается на стороне
+  клиента (фильтр `active` в `list_procurements` и эффективная активность в API-ответах).
 - Дата последней обработанной записи **берётся из БД** — `MAX(update_date)` по площадке;
   если записей ещё нет — порог по умолчанию `default_cutoff_days` из конфига.
   Отдельного state-файла нет.
@@ -253,40 +261,49 @@
 - `console` — дублирование в консоль.
 
 ## 8а. Скоринг закупок (`config_score.yaml`)
-Формула: **Score = Fit(ОКПД2) × P(win) × Margin** (простейшая эвристика:
-Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml -> fit_table`).
-- **Дефолтный score и `fit_score`** вычисляются в парсере (`score_method=default`);
-  `fit_score` — множитель Fit (0..1), отдельной колонкой в БД;
-- **Просроченный срок подачи заявок** (`deadline < now`) → `score = 0`,
-  `score_method = deadline_expired`;
-- `fit_table` — коэффициент соответствия по ОКПД2 (подбор по ближайшему предку,
-  если точного кода нет); `default_fit` — для неизвестных кодов, `empty_code_fit` —
-  для закупки без кода ОКПД2.
+**Дефолтного (внутреннего) скоринга нет** — закупка сохраняется без оценки
+(миграция 1.34 удалила колонки `procurements.score_*`). Результат внешнего каскада
+Fit → P(win) → Margin приходит асинхронно через конвейер
+`scoring_transport` + стадии (+ Redis) и пишется **per-profile** в
+`procurement_evaluations` через `POST /api/procurements/{id}/score` (BR-07).
+`config_score.yaml` содержит только эксплуатационные параметры конвейера:
+`scoring_transport_url` (адрес транспорта), `pwin_enabled`/`margin_enabled` (флаги
+доступности стадий для on-demand), `recovery_ttl_seconds` (TTL самовосстановления
+потерянных заданий). Аналитические правила оценки (порог предварительной фильтрации
+Giga-эмбеддингов, вес ветки, число рефайн-раундов, границы Fit, округление) — в
+`config_service.yaml -> scoring`.
+
+Просроченный срок подачи заявок (`deadline < now`) даёт `score = 0`,
+`score_method = deadline_expired` (проставляется парсером).
 
 ### 8а.1 Каскад внешнего скоринга Fit → P(win) → Margin (ADR-7/ADR-9)
 Внешний скоринг выполняется асинхронным каскадом **`scoring_transport` (gateway) +
 стадии `scoring_service` (LLM-Fit) / `pwin_service` (P(win)) / `margin_service` (Margin)
 + Redis**:
 
-1. Парсер сохраняет «сырую» запись с дефолтным скором и `fit_score`
-   (`score_method=default`), затем **автоматически** передаёт задание в транспорт:
-   `POST /api/scoring/jobs {procurement_id, priority=default_score, stage="fit"}`.
-2. Транспорт ставит задание в Redis ZSET соответствующей стадии (`scoring:jobs` — member
-   `proc:{id}`, score = priority). **Приоритет приходит из парсера** (дефолтный score) —
-   транспорт не пересчитывает эвристику по собственной fit-таблице (единственный
-   источник — `config_score.yaml`).
-3. `scoring_service` берёт задание **напрямую из Redis** (`ZPOPMAX`, сначала самая «ценная»
-   закупка), получает карточку через REST парсера (`GET /api/procurements/{id}`), прогоняет
-   **LLM-пайплайн** и публикует результат в `scoring:results` (`LPUSH`). Надёжность — TTL-аренда
+1. Парсер сохраняет «сырую» запись **без оценки**, затем **автоматически** передаёт
+   задание в транспорт: `POST /api/scoring/jobs {procurement_id, priority, stage="fit",
+   profile_id}`. Приоритет очереди — **время обновления/публикации закупки**
+   (`ZPOPMAX` берёт большую метку); профиль передаётся пер-профильно (BR-07) —
+   результат стадии засчитывается конкретному профилю.
+2. Транспорт маршрутизирует задание по `stage` в Redis-ZSET соответствующей стадии
+   (`scoring:jobs`/`pwin:jobs`/`margin:jobs`/`analysis:jobs`; member `proc:{id}`,
+   score = priority). Приоритет приходит из парсера, поэтому транспорт **не
+   пересчитывает** эвристику по собственной fit-таблице.
+3. `scoring_service` берёт задание **напрямую из Redis** (`ZPOPMAX`), получает карточку
+   через REST парсера (`GET /api/procurements/{id}`) и профиль через
+   `GET /api/clients/active` (`X-Internal-Token`), прогоняет **LLM-пайплайн** и
+   публикует результат в `scoring:results` (`LPUSH`). Надёжность — TTL-аренда
    `scoring:processing` + `recover_stale`; идемпотентность — перезапись через `POST /score`.
 4. Транспорт (`BRPOP`) получает результат и возвращает его в парсер:
-   `POST /api/procurements/{id}/score {score, fit_score, score_method:"fit",
-   embedding_similarity}` (с ретраями/backoff). Транспорт — единственная граница между
-   конвейером и парсером.
-5. **Каскад Fit → P(win) → Margin в MVP отключён**: P(win)/Margin вычисляются
-   только по явному запросу тендеролога (on-demand, `POST /api/procurements/pwin-margin`
-   ставит обе стадии сразу). Авто-Fit остаётся: парсер ставит задание `fit:jobs` после
-   сохранения закупки.
+   `POST /api/procurements/{id}/score {score, fit_score, score_method, profile_id,
+   embedding_similarity, rag_report}` (с ретраями/backoff). Транспорт — единственная
+   граница между конвейером и парсером.
+5. **Автокаскад Fit → P(win) → Margin отключён**: остаётся только авто-Fit после
+   сохранения закупки; P(win)/Margin вычисляются по явному запросу тендеролога
+   (on-demand, `POST /api/procurements/pwin-margin` — обе стадии сразу, флаги
+   `pwin_enabled`/`margin_enabled`). Пороги переходов `pwin_fit_threshold`/
+   `margin_pwin_threshold` удалены (ADR-10).
 6. **Уведомление подписчиков — после каждой стадии** (fit/pwin/margin), когда результат
    стадии изменён и его возвращаемое значение прошло порог стадии:
    `notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin` (порог 0 отключает);
@@ -294,20 +311,20 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
    `notify_margin_enabled` в `config_ops.yaml`.
 
 **LLM-пайплайн `scoring_service`** (`scoring_service/scoring.py`):
-- **Fit** (0–10): reasoning + `fit_score` по описанию закупки и компетенциям поставщика;
+- **Fit** (0–10): reasoning + `fit_score` по описанию закупки и компетенциям профиля;
 - **Judge**: критики / verdict / `final_fit_score`; при `verdict == reject` — до
   `num_refine_rounds` повторных Fit с учётом критики (`fit_refine`);
-- **Уточнение по тексту ТЗ** (`requires_tz_review`): при запросе Fit ищется файл ТЗ в
-  карточке, извлекается текст, повторный Fit/Judge по расширенному описанию
-  (`tz_review` — флаг неполноты описания);
+- **Уточнение по тексту ТЗ** (`tz_review_enabled`): при запросе Fit ищется файл ТЗ в
+  карточке, извлекается текст, повторный Fit/Judge по расширенному описанию;
 - **Параллельная ветка векторной близости (Giga Embedder)**: эмбеддинги текста
-  компетенций и описания закупки (`EmbeddingsGigaR`, OAuth с `RqUID`, чанкинг длинных
-  текстов) выполняются в отдельном потоке; результат (`embedding_similarity`, 0..1)
-  смешивается с Fit через `giga_embedding_alpha` и пишется в БД/трейс;
+  компетенций и описания закупки (`EmbeddingsGigaR`, OAuth, чанкинг длинных текстов)
+  выполняются в отдельном потоке; результат (`embedding_similarity`, 0..1)
+  смешивается с Fit через `giga_embedding_alpha` и пишется в БД/трейс. При
+  `embedding_filter_threshold > 0` ветка работает как предварительный фильтр: ниже
+  порога LLM не вызывается, возвращается `fit_score=0` и `score_method=sim` (ADR-8).
 - **Score = final_fit (нормализованный) × P(win) × Margin**; Fit приводится к шкале
   0–1 (`normalize_fit_for_score`).
-Режим заглушки `score_use_stub` (возврат существующего score без LLM) выключен
-по умолчанию.
+Режим заглушки `score_use_stub` удалён (выпил deprecated-путей, ADR-7).
 
 **Стадии P(win) и Margin** (`pwin_service`/`margin_service`, общий код `scoring_common`):
 - **P(win)** (`pwin_service/worker.py`): формула `P(win) = base_pwin × k_smp ×
@@ -321,45 +338,51 @@ Margin = НМЦК, P(win) = 1, Fit — таблица из `config_score.yaml ->
 
 > Прежние «прямые» пути внешнего скоринга (`external_call_mode: before_save|worker`,
 > `ExternalScoreClient`, `Scheduler.run_scoring_worker`) удалены (ADR-7). Приоритет в
-> очереди передаётся из парсера (дефолтный score) — транспорт не пересчитывает эвристику
-> по собственной fit-таблице (единственный источник — `config_score.yaml`).
+> очереди передаётся из парсера (время обновления/публикации) — транспорт не
+> пересчитывает эвристику по собственной fit-таблице.
 
 В дефолтной формуле компонента `P(win)` в будущем будет браться из рейтинга заказчика
 в таблице `customers` (ADR-4/ADR-6, заполняется через `POST /api/customers/{id}/rating`).
 Нормализация заказчиков реализована (ADR-4, таблица `customers`); в формулу рейтинг
 пока не подставляется — `P(win)` берётся из конфига.
 
-## 8а.1. Многоклиентный скоринг и on-demand анализ (ADR-10)
-**Модель:** у тендеролога несколько клиентов (заказчиков услуг тендеролога) — таблицы
-`client_profiles` (компетенции, ключевые слова, слова-исключения, вопросы к ТЗ) и
-`procurement_scores` (per-client результат скоринга: `fit_score/score/p_win/margin/
-score_method/rag_report`, UNIQUE `(procurement_id, client_id)`). Базовая таблица
-`procurements` хранит дефолтный скор широкого отбора. Активный профиль выбирается
-per-user (BR-07): `profiles.is_active` / профиль `default`; под ним выполняются
-авто-Fit, анализ и P(win)/Margin.
+## 8а.1. Мультипрофильный скоринг и on-demand анализ (ADR-10)
 
-**Экономичность (из встречи 18.08):**
+**Модель:** каждый пользователь (тендеролог) — отдельный tenant (BR-07): профили
+фильтрации (`profiles`, принадлежат `user_id`) задают компетенции, ключевые слова,
+слова-исключения, вопросы к ТЗ, критерии поиска (ОКПД2/НМЦК), целевые ЭТП/законы и
+порог Fit. Результаты скоринга хранятся **per-profile** в таблице
+`procurement_evaluations` (`fit_score/score/p_win/margin/score_method/rag_report/...`,
+UNIQUE `(procurement_id, profile_id)`). Активный профиль — per-user (единственный;
+`profiles.is_active`, `POST /api/clients/{id}/activate`); по умолчанию для новых/
+засиженных пользователей — профиль `default`. Дефолтного скора на уровне
+`procurements` нет — базовая таблица хранит только данные закупки.
+
+**Экономичность:**
 - Автокаскад Fit → P(win) → Margin убран: остаётся только авто-Fit после сохранения.
-  P(win)/Margin — on-demand (`POST /api/procurements/pwin-margin`, обе стадии сразу).
+  P(win)/Margin — on-demand (`POST /api/procurements/pwin-margin`, обе стадии сразу,
+  флаги `pwin_enabled`/`margin_enabled`).
 - Fit не читает всё ТЗ: извлекается только описание закупки (заголовок/первая секция)
-  для расширения обрезанного описания. Глубокий анализ ТЗ (стоп-условия) — в
+  для расширения обрезанного описания. Глубокий анализ стоп-условий — в
   `analysis_service` по запросу тендеролога.
 - Промпт Fit — «recall-over-precision»: важнее не пропустить потенциально релевантную
   закупку, чем отсеять сомнительную (решение принимает тендеролог).
+- Дедупликация по содержанию компетенций (BR-07): профили с идентичным `comp_hash`
+  обрабатываются одним LLM-вызовом, результат распространяется на группу
+  (`apply_score_to_comp_hash_group`).
 
-**Ручные оценки тендеролога:** пресеты 0.1 (не релевантна) / 0.4 / 0.8 / 0.9 / 1.0
-(`POST /api/procurements/{id}/manual-score`, `score_method=manual`) и «Отклонить»
-(`POST /api/procurements/{id}/reject`, fit=0.1, `score_method=reject`). Уведомлений нет.
+Ручные корректировки оценок (`manual-score`/`reject`, Эпик 5) — **вне MVP** (этап 7,
+пост-MVP): сейчас оценки только автоматические (auto-Fit).
 
 **analysis_service** (`src/analysis_service/`, on-demand двухстадийный анализ ТЗ):
-- очередь `analysis:jobs`/`analysis:results` (маршрутизация в транспорте);
+- очередь `analysis:jobs`/`analysis:results` (маршрутизация в транспорте по `stage`);
 - чанкинг ТЗ по разделам (чанк не пересекает границу раздела, `pipeline/chunker.py`);
 - **обязательные системные проверки** (опыт ПП РФ 2571, реестр Минпромторга,
   лицензии/СРО; ids `sys:*`, версия `SYSTEM_QUESTIONS_VERSION`): лексический отбор
   секций по паттернам (`pipeline/system_questions.py`) → один batch-LLM-вызов
   (`pipeline/prompts/batch_system.md`) → факты ТЗ; при отсутствии релевантных секций
   LLM не вызывается;
-- пользовательские вопросы профиля — эмбеддинги чанков/вопросов (Giga Embedder через
+- пользовательские вопросы профиля — эмбеддинги чанков/вопросов (Giga Embedder или
   gpt2giga-прокси) → cosine top-k → per-question LLM-вердикт
   (`no_stop_condition | soft | absolute`);
 - **Stage B**: `pipeline/matcher.py` сопоставляет факты ТЗ с фактами профиля
@@ -368,15 +391,15 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
   нераспознанный вид лицензии → `soft` «требует проверки» (recall-over-precision);
   профиль в промпт не попадает;
 - результат `rag_report` (per-question: `verdict`, `marker`, `source` (`system|profile`),
-  `facts`, `question_version`) сохраняется в `procurement_scores.rag_report`
+  `facts`, `question_version`) сохраняется в `procurement_evaluations.rag_report`
   (`POST /score` с полем `rag_report`, score_method не меняется) и показывается
-  тендерологу в карточке закупки.
+  тендерологу в карточке закупки (раздел «Анализ ТЗ»).
 
 **Предварительная фильтрация (слова-исключения):** `stop_conditions.exclusion_words_present`
 включает проверку слов-исключений активного профиля в описании (стем-матчинг по границе
-слова с учётом русской морфологии: «медицинский» ловит «медицинской»; «карамель» не
-сработает на «ель»). Ключевые слова активного профиля подставляются в серверный
-текстовый поиск площадок (fallback — глобальные `search_criteria.keywords`).
+слова с учётом русской морфологии). Ключевые слова применяются **клиентски** до записи
+в БД (R9): серверный запрос к площадке их не содержит — сервер фильтрует только по
+кодам ОКПД2 (и обходу «без кода»).
 
 ## 9. Таймерный запуск (scheduler)
 `src/zakupki_parser/scheduler.py` циклически проходит по списку сайтов из
@@ -387,7 +410,9 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 - `zp run-once` — один проход;
 - `zp run-service` — периодический запуск;
 - `zp stop [--force]` — остановка запущенных процессов парсера;
-- `zp capture-fixture` — сохранение HTML-фикстур для тестов;
+- `zp capture-fixture [--platform PLATFORM] [--out DIR]` — сохранение HTML-фикстур для тестов;
+- `zp seed-profile [--user USER] [--file FILE]` — заполнить профиль пользователя
+  словами/компетенциями из файла-сида (таблица `keywords`, R8);
 - `zp serve [--host H] [--port P]` — запуск FastAPI-сервиса.
 
 ## 11. API-сервис (FastAPI)
@@ -397,21 +422,29 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 - `GET /` — web-интерфейс (просмотр закупок/заказчиков, запуск/остановка парсера,
   редактирование аналитического конфига);
 - `GET /api/procurements` — список с фильтрами (`number`, `platform_id`,
-  `okpd2`, `customer`, `active`, `min_fit_score`), серверной сортировкой
-  (`sort` — fit-score/дата) и пагинацией (`limit`, `offset`);
+  `okpd2`, `customer`, `active`, `min_fit_score`, `scored`), серверной сортировкой
+  (`sort` — fit-score/дата) и пагинацией (`limit`, `offset`); скоринг и фильтрация —
+  в рамках активного профиля пользователя (BR-07);
 - `GET /api/procurements/{id}` — карточка закупки (включая `detail_json`);
-- `POST /api/procurements/{id}/score` — возврат результата стадии каскада от транспорта:
-  парсер обновляет `score`/`fit_score`/`p_win`/`margin` закупки, при прохождении порога
-  следующей стадии ставит задачу следующей стадии и, если результат стадии прошёл её
-  порог (`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`), отправляет
+- `GET /api/procurements/{id}/tz` — текст ТЗ закупки (Markdown, в т.ч. из архива)
+  для просмотра в карточке (та же логика, что у конвейера, с кэшем);
+- `POST /api/procurements/{id}/score` — возврат результата стадии каскада от транспорта
+  (внутренний токен `X-Internal-Token`): парсер обновляет `score`/`fit_score`/`p_win`/
+  `margin` закупки для профиля из `body.profile_id` (BR-07), при наличии `rag_report`
+  сохраняет его отдельно (score_method не меняется). Автокаскад P(win)/Margin отключён;
+  если результат стадии изменён и прошёл её порог
+  (`notify_min_fit_score`/`notify_min_pwin`/`notify_min_margin`), отправляется
   уведомление подписчикам (ADR-7/ADR-9);
+- `POST /api/procurements/analyze` — поставить выбранные закупки на обработку
+  (авто-Fit, если ещё не посчитан + RAG-анализ ТЗ);
+- `POST /api/procurements/pwin-margin` — оценить P(win) и Margin для выбранных закупок
+  (on-demand, обе стадии сразу, флаги `pwin_enabled`/`margin_enabled`);
 - `GET /api/customers`, `GET /api/customers/{id}` — справочник заказчиков;
 - `POST /api/customers/{id}/rating` — установка рейтинга заказчика (ADR-6);
-- `POST /api/procurements/export` — выгрузка закупок из БД в CSV на сервере в каталог
-  `config_ops.yaml -> export_dir` (создаётся при необходимости, файл
-  `procurements.csv`, UTF-8 с BOM — открывается в Excel). В выгрузку попадают только
-  активные и релевантные закупки (`fit_score ≥` заданного порога, по умолчанию 0.4).
-  Операция read-only; используется кнопкой «Выгрузить CSV» в web-приложении.
+- `POST /api/procurements/export` — выгрузка активных релевантных закупок в CSV
+  (скачивание в браузер: файл `procurements.csv`, UTF-8 с BOM — открывается в Excel;
+  на сервере ничего не пишется). В выгрузку попадают только активные и релевантные
+  (`fit_score ≥` порога, по умолчанию 0.4). Операция read-only;
 - `POST /api/parser/start` / `POST /api/parser/stop` / `GET /api/parser/status` —
   управление постоянным мониторингом парсера из web-интерфейса;
 - `POST /api/db/clear` — полная очистка БД (закупки и заказчики); доступна только при
@@ -419,46 +452,73 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 - `POST /api/db/clear-inactive` — удаление неактивных закупок (`is_active=false` или
   истёкший срок актуальности, как в фильтре `active`); только при остановленном парсере;
 - `POST /api/db/clear-irrelevant` — удаление нерелевантных закупок среди обработанных
-  скорингом (`score_method` из стадий каскада и `fit_score <` заданного порога,
-  по умолчанию 0.4); только при остановленном парсере;
+  скорингом (активного профиля) с `fit_score <` заданного порога (по умолчанию 0.4);
+  только при остановленном парсере;
 - `GET /api/config` / `PUT /api/config` — просмотр и сохранение аналитических
-  параметров `config_service.yaml` (эксплуатационные из `config_ops.yaml` через API
-  не редактируются);
+  параметров `config_service.yaml` (вкладка «Параметры мониторинга», роль `analyst`);
+- `GET /api/config/ops` / `PUT /api/config/ops` — `config_ops.yaml` («Конфигурация», devops);
+- `GET /api/config/log` / `PUT /api/config/log` — `config_log.yaml` («Управление логами», devops);
+- `GET /api/config/parser` / `PUT /api/config/parser` — `config_parser.yaml`
+  (форма + «Текстовый режим»; devops);
+- `GET /api/config/scoring` — скор-настройки из `config_service.yaml -> scoring`
+  (читается воркером `scoring_service` через `X-Internal-Token` без рестарта);
 - `GET /api/config/threshold` — порог релевантности `notify_min_fit_score`
   (используется переключателем «Только релевантные»);
-- `/ws` — WebSocket-канал живых обновлений (`data-changed` при изменении БД).
+- `GET /api/services/{name}/config|schema|raw|env` — конфиг/схема/raw-YAML/`.env`
+  фоновых сервисов («Сервисы», devops; `name` = scoring/analysis/pwin/margin);
+- `GET /api/prompts` / `PUT /api/prompts/{name}` — редактор промптов сервисов («Промпты», analyst);
+- `GET /api/reference/{table}` / `POST|PUT|DELETE` — справочные таблицы
+  («Справочники», analyst): типы лицензий, типы подтверждения опыта;
+- `GET /api/clients` / `POST` / `GET|PUT|DELETE /api/clients/{id}` —
+  CRUD профилей фильтрации (tenant-скоуп BR-07); `POST /api/clients/{id}/activate` —
+  активация; `POST /api/clients/seed` / `/api/clients/import` — засид из файла / импорт;
+  `GET /api/clients/{id}/export` — экспорт профиля JSON;
+- `GET /api/clients/active` — активный профиль (для внутреннего вызова конвейера
+  через `X-Internal-Token` с `X-Profile-ID`);
+- `GET /api/clients/{id}/licenses` / `/experience` — лицензии и подтверждённый опыт
+  профиля (BR-03);
+- `GET /api/license-types`, `GET /api/confirmation-types` — справочники выбора в редакторе;
+- `GET /api/users` / `POST` / `PATCH /api/users/{id}/roles` / `PATCH .../status` /
+  `DELETE /api/users/{id}` — управление пользователями (вкладка «Пользователи», admin);
+- `GET /api/platforms` — справочник площадок из БД (ключ/название/URL/активность);
+- `GET /api/logs/tail` — хвост файла лога (поиск, фильтры, автообновление; devops);
+- `/ws` — WebSocket-канал живых обновлений (`data-changed` при изменении БД;
+  токен — `?token=`).
 
 **Конвейер скоринга (ADR-7/ADR-9)** дополнительно использует API транспорта:
-- `POST /api/scoring/jobs {procurement_id, priority?, stage?}` — приём задания на скоринг
-  (вызывается парсером после сохранения новой закупки и при переходе между стадиями
-  каскада); транспорт ставит его в Redis-очередь соответствующей стадии
-  (`fit`/`pwin`/`margin`) по приоритету (если `priority` не задан — берётся дефолтный
-  score карточки).
+- `POST /api/scoring/jobs {procurement_id, priority, stage, profile_id}` — приём задания
+  на скоринг (вызывается парсером после сохранения новой закупки со `stage="fit"` и
+  on-demand для P(win)/Margin/analysis); транспорт маршрутизирует его по `stage` в
+  Redis-очередь соответствующей стадии (`fit`/`pwin`/`margin`/`analysis`) по приоритету
+  (время обновления/публикации, получаемое из парсера).
 
 ## 11а. Авторизация
-Пользователи сервиса: **администратор** (`admin`) и **тендеролог**
-(`tenderologist`). Пока вход по логину и паролю (позже — OAuth2 через Сбер ID).
+Пользователи сервиса имеют несколько ролей (`user`, `admin`, `analyst`, `devops`,
+хранятся как JSONB-массив в `users.roles`): набор вкладок web-интерфейса — объединение
+вкладок ролей пользователя. Пока вход по логину и паролю (позже — OAuth2 через Сбер ID).
 
-- **Регистрация самостоятельная** (`POST /api/auth/register {username, password, password_confirm}`):
-  пользователь сам выбирает пароль (обязательно подтверждение), роль при
-  регистрации всегда — `tenderologist`. **Роль администратора регистрацией не
-  выдаётся**: начальный администратор создаётся env-сидом
-  (`ZAKUPKI_ADMIN_USERNAME`/`ZAKUPKI_ADMIN_PASSWORD` при первом старте, если
-  таблица `users` пуста) либо правкой таблицы БД (`UPDATE users SET role='admin'`).
+- **Регистрация самостоятельная** (`POST /api/auth/register {username, password, password_confirm, email}`):
+  пользователь сам выбирает пароль (обязательно подтверждение), роль при регистрации
+  всегда — `user` (простой пользователь). **Роли admin/analyst/devops регистрацией не
+  выдаются** — их назначает администратор во вкладке «Пользователи». Начальный
+  администратор создаётся env-сидом (`ZAKUPKI_ADMIN_USERNAME`/`ZAKUPKI_ADMIN_PASSWORD`
+  при первом старте, если таблица `users` пуста).
 - `POST /api/auth/login` — вход, возвращает bearer-токен и профиль
   (`{access_token, expires_in, user}`); `GET /api/auth/me` — текущий пользователь;
   `POST /api/auth/logout` — выход (stateless, токен удаляется клиентом).
 - Пароли хранятся как PBKDF2-хэши (`zakupki_parser/auth.py`), токены —
-  HMAC-SHA256-подпись (payload: `sub`, `role`, `exp`).
+  HMAC-SHA256-подпись (payload: `sub`, `roles`, `exp`).
 - Авторизация всегда включена (переключателя `auth.enabled` нет): секрет подписи —
   env `ZAKUPKI_AUTH_SECRET`, отсутствие секрета — ошибка конфигурации (fail fast).
   Dev-режим с открытыми эндпоинтами отсутствует.
-- Защита эндпоинтов: без токена — 401; админ-операции (управление парсером,
-  очистка БД, правка конфигурации и промптов) — только `admin` (403 для остальных).
-  Служебные вызовы конвейера (`POST /score`, `POST /customers/{id}/rating`) защищены
-  отдельным внутренним токеном (`X-Internal-Token`, env `ZAKUPKI_INTERNAL_TOKEN`;
-  транспорт передаёт его через `TRANSPORT_PARSER_INTERNAL_TOKEN`). WebSocket `/ws` —
-  токен параметром `?token=`.
+- Защита эндпоинтов: без токена — 401; просмотр закупок/профилей — `user`/`internal`;
+  управление пользователями — `admin`; аналитические настройки (конфиг сервиса,
+  промпты, справочники) — `analyst`; эксплуатация (управление парсером, очистка БД,
+  правка `config_ops.yaml`/`config_log.yaml`/`config_parser.yaml`, логи) — `devops`.
+  Служебные вызовы конвейера (`POST /score`, `POST /api/clients/active`, `GET /api/config/scoring`,
+  `POST /customers/{id}/rating`) защищены отдельным внутренним токеном
+  (`X-Internal-Token`, env `ZAKUPKI_INTERNAL_TOKEN`; транспорт передаёт его через
+  `TRANSPORT_PARSER_INTERNAL_TOKEN`). WebSocket `/ws` — токен параметром `?token=`.
 - Первый администратор создаётся при старте API, если таблица пользователей пуста
   и заданы `ZAKUPKI_ADMIN_USERNAME`/`ZAKUPKI_ADMIN_PASSWORD`.
 
@@ -490,15 +550,16 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 - Integration: извлечение из HTML-фикстур (реальные страницы площадки), репозиторий БД
   и API-роуты (PostgreSQL, DSN через `ZAKUPKI_TEST_DSN`).
 - Фикстуры — в `tests/fixtures/` (урезанные реальные HTML списка и деталей).
-- Тесты подпроектов скоринга (`scoring_service`/`scoring_transport`/`pwin_service`/
-  `margin_service`/`scoring_common`) — в соответствующих `src/*/tests`.
+- Тесты подпроектов (`scoring_service`/`scoring_transport`/`pwin_service`/
+  `margin_service`/`scoring_common`/`analysis_service`) — в соответствующих `src/*/tests`.
 
 ## 13. Docker
 `docker/docker-compose.yml`: сервисы `db` (PostgreSQL), `liquibase` (миграции),
-`redis`, `scoring-service`/`scoring-transport`/`pwin-service`/`margin-service`
-(каскад скоринга), `parser` (приложение + Chromium), `api` (FastAPI, порт 8000),
-а также профиль `langfuse` (трассировка LLM). DSN задаётся
-через `ZAKUPKI_DB_DSN`.
+`redis`, `scoring-service`/`scoring-transport`/`pwin-service`/`margin-service`/
+`analysis-service` (каскад скоринга + RAG-анализ ТЗ), `parser` (приложение + Chromium),
+`api` (FastAPI, порт 8000), а также профиль `langfuse` (self-hosted: `langfuse-db`,
+`clickhouse`, `minio`, `minio-init`, `langfuse-web`, `langfuse-worker`; трассировка LLM).
+DSN задаётся через `ZAKUPKI_DB_DSN`.
 
 ---
 
@@ -528,10 +589,10 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 | US-1.1–1.4 Профили фильтрации (слова, исключения, ЭТП, законы, несколько профилей) | ✅ `profiles` per-user (BR-07): активный профиль per-user, CRUD, слова — таблица `keywords` | `storage/db.py`, `api/app.py`, `repository.py` | 1, 2 || ER: таблица `keywords` (word, type) | ✅ канонический источник (миграции 1.29–1.31; JSONB-колонки убраны) | `storage/db.py`, `keywords_parser.py` | 1, 2 || US-2.1 Периодический сбор закупок | ✅ планировщик по списку площадок | `scheduler.py` | — |
 | US-2.2 Первичный скоринг Fit | ✅ LLM-пайплайн, `fit_score`, пороги | `scoring_service/`, `api/app.py` | — |
 | US-2.3 Сортировка по убыванию Fit | ✅ `sort=fit_score` | `storage/repository.py` | — |
-| US-2.4 Не прошедшие фильтр не попадают в список | 🟡 stop-условия (`keyword_context_required`, `exclusion_words_present`); R9 меняет механику на клиентскую пост-фильтрацию **до записи в БД** | `parser/orchestrator/stop.py` | 3 || US-2.5 Не показывать отклонённые повторно | ❌ отклонение = `score_method=reject`; скрытия из выдачи нет | `api/app.py` | 7 || US-3.1 Оповещение о высокорелевантных закупках в Telegram | 🟡 уведомления после стадий каскада есть (Telegram/MAX/webhook); оповещение по каждой высокорелевантной закупке в Telegram — с этапа 8; дайджест топ-3 **не нужен** (US-3.4 удалён решением заказчика) | `notify.py`, `api/app.py` | 8 |
+| US-2.4 Не прошедшие фильтр не попадают в список | 🟡 stop-условия (`keyword_context_required`, `exclusion_words_present`); R9 меняет механику на клиентскую пост-фильтрацию **до записи в БД** | `parser/orchestrator/stop.py` | 3 || US-2.5 Не показывать отклонённые повторно | ❌ ручное отклонение — вне MVP; скрытия из выдачи нет | — | 7 || US-3.1 Оповещение о высокорелевантных закупках в Telegram | 🟡 уведомления после стадий каскада есть (Telegram/MAX/webhook); оповещение по каждой высокорелевантной закупке в Telegram — с этапа 8; дайджест топ-3 **не нужен** (US-3.4 удалён решением заказчика) | `notify.py`, `api/app/` | 8 |
 | US-3.3 Экспорт XLSX | 🟡 только CSV | `api/app.py` (`/api/procurements/export`) | 8 |
 | US-4.1 Инициация детального анализа ТЗ | ✅ `POST /api/procurements/analyze` → `analysis_service` | `api/app.py`, `analysis_service/` | — |
-| US-4.2 Проверка опыта (ПП РФ 2571, hard/soft) | ✅ системная проверка `sys:exp_2571`: Stage A (batch-LLM факты) + Stage B (матчер с фактами профиля), маркер | `analysis_service/pipeline/rag.py`, `matcher.py` | 5 || US-4.3 Реестр Минпромторга с учётом «не установлено» | ✅ системная проверка `sys:minprom_registry` (учёт «не установлено») | `rag.py`, `matcher.py` | 5 || US-4.4 Лицензии (какая требуется) | ✅ системная проверка `sys:license_sro` (сопоставление с `license_types` профиля) | `rag.py`, `matcher.py` | 5 || US-4.5 Маркеры 🔴/🟡/🟢 в карточке | ✅ маркеры и `source=system` в `rag_report`, раздел «Анализ ТЗ» | `rag.py`, `api/zakupki.html` | 5 || US-5.1 «В работу» / «Отклонить» | 🟡 ручные пресеты (`manual-score`) и `reject`; статуса «В работе» нет | `api/app.py` | 7 || US-5.2 Причина отклонения | ❌ | — | 7 || US-5.3 Предложение добавить слово-исключение | ❌ | — | 7 || US-6.1/6.2 Сводка «В работу» в XLSX с маркерами | ❌ | — | 8 |
+| US-4.2 Проверка опыта (ПП РФ 2571, hard/soft) | ✅ системная проверка `sys:exp_2571`: Stage A (batch-LLM факты) + Stage B (матчер с фактами профиля), маркер | `analysis_service/pipeline/rag.py`, `matcher.py` | 5 || US-4.3 Реестр Минпромторга с учётом «не установлено» | ✅ системная проверка `sys:minprom_registry` (учёт «не установлено») | `rag.py`, `matcher.py` | 5 || US-4.4 Лицензии (какая требуется) | ✅ системная проверка `sys:license_sro` (сопоставление с `license_types` профиля) | `rag.py`, `matcher.py` | 5 || US-4.5 Маркеры 🔴/🟡/🟢 в карточке | ✅ маркеры и `source=system` в `rag_report`, раздел «Анализ ТЗ» | `rag.py`, `api/zakupki.html` | 5 || US-5.1 «В работу» / «Отклонить» | ❌ ручные пресеты (`manual-score`)/`reject` — вне MVP (удалены); статуса «В работе» нет | — | 7 || US-5.2 Причина отклонения | ❌ | — | 7 || US-5.3 Предложение добавить слово-исключение | ❌ | — | 7 || US-6.1/6.2 Сводка «В работу» в XLSX с маркерами | ❌ | — | 8 |
 
 > Этапы 6, 4C, 7, 8, 9, 10 — **пост-MVP (вне MVP)**; этапы 1, 2, 3, 4 (4A+4B), 5 — в MVP.
 > В MVP пользователь **не корректирует оценки вручную** (auto-Fit; `manual-score`/`reject`, Эпик 5 — пост-MVP).
@@ -540,7 +601,7 @@ per-user (BR-07): `profiles.is_active` / профиль `default`; под ним
 
 | Требование (docs) | Статус | Место в коде | Закрывает этап |
 | :---------------- | :----- | :----------- | :------------- |
-| US-7.1–7.5 Регистрация, trial **10 лет** (оплата не обязательна), заморозка, удаление через 90 дней | 🟡 `users` + регистрация/логин есть; нет email/status/trial_end_date/заморозки/удаления; подтверждение email — целевая модель, в MVP не реализуется | `auth.py`, `api/app.py`, `storage/db.py` | 6 || US-7.6/7.7 Админ-управление пользователями, создание админов | ❌ (только env-сид первого админа) | `api/app.py` | 6, 10 || US-7.8/7.9, BR-07 Изоляция на уровне БД | 🟡 оценки per-client (`client_id`), активный профиль глобальный; нет per-profile скоупа | `storage/db.py`, `repository.py` | 1 |
+| US-7.1–7.5 Регистрация, trial **10 лет** (оплата не обязательна), заморозка, удаление через 90 дней | 🟡 `users` + регистрация/логин есть (email, `status` active/blocked); нет trial_end_date/заморозки/удаления; подтверждение email — целевая модель, в MVP не реализуется | `auth.py`, `api/app/`, `storage/db/` | 6 || US-7.6/7.7 Админ-управление пользователями, создание админов | ✅ вкладка «Пользователи» (роль admin) + env-сид первого админа | `api/app/`, `storage/` | 6, 10 || US-7.8/7.9, BR-07 Изоляция на уровне БД | ✅ профили и оценки — per-user/per-profile (`profiles`, `procurement_evaluations`); осталось: per-user планировщик по профилям (4C, пост-MVP) | `storage/db/`, `repository.py` | 1 |
 | ER: `subscriptions` | ❌ (заглушка; оплата вне MVP) | — | 1 |
 | ER: `audit_log` | ❌ | — | 1, 6, 9 || ER: `procedure_categories` (pwin_coefficient) | ❌ (заглушка) | — | 1 |
 | BR-01 Кэширование/пропуск неизменного | 🟡 `known_numbers`, `total_results` early-exit, unique-constraint; кэша ответов ЭТП нет | `orchestrator.py`, `repository.py` | 4 || BR-02 Первичный скоринг Fit (стоп-слова, веса, порог) | ✅ | `scoring_service/`, `config_score.yaml` | — |

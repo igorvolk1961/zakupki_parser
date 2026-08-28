@@ -25,8 +25,9 @@ per-user аккаунты и профили фильтрации, изоляци
 тематика — ИТ-услуги.
 
 ## Возможности
-- Движок парсинга, настраиваемый через 6 YAML-конфигов (см. `configs/`: parser,
-  service, ops, score, log + `dom/`).
+- Движок парсинга, настраиваемый через YAML-конфиги (см. `configs/`: parser,
+  service, ops, score, log + `dom/`), а также конфиги фоновых сервисов
+  (`src/<service>/config.yaml` + `.env`).
 - Сортировка по убыванию даты публикации (порядок фиксирован: `publication_date_desc`)
   или по релевантности (`sort.by_relevance=true` — без стоп-порога по дате);
   глобальный режим `config_service.yaml -> sort_by_date_only` сортирует ВСЕ площадки
@@ -59,11 +60,12 @@ per-user аккаунты и профили фильтрации, изоляци
   просмотр логов (`/api/logs/tail`), WebSocket `/ws`.
 - **Асинхронный внешний скоринг каскадом Fit → P(win) → Margin** (ADR-7/ADR-9):
   после сохранения закупки парсер автоматически передаёт задание в `scoring_transport`,
-  тот ставит его в Redis-очередь по дефолтному скору, `scoring_service` считает **Fit**
-  по **LLM-пайплайну** (Fit → Judge → refine → уточнение по ТЗ → ветка Giga-эмбеддингов);
-  автокаскад Fit → P(win) → Margin отключён — P(win)/Margin вычисляются только по
-  явному запросу тендеролога (on-demand, `POST /api/procurements/pwin-margin`);
-  результат каждой стадии возвращается через транспорт.
+  тот ставит его в Redis-очередь по приоритету (время обновления/публикации закупки),
+  `scoring_service` считает **Fit** по **LLM-пайплайну** (Fit → Judge → refine → уточнение
+  по ТЗ → ветка Giga-эмбеддингов) и пишет результат **per-profile** в
+  `procurement_evaluations` (BR-07). Автокаскад Fit → P(win) → Margin отключён —
+  P(win)/Margin вычисляются только по явному запросу тендеролога (on-demand,
+  `POST /api/procurements/pwin-margin`); результат каждой стадии возвращается через транспорт.
   Уведомление подписчиков — **после каждой стадии** (fit/pwin/margin) с порогом по
   возвращаемому значению стадии (`notify_min_fit_score` / `notify_min_pwin` /
   `notify_min_margin`, флаги `notify_*_enabled` в `config_ops.yaml`).
@@ -89,6 +91,7 @@ src/scoring_service/           # стадия Fit каскада: LLM-скори
 src/scoring_transport/         # gateway скоринга: ingest (POST /api/scoring/jobs), Redis-очереди, возврат результата
 src/pwin_service/              # стадия P(win) каскада: вероятность победы (Redis-воркер)
 src/margin_service/            # стадия Margin каскада: маржа (НМЦК × margin_rate, Redis-воркер)
+src/analysis_service/          # on-demand RAG-анализ ТЗ (стоп-условия, маркеры 🔴/🟡/🟢)
 src/scoring_common/            # общий код стадий: очередь, клиент API парсера, формула P(win)
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
@@ -114,7 +117,7 @@ uv run playwright install chromium --with-deps
 
 Команда CLI — `zp` (сокращение от `zakupki-parser`; длинное имя доступно как алиас).
 Сначала поднимите фоновый стек (БД + Redis + воркеры каскада
-`scoring_service`/`pwin_service`/`margin_service` +
+`scoring_service`/`pwin_service`/`margin_service`/`analysis_service` +
 `scoring_transport`), затем запустите парсер:
 
 ```bash
@@ -168,7 +171,7 @@ uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 - **Конфигурация / Управление Логи / Логи / Парсер** (роль `devops`) — форма для
   `config_ops.yaml` и `config_log.yaml` (+ текстовый режим YAML), просмотр хвоста
   файла лога (поиск, фильтр по уровню «ошибки/предупреждения» и по дате,
-  автообновление) и справочный просмотр `config_parser.yaml` (только чтение).
+  автообновление) и форма для `config_parser.yaml` (+ текстовый режим YAML).
 - **Парсер** (роль `devops`) — панель управления парсером (Запустить/Остановить,
   очистка БД).
 - Секреты (auth.secret, токены уведомлений) в конфигах парсера через API не
@@ -198,14 +201,15 @@ uv run zp --configs configs stop --force
 ## Инфраструктура (PostgreSQL + Redis + LangFuse)
 
 В локальном запуске (вне контейнера) контейнерами Docker являются БД, Redis и LangFuse;
-`scoring_service`, `pwin_service` и `margin_service` поднимаются как локальные `uv`-процессы
-(`scripts/run_all.sh`, см. «Запуск»). Контейнеры:
+`scoring_service`, `pwin_service`, `margin_service` и `analysis_service` поднимаются как
+локальные `uv`-процессы (`scripts/run_all.sh`, см. «Запуск»). Контейнеры:
 
 - `zakupki_db` — PostgreSQL: данные и миграции (Liquibase) применяются автоматически
   (через `scripts/db_up.sh`).
 - `zakupki_redis` — Redis: нужен конвейеру внешнего скоринга (`scoring_transport` +
-  стадии `scoring_service`/`pwin_service`/`margin_service`, очереди
-  `scoring:jobs`/`scoring:results`, `pwin:jobs`/`pwin:results`, `margin:jobs`/`margin:results`).
+  стадии `scoring_service`/`pwin_service`/`margin_service`/`analysis_service`, очереди
+  `scoring:jobs`/`scoring:results`, `pwin:jobs`/`pwin:results`, `margin:jobs`/`margin:results`,
+  `analysis:jobs`/`analysis:results`).
 - LangFuse (compose-профиль `langfuse`, UI `http://localhost:3000`) — трассировка
   LLM-вызовов `scoring_service`; поднимается `run_all.sh` по умолчанию, отключается
   `SKIP_LANGFUSE=1 scripts/run_all.sh`. Останавливается `scripts/run_all.sh stop`.
@@ -251,7 +255,7 @@ uv run zp --configs configs capture-fixture --platform zakupki_mos
 
 Дополнительные скрипты:
 - `scripts/run_all.sh` — фоновый стек (БД + Redis + воркеры каскада `scoring_service`/
-  `pwin_service`/`margin_service` + `scoring_transport`);
+  `pwin_service`/`margin_service`/`analysis_service` + `scoring_transport`);
 - `scripts/db_up.sh` — только PostgreSQL (данные и миграции), если нужно поднять
   БД без остального стека:
   ```bash
@@ -295,10 +299,17 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
   (telegram/max/webhook, постадийные пороги и флаги `notify_min_fit_score`/
   `notify_min_pwin`/`notify_min_margin`, `notify_{fit,pwin,margin}_enabled`), каталог
   выгрузки CSV, circuit breaker.
-- `config_score.yaml` — скоринг: fit-таблица ОКПД2, параметры каскада внешнего скоринга
-  (`scoring_transport` + `scoring_service` + `pwin_service` + `margin_service` + Redis, ADR-7/ADR-9):
-  флаги `pwin_enabled`/`margin_enabled`; приоритет очереди = дефолтный score парсера.
+- `config_score.yaml` — внешний скоринг: адрес транспорта (`scoring_transport_url`),
+  флаги доступности стадий `pwin_enabled`/`margin_enabled`, TTL самовосстановления
+  `recovery_ttl_seconds`. Дефолтного (внутреннего) скоринга нет: закупка сохраняется
+  без оценки, результат приходит через конвейер transport + стадии (ADR-7/ADR-9)
+  и пишется в `procurement_evaluations` (per-profile). Аналитические правила оценки —
+  в `config_service.yaml -> scoring`.
 - `config_log.yaml` — логирование.
+
+Адреса/секреты фоновых сервисов (LLM, Giga, LangFuse, Redis, транспондер) — в
+`src/<service>/config.yaml` (несекретная часть) и `src/<service>/.env` (секреты);
+они редактируются во вкладке «Сервисы» web-интерфейса (роль `devops`).
 
 Переменные окружения (для Docker/CI):
 - `ZAKUPKI_DB_DSN` — DSN БД (переопределяет `config_ops.yaml -> db.dsn`);
@@ -315,11 +326,11 @@ docker compose -f docker/docker-compose.yml up --build
 ```
 Запустит единый стек одной командой: PostgreSQL + Liquibase-миграции + Redis +
 `scoring_service` (воркер стадии Fit) + `scoring_transport` + `pwin_service` +
-`margin_service` + `parser` (периодический обход) +
+`margin_service` + `analysis_service` (RAG-анализ ТЗ) + `parser` (периодический обход) +
 `api` (FastAPI на `http://localhost:8000/`). Сервисы связаны по имени (api ↔
 `scoring-transport` ↔ redis), поэтому конвейер каскада скоринга (Fit → P(win) →
-Margin) и возврат результата в `POST /score` работают из коробки. Команду запускать
-из корня репозитория —
+Margin), возврат результата в `POST /score` и RAG-анализ работают из коробки.
+Команду запускать из корня репозитория —
 контекст сборки и файл `.env` резолвятся относительно `docker/docker-compose.yml`.
 
 Для удобства есть скрипт-обёртка над compose-стеком — `scripts/compose.sh`:

@@ -1,7 +1,7 @@
 # Схема базы данных
 
 Схема БД парсера (PostgreSQL). Миграции — Liquibase (`../../docker/liquibase/changelog`),
-ORM-модель — `../../src/zakupki_parser/storage/db.py`.
+ORM-модель — `../../src/zakupki_parser/storage/db/`.
 
 ```mermaid
 erDiagram
@@ -63,14 +63,67 @@ erDiagram
         text okpd2_codes "коды ОКПД2 (один или несколько, через запятую)"
         text kpgz_codes "коды КПГЗ (один или несколько, через запятую)"
         jsonb files_json "файлы: [{name, url скачивания с ЭТП}]"
-        double score "скоринг: накопленное произведение Fit × P(win) × Margin"
-        double fit_score "множитель Fit (default 0..1 по ОКПД2; external 0..1 нормализованный)"
+        boolean is_active "активна ли закупка (false: завершённая/отменённая и т.п.)"
+        jsonb detail_json "полный набор переменных карточки"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    USERS {
+        bigint id PK "автоинкремент"
+        varchar(128) username "логин, UNIQUE"
+        varchar(255) email "email (nullable)"
+        text password_hash "PBKDF2-хэш пароля"
+        jsonb roles "роли: [user, admin, analyst, devops]"
+        varchar(16) status "active | blocked"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    PROFILES {
+        bigint id PK "автоинкремент"
+        bigint user_id FK "владелец профиля (users.id, CASCADE)"
+        text name "имя профиля"
+        boolean enabled "профиль участвует в обработке"
+        boolean is_active "единственный активный профиль пользователя"
+        double min_fit_threshold "порог Fit"
+        jsonb target_etp "целевые ЭТП"
+        jsonb target_laws "целевые законы"
+        jsonb okpd_codes "коды ОКПД2 (критерии поиска профиля)"
+        double nmck_min "мин. НМЦК"
+        double nmck_max "макс. НМЦК"
+        text competencies "компетенции (для LLM-скоринга)"
+        jsonb questions "вопросы к ТЗ: [{id, text}]"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    KEYWORDS {
+        bigint id PK "автоинкремент"
+        bigint profile_id FK "профиль (profiles.id, CASCADE)"
+        text word "слово/фраза"
+        varchar(16) type "keyword | exclusion"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    PROCUREMENT_EVALUATIONS {
+        bigint id PK "автоинкремент"
+        bigint procurement_id FK "закупка (procurements.id, CASCADE)"
+        bigint profile_id FK "профиль (profiles.id, CASCADE)"
+        double score "накопленное произведение Fit × P(win) × Margin"
+        double fit_score "множитель Fit стадии каскада (0..1)"
         double p_win "множитель P(win) стадии каскада (0..1)"
         double margin "множитель Margin стадии каскада (НМЦК × margin_rate)"
         varchar(64) score_method "default | fit | pwin | margin | deadline_expired | sim"
-        double embedding_similarity "косинусная близость 0..1 (Giga Embedder); NULL если ветка выключена"
-        boolean is_active "активна ли закупка (false: завершённая/отменённая и т.п.)"
-        jsonb detail_json "полный набор переменных карточки"
+        double embedding_similarity "косинусная близость 0..1 (Giga Embedder)"
+        text langfuse_trace_url "ссылка на LangFuse-трейс скоринга"
+        jsonb rag_report "отчёт анализа стоп-условий (ADR-10)"
+        jsonb matched_keywords "слова профиля, по которым закупка прошла фильтрацию (R9)"
+        timestamptz scoring_queued_at "метка постановки задания в очередь"
+        text comp_hash "хэш канонического содержания компетенций (дедуп BR-07)"
+        varchar(32) status "зарезервирована под Эпик 5 (пост-MVP)"
+        text rejection_reason "зарезервирована под Эпик 5 (пост-MVP)"
         timestamptz created_at "server_default now()"
         timestamptz updated_at "server_default now(), onupdate"
     }
@@ -84,6 +137,10 @@ erDiagram
     PROFILE_LICENSES }o--|| LICENSE_TYPES : "license_type_id (FK, RESTRICT)"
     PROFILE_EXPERIENCE }o--|| PROFILES : "profile_id (FK, CASCADE)"
     PROFILE_EXPERIENCE }o--|| EXPERIENCE_CONFIRMATION_TYPES : "confirmation_type_id (FK, RESTRICT)"
+    USERS ||--o{ PROFILES : "user_id (FK, CASCADE)"
+    PROFILES ||--o{ KEYWORDS : "profile_id (FK, CASCADE)"
+    PROCUREMENTS ||--o{ PROCUREMENT_EVALUATIONS : "procurement_id (FK, CASCADE)"
+    PROFILES ||--o{ PROCUREMENT_EVALUATIONS : "profile_id (FK, CASCADE)"
 
     LICENSE_TYPES {
         bigint id PK "автоинкремент"
@@ -134,11 +191,12 @@ erDiagram
 ```
 
 ## Замечания
-- **Пять таблиц**: `procurements`, справочники `customers` (ADR-4),
-  `procedure_types`, `procedure_type_mappings` и `platforms`. Заказчик нормализован:
-  вместо денормализованной колонки `customer` — FK `customer_id` (при удалении
-  заказчика — `SET NULL`). Тип процедуры (`purchase_type` из карточки списка)
-  нормализован в `procedure_types` (миграция 1.20).
+- **Основные таблицы**: `procurements`, справочники `customers` (ADR-4),
+  `procedure_types`, `procedure_type_mappings`, `platforms` и мультитенантные
+  `users`/`profiles`/`keywords`/`procurement_evaluations` (BR-07, миграции 1.29–1.31).
+  Заказчик нормализован: вместо денормализованной колонки `customer` — FK `customer_id`
+  (при удалении заказчика — `SET NULL`). Тип процедуры (`purchase_type` из карточки
+  списка) нормализован в `procedure_types` (миграция 1.20).
 - **Платформы** (миграция 1.21): справочник `platforms` (натуральный ключ
   `platform_id`, официальное имя, главная страница; сид из `configs/dom/*.yaml`).
   Колонка `procurements.source_platform` переименована в `platform_id` — единое
@@ -174,15 +232,18 @@ erDiagram
   `ix_procurements_procedure_type_id` по `procedure_type_id`,
   `ix_procedure_type_mappings_platform` по `platform_id`,
   `ix_platforms_platform_id` по `platform_id`.
-- `score_method`: `default | fit | pwin | margin | deadline_expired | sim` (каскад
-  Fit → P(win) → Margin, ADR-7/ADR-9; `deadline_expired` выставляет парсер при
-  просроченном сроке, `sim` — предварительная фильтрация по векторной близости, ADR-8).
-- `p_win`/`margin` (миграция 1.19): множители стадий каскада, хранятся отдельными
-  колонками; `score` — накопленное произведение (после финальной стадии =
-  fit × p_win × margin).
-- `fit_score` (миграция 1.15): множитель Fit — дефолтный (0..1 из `fit_table` по ОКПД2)
-  или нормализованный внешний (0..1). `embedding_similarity` (миграция 1.16) —
-  косинусная близость ветки Giga Embedder. `is_active` (миграция 1.14) — активна ли
+- **Скоринг — per-profile** (BR-07): результаты пишутся в `procurement_evaluations`
+  (UNIQUE `(procurement_id, profile_id)`), а не в `procurements`. `score_method`:
+  `default | fit | pwin | margin | deadline_expired | sim` (каскад Fit → P(win) → Margin,
+  ADR-7/ADR-9; `deadline_expired` выставляет парсер при просроченном сроке, `sim` —
+  предварительная фильтрация по векторной близости, ADR-8). `p_win`/`margin` —
+  множители стадий каскада, хранятся отдельными колонками; `score` — накопленное
+  произведение (после завершённой стадии = fit × p_win × margin). Дефолтный скор на
+  уровне `procurements` удалён (миграция 1.34 убрала колонки `score_*`).
+- `embedding_similarity` — косинусная близость ветки Giga Embedder; `rag_report` —
+  отчёт анализа стоп-условий (ADR-10); `comp_hash` — хэш содержания компетенций
+  (дедупликация скоринга по группе); `matched_keywords` — слова профиля, по которым
+  закупка прошла фильтрацию (R9). `procurements.is_active` (миграция 1.14) — активна ли
   закупка по статусу; выставляется парсером по текстовому `status` из `detail_json`
   (`list_config.active_statuses`). Текущая дата (срок актуальности `deadline`) при
   записи не учитывается — она применяется на стороне клиента (фильтр `active`

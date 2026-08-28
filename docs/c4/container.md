@@ -16,16 +16,18 @@ flowchart LR
     SF["Scoring Service (Fit)<br/>LLM-скоринг (Fit → Judge → refine → ТЗ → Giga)"]
     SP["P(win) Service<br/>P(win) = base × k_smp × k_license × …"]
     SM["Margin Service<br/>Margin = НМЦК × margin_rate"]
+    AN["Analysis Service<br/>RAG-анализ ТЗ (стоп-условия)"]
     SUB["👤 Подписчики<br/>Telegram / MAX / Webhook"]
 
     U --> P
     P -->|"HTML-страницы"| Z
     P --> DB
-    P -->|"POST /api/scoring/jobs {id, default_score, stage}"| TR
+    P -->|"POST /api/scoring/jobs {id, priority, stage, profile_id}"| TR
     TR <-->|"jobs (ZADD) / results (BRPOP)"| RS
     RS <-->|"jobs (ZPOPMAX) / results (LPUSH)"| SF
     RS <-->|"pwin:jobs / pwin:results"| SP
     RS <-->|"margin:jobs / margin:results"| SM
+    RS <-->|"analysis:jobs / analysis:results"| AN
     TR -->|"POST /score (возврат результата стадии)"| P
     P -->|"уведомления (постадийно, порог по значению стадии)"| SUB
 
@@ -42,16 +44,17 @@ flowchart LR
   только метаданные файлов (имя и URL скачивания с ЭТП).
 - **Скоринг** — каскад **Fit → P(win) → Margin** (ADR-7/ADR-9): после сохранения закупки
   парсер автоматически передаёт задание в **Scoring Transport** (`POST /api/scoring/jobs`
-  с приоритетом = дефолтным score и стадией `stage`), транспорт ставит его в **Redis**
-  очередь стадии, сервис стадии обрабатывает задание и возвращает результат через
-  транспорт (`POST /score`). Переходы между стадиями оркестрирует парсер по порогам
-  (`pwin_fit_threshold`/`margin_pwin_threshold`, флаги `pwin_enabled`/`margin_enabled`).
+  со `stage="fit"`, приоритет = время обновления/публикации, `profile_id`),
+  транспорт ставит его в **Redis** очередь стадии, сервис стадии обрабатывает задание и
+  возвращает результат через транспорт (`POST /score`). **Автокаскад отключён**: P(win)/Margin
+  запускаются по явному запросу тендеролога (`POST /api/procurements/pwin-margin`, флаги
+  `pwin_enabled`/`margin_enabled`); `analysis_service` — on-demand RAG-анализ ТЗ.
   Транспорт — единственная граница между конвейером и парсером; приоритет приходит из
   парсера (эвристика дефолтного score в транспорте не дублируется).
 - **LLM-пайплайн** `scoring_service`: Fit → Judge → refine (`num_refine_rounds`) →
   уточнение по тексту ТЗ (`tz_review`) → параллельная ветка векторной близости
   **Giga Embedder** (влияет на score через `giga_embedding_alpha`, результат —
-  `embedding_similarity`). Режим заглушки `score_use_stub` выключен.
+  `embedding_similarity`). Режим заглушки `score_use_stub` удалён (ADR-7).
 - **Уведомления** подписчиков отправляются **после каждой стадии** каскада (fit/pwin/
   margin), когда значение стадии прошло её порог (`notify_min_fit_score`/
   `notify_min_pwin`/`notify_min_margin`; флаги `notify_{fit,pwin,margin}_enabled`

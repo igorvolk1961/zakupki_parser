@@ -2,8 +2,8 @@
 
 Независимый подпроект: gateway между **парсером закупок** и **сервисом скоринга**
 (LLM). Принимает запросы на скоринг через REST, ставит их в **приоритетную очередь
-на Redis (sorted set)** по дефолтному score (сначала наибольший), получает результаты
-и возвращает их в парсер через его REST API.
+на Redis (sorted set)** по переданному приоритету (сначала наибольший), получает
+результаты и возвращает их в парсер через его REST API.
 
 **Границы.** Все файлы — только внутри `src/scoring_transport/`. Транспорт НЕ
 использует БД парсера: вся информация — через REST API парсера и Redis.
@@ -11,21 +11,21 @@
 ## Поток
 ```
 [Парсер]
-   │  POST /api/scoring/jobs {procurement_id, priority=default_score}
+   │  POST /api/scoring/jobs {procurement_id, priority, stage, profile_id}
    ▼
 [scoring_transport]  FastAPI
-   │  1) priority = переданный default_score (приоритет приходит из парсера,
+   │  1) priority = переданный приоритет (время обновления/публикации закупки;
    │     транспорт НЕ пересчитывает эвристику по своей fit-таблице — ADR-7)
-   │  2) ZADD scoring:jobs {priority} proc:{id}
+   │  2) ZADD <stage>:jobs {priority} proc:{id}
    ▼
 [Redis]  scoring:jobs (ZSET)  →  [scoring_service] worker  →  scoring:results (LIST)
    ▼
 [scoring_transport]  BRPOP scoring:results → POST /api/procurements/{id}/score
 ```
 
-Приоритет = **дефолтный score закупки**, переданный парсером; потребитель
+Приоритет = **время обновления/публикации закупки**, переданное парсером; потребитель
 (scoring_service) берёт задачи `ZPOPMAX` — в первую очередь обрабатываются закупки с
-наибольшим дефолтным score.
+наибольшими метками обновления/публикации.
 
 ## Запуск (из каталога подпроекта)
 ```bash
