@@ -320,11 +320,10 @@ def test_procurement_tz_text(
 ) -> None:
     """GET /api/procurements/{id}/tz возвращает текст ТЗ (в т.ч. из архива).
 
-    Кэш задействован через настоящий extract_text_cached: подменяется только
+    Кэш задействован через настоящий resolve_tz_content_cached: подменяется только
     извлечение (extract_text) и поиск файла (find_tz_reference), чтобы не ходить
     в сеть. Повторный запрос не переизвлекает текст (счётчик вызовов не растёт).
     """
-    import zakupki_parser.api.app.routes.procurements as proc_route
     from scoring_common.tz import clear_tz_text_cache
     from scoring_common.tz.files import FileRef
 
@@ -357,16 +356,22 @@ def test_procurement_tz_text(
 
         extract_calls: list[tuple[str, str]] = []
 
-        def fake_find(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+        def fake_find(
+            record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+        ) -> FileRef | None:
             files = record.get("files_json") or []
             assert any(f.get("name") == "приложение.zip" for f in files)
             return FileRef("ТЗ.docx", "http://x/a.zip#doc/ТЗ.docx")
 
-        def fake_extract(ref: FileRef, timeout: float = 30.0) -> str | None:
+        def fake_extract(
+            ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True
+        ) -> str | None:
             extract_calls.append((ref.url, ref.name))
-            return "# Раздел 1\nТребования к товару."
+            # Текст должен содержать требование к Исполнителю, иначе resolve_tz_content
+            # уйдёт в фолбэк на документ «Описание» (не подменённый) — см. _has_executor_duties.
+            return "# Раздел 1\nИсполнитель обязан поставить товар."
 
-        monkeypatch.setattr(proc_route, "find_tz_reference_cached", fake_find)
+        monkeypatch.setattr("scoring_common.tz.find_tz_reference", fake_find)
         monkeypatch.setattr("scoring_common.tz.extract_text", fake_extract)
 
         body = client.get(f"/api/procurements/{tz_id}/tz").json()

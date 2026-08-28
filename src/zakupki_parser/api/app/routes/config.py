@@ -54,6 +54,25 @@ from zakupki_parser.config.models import (
 logger = logging.getLogger(__name__)
 
 
+def _errors_to_jsonable(exc: ValidationError) -> list[dict[str, Any]]:
+    """Pydantic-ошибки в JSON-безопасный вид (для HTTPException detail).
+
+    Pydantic v2 кладёт в ``ctx.error`` сырой экземпляр исключения для
+    ``value_error`` (например, ``ValueError`` из ``field_validator``). Такой объект
+    не сериализуется ``json.dumps`` — FastAPI падает при формировании ответа 422.
+    Сводим ``ctx`` к строкам и отбрасываем поля, которые не нужны клиенту.
+    """
+    return [
+        {
+            "type": e["type"],
+            "loc": list(e["loc"]),
+            "msg": e["msg"],
+            "ctx": {k: str(v) for k, v in (e.get("ctx") or {}).items()},
+        }
+        for e in exc.errors(include_url=False, include_input=False)
+    ]
+
+
 def _register_prompt_routes(
     router: APIRouter,
     prefix: str,
@@ -248,7 +267,7 @@ def _register_config_endpoints(
             try:
                 new_model = model.model_validate(body)
             except ValidationError as exc:
-                raise HTTPException(status_code=422, detail=exc.errors()) from exc
+                raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
             if validate is not None:
                 validate(new_model)
             target = Path(state.configs_dir) / filename
@@ -730,7 +749,7 @@ def _register_service_config_routes(
             try:
                 new_model = svc.model.model_validate(data)
             except ValidationError as exc:
-                raise HTTPException(status_code=422, detail=exc.errors()) from exc
+                raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
             _write_yaml(config_path, new_model.model_dump())
             logger.info("Сохранён %s (%s)", config_path, svc.title)
             return new_model.model_dump()

@@ -92,7 +92,7 @@ def logs_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient
     logfile.write_text("\n".join(LOG_LINES) + "\n", encoding="utf-8")
     log = cfgdir / "config_log.yaml"
     log.write_text(
-        log.read_text(encoding="utf-8").replace("file: null", f"file: {logfile}"),
+        log.read_text(encoding="utf-8").replace("file: null", f"file: {logfile.name}"),
         encoding="utf-8",
     )
     ops = cfgdir / "config_ops.yaml"
