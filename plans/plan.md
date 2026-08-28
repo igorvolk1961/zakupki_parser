@@ -11,8 +11,12 @@
   тестами; устаревшие тесты заменяются или удаляются.
 - «Сразу всё» запрещено.
 - Каждый этап завершается **синхронным обновлением артефактов `docs/system_analysis/`**
-  (статусы US/FR, матрица трассируемости, бэклог, ER) — регламент SA-5,
-  план доработки артефактов — `plans/system_analysis_plan.md`.
+  (статусы US/FR, бэклог, ER) — регламент SA-5, план доработки артефактов —
+  `plans/system_analysis_plan.md`. **Источник правды по трассировке —**
+  `docs/system_analysis/traceability/requirements-registry.yaml` (требование → код →
+  тест → стейкхолдер → ADR); `02_Business_Requirements/04_traceability_matrix.md` —
+  его человекочитаемое представление. Связки проверяются чекером
+  `scripts/check_traceability.py` (pre-commit хук `traceability`).
 
 **Скоуп MVP (первоочередная задача):** Этапы 0, 1, 2, 3, 4 (4A+4B), 5.
 **Пост-MVP:** Этапы 6, 4C, 7, 8, 9, 10.

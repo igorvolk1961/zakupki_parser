@@ -579,6 +579,9 @@ DSN задаётся через `ZAKUPKI_DB_DSN`.
 > `02_Business_Requirements/04_traceability_matrix.md`,
 > `02_Business_Requirements/03_product_backlog.md`,
 > `02_Business_Requirements/05_functional_requirements.md` (синхронизировано 2026-08-24).
+> Машиночитаемый источник связок «требование ↔ код ↔ тест ↔ стейкхолдер ↔ ADR» —
+> `docs/system_analysis/traceability/requirements-registry.yaml` (проверяется
+> `scripts/check_traceability.py`, pre-commit хук `traceability`).
 
 Обозначения статуса: ✅ реализовано · 🟡 частично · ❌ отсутствует.
 

@@ -19,8 +19,9 @@
 | 02_Business_Requirements | [`01_user_stories.md`](02_Business_Requirements/01_user_stories.md) | ✅ | Эпики 1–9, user stories, AC |
 | 02_Business_Requirements | [`02_business_rules.md`](02_Business_Requirements/02_business_rules.md) | ✅ | Бизнес-правила BR-01…BR-07 |
 | 02_Business_Requirements | [`03_product_backlog.md`](02_Business_Requirements/03_product_backlog.md) | ✅ | Итоговый Product Backlog (US/BR/FR/NFR) |
-| 02_Business_Requirements | [`04_traceability_matrix.md`](02_Business_Requirements/04_traceability_matrix.md) | ✅ | Матрица трассируемости US↔BR↔NFR↔ER↔этап |
-| 02_Business_Requirements | [`05_functional_requirements.md`](02_Business_Requirements/05_functional_requirements.md) | ✅ | Функциональные требования FR-xx |
+| 02_Business_Requirements | [`04_traceability_matrix.md`](02_Business_Requirements/04_traceability_matrix.md) | ✅ | Матрица трассируемости US↔BR↔NFR↔ER↔этап (человекочитаемое представление требований) |
+| 02_Business_Requirements | [`05_functional_requirements.md`](02_Business_Requirements/05_functional_requirements.md) | ✅ | Функциональные требования FR-xx (включая FR-10 «Операционная работа») |
+| traceability | [`requirements-registry.yaml`](traceability/requirements-registry.yaml) | ✅ | **Источник правды** «требование ↔ код ↔ тест ↔ стейкхолдер ↔ ADR» (машиночитаемый, проверяется `scripts/check_traceability.py`); 04_traceability_matrix — его представление |
 | 03_System_Behavior | [`01_sequence_diagrams.md`](03_System_Behavior/01_sequence_diagrams.md) | ✅ | Диаграммы последовательности (парсинг, двухстадийный анализ ТЗ, каскад) |
 | 03_System_Behavior | [`02_business_process.md`](03_System_Behavior/02_business_process.md) | ✅ | Диаграмма бизнес-процесса для стейкхолдеров |
 | 04_Data_and_NFR | [`01_er_diagram.md`](04_Data_and_NFR/01_er_diagram.md) | ✅ | Модель данных: фактическая и целевая |
@@ -69,9 +70,17 @@
 ## 5. Поддержание актуальности (SA-5)
 
 - На каждом этапе реализации (критерии приёмки этапа в `plans/NN_plan.md`) обновлять
-  соответствующие артефакты: статусы US/FR, `04_traceability_matrix.md`,
-  `03_product_backlog.md`, `04_Data_and_NFR/01_er_diagram.md`.
+  соответствующие артефакты: статусы US/FR, `03_product_backlog.md`,
+  `04_Data_and_NFR/01_er_diagram.md`.
+- **Источник правды по трассировке — `traceability/requirements-registry.yaml`**
+  (требование → код-модуль → тест-файл → стейкхолдер → ADR → этап → статус). При
+  изменении кода или теста обновляется **реестр**, а `04_traceability_matrix.md`
+  приводится в соответствие с ним (напрямую вручную не правится, чтобы не возникло
+  двух источников).
+- **Проверка обязательна**: `scripts/check_traceability.py --check` (ошибки) и
+  `--strict` (ошибки + «сироты»). Чекер подключён как pre-commit хук `traceability`
+  (`.pre-commit-config.yaml`); `--strict` рекомендуется в CI.
 - Источник расхождений «требование → код» — gap-анализ `specification.md` §14.1;
-  матрица трассируемости и §14.1 синхронизируются взаимно.
+  реестр и §14.1 синхронизируются взаимно.
 - Решения, влияющие на требования, фиксируются в `docs/adr.md` и отражаются в
   артефактах (порядок: ADR → артефакт → бэклог → план).

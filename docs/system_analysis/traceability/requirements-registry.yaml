@@ -1,0 +1,1441 @@
+# Требования → код → тесты (источник правды трассировки)
+#
+# Единый машиночитаемый реестр трассируемости. Формат и валидация — scripts/check_traceability.py.
+# Редактировать только здесь; человекочитаемая матрица 04_traceability_matrix.md — производное
+# представление и вручную не правится.
+#
+# Поля:
+#   id          — US-* | FR-* | BR-* | NFR-* (уникален)
+#   type        — US | FR | BR | NFR
+#   title       — краткое название
+#   stakeholder — роль из 01_Business_Context/02_stakeholders.md
+#   stage       — этап реализации (plans/plan.md)
+#   status      — implemented | partial | planned | out-of-scope
+#   adr         — ссылка на docs/adr.md (ADR-* или "-")
+#   code        — пути модулей (файл или каталог) или «файл#функция/класс» для критичных сценариев
+#   tests       — пути тест-файлов (tests/** и src/*/tests/**)
+#   covered_by  — для NFR: id требования, которое данное NFR покрывает (необязательно)
+#   notes       — примечание
+#
+version: 1
+
+requirements:
+  # ===== User Stories =====
+  - id: US-1.1
+    type: US
+    title: Ключевые слова и исключения
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/keywords_parser.py
+      - src/zakupki_parser/storage/db/profile.py
+    tests:
+      - tests/unit/test_keywords_parser.py
+      - tests/unit/test_profile_json.py
+  - id: US-1.2
+    type: US
+    title: Целевые ЭТП и законы
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/db/profile.py
+      - src/zakupki_parser/api/app/routes/clients.py
+    tests:
+      - tests/integration/test_multiclient.py
+      - tests/integration/test_api.py
+  - id: US-1.3
+    type: US
+    title: Самостоятельное изменение слов
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/routes/clients.py
+    tests:
+      - tests/integration/test_multiclient.py
+  - id: US-1.4
+    type: US
+    title: Несколько профилей
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/db/profile.py
+    tests:
+      - tests/integration/test_multiclient.py
+
+  - id: US-2.1
+    type: US
+    title: Периодический сбор закупок
+    stakeholder: Тендеролог (user)
+    stage: "3, 4"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/scheduler.py
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py
+      - src/zakupki_parser/parser/lister/api/parse.py
+      - src/zakupki_parser/parser/lister/query/okpd2.py
+    tests:
+      - tests/unit/test_scheduler_recovery.py
+      - tests/unit/test_api_lister.py
+      - tests/unit/test_search_filters.py
+      - tests/unit/test_cutoff.py
+  - id: US-2.2
+    type: US
+    title: Оценка Fit
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/scoring_service/scoring_service/scoring/pipeline.py
+      - src/scoring_service/scoring_service/worker.py
+      - src/zakupki_parser/api/app/routes/procurements.py#set_score
+    tests:
+      - tests/unit/test_scoring.py
+      - tests/unit/test_cascade.py
+      - src/scoring_service/tests/test_scoring.py
+      - src/scoring_service/tests/test_worker.py
+  - id: US-2.3
+    type: US
+    title: Сортировка по Fit
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#list_procurements
+      - src/zakupki_parser/storage/repository/procurements.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+    tests:
+      - tests/integration/test_api.py
+  - id: US-2.4
+    type: US
+    title: Фильтр до списка
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/parser/filtering.py
+      - src/zakupki_parser/parser/orchestrator/stop.py
+    tests:
+      - tests/unit/test_filtering.py
+  - id: US-2.5
+    type: US
+    title: Скрытие отклонённых
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  - id: US-3.1
+    type: US
+    title: Оповещение о высокорелевантных
+    stakeholder: Тендеролог (user)
+    stage: "8"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/notify/notifier.py
+      - src/zakupki_parser/notify/backends.py
+      - src/zakupki_parser/api/app/state.py
+    tests:
+      - tests/unit/test_telegram_notify.py
+      - tests/unit/test_cascade.py
+  - id: US-3.2
+    type: US
+    title: Базовые поля карточки
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#get_procurement
+      - src/zakupki_parser/storage/db/procurement.py
+    tests:
+      - tests/integration/test_api.py
+  - id: US-3.3
+    type: US
+    title: Экспорт XLSX
+    stakeholder: Тендеролог (user)
+    stage: "8"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#export_procurements
+    tests:
+      - tests/unit/test_export_filename.py
+      - tests/integration/test_api.py
+    notes: "В MVP — CSV; XLSX — целевое (этап 8)."
+
+  - id: US-4.1
+    type: US
+    title: Инициация анализа ТЗ
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#analyze_procurements
+      - src/analysis_service/analysis_service/worker.py
+      - src/analysis_service/analysis_service/pipeline/rag.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+      - tests/integration/test_multiclient.py
+  - id: US-4.2
+    type: US
+    title: Проверка опыта 2571
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+      - src/analysis_service/analysis_service/pipeline/system_questions.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+  - id: US-4.3
+    type: US
+    title: Реестр Минпромторга
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+  - id: US-4.4
+    type: US
+    title: Проверка лицензий
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+      - src/zakupki_parser/api/app/routes/facts.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+      - tests/integration/test_profile_licenses_experience.py
+  - id: US-4.5
+    type: US
+    title: Маркеры в карточке
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+      - src/zakupki_parser/api/app/routes/procurements.py#get_procurement
+    tests:
+      - src/analysis_service/tests/test_rag.py
+
+  - id: US-5.1
+    type: US
+    title: «В работу»/«Отклонить»
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-5.2
+    type: US
+    title: Причина отклонения
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-5.3
+    type: US
+    title: Предложение обновить профиль
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  - id: US-6.1
+    type: US
+    title: Сводка «В работу» в XLSX
+    stakeholder: Тендеролог (user)
+    stage: "8"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-6.2
+    type: US
+    title: Маркеры в сводке
+    stakeholder: Тендеролог (user)
+    stage: "8"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  - id: US-7.1
+    type: US
+    title: Самостоятельная регистрация
+    stakeholder: Тендеролог (user)
+    stage: "1, 6"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/api/app/routes/auth.py
+      - src/zakupki_parser/auth.py
+      - src/zakupki_parser/storage/db/user.py
+    tests:
+      - tests/integration/test_auth_api.py
+      - tests/unit/test_auth.py
+  - id: US-7.2
+    type: US
+    title: Trial-доступ 10 лет
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-7.3
+    type: US
+    title: Заморозка по истечении trial
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-7.4
+    type: US
+    title: Предупреждения о конце trial
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-7.5
+    type: US
+    title: Удаление через 90 дней
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-7.6
+    type: US
+    title: Админ-контроль аккаунтов
+    stakeholder: Системный администратор
+    stage: "6, 10"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/users.py
+      - src/zakupki_parser/storage/repository/users.py
+    tests:
+      - tests/integration/test_roles_api.py
+      - tests/integration/test_auth_api.py
+  - id: US-7.7
+    type: US
+    title: Создание администраторов
+    stakeholder: Системный администратор
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/users.py
+    tests:
+      - tests/integration/test_roles_api.py
+  - id: US-7.8
+    type: US
+    title: Изоляция данных
+    stakeholder: Тендеролог (user)
+    stage: "1"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+      - src/zakupki_parser/api/app/deps.py
+    tests:
+      - tests/integration/test_multiclient.py
+      - tests/unit/test_repository_round.py
+  - id: US-7.9
+    type: US
+    title: Мультитенантность БД
+    stakeholder: Тендеролог (user)
+    stage: "1"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/db/profile.py
+      - src/zakupki_parser/storage/db/evaluation.py
+      - src/zakupki_parser/storage/repository/profiles.py
+    tests:
+      - tests/integration/test_multiclient.py
+
+  - id: US-8.1
+    type: US
+    title: Метрики в мониторинг
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/logs.py
+      - src/scoring_common/scoring_common/langfuse.py
+    tests:
+      - tests/integration/test_logs_api.py
+      - src/scoring_common/tests/test_langfuse.py
+      - src/scoring_service/tests/test_metrics.py
+  - id: US-8.2
+    type: US
+    title: Панель управления пользователями
+    stakeholder: Системный администратор
+    stage: "6, 10"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/users.py
+    tests:
+      - tests/integration/test_roles_api.py
+  - id: US-8.3
+    type: US
+    title: Горизонтальное масштабирование
+    stakeholder: DevOps / SRE
+    stage: "4C, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/stage_worker.py
+      - src/scoring_transport/scoring_transport/broker/redis_queue.py
+    tests:
+      - tests/unit/test_scheduler_recovery.py
+
+  - id: US-9.1
+    type: US
+    title: Дисклеймер
+    stakeholder: Юрист / Compliance
+    stage: "8, 9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-9.2
+    type: US
+    title: robots.txt, официальные API
+    stakeholder: Юрист / Compliance
+    stage: "9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-9.3
+    type: US
+    title: Маскирование ПДн
+    stakeholder: Security / DPO
+    stage: "9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: US-9.4
+    type: US
+    title: Аудит действий с IP
+    stakeholder: Security / DPO, DevOps / SRE
+    stage: "6, 9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  # ===== Функциональные требования =====
+  - id: FR-1.1
+    type: FR
+    title: CRUD профилей per-user с изоляцией
+    stakeholder: Тендеролог (user)
+    stage: "1, 2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/storage/db/profile.py
+    tests:
+      - tests/integration/test_multiclient.py
+      - tests/integration/test_profile_licenses_experience.py
+  - id: FR-1.2
+    type: FR
+    title: Ключевые слова и слова-исключения (keywords)
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/keywords_parser.py
+      - src/zakupki_parser/storage/db/profile.py
+    tests:
+      - tests/unit/test_keywords_parser.py
+  - id: FR-1.3
+    type: FR
+    title: Ровно один активный профиль
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/routes/clients.py#activate_client
+    tests:
+      - tests/integration/test_multiclient.py
+  - id: FR-1.4
+    type: FR
+    title: Сид профиля из файла
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/cli/commands.py
+    tests:
+      - tests/unit/test_cli.py
+      - tests/unit/test_keywords_parser.py
+
+  - id: FR-2.1
+    type: FR
+    title: Периодический сбор по ОКПД2 активного профиля
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/scheduler.py
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py
+      - src/zakupki_parser/parser/lister/query/okpd2.py
+      - src/zakupki_parser/parser/lister/api/parse.py
+    tests:
+      - tests/unit/test_api_lister.py
+      - tests/unit/test_okpd.py
+      - tests/unit/test_eis_okpd.py
+      - tests/unit/test_search_filters.py
+      - tests/unit/test_engine_extensions.py
+      - tests/unit/test_handlers.py
+      - tests/unit/test_organization.py
+      - tests/unit/test_customers.py
+      - tests/unit/test_url_filter.py
+      - tests/unit/test_detail_api.py
+      - tests/unit/test_fabrikant_search.py
+      - tests/unit/test_orchestrator_keywords.py
+      - tests/integration/test_extractor.py
+      - tests/integration/test_repository_customers.py
+  - id: FR-2.2
+    type: FR
+    title: Клиентская пост-фильтрация словами (R9)
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/parser/filtering.py
+      - src/zakupki_parser/parser/orchestrator/stop.py
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py
+    tests:
+      - tests/unit/test_filtering.py
+      - tests/unit/test_stop_conditions.py
+  - id: FR-2.3
+    type: FR
+    title: Фиксация matched_keywords
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/parser/orchestrator/processing.py
+      - src/zakupki_parser/storage/repository/procurements.py
+    tests:
+      - tests/unit/test_repository_round.py
+      - tests/integration/test_repository.py
+  - id: FR-2.4
+    type: FR
+    title: Auto-Fit push + procurement_evaluations
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/parser/orchestrator/processing.py
+      - src/zakupki_parser/scoring.py#enqueue
+      - src/zakupki_parser/api/app/routes/procurements.py#set_score
+      - src/scoring_service/scoring_service/worker.py
+    tests:
+      - tests/unit/test_scoring.py
+      - tests/unit/test_cascade.py
+      - src/scoring_service/tests/test_worker.py
+      - src/scoring_service/tests/test_scoring.py
+      - src/scoring_service/tests/test_schemas.py
+      - src/scoring_service/tests/test_description.py
+      - src/scoring_service/tests/test_profile.py
+      - src/scoring_service/tests/test_tz_review.py
+      - src/scoring_service/tests/test_evaluate_compare.py
+      - src/scoring_common/tests/test_archives.py
+      - src/scoring_common/tests/test_extractors.py
+      - src/scoring_common/tests/test_tz_cache.py
+  - id: FR-2.5
+    type: FR
+    title: Дедупликация по (number, platform_id)
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-1
+    code:
+      - src/zakupki_parser/storage/repository/procurements.py
+      - src/zakupki_parser/parser/orchestrator/persistence.py
+    tests:
+      - tests/integration/test_repository.py
+      - tests/unit/test_stop_conditions.py
+      - tests/unit/test_db_classify.py
+      - tests/unit/test_migrations.py
+  - id: FR-2.6
+    type: FR
+    title: Список с сортировкой и фильтрами
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#list_procurements
+      - src/zakupki_parser/storage/repository/procurements.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+    tests:
+      - tests/integration/test_api.py
+  - id: FR-2.7
+    type: FR
+    title: Очистка нерелевантных/неактивных
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/admin.py
+      - src/zakupki_parser/storage/repository/procurements.py
+    tests:
+      - tests/integration/test_parser_status_access.py
+
+  - id: FR-3.1
+    type: FR
+    title: Постадийные уведомления (fit/pwin/margin)
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/notify/notifier.py
+      - src/zakupki_parser/notify/backends.py
+      - src/zakupki_parser/api/app/state.py
+    tests:
+      - tests/unit/test_cascade.py
+      - tests/unit/test_telegram_notify.py
+  - id: FR-3.2
+    type: FR
+    title: Базовые поля карточки
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#get_procurement
+      - src/zakupki_parser/storage/db/procurement.py
+    tests:
+      - tests/integration/test_api.py
+  - id: FR-3.3
+    type: FR
+    title: Экспорт CSV (XLSX — целевое)
+    stakeholder: Тендеролог (user)
+    stage: "3, 8"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#export_procurements
+    tests:
+      - tests/unit/test_export_filename.py
+      - tests/integration/test_api.py
+  - id: FR-3.4
+    type: FR
+    title: (Целевое) XLSX-сводка с маркерами и дисклеймером
+    stakeholder: Тендеролог (user)
+    stage: "8"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  - id: FR-4.1
+    type: FR
+    title: On-demand анализ ТЗ (двухстадийно)
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#analyze_procurements
+      - src/analysis_service/analysis_service/pipeline/rag.py
+      - src/analysis_service/analysis_service/worker.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+      - src/analysis_service/tests/test_chunker.py
+      - src/analysis_service/tests/test_embedder.py
+      - tests/integration/test_multiclient.py
+  - id: FR-4.2
+    type: FR
+    title: Best-effort при недоступности LLM/файла ТЗ
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/rag.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+  - id: FR-4.3
+    type: FR
+    title: Системные проверки ТЗ (sys:*)
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/system_questions.py
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+  - id: FR-4.4
+    type: FR
+    title: Защита системных проверок от редактирования
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/storage/repository/profiles.py
+    tests:
+      - tests/integration/test_multiclient.py
+  - id: FR-4.5
+    type: FR
+    title: Stage B — матчер фактов ТЗ с фактами профиля
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+      - tests/integration/test_profile_licenses_experience.py
+  - id: FR-4.6
+    type: FR
+    title: GET /api/clients/active → facts
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/api/app/routes/clients.py#active_client
+      - src/zakupki_parser/api/app/routes/facts.py
+    tests:
+      - tests/integration/test_multiclient.py
+
+  - id: FR-5.1
+    type: FR
+    title: (Целевое) Статус «В работу»/«Отклонить»
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: FR-5.2
+    type: FR
+    title: (Целевое) Предложение добавить слово/правило
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  - id: FR-6.1
+    type: FR
+    title: Регистрация и аутентификация с ролями
+    stakeholder: Тендеролог (user)
+    stage: "1, 6"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/api/app/routes/auth.py
+      - src/zakupki_parser/auth.py
+      - src/zakupki_parser/storage/db/user.py
+    tests:
+      - tests/integration/test_auth_api.py
+      - tests/unit/test_auth.py
+      - tests/integration/test_roles_api.py
+  - id: FR-6.2
+    type: FR
+    title: Изоляция данных по user_id/profile_id
+    stakeholder: Тендеролог (user)
+    stage: "1"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+      - src/zakupki_parser/api/app/deps.py
+    tests:
+      - tests/integration/test_multiclient.py
+  - id: FR-6.3
+    type: FR
+    title: (Целевое) Жизненный цикл аккаунта
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: FR-6.4
+    type: FR
+    title: (Целевое) Админ-управление аккаунтами
+    stakeholder: Системный администратор
+    stage: "6, 10"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/users.py
+    tests:
+      - tests/integration/test_roles_api.py
+
+  - id: FR-7.1
+    type: FR
+    title: Логирование 100% LLM-запросов в LangFuse
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/langfuse.py
+      - src/scoring_service/scoring_service/settings.py
+    tests:
+      - src/scoring_common/tests/test_langfuse.py
+      - src/scoring_service/tests/test_metrics.py
+  - id: FR-7.2
+    type: FR
+    title: (Целевое) Метрики GET /metrics
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: FR-7.3
+    type: FR
+    title: (Целевое) Stateless-воркеры через очередь
+    stakeholder: DevOps / SRE
+    stage: "4C, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/stage_worker.py
+      - src/scoring_transport/scoring_transport/broker/redis_queue.py
+    tests:
+      - src/scoring_transport/tests/test_queue.py
+
+  - id: FR-8.1
+    type: FR
+    title: (Целевое) Дисклеймер в UI и экспортах
+    stakeholder: Юрист / Compliance
+    stage: "8, 9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: FR-8.2
+    type: FR
+    title: (Целевое) robots.txt и официальные API
+    stakeholder: Юрист / Compliance
+    stage: "9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: FR-8.3
+    type: FR
+    title: (Целевое) Маскирование ПДн
+    stakeholder: Security / DPO
+    stage: "9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: FR-8.4
+    type: FR
+    title: (Целевое) Аудит критических действий (audit_log)
+    stakeholder: Security / DPO, DevOps / SRE
+    stage: "6, 9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  - id: FR-9.1
+    type: FR
+    title: Стадии каскада за абстракцией очереди
+    stakeholder: DevOps / SRE
+    stage: "3"
+    status: implemented
+    adr: ADR-9
+    code:
+      - src/scoring_common/scoring_common/queue.py
+      - src/scoring_common/scoring_common/stage_worker.py
+      - src/zakupki_parser/api/app/routes/procurements.py#pwin_margin_procurements
+    tests:
+      - src/scoring_transport/tests/test_queue.py
+      - src/scoring_transport/tests/test_app.py
+      - src/pwin_service/tests/test_worker.py
+      - src/margin_service/tests/test_worker.py
+      - src/scoring_common/tests/test_pwin.py
+      - src/scoring_service/tests/test_queue.py
+      - tests/unit/test_cascade.py
+  - id: FR-9.2
+    type: FR
+    title: (Целевое) Идемпотентность обработки
+    stakeholder: DevOps / SRE
+    stage: "1, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/queue.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+    tests:
+      - src/scoring_transport/tests/test_queue.py
+      - tests/unit/test_repository_round.py
+  - id: FR-9.3
+    type: FR
+    title: (Целевое) DLQ после 3 попыток
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/stage_worker.py
+      - src/zakupki_parser/retry.py
+    tests:
+      - tests/unit/test_retry.py
+
+  # ===== Операционные требования (группа 10) =====
+  - id: FR-10.1
+    type: FR
+    title: RBAC по ролям user/admin/analyst/devops
+    stakeholder: DevOps / SRE, Системный администратор
+    stage: "1, 6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/deps.py
+      - src/zakupki_parser/auth.py
+      - src/zakupki_parser/storage/db/user.py
+    tests:
+      - tests/integration/test_roles_api.py
+      - tests/integration/test_auth_api.py
+      - tests/unit/test_auth.py
+  - id: FR-10.2
+    type: FR
+    title: Управление пользователями администратором
+    stakeholder: Системный администратор
+    stage: "6, 10"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/users.py
+      - src/zakupki_parser/storage/repository/users.py
+    tests:
+      - tests/integration/test_roles_api.py
+  - id: FR-10.3
+    type: FR
+    title: Эксплуатационные конфиги через web (devops)
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/config.py
+      - src/zakupki_parser/api/app/config_schema.py
+    tests:
+      - tests/integration/test_config_ops_api.py
+      - tests/unit/test_config_schema.py
+      - tests/unit/test_services_config.py
+  - id: FR-10.4
+    type: FR
+    title: Конфиги фоновых сервисов и секреты .env (devops)
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/config.py
+      - src/zakupki_parser/api/app/schemas.py
+    tests:
+      - tests/unit/test_services_config.py
+  - id: FR-10.5
+    type: FR
+    title: Просмотр и фильтрация логов сервисов (devops)
+    stakeholder: DevOps / SRE
+    stage: "8, 10"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/logs.py
+      - src/zakupki_parser/logging_conf.py
+    tests:
+      - tests/integration/test_logs_api.py
+      - tests/unit/test_logging.py
+  - id: FR-10.6
+    type: FR
+    title: "Аналитические настройки (analyst): конфиг/промпты/справочники"
+    stakeholder: Аналитик (настройка мониторинга) / SME
+    stage: "1, 5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/config.py
+      - src/zakupki_parser/api/app/routes/reference.py
+      - src/zakupki_parser/api/app/routes/clients.py
+    tests:
+      - tests/integration/test_reference_admin.py
+      - tests/integration/test_config_ops_api.py
+  - id: FR-10.7
+    type: FR
+    title: Панель управления парсером и очистка БД (devops)
+    stakeholder: DevOps / SRE
+    stage: "3, 4"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/admin.py
+      - src/zakupki_parser/api/app/state.py
+      - src/zakupki_parser/stopper.py
+    tests:
+      - tests/integration/test_parser_status_access.py
+      - tests/unit/test_stopper.py
+  - id: FR-10.8
+    type: FR
+    title: Внутренний токен X-Internal-Token для служебных вызовов
+    stakeholder: DevOps / SRE, Архитектор
+    stage: "1"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/api/app/deps.py
+      - src/zakupki_parser/api/app/state.py
+    tests:
+      - src/scoring_service/tests/test_auth.py
+      - tests/integration/test_api.py
+
+  # ===== Бизнес-правила =====
+  - id: BR-01
+    type: BR
+    title: Частота парсинга и кэширование
+    stakeholder: Тендеролог (user)
+    stage: "3, 4"
+    status: partial
+    adr: ADR-1
+    code:
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py
+      - src/zakupki_parser/parser/orchestrator/processing.py
+      - src/zakupki_parser/storage/repository/procurements.py
+    tests:
+      - tests/unit/test_stop_conditions.py
+      - tests/integration/test_repository.py
+  - id: BR-02
+    type: BR
+    title: Первичный скоринг Fit и пост-фильтрация
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/parser/filtering.py
+      - src/scoring_service/scoring_service/scoring/pipeline.py
+      - src/zakupki_parser/api/app/routes/procurements.py#set_score
+    tests:
+      - tests/unit/test_filtering.py
+      - tests/unit/test_scoring.py
+      - tests/unit/test_cascade.py
+  - id: BR-03
+    type: BR
+    title: Валидация опыта (ПП РФ 2571)
+    stakeholder: Предметный эксперт (SME) / Эксперт по закупкам
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+      - src/zakupki_parser/api/app/routes/reference.py
+      - src/zakupki_parser/api/app/routes/facts.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+      - tests/integration/test_profile_licenses_experience.py
+      - tests/integration/test_reference_admin.py
+  - id: BR-04
+    type: BR
+    title: Реестр Минпромторга («не установлено»)
+    stakeholder: Предметный эксперт (SME) / Эксперт по закупкам
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/matcher.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+  - id: BR-05
+    type: BR
+    title: Жизненный цикл аккаунта
+    stakeholder: Product Owner
+    stage: "6"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: BR-06
+    type: BR
+    title: Обработка ошибок (DLQ)
+    stakeholder: DevOps / SRE
+    stage: "4, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/retry.py
+      - src/zakupki_parser/circuit.py
+      - src/scoring_common/scoring_common/stage_worker.py
+    tests:
+      - tests/unit/test_retry.py
+      - tests/unit/test_circuit.py
+  - id: BR-07
+    type: BR
+    title: Изоляция данных
+    stakeholder: Тендеролог (user)
+    stage: "1"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+      - src/zakupki_parser/api/app/deps.py
+    tests:
+      - tests/integration/test_multiclient.py
+      - tests/unit/test_repository_round.py
+      - tests/integration/test_profile_licenses_experience.py
+
+  # ===== Нефункциональные требования =====
+  - id: NFR-COST-1
+    type: NFR
+    title: Стоимость глубокого анализа
+    stakeholder: Product Owner
+    stage: "5, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_service/scoring_service/settings.py
+      - src/analysis_service/analysis_service/settings.py
+    tests:
+      - src/scoring_service/tests/test_settings.py
+    covered_by: FR-4.1
+  - id: NFR-COST-2
+    type: NFR
+    title: Экономия на повторном парсинге
+    stakeholder: Product Owner
+    stage: "4"
+    status: partial
+    adr: ADR-1
+    code:
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py
+    tests:
+      - tests/unit/test_total_results.py
+    covered_by: BR-01
+  - id: NFR-COST-3
+    type: NFR
+    title: Лимиты токенов (RAG)
+    stakeholder: Product Owner
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/rag.py
+      - src/analysis_service/analysis_service/settings.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+    covered_by: FR-4.1
+  - id: NFR-COST-4
+    type: NFR
+    title: Стоимость на запись (cost per record)
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: partial
+    adr: "-"
+    code:
+      - src/scoring_service/scoring_service/debug_csv.py
+    tests:
+      - src/scoring_service/tests/test_debug_csv.py
+    covered_by: FR-7.1
+
+  - id: NFR-PERF-1
+    type: NFR
+    title: Отклик API (UI)
+    stakeholder: DevOps / SRE, Тендеролог (user)
+    stage: "0"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py
+    tests:
+      - tests/integration/test_api.py
+    covered_by: FR-2.6
+  - id: NFR-PERF-2
+    type: NFR
+    title: Асинхронность тяжёлых задач
+    stakeholder: DevOps / SRE, Тендеролог (user)
+    stage: "4"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py#analyze_procurements
+      - src/scoring_transport/scoring_transport/broker/redis_queue.py
+    tests:
+      - tests/integration/test_multiclient.py
+    covered_by: FR-4.1
+  - id: NFR-PERF-3
+    type: NFR
+    title: Горизонтальное масштабирование
+    stakeholder: DevOps / SRE
+    stage: "4C, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/stage_worker.py
+    tests:
+      - src/scoring_transport/tests/test_queue.py
+    covered_by: FR-7.3
+
+  - id: NFR-SEC-1
+    type: NFR
+    title: Изоляция данных (multi-tenancy)
+    stakeholder: Юрист, Тендеролог (user)
+    stage: "1"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+    tests:
+      - tests/integration/test_multiclient.py
+    covered_by: BR-07
+  - id: NFR-SEC-2
+    type: NFR
+    title: Управление секретами
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/config/loader/
+      - src/zakupki_parser/api/app/routes/config.py
+    tests:
+      - tests/unit/test_config.py
+      - tests/unit/test_cli.py
+    covered_by: FR-10.8
+  - id: NFR-SEC-3
+    type: NFR
+    title: Защита ПДн (152-ФЗ)
+    stakeholder: Security / DPO
+    stage: "9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: NFR-SEC-4
+    type: NFR
+    title: Юридический дисклеймер
+    stakeholder: Юрист / Compliance
+    stage: "8, 9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: NFR-SEC-5
+    type: NFR
+    title: Соблюдение правил ЭТП
+    stakeholder: Юрист / Compliance
+    stage: "9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+
+  - id: NFR-REL-1
+    type: NFR
+    title: Доступность (uptime)
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/scheduler.py
+    tests:
+      - tests/unit/test_scheduler_recovery.py
+  - id: NFR-REL-2
+    type: NFR
+    title: Обработка сбоев (anti-fragile)
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/retry.py
+      - src/zakupki_parser/circuit.py
+    tests:
+      - tests/unit/test_retry.py
+      - tests/unit/test_circuit.py
+    covered_by: BR-06
+
+  - id: NFR-OBS-1
+    type: NFR
+    title: Трейсинг LLM (LangFuse)
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/langfuse.py
+      - src/scoring_service/scoring_service/settings.py
+    tests:
+      - src/scoring_common/tests/test_langfuse.py
+      - src/scoring_service/tests/test_metrics.py
+    covered_by: FR-7.1
+  - id: NFR-OBS-2
+    type: NFR
+    title: Аудит действий (audit_log)
+    stakeholder: DevOps / SRE
+    stage: "6, 9"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+  - id: NFR-OBS-3
+    type: NFR
+    title: Полнота и ротация логов сервисов
+    stakeholder: DevOps / SRE
+    stage: "8, 10"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/logs.py
+      - src/zakupki_parser/logging_conf.py
+    tests:
+      - tests/integration/test_logs_api.py
+      - tests/unit/test_logging.py
+    covered_by: FR-10.5
+  - id: NFR-OBS-4
+    type: NFR
+    title: Аудит админ-действий и история конфигураций
+    stakeholder: DevOps / SRE, Security / DPO
+    stage: "6, 9"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/config.py
+    tests:
+      - tests/integration/test_config_ops_api.py
+
+  - id: NFR-FT-1
+    type: NFR
+    title: Сохранность задач при падении воркера
+    stakeholder: DevOps / SRE
+    stage: "1, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/stage_worker.py
+      - src/scoring_transport/scoring_transport/broker/redis_queue.py
+    tests:
+      - tests/unit/test_scheduler_recovery.py
+      - src/scoring_transport/tests/test_queue.py
+  - id: NFR-FT-2
+    type: NFR
+    title: Graceful degradation при сбое LLM
+    stakeholder: DevOps / SRE
+    stage: "5"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/analysis_service/analysis_service/pipeline/rag.py
+      - src/scoring_service/scoring_service/worker.py
+    tests:
+      - src/analysis_service/tests/test_rag.py
+      - src/scoring_service/tests/test_worker.py
+    covered_by: FR-4.2
+  - id: NFR-FT-3
+    type: NFR
+    title: Circuit breaker
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: implemented
+    adr: ADR-7
+    code:
+      - src/zakupki_parser/circuit.py
+    tests:
+      - tests/unit/test_circuit.py
+    covered_by: BR-06
+  - id: NFR-FT-4
+    type: NFR
+    title: Автовосстановление (self-healing)
+    stakeholder: DevOps / SRE
+    stage: "10"
+    status: partial
+    adr: "-"
+    code:
+      - src/zakupki_parser/scheduler.py
+    tests:
+      - tests/unit/test_scheduler_recovery.py
+  - id: NFR-FT-5
+    type: NFR
+    title: Идемпотентность обработки
+    stakeholder: DevOps / SRE
+    stage: "1, 10"
+    status: partial
+    adr: ADR-7
+    code:
+      - src/scoring_common/scoring_common/queue.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+    tests:
+      - src/scoring_transport/tests/test_queue.py
+
+exclusions:
+  code_paths: []
+  test_files: []
