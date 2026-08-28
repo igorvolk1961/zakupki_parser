@@ -307,8 +307,11 @@ trap cleanup EXIT INT TERM
 # По умолчанию поднимается; отключить: SKIP_LANGFUSE=1 scripts/run_all.sh
 if [[ "${SKIP_LANGFUSE:-0}" != "1" ]]; then
     echo "Запуск LangFuse (docker, профиль langfuse)..."
+    # ВАЖНО: поднимаем и langfuse-web, и langfuse-worker. В Langfuse v4 именно
+    # worker обрабатывает события инжеста в ClickHouse; без него трейсы принимаются,
+    # но не появляются в панели (пустой список трасс).
     ( cd "$ROOT_DIR" && COMPOSE_PROFILES=langfuse \
-        docker compose -f docker/docker-compose.yml up -d langfuse-web ) || \
+        docker compose -f docker/docker-compose.yml up -d langfuse-web langfuse-worker ) || \
         echo "Внимание: LangFuse не поднялся — проверьте docker/.env." >&2
     # Compose ждёт только healthcheck зависимостей; langfuse-db может долго
     # восстанавливаться после нештатной остановки — дожидаемся реальной готовности UI.

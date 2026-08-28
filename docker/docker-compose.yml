@@ -42,6 +42,14 @@ services:
 
   # --- Self-hosted LangFuse (v3) для трассировки LLM-вызовов scoring_service ---
   # UI: http://localhost:3000 (логин/пароль админа — из LANG_ADMIN_PASSWORD в docker/.env)
+  #
+  # ПРИМЕЧАНИЕ про warning «Redis ... a password was supplied» в логах langfuse-web /
+  # langfuse-worker: это известная косметическая особенность образов langfuse:4 —
+  # клиент всё равно отправляет AUTH с внутренним дефолтным паролем, который env
+  # REDIS_PASSWORD не переопределяет. Warning безвреден (инжест трейсов работает),
+  # redis запущен без requirepass, поэтому НЕ надо добавлять --requirepass: это
+  # сломало бы подключение langfuse (WRONGPASS). Игнорировать.
+
   langfuse-db:
     image: postgres:16-alpine
     profiles: ["langfuse"]
