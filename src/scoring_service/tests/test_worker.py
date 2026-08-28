@@ -39,6 +39,24 @@ class _MissingParser:
         raise httpx.HTTPStatusError("Not found", request=resp.request, response=resp)
 
 
+# Структурированный профиль активного клиента (схема Profile, BR-07) — то, что
+# отдаёт парсер в ``/api/clients/active``. Свободный текст/legacy-markdown здесь не
+# подходит: ``profile_to_texts`` принимает только структурированное значение.
+_PROFILE: dict[str, Any] = {
+    "name": "Тестовый Поставщик",
+    "positioning": "Разработка и внедрение ИИ-решений",
+    "breadth": "broad",
+    "competencies": [
+        {
+            "area": "Разработка ИИ",
+            "description": "проектирование и внедрение моделей",
+            "examples": [],
+        }
+    ],
+    "exclusions": [],
+}
+
+
 class _OkParser:
     """Имитация парсера, отдающего закупку (дальше скоринг)."""
 
@@ -48,7 +66,9 @@ class _OkParser:
     async def get_active_client(
         self, internal_token: str | None = None, profile_id: int | None = None
     ) -> dict:
-        return {"competencies": "test competencies"}
+        # Структурированный профиль (схема Profile, BR-07): profile_to_texts принимает
+        # только структурированное значение, свободный текст/legacy-markdown не поддерживается.
+        return {"competencies": _PROFILE}
 
     async def get_scoring_config(self, internal_token: str | None = None) -> dict:
         # Без аналитических переопределений: scorer собирается из базовых настроек.
