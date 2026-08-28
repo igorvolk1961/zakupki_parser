@@ -21,6 +21,13 @@ const PROC_PAGE_SIZE = 100;
 let procPage = 1;
 let procTotal = 0;
 
+// Состояние анализа ТЗ: id закупок, для которых сейчас выполняется анализ.
+// Кнопка «Анализ ТЗ» блокируется до получения результата (см. pollProc).
+const analyzingIds = new Set();
+// id открытой карточки (модалки) и сигнатура её rag_report для автообновления.
+let openDetailId = null;
+let lastDetailSig = "";
+
 function updateMinFit() {
   $("#min-fit-wrap").style.display = $("#proc-relevant").checked ? "inline" : "none";
 }
@@ -166,6 +173,9 @@ async function pollProc() {
       renderProc();
       renderPager();
     }
+    // Открытая карточка могла получить результат анализа ТЗ (rag_report), даже если
+    // сигнатура списка не изменилась — обновляем её независимо от списка.
+    await refreshOpenDetail();
   } catch (err) {
     /* временные сбои игнорируем — попробуем на следующем тике */
   }
@@ -173,6 +183,17 @@ async function pollProc() {
 
 async function openDetail(id) {
   const row = await api("procurements/" + id);
+  openDetailId = id;
+  lastDetailSig = detailSig(row);
+  renderModal(row);
+}
+
+// Сигнатура RAG-отчёта карточки — сравнение для автообновления модалки.
+function detailSig(row) {
+  return JSON.stringify(row.rag_report || null);
+}
+
+function renderModal(row) {
   const f = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
   const files =
     (row.files_json || [])
@@ -181,6 +202,7 @@ async function openDetail(id) {
           `<div><a href="${escapeHtml(x.url)}" target="_blank" rel="noopener">${escapeHtml(x.name)}</a></div>`
       )
       .join("") || "–";
+  const isAnalyzing = analyzingIds.has(row.id);
   $("#modal").innerHTML = `
     <span class="close" onclick="closeModal()">×</span>
     <h2>${escapeHtml(row.number)}</h2>
@@ -207,11 +229,29 @@ async function openDetail(id) {
     ${ragReportHtml(row.rag_report)}
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
-      <button class="primary" onclick="analyzeProc(${row.id})">Анализ ТЗ</button>
+      <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id})">${isAnalyzing ? "Анализ…" : "Анализ ТЗ"}</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
       ${row.langfuse_trace_url && hasRole("analyst") ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
     </div>`;
   $("#modal-bg").classList.add("open");
+}
+
+// Автообновление открытой карточки при изменении данных БД (WS): подтягивает
+// результат анализа ТЗ (rag_report) из базы и перерисовывает модалку — кнопка
+// «Анализ ТЗ» при этом восстанавливается из состояния «Анализ…».
+async function refreshOpenDetail() {
+  if (openDetailId === null) return;
+  try {
+    const row = await api("procurements/" + openDetailId);
+    if (detailSig(row) !== lastDetailSig) {
+      lastDetailSig = detailSig(row);
+      // Результат получен — анализ завершён: снимаем блокировку кнопки.
+      if (row.rag_report) analyzingIds.delete(openDetailId);
+      renderModal(row);
+    }
+  } catch (err) {
+    /* временный сбой — попробуем на следующем тике */
+  }
 }
 
 // Просмотр текста ТЗ (в т.ч. из архива): открывает извлечённый Markdown в модалке.
@@ -264,7 +304,11 @@ async function closeTz(id) {
 
 // RAG-отчёт анализа стоп-условий (обязательные проверки + вопросы клиента).
 function ragReportHtml(report) {
-  if (!report) return "";
+  if (!report) {
+    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
+      <p class="muted">Анализ не выполнялся. Нажмите «Анализ ТЗ», чтобы получить
+      вердикты по стоп-условиям и вопросам профиля.</p>`;
+  }
   const verdictBadge = (q) => {
     const v = q.verdict;
     const cls = v === "absolute" ? "active" : v === "soft" ? "" : "";
@@ -340,26 +384,60 @@ function viewTrace(id) {
   if (url) window.open(url, "_blank", "noopener");
 }
 
+// Переключить кнопку «Анализ ТЗ» в состояние «выполняется»/«готово».
+function setAnalyzeBtn(id, analyzing) {
+  const btn = document.getElementById("analyze-btn-" + id);
+  if (!btn) return;
+  btn.disabled = analyzing;
+  btn.textContent = analyzing ? "Анализ…" : "Анализ ТЗ";
+}
+
 async function analyzeProc(id) {
-  const r = await apiJSON("/api/procurements/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ procurement_ids: [id] }),
-  });
-  $("#parser-status").textContent = r.ok
-    ? `Закупка #${id}: поставлен RAG-анализ ТЗ…`
-    : "не удалось поставить анализ (транспорт не настроен?)";
+  analyzingIds.add(id);
+  setAnalyzeBtn(id, true);
+  $("#parser-status").textContent = `Закупка #${id}: анализ ТЗ поставлен в очередь…`;
+  let ok = false;
+  try {
+    const r = await apiJSON("/api/procurements/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ procurement_ids: [id] }),
+    });
+    ok = r.ok;
+    $("#parser-status").textContent = ok
+      ? `Закупка #${id}: анализ ТЗ запущен, жду результат…`
+      : "не удалось поставить анализ ТЗ (транспорт не настроен?)";
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось запустить анализ ТЗ: " + (err.message || err);
+  }
+  if (!ok) {
+    analyzingIds.delete(id);
+    setAnalyzeBtn(id, false);
+    return;
+  }
+  // Страховка: анализ обычно занимает секунды; через 3 минуты снимаем блокировку,
+  // если результат так и не пришёл (воркер недоступен / очередь зависла).
+  setTimeout(() => {
+    if (analyzingIds.has(id)) {
+      analyzingIds.delete(id);
+      setAnalyzeBtn(id, false);
+    }
+  }, 180000);
 }
 
 async function pwinProc(id) {
-  const r = await apiJSON("/api/procurements/pwin-margin", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ procurement_ids: [id] }),
-  });
-  $("#parser-status").textContent = r.ok
-    ? `Закупка #${id}: поставлена оценка P(win)/Margin…`
-    : "не удалось поставить P(win)/Margin";
+  try {
+    const r = await apiJSON("/api/procurements/pwin-margin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ procurement_ids: [id] }),
+    });
+    $("#parser-status").textContent = r.ok
+      ? `Закупка #${id}: поставлена оценка P(win)/Margin…`
+      : "не удалось поставить P(win)/Margin";
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось поставить P(win)/Margin: " + (err.message || err);
+  }
 }
 
 function updateSelUi() {
@@ -427,14 +505,19 @@ $("#sel-all").addEventListener("change", (e) => {
 });
 $("#batch-analyze").addEventListener("click", async () => {
   const ids = [...selected];
-  const r = await apiJSON("/api/procurements/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ procurement_ids: ids }),
-  });
-  $("#parser-status").textContent = r.ok
-    ? `Поставлен RAG-анализ для ${ids.length} закупок…`
-    : "не удалось поставить анализ (транспорт не настроен?)";
+  $("#parser-status").textContent = `Ставлю RAG-анализ для ${ids.length} закупок…`;
+  try {
+    const r = await apiJSON("/api/procurements/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ procurement_ids: ids }),
+    });
+    $("#parser-status").textContent = r.ok
+      ? `Поставлен RAG-анализ для ${ids.length} закупок…`
+      : "не удалось поставить анализ (транспорт не настроен?)";
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось поставить анализ: " + (err.message || err);
+  }
 });
 $("#batch-pwin-margin").addEventListener("click", async () => {
   const ids = [...selected];
