@@ -12,7 +12,7 @@
 #   7. scoring_transport — gateway скоринга (ingest + возврат результата);
 #
 # Каждый сервис пишет в собственный файл лога (data/logs/<сервис>.log);
-# парсер пишет в data/parser.log (config_log.yaml).
+# парсер пишет в data/logs/parser.log (config_log.yaml).
 #
 # Парсер запускается отдельной командой (не внутри этого скрипта):
 #   uv run zp --configs configs serve --host 0.0.0.0 --port <PORT_PARSER>

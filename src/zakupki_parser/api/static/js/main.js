@@ -32,7 +32,7 @@ import {
   parserDirty,
 } from "./ops_config.js";
 import { loadUsers, closeUserModal } from "./users.js";
-import { loadLogs } from "./logs.js";
+import { loadLogs, loadLogFiles } from "./logs.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
 import { loadRefTables, refDirty } from "./reference.js";
@@ -62,7 +62,11 @@ const TAB_LOADERS = {
   logcfg: () => {
     if (!logDirty) loadLogConfig();
   },
-  logs: loadLogs,
+  logs: () => {
+    // Сначала загружаем список файлов логов, затем хвост выбранного
+    // (loadLogFiles сам вызывает loadLogs после заполнения селектора).
+    loadLogFiles();
+  },
   parser: () => {
     if (!parserDirty) loadParserConfig();
   },

@@ -2,7 +2,8 @@
 level: "INFO"
 format: "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
 # Путь к файлу лога (относительно корня проекта). Если null — лог только в консоль.
-file: "data/parser.log"
+# Все логи приложения лежат в общем каталоге data/logs (см. вкладку «Логи»).
+file: "data/logs/parser.log"
 file_level: "DEBUG"
 console: true
 # Очищать ли файл лога при старте сервиса:

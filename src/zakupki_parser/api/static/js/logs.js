@@ -7,6 +7,37 @@ import { api } from "./api.js";
 
 let logsTimer = null;
 
+// Выбранный файл лога (сохраняется между сессиями). Пустой — основной лог парсера.
+const LOG_FILE_KEY = "zp_logs_file";
+
+// Загружает список доступных файлов логов (парсер + фоновые сервисы) в селектор.
+async function loadLogFiles() {
+  const sel = $("#logs-file");
+  if (!sel) return;
+  let data;
+  try {
+    data = await api("logs/files");
+  } catch {
+    return;
+  }
+  const saved = localStorage.getItem(LOG_FILE_KEY) || "";
+  sel.innerHTML = "";
+  (data.files || []).forEach((f) => {
+    const o = document.createElement("option");
+    o.value = f.rel;
+    o.textContent = f.label;
+    sel.appendChild(o);
+  });
+  if (!sel.options.length) {
+    sel.innerHTML = '<option value="">— нет файлов —</option>';
+    return;
+  }
+  // Предпочитаем сохранённый выбор, иначе первый файл (основной лог).
+  const savedOption = Array.from(sel.options).find((o) => o.value === saved);
+  sel.value = savedOption ? saved : sel.options[0].value;
+  loadLogs();
+}
+
 function logLevel(line) {
   const head = line.slice(0, 40);
   if (/\b(ERROR|CRITICAL)\b/.test(head)) return "error";
@@ -28,6 +59,8 @@ async function loadLogs() {
       level: $("#logs-level").value,
       q: $("#logs-q").value.trim() || undefined,
     };
+    const fileSel = $("#logs-file");
+    if (fileSel && fileSel.value) params.file = fileSel.value;
     const fromVal = $("#logs-from").value;
     const toVal = $("#logs-to").value;
     // Значение datetime-local уже локальное («YYYY-MM-DDTHH:MM[:SS]»). Отправляем
@@ -95,7 +128,7 @@ function setupAutoRefresh() {
   }
 }
 
-export { loadLogs };
+export { loadLogs, loadLogFiles };
 
 // Восстанавливаем сохранённый интервал между сессиями.
 const savedInterval = Number.parseInt(localStorage.getItem(AUTO_KEY) || "", 10);
@@ -104,6 +137,10 @@ if (Number.isFinite(savedInterval) && savedInterval >= 1) {
 }
 
 $("#logs-refresh").addEventListener("click", loadLogs);
+$("#logs-file").addEventListener("change", () => {
+  localStorage.setItem(LOG_FILE_KEY, $("#logs-file").value);
+  loadLogs();
+});
 $("#logs-auto").addEventListener("change", setupAutoRefresh);
 // Изменение интервала: сохраняем и перезапускаем таймер с новым значением.
 $("#logs-interval").addEventListener("change", () => {

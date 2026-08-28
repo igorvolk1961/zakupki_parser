@@ -15,7 +15,7 @@ import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -33,6 +33,52 @@ _MAX_LINES = 2000
 # строк лога интерпретируем как локальные, чтобы корректно сравнивать с
 # фильтрами дат (браузер присылает ISO-строки с часовым поясом).
 _LOCAL_TZ = datetime.now().astimezone().tzinfo
+
+# Относительные пути логов, доступных к просмотру (относительно корня проекта):
+# основной лог парсера (config_log.yaml -> file) и файлы фоновых сервисов
+# (data/logs/*.log). Список строится динамически (см. _list_log_files).
+_LOG_DIR_REL = "data/logs"
+
+
+def _log_root(state: Any) -> Path:
+    """Корень проекта: resolved-каталог конфигов + «вверх» (configs/..)."""
+    return Path(state.cfg.configs_dir).resolve().parent
+
+
+def _rel_to_root(root: Path, path: Path) -> str | None:
+    """Относительный путь от корня (или None, если файл вне корня)."""
+    try:
+        return path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return None
+
+
+def _list_log_files(state: Any) -> list[dict[str, str]]:
+    """Доступные файлы логов: основной лог парсера + все data/logs/*.log.
+
+    Возвращает относительные пути (``rel``) — их принимает ``/api/logs/tail``,
+    и человекочитаемые метки (``label``) для селектора во вкладке «Логи».
+    """
+    root = _log_root(state)
+    seen: set[str] = set()
+    files: list[dict[str, str]] = []
+
+    def add(path: Path) -> None:
+        rel = _rel_to_root(root, path)
+        if rel is None or rel in seen:
+            return
+        seen.add(rel)
+        files.append({"rel": rel, "label": path.name, "path": str(path)})
+
+    main_file = state.cfg.logging.file
+    if main_file:
+        add(Path(main_file).resolve())
+    logs_dir = root / _LOG_DIR_REL
+    if logs_dir.is_dir():
+        for p in sorted(logs_dir.iterdir(), key=lambda x: x.name):
+            if p.suffix == ".log" and p.is_file():
+                add(p)
+    return files
 
 
 def _parse_ts(line: str) -> datetime | None:
@@ -91,6 +137,16 @@ def build_logs_router(ctx: ApiContext) -> APIRouter:
     require_devops = ctx.require_devops
 
     @router.get(
+        "/api/logs/files",
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def logs_files() -> dict[str, object]:
+        """Список файлов логов для селектора во вкладке «Логи» (devops)."""
+        files = _list_log_files(state)
+        return {"files": files, "root": str(_log_root(state))}
+
+    @router.get(
         "/api/logs/tail",
         include_in_schema=False,
         dependencies=[Depends(require_devops)],
@@ -101,22 +157,30 @@ def build_logs_router(ctx: ApiContext) -> APIRouter:
         to: str | None = Query(default=None),
         level: Literal["all", "error", "warning"] = Query(default="all"),
         q: str | None = Query(default=None),
+        file: str | None = Query(default=None),
     ) -> dict[str, object]:
-        """Хвост лога с фильтрами (уровень, поиск, диапазон дат)."""
-        raw_path = state.cfg.logging.file
-        if raw_path is None:
-            return {
-                "path": None,
-                "file_exists": False,
-                "lines": [],
-                "count": 0,
-                "truncated": False,
-            }
-        path = Path(raw_path).resolve()
+        """Хвост лога с фильтрами (уровень, поиск, диапазон дат).
+
+        ``file`` — относительный путь (из ``/api/logs/files``) к файлу лога;
+        без него берётся основной лог (``config_log.yaml -> file``).
+        """
+        root = Path(state.cfg.configs_dir).resolve().parent
+        if file:
+            path = (root / file).resolve()
+        else:
+            raw_path = state.cfg.logging.file
+            if raw_path is None:
+                return {
+                    "path": None,
+                    "file_exists": False,
+                    "lines": [],
+                    "count": 0,
+                    "truncated": False,
+                }
+            path = Path(raw_path).resolve()
         # Файл лога читается только внутри корня проекта. Корень — resolved-каталог
         # конфигов (cfg.configs_dir), а не сырой аргумент: последний может быть
         # относительным и зависеть от рабочей директории процесса.
-        root = Path(state.cfg.configs_dir).resolve().parent
         if not path.is_relative_to(root):
             raise HTTPException(status_code=403, detail="Путь файла лога вне корня проекта")
         if not path.is_file():
