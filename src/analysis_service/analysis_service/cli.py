@@ -14,7 +14,11 @@ import logging
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from analysis_service.settings import Settings, get_settings
+
+_SERVICE_DIR = Path(__file__).resolve().parents[1]
 
 
 def _logging_setup() -> None:
@@ -60,6 +64,10 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Загружаем .env сервиса в окружение: pydantic-settings читает свои поля сам,
+    # а os.environ-читатели (scoring_common.langfuse — LANGFUSE_*) получают ключи
+    # и при прямом запуске (вне run_all.sh).
+    load_dotenv(_SERVICE_DIR / ".env")
     parser = argparse.ArgumentParser(prog="analysis_service")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("worker", help="фоновый воркер очереди")
