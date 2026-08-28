@@ -463,6 +463,7 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "embedding_filter_threshold",
                     ),
                 ),
+                ("Логирование", ("logging",)),
             ),
         ),
         _ServiceConfig(
@@ -506,6 +507,7 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "tz_verify_ssl",
                     ),
                 ),
+                ("Логирование", ("logging",)),
             ),
         ),
         _ServiceConfig(
@@ -549,6 +551,7 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                     ),
                 ),
                 ("Маркеры ИИ-закупки", ("ai_markers",)),
+                ("Логирование", ("logging",)),
             ),
         ),
         _ServiceConfig(
@@ -574,6 +577,7 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                     ),
                 ),
                 ("Пайплайн", ("margin_rate", "score_round_digits")),
+                ("Логирование", ("logging",)),
             ),
         ),
     )

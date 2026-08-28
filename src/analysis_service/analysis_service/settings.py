@@ -21,6 +21,7 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import YamlConfigSource
+from scoring_common.logging import LoggingSettings
 
 # Собственный каталог сервиса: src/analysis_service/analysis_service/settings.py -> parents[1].
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
@@ -38,7 +39,10 @@ class Settings(BaseSettings):
     """Конфигурация сервиса RAG-анализа."""
 
     model_config = SettingsConfigDict(
-        env_prefix="ANALYSIS_", env_file=_SERVICE_DIR / ".env", extra="ignore"
+        env_prefix="ANALYSIS_",
+        env_file=_SERVICE_DIR / ".env",
+        extra="ignore",
+        env_nested_delimiter="__",
     )
 
     # LLM (OpenAI-совместимый) для верификации стоп-условий в найденных чанках.
@@ -80,6 +84,9 @@ class Settings(BaseSettings):
     # (VPN/корп. прокси) отдают самоподписанный промежуточный сертификат, которому
     # httpx не доверяет — поэтому по умолчанию выключено (см. scoring_service.tz_verify_ssl).
     tz_verify_ssl: bool = False
+
+    # Логирование (собственный блок config.yaml; env — ANALYSIS_LOGGING__LEVEL и т.п.).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @classmethod
     def settings_customise_sources(

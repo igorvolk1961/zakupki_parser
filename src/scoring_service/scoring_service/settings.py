@@ -25,6 +25,7 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import YamlConfigSource
+from scoring_common.logging import LoggingSettings
 from scoring_service.profile import (
     Profile,
     ProfileTexts,
@@ -37,7 +38,9 @@ from scoring_service.profile import (
 class Settings(BaseSettings):
     """Конфигурация сервиса скоринга закупок."""
 
-    model_config = SettingsConfigDict(env_prefix="SCORE_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="SCORE_", env_file=".env", extra="ignore", env_nested_delimiter="__"
+    )
 
     # LLM (OpenAI-совместимый)
     llm_base_url: str = "https://api.openai.com/v1"
@@ -135,6 +138,9 @@ class Settings(BaseSettings):
     # embedding_similarity < порога, LLM-пайплайн не выполняется, возвращается
     # fit_score=0 и score_method=sim. Значение <= 0 отключает фильтрацию.
     embedding_filter_threshold: float = 0.66
+
+    # Логирование (собственный блок config.yaml; env — SCORE_LOGGING__LEVEL и т.п.).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @property
     def giga_configured(self) -> bool:

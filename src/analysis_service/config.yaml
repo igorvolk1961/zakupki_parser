@@ -34,3 +34,14 @@ tz_download_timeout: 30.0
 # Проверять SSL-сертификат при скачивании файла ТЗ. Площадки за TLS-перехватом
 # отдают самоподписанный промежуточный сертификат — для локальной разработки отключено.
 tz_verify_ssl: false
+
+# Логирование (собственный блок; сервис в изолированном контейнере управляет
+# своим логом). file: null — логи в консоль/stdout (их собирает оркестратор);
+# для файла с ротацией укажите путь (например, data/logs/analysis_service.log).
+logging:
+  level: INFO
+  format: "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
+  file: null
+  file_level: DEBUG
+  console: true
+  truncate_on_start: false

@@ -103,3 +103,14 @@ langfuse_host:
 # Авторизация HTTP-эндпоинтов (обязательна для `serve`): задаётся через env
 # SCORE_AUTH_TOKEN — без токена сервис не стартует.
 auth_token:
+
+# Логирование (собственный блок; сервис в изолированном контейнере управляет
+# своим логом). file: null — логи в консоль/stdout (их собирает оркестратор);
+# для файла с ротацией укажите путь (например, data/logs/scoring_service.log).
+logging:
+  level: INFO
+  format: "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
+  file: null
+  file_level: DEBUG
+  console: true
+  truncate_on_start: false

@@ -13,20 +13,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import logging
 import sys
 import uuid
 from pathlib import Path
 
+from scoring_common.logging import setup_logging
 from scoring_service.profile import ProfileTexts
 from scoring_service.settings import Settings, get_settings
-
-
-def _logging_setup() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
 
 
 def _profile_texts(path: Path | None, settings: Settings) -> ProfileTexts:
@@ -223,9 +216,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    _logging_setup()
-    args = build_parser().parse_args(argv)
     settings = get_settings()
+    setup_logging(settings.logging)
+    args = build_parser().parse_args(argv)
 
     if args.command == "worker":
         return asyncio.run(_cmd_worker(settings))

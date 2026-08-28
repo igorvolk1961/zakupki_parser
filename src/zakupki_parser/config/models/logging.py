@@ -1,19 +1,13 @@
-"""Модель конфигурации логирования (config_log.yaml)."""
+"""Модель конфигурации логирования (config_log.yaml).
+
+Переиспользует общую схему ``scoring_common.logging.LoggingSettings``, чтобы
+управление логами парсера и фоновых сервисов было единообразным.
+"""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from scoring_common.logging import LoggingSettings
 
 
-class LoggingConfig(BaseModel):
+class LoggingConfig(LoggingSettings):
     """Конфигурация логирования."""
-
-    level: str = Field(default="INFO")
-    format: str = Field(default="%(asctime)s %(levelname)-8s [%(name)s] %(message)s")
-    file: str | None = Field(default=None, description="путь к файлу лога")
-    file_level: str = Field(default="DEBUG")
-    console: bool = Field(default=True)
-    truncate_on_start: bool = Field(
-        default=False,
-        description="очищать файл лога при старте сервиса (True) или дописывать (False)",
-    )

@@ -10,22 +10,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import logging
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from analysis_service.settings import Settings, get_settings
+from scoring_common.logging import setup_logging
 
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
-
-
-def _logging_setup() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
 
 
 async def _cmd_worker(settings: Settings) -> int:
@@ -75,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     analyze.add_argument("card", type=Path, help="путь к JSON-карточке закупки")
     args = parser.parse_args(argv)
 
-    _logging_setup()
     settings = get_settings()
+    setup_logging(settings.logging)
     if args.command == "worker":
         return asyncio.run(_cmd_worker(settings))
     return asyncio.run(_cmd_analyze(settings, args.card))

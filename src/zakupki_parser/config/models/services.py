@@ -16,6 +16,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from scoring_common.logging import LoggingSettings
 from zakupki_parser.config.models.ops.base import _BaseConfig
 
 
@@ -120,6 +121,9 @@ class ScoringServiceConfig(_BaseConfig):
         default=300.0, gt=0, description="Дедлайн на оценку одной закупки (сек)"
     )
 
+    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")
+
 
 class AnalysisServiceConfig(_BaseConfig):
     """Несекретная конфигурация analysis_service (src/analysis_service/config.yaml)."""
@@ -172,6 +176,9 @@ class AnalysisServiceConfig(_BaseConfig):
     )
     tz_verify_ssl: bool = Field(default=False, description="Проверять SSL при скачивании файла ТЗ")
 
+    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")
+
 
 class MarginServiceConfig(_BaseConfig):
     """Несекретная конфигурация margin_service (src/margin_service/config.yaml)."""
@@ -197,6 +204,9 @@ class MarginServiceConfig(_BaseConfig):
         default=1.0, ge=0, description="Норма прибыли: Margin = НМЦК × margin_rate"
     )
     score_round_digits: int = Field(default=2, ge=0, description="Округление score")
+
+    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")
 
 
 class PwinServiceConfig(_BaseConfig):
@@ -247,3 +257,6 @@ class PwinServiceConfig(_BaseConfig):
     max_pwin_cap: float = Field(
         default=0.95, ge=0, le=1, description="Кап P(win) — защита от переоценки"
     )
+
+    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")

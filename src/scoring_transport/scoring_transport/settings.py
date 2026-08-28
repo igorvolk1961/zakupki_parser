@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from scoring_common.logging import LoggingSettings
 
 # Собственный каталог сервиса: src/scoring_transport/scoring_transport/settings.py -> parents[1].
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
@@ -19,7 +22,10 @@ class Settings(BaseSettings):
     """Конфигурация транспорта скоринга."""
 
     model_config = SettingsConfigDict(
-        env_prefix="TRANSPORT_", env_file=_SERVICE_DIR / ".env", extra="ignore"
+        env_prefix="TRANSPORT_",
+        env_file=_SERVICE_DIR / ".env",
+        extra="ignore",
+        env_nested_delimiter="__",
     )
 
     # Redis-очередь (та же, что у scoring_service/pwin/margin сервисов)
@@ -50,6 +56,10 @@ class Settings(BaseSettings):
 
     # Опциональная авторизация HTTP-эндпоинтов (None = выключено, dev)
     auth_token: str | None = None
+
+    # Логирование (env — TRANSPORT_LOGGING__LEVEL и т.п.; файл не настраивается —
+    # у транспорта нет собственного config.yaml, в контейнере логи идут в stdout).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
 
 def get_settings() -> Settings:

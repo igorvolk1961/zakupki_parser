@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+from pydantic import ValidationError
+
+from zakupki_parser.config.models import LoggingConfig
 from zakupki_parser.logging_conf import _NameRewriteFilter, _ScrubbingFormatter
 
 _FORMAT = "%(message)s"
@@ -87,3 +91,11 @@ def test_multiple_tokens_in_one_line_redacted() -> None:
     assert "one" not in text
     assert "two" not in text
     assert text.count("token=***") == 2
+
+
+def test_log_file_path_must_be_relative() -> None:
+    """Путь файла лога — только относительный (без выхода за корень проекта)."""
+    for bad in ("/abs/path.log", "../escape.log", "data/../../x.log"):
+        with pytest.raises(ValidationError):
+            LoggingConfig(file=bad)
+    assert LoggingConfig(file="data/logs/parser.log").file == "data/logs/parser.log"
