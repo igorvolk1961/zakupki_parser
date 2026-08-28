@@ -29,21 +29,16 @@ async def _cmd_worker(settings: Settings) -> int:
 
 
 async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
+    from analysis_service.embedder import build_embedder
     from analysis_service.llm import LlmClient
     from analysis_service.pipeline.rag import RagAnalyzer
-    from scoring_common.embeddings import EmbeddingClient
 
     record = json.loads(card_path.read_text(encoding="utf-8"))
     # Пользовательские вопросы не передаём: обязательные проверки (опыт 2571,
     # реестр Минпромторга, лицензии/СРО) выполняются автоматически.
     questions: list[dict[str, str]] = []
     profile_facts: dict[str, list[str]] = {"license_codes": [], "experience_codes": []}
-    embedder = EmbeddingClient(
-        base_url=settings.embedding_base_url,
-        model=settings.embedding_model,
-        api_key=settings.embedding_api_key,
-        timeout=settings.embedding_timeout,
-    )
+    embedder = build_embedder(settings)
     llm = LlmClient(
         base_url=settings.llm_base_url,
         model=settings.llm_model,

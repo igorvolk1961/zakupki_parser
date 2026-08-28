@@ -21,6 +21,14 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import YamlConfigSource
+from scoring_common.giga import (
+    GIGA_AUTH_SCOPE,
+    GIGA_AUTH_URL,
+    GIGA_BASE_URL,
+    GIGA_DEFAULT_MIN_TOKEN_TTL_SECONDS,
+    GIGA_DEFAULT_TIMEOUT_SECONDS,
+    GIGA_EMBEDDINGS_MODEL,
+)
 from scoring_common.logging import LoggingSettings
 
 # Собственный каталог сервиса: src/analysis_service/analysis_service/settings.py -> parents[1].
@@ -52,7 +60,25 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_request_timeout: float = 45.0
 
-    # Эмбеддинги (OpenAI-совместимый endpoint /embeddings; Giga через gpt2giga).
+    # Эмбеддинги: прямой Giga Embedder (модель EmbeddingsGigaR, автообновление
+    # OAuth-токена) — те же модель и ключи доступа, что и у scoring_service.
+    # Если ключ доступа не задан — фолбэк на OpenAI-совместимый endpoint /embeddings
+    # (embedding_base_url, Giga через gpt2giga-прокси).
+    giga_enabled: bool = True
+    giga_base_url: str = GIGA_BASE_URL
+    giga_embeddings_model: str = GIGA_EMBEDDINGS_MODEL
+    giga_auth_url: str = GIGA_AUTH_URL
+    giga_client_id: str = ""
+    giga_client_secret: str = ""
+    giga_auth_scope: str = GIGA_AUTH_SCOPE
+    giga_timeout_seconds: float = GIGA_DEFAULT_TIMEOUT_SECONDS
+    giga_min_token_ttl_seconds: float = GIGA_DEFAULT_MIN_TOKEN_TTL_SECONDS
+    # Проверять SSL-сертификат при обращении к Giga. OAuth (ngw...:9443) использует
+    # самоподписанный сертификат — для локальной разработки выключено (см. .env).
+    giga_verify_ssl: bool = True
+
+    # Фолбэк: OpenAI-совместимый endpoint /embeddings (Giga через gpt2giga-прокси),
+    # используется, если ключ доступа Giga не задан.
     embedding_base_url: str = "http://localhost:8002/v1"
     embedding_api_key: str | None = None
     embedding_model: str = "EmbeddingsGigaR"
@@ -75,6 +101,11 @@ class Settings(BaseSettings):
     processing_recovery_priority: float = 0.0
     queue_poll_seconds: float = 2.0
     jobs_retry_key: str = "analysis:jobs_retries"
+
+    @property
+    def giga_configured(self) -> bool:
+        """Ключ доступа Giga задан (можно выполнять эмбеддинги напрямую)."""
+        return bool(self.giga_client_id and self.giga_client_secret)
 
     # RAG-параметры.
     chunk_max_chars: int = Field(default=1500, ge=200, description="макс. размер чанка (символов)")

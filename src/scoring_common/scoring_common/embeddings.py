@@ -1,20 +1,40 @@
-"""Клиент эмбеддингов (OpenAI-совместимый API).
+"""Клиенты эмбеддингов для RAG-анализа (analysis_service).
 
-Используется RAG-анализом (analysis_service): эмбеддинги вопросов и чанков ТЗ.
-Backend — Giga Embedder (EmbeddingsGigaR) через прокси gpt2giga, переводящий
-OpenAI API в формат GigaChat, либо любой OpenAI-совместимый endpoint /embeddings.
+Два бэкенда:
+- ``EmbeddingClient`` — любой OpenAI-совместимый endpoint ``/embeddings``
+  (например, Giga через gpt2giga-прокси).
+- ``GigaEmbeddingClient`` — прямой Giga Embedder (Sber GigaChat) с автообновлением
+  OAuth-токена (см. ``scoring_common.giga``); асинхронная обёртка над синхронным
+  ``GigaEmbedder``. Использует те же модель и ключи, что и scoring_service.
+
+Оба реализуют общий интерфейс ``Embeddable``: ``await embed(...)`` /
+``await embed_one(...)`` и возвращают ``None`` при сбое (best-effort, не роняют задание).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
+from scoring_common.giga import GigaEmbedder, GigaTokenProvider
 from scoring_common.langfuse import start_observation
 
 logger = logging.getLogger(__name__)
+
+
+class Embeddable(Protocol):
+    """Асинхронный клиент эмбеддингов, ожидаемый RAG-пайплайном."""
+
+    async def embed(self, texts: list[str]) -> list[list[float]] | None:
+        """Векторы для текстов (пакетно); None — сбой."""
+        ...
+
+    async def embed_one(self, text: str) -> list[float] | None:
+        """Вектор одного текста; None — сбой."""
+        ...
 
 
 class EmbeddingClient:
@@ -66,6 +86,61 @@ class EmbeddingClient:
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
             obs.update(level="WARNING", status_message=f"сбой эмбеддингов: {exc}")
             obs.end()
+            logger.warning("Не удалось вычислить эмбеддинги (%s): %s", self._model, exc)
+            return None
+
+    async def embed_one(self, text: str) -> list[float] | None:
+        vectors = await self.embed([text])
+        if not vectors:
+            return None
+        return vectors[0]
+
+
+class GigaEmbeddingClient:
+    """Прямые эмбеддинги Giga (OAuth-токен, модель EmbeddingsGigaR) — async.
+
+    Асинхронная обёртка над синхронным ``scoring_common.giga.GigaEmbedder``: вызовы
+    выполняются в пуле потоков. Контракт совпадает с ``EmbeddingClient``
+    (``embed``/``embed_one``, ``None`` при сбое).
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        auth_url: str,
+        client_id: str,
+        client_secret: str,
+        scope: str = "GIGACHAT_API_PERS",
+        timeout: float = 30.0,
+        min_token_ttl_seconds: float = 60.0,
+        verify_ssl: bool = True,
+    ) -> None:
+        self._model = model
+        token_provider = GigaTokenProvider(
+            auth_url=auth_url,
+            client_id=client_id,
+            client_secret=client_secret,
+            scope=scope,
+            min_ttl_seconds=min_token_ttl_seconds,
+            verify_ssl=verify_ssl,
+            timeout=timeout,
+        )
+        self._embedder = GigaEmbedder(
+            base_url=base_url,
+            model=model,
+            token_provider=token_provider,
+            verify_ssl=verify_ssl,
+            timeout=timeout,
+        )
+
+    async def embed(self, texts: list[str]) -> list[list[float]] | None:
+        """Векторы для текстов (пакетно). None — сбой (best-effort, не роняет задание)."""
+        if not texts:
+            return []
+        try:
+            return await asyncio.to_thread(self._embedder.embed, texts)
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Не удалось вычислить эмбеддинги (%s): %s", self._model, exc)
             return None
 

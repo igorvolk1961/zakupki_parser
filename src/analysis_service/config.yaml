@@ -6,7 +6,26 @@ llm_model: "deepseek-v4-flash"
 llm_temperature: 0.0
 llm_request_timeout: 45.0
 
-# Эмбеддинги: OpenAI-совместимый endpoint (Giga Embedder через gpt2giga-прокси).
+# Эмбеддинги: прямой Giga Embedder (те же модель и OAuth-ключи, что и у
+# scoring_service). Ключи доступа (giga_client_id/giga_client_secret) задаются
+# через .env (ANALYSIS_GIGA_CLIENT_ID/SECRET); без них — фолбэк на
+# OpenAI-совместимый endpoint /embeddings (gpt2giga-прокси, см. ниже).
+giga_enabled: true
+giga_base_url: "https://gigachat.devices.sberbank.ru/api/v1"
+giga_embeddings_model: "EmbeddingsGigaR"
+giga_auth_url: "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+giga_client_id: ""
+giga_client_secret: ""
+giga_auth_scope: "GIGACHAT_API_PERS"
+giga_timeout_seconds: 30.0
+giga_min_token_ttl_seconds: 60.0
+# Проверка SSL-сертификата при обращении к Giga. OAuth (ngw...:9443) отдаёт
+# самоподписанный сертификат, которому httpx не доверяет — поэтому по умолчанию
+# выключено (см. scoring_service.giga_verify_ssl); при необходимости включить:
+# ANALYSIS_GIGA_VERIFY_SSL=true в .env.
+giga_verify_ssl: false
+
+# Фолбэк: OpenAI-совместимый endpoint (Giga Embedder через gpt2giga-прокси).
 embedding_base_url: "http://localhost:8002/v1"
 embedding_model: "EmbeddingsGigaR"
 embedding_timeout: 30.0

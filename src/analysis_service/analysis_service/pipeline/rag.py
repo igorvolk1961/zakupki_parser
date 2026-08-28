@@ -34,7 +34,7 @@ from analysis_service.pipeline.system_questions import (
     SYSTEM_RETRIEVAL_PATTERNS,
 )
 from analysis_service.settings import Settings
-from scoring_common.embeddings import EmbeddingClient, cosine_similarity
+from scoring_common.embeddings import Embeddable, cosine_similarity
 from scoring_common.tz import resolve_tz_content
 
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ class RagAnalyzer:
     def __init__(
         self,
         settings: Settings,
-        embedder: EmbeddingClient,
+        embedder: Embeddable,
         llm: LlmClient,
     ) -> None:
         self._settings = settings

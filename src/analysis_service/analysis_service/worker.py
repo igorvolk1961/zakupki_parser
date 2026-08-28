@@ -14,10 +14,10 @@ from typing import Any
 
 import httpx
 
+from analysis_service.embedder import build_embedder
 from analysis_service.llm import LlmClient
 from analysis_service.pipeline.rag import RagAnalyzer
 from analysis_service.settings import Settings
-from scoring_common.embeddings import EmbeddingClient
 from scoring_common.parser_api import ParserApiClient
 from scoring_common.queue import StageQueue
 from scoring_common.stage_worker import process_stage_job
@@ -34,12 +34,7 @@ class AnalysisWorker:
         self._parser = ParserApiClient(
             settings.parser_api_url, internal_token=settings.parser_internal_token
         )
-        self._embedder = EmbeddingClient(
-            base_url=settings.embedding_base_url,
-            model=settings.embedding_model,
-            api_key=settings.embedding_api_key,
-            timeout=settings.embedding_timeout,
-        )
+        self._embedder = build_embedder(settings)
         self._llm = LlmClient(
             base_url=settings.llm_base_url,
             model=settings.llm_model,

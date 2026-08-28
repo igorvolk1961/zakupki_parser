@@ -25,6 +25,14 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import YamlConfigSource
+from scoring_common.giga import (
+    GIGA_AUTH_SCOPE,
+    GIGA_AUTH_URL,
+    GIGA_BASE_URL,
+    GIGA_DEFAULT_MIN_TOKEN_TTL_SECONDS,
+    GIGA_DEFAULT_TIMEOUT_SECONDS,
+    GIGA_EMBEDDINGS_MODEL,
+)
 from scoring_common.logging import LoggingSettings
 from scoring_service.profile import (
     Profile,
@@ -117,19 +125,19 @@ class Settings(BaseSettings):
     # (giga_client_id/giga_client_secret) — ветка не выполняется, но факт пропуска
     # фиксируется в метаданных LangFuse-трейса (падения нет).
     giga_enabled: bool = False
-    giga_base_url: str = "https://gigachat.devices.sberbank.ru/api/v1"
+    giga_base_url: str = GIGA_BASE_URL
     # Giga Embedder, окно 4096 токенов (умещает профиль компетенций без разбиения).
-    giga_embeddings_model: str = "EmbeddingsGigaR"
-    giga_auth_url: str = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    giga_embeddings_model: str = GIGA_EMBEDDINGS_MODEL
+    giga_auth_url: str = GIGA_AUTH_URL
     giga_client_id: str = ""
     giga_client_secret: str = ""
-    giga_auth_scope: str = "GIGACHAT_API_PERS"
+    giga_auth_scope: str = GIGA_AUTH_SCOPE
     # Влияние ветки на score: 0.0 — ветка не влияет (только диагностика/просмотр).
     giga_embedding_alpha: float = 0.0
     # Таймаут запроса эмбеддингов (сек).
-    giga_timeout_seconds: float = 30.0
+    giga_timeout_seconds: float = GIGA_DEFAULT_TIMEOUT_SECONDS
     # Порог остаточного времени жизни токена (сек): при значении меньше — обновить.
-    giga_min_token_ttl_seconds: float = 60.0
+    giga_min_token_ttl_seconds: float = GIGA_DEFAULT_MIN_TOKEN_TTL_SECONDS
     # Проверять SSL-сертификат при обращении к Giga. Giga OAuth (ngw...:9443)
     # использует самоподписанный сертификат — для локальной разработки можно
     # выключить (false). По умолчанию проверка включена (безопасно).

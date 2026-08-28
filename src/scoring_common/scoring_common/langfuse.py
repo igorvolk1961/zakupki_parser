@@ -7,8 +7,8 @@ https://cloud.langfuse.com). Без ключей трассировка откл
 
 Используется:
 - ``analysis_service.llm.LlmClient`` — LLM-вердикты RAG-анализа;
-- ``scoring_common.embeddings.EmbeddingClient`` и ``scoring_service`` GigaEmbedder —
-  эмбеддинги;
+- ``scoring_common.embeddings.EmbeddingClient``/``GigaEmbeddingClient`` и
+  ``scoring_common.giga.GigaEmbedder`` — эмбеддинги;
 - как ``scoring_service.llm_factory`` для LangChain-callback'ов (там свой путь).
 """
 
