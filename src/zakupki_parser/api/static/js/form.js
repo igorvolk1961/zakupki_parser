@@ -287,8 +287,31 @@ export function renderSchemaForm(container, schema, values, opts) {
   const readOnly = !!(opts && opts.readOnly);
   const form = document.createElement("div");
   form.className = "cfg-form";
+  // Группировка по смыслу: последовательные поля с одинаковым ``group``
+  // оборачиваются в секцию (css .cfg-section/.cfg-fields).
+  let group = null;
+  let sectionFields = null;
   schema.forEach((field) => {
-    form.appendChild(renderInput(field, values ? values[field.key] : undefined, readOnly));
+    const g = field.group || null;
+    if (g !== group) {
+      group = g;
+      sectionFields = null;
+      if (group) {
+        const section = document.createElement("div");
+        section.className = "cfg-section";
+        const title = document.createElement("div");
+        title.className = "cfg-section-title";
+        title.textContent = group;
+        section.appendChild(title);
+        const grid = document.createElement("div");
+        grid.className = "cfg-fields";
+        section.appendChild(grid);
+        form.appendChild(section);
+        sectionFields = grid;
+      }
+    }
+    const target = sectionFields || form;
+    target.appendChild(renderInput(field, values ? values[field.key] : undefined, readOnly));
   });
   container.appendChild(form);
 }

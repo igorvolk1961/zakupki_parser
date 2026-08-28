@@ -13,7 +13,6 @@ CONFIG_FILES = {
     "ops": "config_ops.yaml",
     "logging": "config_log.yaml",
     "score": "config_score.yaml",
-    "scoring_ops": "config_score_ops.yaml",
 }
 
 # Каталог с конфигами площадок (по одному YAML на площадку; имя файла = platform_id).

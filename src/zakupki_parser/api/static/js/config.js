@@ -1,7 +1,7 @@
 "use strict";
 
 // Вкладки аналитика: «Параметры мониторинга» (config_service.yaml: форма по схеме
-// + «Расширенный режим» с сырым YAML) и «Промпты» (редактор промптов).
+// + «Текстовый режим» с сырым YAML) и «Промпты» (редактор промптов).
 import { $ } from "./utils.js";
 import { api, apiJSON } from "./api.js";
 import { createConfigView } from "./config_view.js";

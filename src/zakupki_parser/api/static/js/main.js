@@ -22,14 +22,15 @@ import { loadCustomers } from "./customers.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
 import {
-  loadScoreopsConfig,
+  loadServicesConfig,
   loadOpsConfig,
   loadLogConfig,
   loadParserConfig,
-  scoreopsDirty,
+  servicesDirty,
   opsDirty,
   logDirty,
   parserDirty,
+  closeEnvModal,
 } from "./ops_config.js";
 import { loadUsers, closeUserModal } from "./users.js";
 import { loadLogs, loadLogFiles } from "./logs.js";
@@ -53,8 +54,8 @@ const TAB_LOADERS = {
     if (!promptDirty) loadPromptList();
   },
   refs: loadRefTables,
-  scoreops: () => {
-    if (!scoreopsDirty) loadScoreopsConfig();
+  services: () => {
+    if (!servicesDirty()) loadServicesConfig();
   },
   cfgops: () => {
     if (!opsDirty) loadOpsConfig();
@@ -89,7 +90,7 @@ document.addEventListener("tab:active", (e) => {
 window.addEventListener("beforeunload", (e) => {
   if (
     monitorDirty ||
-    scoreopsDirty ||
+    servicesDirty() ||
     opsDirty ||
     logDirty ||
     parserDirty ||
@@ -110,6 +111,7 @@ window.closeExportModal = closeExportModal;
 window.closeDeleteProfileModal = closeDeleteProfileModal;
 window.closeExportProfileModal = closeExportProfileModal;
 window.closeUserModal = closeUserModal;
+window.closeEnvModal = closeEnvModal;
 window.analyzeProc = analyzeProc;
 window.pwinProc = pwinProc;
 window.viewTz = viewTz;
@@ -124,6 +126,7 @@ document.addEventListener("keydown", (e) => {
     closeExportProfileModal();
     closeUserModal();
     closeConfirmDialog();
+    closeEnvModal();
   }
 });
 

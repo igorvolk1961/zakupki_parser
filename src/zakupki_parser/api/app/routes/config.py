@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +41,13 @@ from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import PlatformOut, PlatformsListOut, PromptUpdate
 from zakupki_parser.api.app.state import AppState
 from zakupki_parser.config.models import (
+    AnalysisServiceConfig,
     LoggingConfig,
+    MarginServiceConfig,
     OpsConfig,
     ParserConfig,
-    ScoringOpsConfig,
+    PwinServiceConfig,
+    ScoringServiceConfig,
     ServiceConfig,
 )
 
@@ -197,8 +202,6 @@ def _register_config_endpoints(
             return state.cfg.ops
         if model is LoggingConfig:
             return state.cfg.logging
-        if model is ScoringOpsConfig:
-            return state.cfg.scoring_ops
         return state.cfg.parser
 
     @router.get(
@@ -361,6 +364,406 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
                 "отключать — см. docs/profile-crawling.md"
             )
     return schema
+
+
+# Именованные конфигурации фоновых сервисов (вкладка «Сервисы»). Каждый сервис
+# читает собственный src/<dir>/config.yaml (несекретная часть) и src/<dir>/.env
+# (секреты и env-переопределения). Секреты в config.yaml/форму НЕ попадают.
+@dataclass(frozen=True)
+class _ServiceConfig:
+    name: str  # слаг в URL (/api/services/<name>/...)
+    dir: str  # каталог сервиса в src/
+    model: type[BaseModel]
+    secrets: frozenset[str]
+    title: str
+    groups: tuple[tuple[str, tuple[str, ...]], ...]  # (подпись группы, ключи полей)
+
+
+SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
+    cfg.name: cfg
+    for cfg in (
+        _ServiceConfig(
+            name="scoring",
+            dir="scoring_service",
+            model=ScoringServiceConfig,
+            secrets=frozenset(
+                {
+                    "llm_api_key",
+                    "parser_internal_token",
+                    "giga_client_id",
+                    "giga_client_secret",
+                    "langfuse_public_key",
+                    "langfuse_secret_key",
+                    "langfuse_host",
+                    "auth_token",
+                }
+            ),
+            title="Скоринг-сервис",
+            groups=(
+                (
+                    "LLM (OpenAI-совместимый)",
+                    (
+                        "llm_base_url",
+                        "llm_model",
+                        "llm_temperature",
+                        "llm_request_timeout",
+                        "llm_max_retries",
+                        "llm_structured_method",
+                    ),
+                ),
+                ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
+                (
+                    "Redis-очередь",
+                    (
+                        "redis_url",
+                        "jobs_key",
+                        "results_key",
+                        "processing_key",
+                        "processing_meta_key",
+                        "processing_ttl_seconds",
+                        "processing_recovery_priority",
+                        "queue_poll_seconds",
+                        "jobs_retry_key",
+                        "llm_retry_max_attempts",
+                        "llm_retry_backoff_seconds",
+                    ),
+                ),
+                ("Профиль поставщика", ("competencies_file",)),
+                (
+                    "Пайплайн",
+                    (
+                        "num_refine_rounds",
+                        "max_fit_score",
+                        "min_fit_score",
+                        "score_round_digits",
+                        "normalize_fit_for_score",
+                        "eval_item_timeout_seconds",
+                    ),
+                ),
+                (
+                    "Уточнение по тексту ТЗ",
+                    (
+                        "tz_review_enabled",
+                        "tz_download_timeout",
+                        "tz_verify_ssl",
+                    ),
+                ),
+                (
+                    "Giga Embedder (ветка близости)",
+                    (
+                        "giga_enabled",
+                        "giga_base_url",
+                        "giga_embeddings_model",
+                        "giga_auth_url",
+                        "giga_auth_scope",
+                        "giga_embedding_alpha",
+                        "giga_timeout_seconds",
+                        "giga_min_token_ttl_seconds",
+                        "giga_verify_ssl",
+                        "embedding_filter_threshold",
+                    ),
+                ),
+                ("Аварийный режим (stub)", ("score_use_stub",)),
+            ),
+        ),
+        _ServiceConfig(
+            name="analysis",
+            dir="analysis_service",
+            model=AnalysisServiceConfig,
+            secrets=frozenset({"llm_api_key", "embedding_api_key", "parser_internal_token"}),
+            title="Анализ ТЗ",
+            groups=(
+                (
+                    "LLM (OpenAI-совместимый)",
+                    (
+                        "llm_base_url",
+                        "llm_model",
+                        "llm_temperature",
+                        "llm_request_timeout",
+                    ),
+                ),
+                ("Эмбеддинги", ("embedding_base_url", "embedding_model", "embedding_timeout")),
+                ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
+                (
+                    "Redis-очередь",
+                    (
+                        "redis_url",
+                        "jobs_key",
+                        "results_key",
+                        "processing_key",
+                        "processing_meta_key",
+                        "processing_ttl_seconds",
+                        "processing_recovery_priority",
+                        "queue_poll_seconds",
+                        "jobs_retry_key",
+                    ),
+                ),
+                (
+                    "RAG-параметры",
+                    (
+                        "chunk_max_chars",
+                        "top_k",
+                        "tz_download_timeout",
+                        "tz_verify_ssl",
+                    ),
+                ),
+            ),
+        ),
+        _ServiceConfig(
+            name="pwin",
+            dir="pwin_service",
+            model=PwinServiceConfig,
+            secrets=frozenset({"parser_internal_token"}),
+            title="P(win)",
+            groups=(
+                ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
+                (
+                    "Redis-очередь",
+                    (
+                        "redis_url",
+                        "jobs_key",
+                        "results_key",
+                        "processing_key",
+                        "processing_meta_key",
+                        "processing_ttl_seconds",
+                        "processing_recovery_priority",
+                        "queue_poll_seconds",
+                        "jobs_retry_key",
+                    ),
+                ),
+                ("Пайплайн", ("score_round_digits",)),
+                ("Заглушка", ("use_stub", "stub_pwin")),
+                (
+                    "Модель P(win)",
+                    (
+                        "base_pwin",
+                        "k_smp",
+                        "k_license_present",
+                        "k_license_absent",
+                        "k_large_threshold",
+                        "k_large",
+                        "k_procedure_auction",
+                        "k_procedure_contest",
+                        "k_procedure_quotation",
+                        "k_ai",
+                        "max_pwin_cap",
+                    ),
+                ),
+                ("Маркеры ИИ-закупки", ("ai_markers",)),
+            ),
+        ),
+        _ServiceConfig(
+            name="margin",
+            dir="margin_service",
+            model=MarginServiceConfig,
+            secrets=frozenset({"parser_internal_token"}),
+            title="Margin",
+            groups=(
+                ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
+                (
+                    "Redis-очередь",
+                    (
+                        "redis_url",
+                        "jobs_key",
+                        "results_key",
+                        "processing_key",
+                        "processing_meta_key",
+                        "processing_ttl_seconds",
+                        "processing_recovery_priority",
+                        "queue_poll_seconds",
+                        "jobs_retry_key",
+                    ),
+                ),
+                ("Пайплайн", ("margin_rate", "score_round_digits")),
+            ),
+        ),
+    )
+}
+
+
+def _service_paths(state: AppState, service: _ServiceConfig) -> tuple[Path, Path]:
+    """Пути к config.yaml и .env сервиса (относительно корня проекта)."""
+    root = Path(state.configs_dir).resolve().parent
+    base = root / "src" / service.dir
+    return base / "config.yaml", base / ".env"
+
+
+def _read_yaml_quiet(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        detail = f"Некорректный YAML в {path.name}: {exc}"
+        raise HTTPException(status_code=500, detail=detail) from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=500, detail=f"Ожидается объект конфигурации в {path.name}")
+    return data
+
+
+def _strip_secrets(data: dict[str, Any], secrets: frozenset[str]) -> dict[str, Any]:
+    """Убирает секреты из конфига (они управляются через .env / env)."""
+    return {k: v for k, v in data.items() if k not in secrets}
+
+
+def _group_schema(
+    schema: list[dict[str, Any]], groups: tuple[tuple[str, tuple[str, ...]], ...]
+) -> list[dict[str, Any]]:
+    """Присваивает полям ``group`` (подпись секции) и упорядочивает по группам.
+
+    Поля вне групп остаются в конце (без секции). Внутри группы порядок сохраняется.
+    """
+    index: dict[str, int] = {}
+    label_of: dict[str, str] = {}
+    for i, (label, keys) in enumerate(groups):
+        for key in keys:
+            index[key] = i
+            label_of[key] = label
+
+    def sort_key(field: dict[str, Any]) -> tuple[int, int, str]:
+        key = field["key"]
+        if key in index:
+            return (0, index[key], key)
+        return (1, 0, key)
+
+    ordered = sorted(schema, key=sort_key)
+    for field in ordered:
+        group_label = label_of.get(field["key"])
+        if group_label:
+            field["group"] = group_label
+    return ordered
+
+
+def _validate_env_content(content: str) -> None:
+    """Строгая проверка .env: только KEY=VALUE, комментарии и пустые строки."""
+    allowed_keys = r"[A-Za-z_][A-Za-z0-9_]*"
+    for lineno, line in enumerate(content.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        eq = stripped.find("=")
+        if eq <= 0:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Строка {lineno} не является KEY=VALUE",
+            )
+        key = stripped[:eq].strip()
+        if not re.fullmatch(allowed_keys, key):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Строка {lineno}: некорректное имя переменной {key!r}",
+            )
+
+
+async def _read_env_body(request: Request) -> str:
+    """Тело PUT env: raw text/plain или JSON {"content": "..."}."""
+    ctype = request.headers.get("content-type", "")
+    if "json" in ctype:
+        body = await request.json()
+        content = body.get("content") if isinstance(body, dict) else None
+        if not isinstance(content, str):
+            raise HTTPException(status_code=422, detail="Ожидается JSON с полем content")
+        return content
+    raw: bytes = await request.body()
+    return raw.decode("utf-8")
+
+
+def _register_service_config_routes(
+    router: APIRouter,
+    *,
+    state: AppState,
+    require: Callable[..., Any],
+) -> None:
+    """GET/PUT config.yaml и .env для каждого фонового сервиса (devops, «Сервисы»)."""
+
+    def _register_one(svc: _ServiceConfig) -> None:
+        """Определяет эндпоинты одного сервиса (замыкание на ``svc``)."""
+        prefix = f"/api/services/{svc.name}"
+
+        @router.get(
+            f"{prefix}/config",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def get_service_config() -> dict[str, Any]:
+            config_path, _ = _service_paths(state, svc)
+            data = _read_yaml_quiet(config_path)
+            return _strip_secrets(data, svc.secrets)
+
+        @router.get(
+            f"{prefix}/schema",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def get_service_schema() -> dict[str, Any]:
+            schema = build_schema(svc.model)
+            return {"schema": _group_schema(schema, svc.groups)}
+
+        @router.get(
+            f"{prefix}/raw",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def get_service_raw() -> dict[str, Any]:
+            config_path, _ = _service_paths(state, svc)
+            data = _strip_secrets(_read_yaml_quiet(config_path), svc.secrets)
+            return {"yaml": yaml.safe_dump(data, allow_unicode=True, sort_keys=False)}
+
+        @router.put(
+            f"{prefix}/config",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def put_service_config(request: Request) -> dict[str, Any]:
+            config_path, _ = _service_paths(state, svc)
+            body = await _read_payload(request)
+            data = _strip_secrets(body, svc.secrets)
+            try:
+                new_model = svc.model.model_validate(data)
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=exc.errors()) from exc
+            _write_yaml(config_path, new_model.model_dump())
+            logger.info("Сохранён %s (%s)", config_path, svc.title)
+            return new_model.model_dump()
+
+        @router.get(
+            f"{prefix}/env",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def get_service_env() -> dict[str, Any]:
+            _, env_path = _service_paths(state, svc)
+            content = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
+            return {"content": content, "exists": env_path.is_file()}
+
+        @router.put(
+            f"{prefix}/env",
+            response_model=dict[str, Any],
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def put_service_env(request: Request) -> dict[str, Any]:
+            _, env_path = _service_paths(state, svc)
+            content = await _read_env_body(request)
+            _validate_env_content(content)
+            try:
+                env_path.write_text(content, encoding="utf-8")
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"Не удалось сохранить .env: {exc}"
+                ) from exc
+            logger.info("Сохранён .env сервиса %s", svc.title)
+            return {"content": content, "exists": True}
+
+    for svc in SERVICE_CONFIGS.values():
+        _register_one(svc)
 
 
 def build_config_router(ctx: ApiContext) -> APIRouter:
@@ -537,18 +940,11 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         prepare=_prepare_parser,
     )
 
-    # --- config_score_ops.yaml: «Скоринг-сервис» (devops) -----------------
-    _register_config_endpoints(
+    # --- Сервисы (devops): конфиг + .env каждого фонового сервиса ------
+    _register_service_config_routes(
         router,
         state=state,
-        api_path="/api/config/score-ops",
-        schema_path="/api/config/score-ops/schema",
-        raw_path="/api/config/score-ops/raw",
-        filename="config_score_ops.yaml",
-        model=ScoringOpsConfig,
-        public=lambda m: m.model_dump(),
         require=require_devops,
-        state_setter=lambda m: setattr(state.cfg, "scoring_ops", m),
     )
 
     _register_prompt_routes(

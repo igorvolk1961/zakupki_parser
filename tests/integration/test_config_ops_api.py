@@ -12,6 +12,7 @@ import os
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -209,3 +210,81 @@ def test_service_raw_and_schema(ops_client: TestClient) -> None:
     platform = next(f for f in sites["item"] if f["key"] == "platform_id")
     assert platform["kind"] == "str"
     assert platform["plain"] is True
+
+
+# --- Вкладка «Сервисы»: конфиг + .env фоновых сервисов (devops) -----------
+def _service_root(ops_client: TestClient) -> Path:
+    """Корень проекта, где лежат src/<service>/config.yaml и .env."""
+    app = cast(Any, ops_client).app
+    configs_dir = Path(app.state.parser.configs_dir)
+    return configs_dir.parent
+
+
+def test_services_config_api_roundtrip(ops_client: TestClient) -> None:
+    """GET/PUT config.yaml и .env сервиса: секреты не выдаются, .env редактируется."""
+    svc_dir = _service_root(ops_client) / "src" / "scoring_service"
+    svc_dir.mkdir(parents=True, exist_ok=True)
+    (svc_dir / "config.yaml").write_text(
+        "llm_base_url: http://localhost:8000/v1\nllm_model: gpt-4o-mini\n", encoding="utf-8"
+    )
+    (svc_dir / ".env").write_text("SCORE_LLM_API_KEY=sk-test\n", encoding="utf-8")
+
+    headers = _auth(ops_client)
+
+    # GET config: секреты вырезаны.
+    conf = ops_client.get("/api/services/scoring/config", headers=headers).json()
+    assert conf["llm_model"] == "gpt-4o-mini"
+    assert "llm_api_key" not in conf
+    assert "auth_token" not in conf
+
+    # Схема формы — без секретов.
+    schema = ops_client.get("/api/services/scoring/schema", headers=headers).json()["schema"]
+    keys = {f["key"] for f in schema}
+    assert {"llm_base_url", "llm_model", "score_use_stub"} <= keys
+    assert not (keys & {"llm_api_key", "auth_token", "giga_client_secret"})
+
+    # Raw YAML — без секретов.
+    raw = ops_client.get("/api/services/scoring/raw", headers=headers).json()["yaml"]
+    assert "llm_api_key" not in raw
+
+    # .env читается и сохраняется.
+    env = ops_client.get("/api/services/scoring/env", headers=headers).json()
+    assert env["exists"] is True
+    assert "SCORE_LLM_API_KEY" in env["content"]
+
+    # PUT формы (config.yaml без секретов).
+    conf["llm_model"] = "deepseek-v4-flash"
+    r = ops_client.put("/api/services/scoring/config", headers=headers, json=conf)
+    assert r.status_code == 200, r.text
+    assert r.json()["llm_model"] == "deepseek-v4-flash"
+
+    # PUT .env (raw text) — секреты живут в .env.
+    env_headers = dict(headers)
+    env_headers["Content-Type"] = "text/plain"
+    r = ops_client.put(
+        "/api/services/scoring/env", headers=env_headers, content="SCORE_LLM_API_KEY=sk-ok\n"
+    )
+    assert r.status_code == 200, r.text
+
+    # Некорректный .env — 422.
+    r = ops_client.put("/api/services/scoring/env", headers=env_headers, content="BAD LINE\n")
+    assert r.status_code == 422
+
+    # Недопустимый сервис — 404.
+    assert ops_client.get("/api/services/nope/config", headers=headers).status_code == 404
+
+
+def test_services_analysis_config_and_schema(ops_client: TestClient) -> None:
+    """Вкладка services/analysis: модель и секреты."""
+    svc_dir = _service_root(ops_client) / "src" / "analysis_service"
+    svc_dir.mkdir(parents=True, exist_ok=True)
+    (svc_dir / "config.yaml").write_text(
+        "llm_model: deepseek-chat\nchunk_max_chars: 1500\n", encoding="utf-8"
+    )
+    headers = _auth(ops_client)
+    conf = ops_client.get("/api/services/analysis/config", headers=headers).json()
+    assert conf["llm_model"] == "deepseek-chat"
+    schema = ops_client.get("/api/services/analysis/schema", headers=headers).json()["schema"]
+    keys = {f["key"] for f in schema}
+    assert {"llm_base_url", "embedding_base_url", "chunk_max_chars", "top_k"} <= keys
+    assert not (keys & {"llm_api_key", "embedding_api_key", "parser_internal_token"})

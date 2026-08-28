@@ -51,12 +51,17 @@ from zakupki_parser.config.models.score import (
     SCORE_METHOD_STAGES,
     ScoreConfig,
 )
-from zakupki_parser.config.models.score_ops import ScoringOpsConfig
 from zakupki_parser.config.models.service import (
     ScoringConfig,
     SearchCriteria,
     ServiceConfig,
     SiteServiceEntry,
+)
+from zakupki_parser.config.models.services import (
+    AnalysisServiceConfig,
+    MarginServiceConfig,
+    PwinServiceConfig,
+    ScoringServiceConfig,
 )
 
 __all__ = [
@@ -88,7 +93,6 @@ __all__ = [
     "SCORE_METHOD_STAGES",
     "ScoreConfig",
     "ScoringConfig",
-    "ScoringOpsConfig",
     "SearchCriteria",
     "SearchFilterConfig",
     "ServiceConfig",
@@ -96,6 +100,10 @@ __all__ = [
     "SortConfig",
     "TelegramConfig",
     "WebhookConfig",
+    "AnalysisServiceConfig",
+    "MarginServiceConfig",
+    "PwinServiceConfig",
+    "ScoringServiceConfig",
 ]
 
 
@@ -109,4 +117,3 @@ class AppConfig(BaseModel):
     ops: OpsConfig = Field(default_factory=OpsConfig)
     logging: LoggingConfig
     score: ScoreConfig = Field(default_factory=ScoreConfig)
-    scoring_ops: ScoringOpsConfig = Field(default_factory=ScoringOpsConfig)

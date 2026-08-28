@@ -6,10 +6,11 @@
 #
 # Путь к файлу можно изменить env `SCORE_CONFIG_FILE`.
 
-# LLM (OpenAI-совместимый: OpenAI / Ollama / прокси)
-llm_base_url: "https://api.openai.com/v1"
+# LLM (OpenAI-совместимый). Значения совпадают с фактом запуска (src/scoring_service/.env);
+# секрет llm_api_key НЕ пишется — управляется через .env (SCORE_LLM_API_KEY).
+llm_base_url: "https://api.deepseek.com/v1"
 llm_api_key: "sk-dummy"
-llm_model: "gpt-4o-mini"
+llm_model: "deepseek-v4-flash"
 llm_temperature: 0.0
 
 # Парсер закупок (REST, без прямого доступа к БД)
@@ -56,7 +57,7 @@ tz_verify_ssl: false
 # компетенций и описания закупки через эмбеддинги. Если не задан ключ доступа
 # (giga_client_id/giga_client_secret) — ветка не выполняется, но факт пропуска
 # фиксируется в метаданных LangFuse-трейса (без падения).
-giga_enabled: false
+giga_enabled: true
 giga_base_url: "https://gigachat.devices.sberbank.ru/api/v1"
 # Giga Embedder, окно 4096 токенов (умещает профиль компетенций без разбиения).
 giga_embeddings_model: "EmbeddingsGigaR"
@@ -71,8 +72,8 @@ giga_timeout_seconds: 30.0
 # Порог остаточного времени жизни токена (сек): при значении меньше — обновить.
 giga_min_token_ttl_seconds: 60.0
 # Проверять SSL-сертификат при обращении к Giga. OAuth (ngw...:9443) использует
-# самоподписанный сертификат — для локальной разработки выключить (false).
-giga_verify_ssl: true
+# самоподписанный сертификат — для локальной разработки выключено (false, см. .env).
+giga_verify_ssl: false
 # Порог предварительной фильтрации по векторной близости (0..1): если
 # embedding_similarity < порога, LLM-пайплайн не выполняется, возвращается
 # fit_score=0 и score_method=sim. Значение <= 0 отключает фильтрацию.

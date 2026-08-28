@@ -261,19 +261,14 @@ def test_service_config_scoring_loaded_from_seed(app_config: AppConfig) -> None:
     assert scoring.tz_download_timeout > 0
 
 
-def test_scoring_ops_config_loaded(app_config: AppConfig) -> None:
-    """Инфраструктурная конфигурация scoring_service грузится из config_score_ops.yaml."""
-    ops = app_config.scoring_ops
-    assert ops.llm_model == "gpt-4o-mini"
-    assert ops.llm_retry_max_attempts == 3
-    assert ops.giga_embeddings_model == "EmbeddingsGigaR"
-
-
-def test_scoring_ops_config_rejects_unknown_keys() -> None:
-    from zakupki_parser.config.models import ScoringOpsConfig
+def test_score_service_config_rejects_unknown_keys() -> None:
+    from zakupki_parser.config.models import ScoringServiceConfig
 
     with pytest.raises(ValidationError):
-        ScoringOpsConfig.model_validate({"llm_model_typo": "x"})
+        ScoringServiceConfig.model_validate({"llm_model_typo": "x"})
+    # Неизвестный ключ в модели-образце scoring_service — ошибка (reject опечаток).
+    with pytest.raises(ValidationError):
+        ScoringServiceConfig.model_validate({"scoring": {"filter_threshold_typo": 0.5}})
 
 
 def test_service_config_scoring_rejects_unknown_keys() -> None:
@@ -292,13 +287,29 @@ def test_service_schema_includes_scoring() -> None:
     assert {"embedding_filter_threshold", "giga_embedding_alpha", "num_refine_rounds"} <= keys
 
 
-def test_score_ops_schema_has_no_secrets_and_expected_fields() -> None:
-    """Форма «Скоринг-сервис» (devops): инфраструктура без секретов."""
+def test_score_service_schema_has_no_secrets_and_expected_fields() -> None:
+    """Форма «Скоринг-сервис» (devops): несекретная конфигурация без секретов."""
     from zakupki_parser.api.app.config_schema import build_schema
-    from zakupki_parser.config.models import ScoringOpsConfig
+    from zakupki_parser.config.models import ScoringServiceConfig
 
-    schema = build_schema(ScoringOpsConfig)
+    schema = build_schema(ScoringServiceConfig)
     keys = {f["key"] for f in schema}
-    assert {"llm_base_url", "llm_model", "score_use_stub", "giga_base_url"} <= keys
-    # Секреты не выводятся в форму (управляются через env).
-    assert not (keys & {"llm_api_key", "giga_client_id", "giga_client_secret", "auth_token"})
+    assert {
+        "llm_base_url",
+        "llm_model",
+        "score_use_stub",
+        "giga_base_url",
+        "embedding_filter_threshold",
+        "score_round_digits",
+    } <= keys
+    # Секреты не выводятся в форму (управляются через .env сервиса).
+    assert not (
+        keys
+        & {
+            "llm_api_key",
+            "giga_client_id",
+            "giga_client_secret",
+            "auth_token",
+            "parser_internal_token",
+        }
+    )

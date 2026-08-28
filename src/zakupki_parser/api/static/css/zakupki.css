@@ -191,6 +191,9 @@
   /* Вкладки: базовые — слева, ролевые — справа (объединение ролей пользователя). */
   .tabs-bar { justify-content: space-between; align-items:center; flex-wrap:wrap; }
   .tabs-group { display:flex; gap:6px; flex-wrap:wrap; }
+  /* Под-вкладки сервисов («Сервисы») прижимаем к левому краю, как в остальных местах. */
+  .services-tabs { justify-content: flex-start; }
+  .services-tabs button { flex: 0 0 auto; }
   /* Формы конфигов (схема с бэкенда). */
   .cfg-form { display:flex; flex-direction:column; gap:14px; }
   .cfg-section { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }

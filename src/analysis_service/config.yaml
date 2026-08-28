@@ -1,6 +1,8 @@
 # RAG-анализ стоп-условий по вопросам клиента (analysis_service).
-llm_base_url: "http://localhost:8001/v1"
-llm_model: "deepseek-chat"
+# LLM — та же модель и ключ, что и в scoring_service (#5); секрет llm_api_key
+# управляется через .env (ANALYSIS_LLM_API_KEY).
+llm_base_url: "https://api.deepseek.com/v1"
+llm_model: "deepseek-v4-flash"
 llm_temperature: 0.0
 llm_request_timeout: 45.0
 

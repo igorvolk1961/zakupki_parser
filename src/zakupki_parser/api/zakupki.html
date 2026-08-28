@@ -50,7 +50,7 @@
       <button id="tab-monitor">Параметры мониторинга</button>
       <button id="tab-prompts">Промпты</button>
       <button id="tab-refs">Справочники</button>
-      <button id="tab-scoreops">Скоринг-сервис</button>
+      <button id="tab-services">Сервисы</button>
       <button id="tab-cfgops">Конфигурация</button>
       <button id="tab-logcfg">Управление логами</button>
       <button id="tab-logs">Логи</button>
@@ -127,7 +127,7 @@
       <div class="panel-title">Параметры мониторинга</div>
       <div class="toolbar" style="margin-bottom:0;">
         <button class="primary" id="monitor-save" title="Сохранить параметры мониторинга. Изменения применяются при следующем запуске парсера.">Сохранить</button>
-        <button id="monitor-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="monitor-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
         <button id="monitor-reload">Отменить изменения</button>
         <span id="monitor-status" class="muted"></span>
       </div>
@@ -360,25 +360,76 @@
       <div class="empty" id="users-empty" style="display:none;">Пользователей нет</div>
     </div>
   </div>
-  <div id="view-scoreops" style="display:none;">
-    <div class="panel">
-      <div class="panel-title" title="config_score_ops.yaml">Скоринг-сервис</div>
-      <div class="toolbar" style="margin-bottom:0;">
-        <button class="primary" id="scoreops-save" title="Сохранить конфигурацию scoring_service. Изменения применяются при следующем старте сервиса. Секреты (ключи LLM/Giga/токены) управляются через env и в форме не редактируются.">Сохранить</button>
-        <button id="scoreops-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
-        <button id="scoreops-reload">Отменить изменения</button>
-        <span id="scoreops-status" class="muted"></span>
-      </div>
+  <div id="view-services" style="display:none;">
+    <div class="tabs tabs-bar services-tabs" style="margin-bottom:10px;">
+      <button class="active" id="svc-tab-scoring" title="config.yaml сервиса скоринга">Скоринг</button>
+      <button id="svc-tab-analysis" title="config.yaml сервиса анализа ТЗ">Анализ ТЗ</button>
+      <button id="svc-tab-pwin" title="config.yaml сервиса P(win)">P(win)</button>
+      <button id="svc-tab-margin" title="config.yaml сервиса Margin">Margin</button>
     </div>
-    <div id="scoreops-form"></div>
-    <textarea id="scoreops-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    <div id="svc-pane-scoring">
+      <div class="panel">
+        <div class="panel-title" title="src/scoring_service/config.yaml">Скоринг-сервис</div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <button class="primary" id="svc-scoring-save" title="Сохранить конфигурацию scoring_service. Изменения применяются при следующем старте сервиса.">Сохранить</button>
+          <button id="svc-scoring-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
+          <button id="svc-scoring-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
+          <button id="svc-scoring-reload">Отменить изменения</button>
+          <span id="svc-scoring-status" class="muted"></span>
+        </div>
+      </div>
+      <div id="svc-scoring-form"></div>
+      <textarea id="svc-scoring-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    </div>
+    <div id="svc-pane-analysis" style="display:none;">
+      <div class="panel">
+        <div class="panel-title" title="src/analysis_service/config.yaml">Анализ ТЗ (analysis_service)</div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <button class="primary" id="svc-analysis-save" title="Сохранить конфигурацию analysis_service. Изменения применяются при следующем старте сервиса.">Сохранить</button>
+          <button id="svc-analysis-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
+          <button id="svc-analysis-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
+          <button id="svc-analysis-reload">Отменить изменения</button>
+          <span id="svc-analysis-status" class="muted"></span>
+        </div>
+      </div>
+      <div id="svc-analysis-form"></div>
+      <textarea id="svc-analysis-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    </div>
+    <div id="svc-pane-pwin" style="display:none;">
+      <div class="panel">
+        <div class="panel-title" title="src/pwin_service/config.yaml">P(win) (pwin_service)</div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <button class="primary" id="svc-pwin-save" title="Сохранить конфигурацию pwin_service. Изменения применяются при следующем старте сервиса.">Сохранить</button>
+          <button id="svc-pwin-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
+          <button id="svc-pwin-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
+          <button id="svc-pwin-reload">Отменить изменения</button>
+          <span id="svc-pwin-status" class="muted"></span>
+        </div>
+      </div>
+      <div id="svc-pwin-form"></div>
+      <textarea id="svc-pwin-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    </div>
+    <div id="svc-pane-margin" style="display:none;">
+      <div class="panel">
+        <div class="panel-title" title="src/margin_service/config.yaml">Margin (margin_service)</div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <button class="primary" id="svc-margin-save" title="Сохранить конфигурацию margin_service. Изменения применяются при следующем старте сервиса.">Сохранить</button>
+          <button id="svc-margin-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
+          <button id="svc-margin-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
+          <button id="svc-margin-reload">Отменить изменения</button>
+          <span id="svc-margin-status" class="muted"></span>
+        </div>
+      </div>
+      <div id="svc-margin-form"></div>
+      <textarea id="svc-margin-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    </div>
   </div>
   <div id="view-cfgops" style="display:none;">
     <div class="panel">
       <div class="panel-title" title="config_ops.yaml">Конфигурация</div>
       <div class="toolbar" style="margin-bottom:0;">
         <button class="primary" id="cfgops-save" title="Сохранить конфигурацию. Изменения применяются при следующем старте сервиса. Секреты (токены, auth.secret) управляются через env и в форме не редактируются.">Сохранить</button>
-        <button id="cfgops-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="cfgops-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
         <button id="cfgops-reload">Отменить изменения</button>
         <span id="cfgops-status" class="muted"></span>
       </div>
@@ -391,7 +442,7 @@
       <div class="panel-title" title="config_log.yaml">Управление логами</div>
       <div class="toolbar" style="margin-bottom:0;">
         <button class="primary" id="logcfg-save" title="Сохранить конфигурацию логирования. Изменения применяются при следующем старте сервиса.">Сохранить</button>
-        <button id="logcfg-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="logcfg-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
         <button id="logcfg-reload">Отменить изменения</button>
         <span id="logcfg-status" class="muted"></span>
       </div>
@@ -433,7 +484,7 @@
       <div class="panel-title" title="config_parser.yaml">Парсер</div>
       <div class="toolbar" style="margin-bottom:0;">
         <button class="primary" id="parser-save" title="Сохранить конфигурацию парсера. Изменения применяются при следующем старте сервиса.">Сохранить</button>
-        <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Расширенный режим</button>
+        <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
         <button id="parser-reload">Отменить изменения</button>
         <span id="parser-status" class="muted"></span>
       </div>
@@ -523,6 +574,20 @@
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="generic-confirm-cancel">Отмена</button>
       <button class="primary" id="generic-confirm-ok">Продолжить</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="env-modal-bg">
+  <div class="modal" id="env-modal">
+    <span class="close" onclick="closeEnvModal()">×</span>
+    <h2 id="env-modal-title">Секреты (.env)</h2>
+    <p class="muted" style="margin-top:0;" id="env-modal-note">Секреты сервиса. Переопределяют config.yaml и применяются при следующем старте сервиса.</p>
+    <textarea id="env-modal-area" spellcheck="false" title="Секреты сервиса (.env): KEY=VALUE. Секреты не попадают в config.yaml и в форму." style="width:100%;height:320px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="env-modal-cancel">Отмена</button>
+      <button class="primary" id="env-modal-save">Сохранить</button>
+      <span id="env-modal-status" class="muted"></span>
     </div>
   </div>
 </div>

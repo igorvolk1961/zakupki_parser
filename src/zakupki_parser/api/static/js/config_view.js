@@ -1,7 +1,7 @@
 "use strict";
 
 // Общий контроллер вкладок конфигурации: форма по схеме (см. /api/config/*/schema)
-// + «Расширенный режим» с сырым YAML, сохранение, статус и грязный флаг.
+// + «Текстовый режим» с сырым YAML, сохранение, статус и грязный флаг.
 // Используется вкладками «Параметры мониторинга», «Конфигурация» и «Управление логами».
 import { api, apiJSON } from "./api.js";
 import { renderSchemaForm, collectSchemaValues } from "./form.js";
@@ -23,8 +23,8 @@ export function createConfigView(prefix, configPath, opts) {
     if (v && statusEl) statusEl.textContent = "несохранённые изменения";
   }
 
-  // Кнопка «Расширенный режим» должна отражать состояние: название и подсветка.
-  const RAW_LABEL = "Расширенный режим";
+  // Кнопка «Текстовый режим» должна отражать состояние: название и подсветка.
+  const RAW_LABEL = "Текстовый режим";
   const FORM_LABEL = "Обычный режим";
 
   function syncToggleLabel() {

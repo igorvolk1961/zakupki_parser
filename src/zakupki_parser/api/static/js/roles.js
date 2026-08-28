@@ -11,7 +11,7 @@ export const TAB_USERS = "users";
 export const TAB_MONITOR = "monitor";
 export const TAB_PROMPTS = "prompts";
 export const TAB_REFS = "refs";
-export const TAB_SCOREOPS = "scoreops";
+export const TAB_SERVICES = "services";
 export const TAB_CFGOPS = "cfgops";
 export const TAB_LOGCFG = "logcfg";
 export const TAB_LOGS = "logs";
@@ -21,7 +21,7 @@ export const TAB_SETS = {
   user: [...TAB_BASE],
   admin: [TAB_USERS],
   analyst: [...TAB_BASE, TAB_MONITOR, TAB_PROMPTS, TAB_REFS],
-  devops: [TAB_SCOREOPS, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS, TAB_PARSER],
+  devops: [TAB_SERVICES, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS, TAB_PARSER],
 };
 
 export const ALL_TABS = [
@@ -32,7 +32,7 @@ export const ALL_TABS = [
   TAB_MONITOR,
   TAB_PROMPTS,
   TAB_REFS,
-  TAB_SCOREOPS,
+  TAB_SERVICES,
   TAB_CFGOPS,
   TAB_LOGCFG,
   TAB_LOGS,
