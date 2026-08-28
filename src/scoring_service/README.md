@@ -127,8 +127,7 @@ postgres, clickhouse, MinIO, web, worker. Профиль **включён по �
 Dev-стек `scripts/run_all.sh` поднимает LangFuse по умолчанию (`SKIP_LANGFUSE=1` — пропустить).
 UI: http://localhost:3000 (логин/пароль из `LANG_ADMIN_PASSWORD` в `docker/.env`). Проект `zakupki`
 создаётся при первом старте с ключами из `LANGFUSE_INIT_*`. Для локальной трассировки в
-`src/scoring_service/.env` заданы `LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST=http://localhost:3000`;
-чтобы шли реальные вызовы, заглушка должна быть выключена (`SCORE_USE_STUB=false`).
+`src/scoring_service/.env` заданы `LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST=http://localhost:3000`.
 
 ## Запуск (из каталога подпроекта)
 ```bash
@@ -176,9 +175,9 @@ env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 `GET /api/config/scoring` (без рестарта). Значения в этом `config.yaml` — лишь фоллбэк
 на случай недоступности парсера. Обязательная нормализация Fit в score и уточнение
 описания закупки по ТЗ (если модель попросила) — всегда включены и аналитиком
-не переключаются. **Инфраструктурные** параметры (LLM-провайдер, Giga, очереди,
-`score_use_stub`) — `config.yaml` этого сервиса (и `.env` для секретов/переопределений),
-вкладка «Сервисы» → «Скоринг» (devops).
+не переключаются. **Инфраструктурные** параметры (LLM-провайдер, Giga, очереди) —
+`config.yaml` этого сервиса (и `.env` для секретов/переопределений), вкладка
+«Сервисы» → «Скоринг» (devops).
 
 | Переменная | Назначение |
 |---|---|
@@ -188,7 +187,6 @@ env `SCORE_CONFIG_FILE` (по умолчанию `config.yaml`).
 | `SCORE_P_WIN` / `SCORE_MARGIN_RATE` | стубы P(win)/Margin (дефолтный подход парсера) |
 | `SCORE_COMPETENCIES_FILE` | файл профиля поставщика: структурированный YAML/JSON (`data/profile.yaml`); legacy-markdown тоже читается |
 | `SCORE_NUM_REFINE_ROUNDS` | число итераций refine при `verdict=reject` |
-| `SCORE_USE_STUB` | заглушка: возвращать score, уже присутствующий в данных закупки, без LLM-пайплайна (по умолчанию `false`) |
 | `SCORE_NORMALIZE_FIT_FOR_SCORE` | приводить Fit (0–10) к шкале 0–1 при расчёте Score (по умолчанию `true`) |
 | `SCORE_EMBEDDING_FILTER_THRESHOLD` | фоллбэк порога предварительной фильтрации по векторной близости (`<= 0` — выключена); в runtime переопределяется `config_service.yaml -> scoring` |
 | `SCORE_LLM_REQUEST_TIMEOUT` / `SCORE_LLM_MAX_RETRIES` | таймаут одного LLM-запроса (сек) и число повторов на уровне SDK |

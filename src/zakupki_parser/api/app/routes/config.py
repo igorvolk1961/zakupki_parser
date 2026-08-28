@@ -463,7 +463,6 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "embedding_filter_threshold",
                     ),
                 ),
-                ("Аварийный режим (stub)", ("score_use_stub",)),
             ),
         ),
         _ServiceConfig(

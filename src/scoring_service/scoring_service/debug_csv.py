@@ -3,9 +3,8 @@
 Команда ``score-csv`` читает CSV-выгрузку закупок (по умолчанию
 ``data/export/procurements.csv`` в корне репозитория), сопоставляет строки
 с record-словарями и прогоняет полный LLM-пайплайн (fit/judge/refine) по каждой
-записи. По умолчанию работает реальный LLM-пайплайн (stub выключен); флаг ``--stub``
-включает заглушку для сверки. LangFuse подключается автоматически через
-``build_scorer`` при заданных ``LANGFUSE_*``.
+записи. LangFuse подключается автоматически через ``build_scorer`` при заданных
+``LANGFUSE_*``.
 """
 
 from __future__ import annotations
@@ -70,11 +69,9 @@ def run_debug(
     csv_path: Path,
     competencies: str | ProfileTexts,
     limit: int = 0,
-    stub: bool = False,
 ) -> list[tuple[int | None, ScoringOutput]]:
     """Прогнать пайплайн по закупкам из CSV."""
-    effective = settings.model_copy(update={"score_use_stub": stub})
-    scorer = build_scorer(effective)
+    scorer = build_scorer(settings)
     records = load_records(csv_path)
     if limit > 0:
         records = records[:limit]

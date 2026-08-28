@@ -52,7 +52,7 @@ class ScoringServiceConfig(_BaseConfig):
     results_key: str = Field(default="scoring:results", description="Ключ результатов")
     processing_key: str = Field(default="scoring:processing", description="Ключ обработки")
     processing_meta_key: str = Field(
-        default="scoring:processing_meta", description="Ключ меты обработки"
+        default="scoring:processing_meta", description="Ключ метаданных обработки"
     )
     processing_ttl_seconds: int = Field(default=600, ge=1, description="TTL аренды задачи (сек)")
     processing_recovery_priority: float = Field(
@@ -115,12 +115,6 @@ class ScoringServiceConfig(_BaseConfig):
         description="Порог векторной близости (<= 0 — фильтрация выключена)",
     )
 
-    # Аварийный переключатель
-    score_use_stub: bool = Field(
-        default=False,
-        description="Вернуть score из карточки без LLM-пайплайна (аварийный переключатель)",
-    )
-
     # Дедлайн на одну закупку
     eval_item_timeout_seconds: float = Field(
         default=300.0, gt=0, description="Дедлайн на оценку одной закупки (сек)"
@@ -159,7 +153,7 @@ class AnalysisServiceConfig(_BaseConfig):
     results_key: str = Field(default="analysis:results", description="Ключ результатов")
     processing_key: str = Field(default="analysis:processing", description="Ключ обработки")
     processing_meta_key: str = Field(
-        default="analysis:processing_meta", description="Ключ меты обработки"
+        default="analysis:processing_meta", description="Ключ метаданных обработки"
     )
     processing_ttl_seconds: int = Field(default=600, ge=1, description="TTL аренды задачи (сек)")
     processing_recovery_priority: float = Field(
@@ -191,7 +185,7 @@ class MarginServiceConfig(_BaseConfig):
     results_key: str = Field(default="margin:results", description="Ключ результатов")
     processing_key: str = Field(default="margin:processing", description="Ключ обработки")
     processing_meta_key: str = Field(
-        default="margin:processing_meta", description="Ключ меты обработки"
+        default="margin:processing_meta", description="Ключ метаданных обработки"
     )
     processing_ttl_seconds: int = Field(default=600, ge=1, description="TTL аренды задачи (сек)")
     processing_recovery_priority: float = Field(
@@ -217,7 +211,7 @@ class PwinServiceConfig(_BaseConfig):
     results_key: str = Field(default="pwin:results", description="Ключ результатов")
     processing_key: str = Field(default="pwin:processing", description="Ключ обработки")
     processing_meta_key: str = Field(
-        default="pwin:processing_meta", description="Ключ меты обработки"
+        default="pwin:processing_meta", description="Ключ метаданных обработки"
     )
     processing_ttl_seconds: int = Field(default=600, ge=1, description="TTL аренды задачи (сек)")
     processing_recovery_priority: float = Field(

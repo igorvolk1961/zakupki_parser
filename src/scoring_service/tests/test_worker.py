@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -104,15 +105,38 @@ class _RejectedScorer:
         )
 
 
+class _SuccessScorer:
+    """Имитация успешного скоринга (без LLM)."""
+
+    def score(
+        self,
+        record: dict[str, Any],
+        competencies: str,
+        procurement_id: int | None = None,
+        run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        run_name: str = "scoring_job",
+    ) -> object:
+        return SimpleNamespace(
+            score=1.0,
+            fit_multiplier=1.0,
+            score_method="fit",
+            embedding_similarity=None,
+            langfuse_trace_url=None,
+        )
+
+
 @pytest.fixture
 async def worker_queue():
     settings = Settings(
-        score_use_stub=True,
         parser_retry_backoff_seconds=0.0,
         llm_retry_backoff_seconds=0.0,
     )
     worker = ScoringWorker(settings)
     worker._queue._client = FakeRedis(server=FakeServer(), decode_responses=True)
+    # По умолчанию — фейковый scorer, чтобы тесты не строили реальный LLM-пайплайн.
+    worker._scorer = _SuccessScorer()
+    worker._scoring_snapshot = "base"
     yield worker
     await worker._queue.close()
 
@@ -168,10 +192,18 @@ async def test_missing_competencies_drops_job_without_file_fallback(worker_queue
     assert await worker._queue._client.llen(results) == 0
 
 
-async def test_scorer_applies_analyst_scoring_config(worker_queue) -> None:
+async def test_scorer_applies_analyst_scoring_config(
+    worker_queue, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Scorer собирается под аналитические скор-настройки из парсера."""
     worker = worker_queue
     worker._parser = _AnalystConfigParser()
+
+    def _fake_build_scorer(settings):
+        return SimpleNamespace(_settings=settings, score=lambda *a, **k: None)
+
+    # Заглушку убрали: подменяем сборку scorer, чтобы не строить реальный LLM-пайплайн.
+    monkeypatch.setattr("scoring_service.worker.build_scorer", _fake_build_scorer)
     assert worker._queue._client is not None
     scorer = await worker._ensure_scorer()
     assert scorer._settings.embedding_filter_threshold == 0.5
@@ -246,7 +278,7 @@ async def test_llm_rejection_drops_job(worker_queue) -> None:
 async def test_success_resets_retries(worker_queue) -> None:
     worker = worker_queue
     worker._parser = _OkParser()
-    # score_use_stub=True: скоринг вернёт score из карточки без LLM.
+    # Фейковый scorer из фикстуры: успех без реального LLM-пайплайна.
     assert worker._queue._client is not None
     # Были сбои LLM, потом успех — счётчик обнуляется.
     for _ in range(2):

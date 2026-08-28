@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnableLambda
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.tz_reviewer import TzReviewOutcome
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps
-from scoring_service.scoring import Scorer, build_scorer
+from scoring_service.scoring import Scorer
 from scoring_service.settings import Settings
 
 
@@ -103,7 +103,7 @@ class _FakeJudge:
 
 
 def _scorer(fit: _FakeFit, judge: _FakeJudge) -> Scorer:
-    return Scorer(fit, judge, Settings(score_use_stub=False))  # type: ignore[arg-type]
+    return Scorer(fit, judge, Settings())  # type: ignore[arg-type]
 
 
 def test_score_accept_path() -> None:
@@ -124,7 +124,7 @@ def test_score_normalizes_fit_by_10() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False),
+        Settings(),
     )  # type: ignore[arg-type]
     out = scorer.score({"subject": "x", "nmck": 400.0}, "comp")
     # fit_norm = 6/10 = 0.6; score = 0.6
@@ -156,7 +156,7 @@ def test_score_no_normalization_uses_raw_fit() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(normalize_fit_for_score=False, score_use_stub=False),
+        Settings(normalize_fit_for_score=False),
     )
     out = scorer.score({"subject": "x", "nmck": 100.0}, "comp")
     assert out.score == 8.0
@@ -186,28 +186,9 @@ def test_score_propagates_requires_tz_review() -> None:
             return _fit(5.0, requires_tz_review=True)
 
     judge = _FakeJudge([_judge("accept", 5.0)])
-    scorer = Scorer(_FlaggedFit(), judge, Settings(score_use_stub=False))  # type: ignore[arg-type]
+    scorer = Scorer(_FlaggedFit(), judge, Settings())  # type: ignore[arg-type]
     out = scorer.score({"subject": "x", "nmck": 10.0}, "comp")
     assert out.requires_tz_review is True
-
-
-def test_stub_returns_existing_score_without_chains() -> None:
-    scorer = Scorer(None, None, Settings(score_use_stub=True))
-    out = scorer.score({"subject": "x", "nmck": 5000.0, "score": 123.45}, "comp")
-    assert out.score == 123.45
-    assert out.judge.verdict == "accept"
-
-
-def test_stub_defaults_zero_score_when_missing() -> None:
-    scorer = Scorer(None, None, Settings(score_use_stub=True))
-    out = scorer.score({"subject": "x"}, "comp")
-    assert out.score == 0.0
-
-
-def test_build_scorer_stub_does_not_build_llm() -> None:
-    scorer = build_scorer(Settings(score_use_stub=True))
-    assert scorer._fit is None  # noqa: SLF001
-    assert scorer._judge is None  # noqa: SLF001
 
 
 def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
@@ -231,7 +212,7 @@ def test_score_passes_run_id_as_session_and_hyperparams_in_metadata() -> None:
 
     fit = _RecordingFit(8.0)
     judge = _FakeJudge([_judge("accept", 8.0)])
-    scorer = Scorer(fit, judge, Settings(llm_model="gpt-test", score_use_stub=False))  # type: ignore[arg-type]
+    scorer = Scorer(fit, judge, Settings(llm_model="gpt-test"))  # type: ignore[arg-type]
     scorer.score({"subject": "x", "nmck": 10.0}, "comp", procurement_id=42, run_id="run-1")
 
     assert fit.calls
@@ -263,7 +244,7 @@ def test_score_falls_back_to_procurement_session_without_run_id() -> None:
 
     fit = _RecordingFit()
     judge = _FakeJudge([_judge("accept", 5.0)])
-    scorer = Scorer(fit, judge, Settings(score_use_stub=False))  # type: ignore[arg-type]
+    scorer = Scorer(fit, judge, Settings())  # type: ignore[arg-type]
     scorer.score({"subject": "x", "nmck": 10.0}, "comp", procurement_id=7)
 
     assert fit.session_ids == ["7"]
@@ -337,7 +318,7 @@ def test_score_uses_tz_text_when_requires_tz_review() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, tz_review_enabled=True),
+        Settings(tz_review_enabled=True),
         tz_reviewer=_fake_tz_reviewer(  # type: ignore[arg-type]
             "ТЗ: Сопровождение ПО и автоматизация документооборота"
         ),
@@ -360,7 +341,7 @@ def test_score_keeps_score_when_tz_not_found() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, tz_review_enabled=True),
+        Settings(tz_review_enabled=True),
         tz_reviewer=_fake_tz_reviewer(None),  # type: ignore[arg-type]
     )
     out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
@@ -378,7 +359,7 @@ def test_score_keeps_score_when_tz_text_empty() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, tz_review_enabled=True),
+        Settings(tz_review_enabled=True),
         tz_reviewer=_fake_tz_reviewer("   \n\t "),  # type: ignore[arg-type]
     )
     out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
@@ -394,7 +375,7 @@ def test_score_skips_tz_when_flag_off() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, tz_review_enabled=False),
+        Settings(tz_review_enabled=False),
         tz_reviewer=_fake_tz_reviewer("ТЗ-текст"),  # type: ignore[arg-type]
     )
     out = scorer.score({"subject": "Сопровождение ПО", "nmck": 10.0}, "comp")
@@ -435,7 +416,7 @@ def test_score_truncated_description_passes_truncated_flag() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, tz_review_enabled=False),
+        Settings(tz_review_enabled=False),
         tz_reviewer=_fake_tz_reviewer("ТЗ-текст"),  # type: ignore[arg-type]
     )
     scorer.score({"subject": "Разработка ПО и внедрение системы...", "nmck": 10.0}, "comp")
@@ -453,7 +434,7 @@ def test_score_header_extends_description_from_tz() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, tz_review_enabled=True),
+        Settings(tz_review_enabled=True),
         tz_reviewer=_fake_tz_reviewer(tz_text),  # type: ignore[arg-type]
     )
     out = scorer.score(
@@ -481,7 +462,7 @@ def test_score_header_not_found_keeps_original_description() -> None:
     scorer = Scorer(
         fit,
         judge,
-        Settings(score_use_stub=False, tz_review_enabled=True),
+        Settings(tz_review_enabled=True),
         tz_reviewer=_fake_tz_reviewer(tz_text),  # type: ignore[arg-type]
     )
     out = scorer.score({"subject": "Разработка системы автоматизации", "nmck": 10.0}, "comp")
@@ -524,7 +505,6 @@ def test_score_embedding_missing_credentials_no_crash() -> None:
         fit,
         judge,
         Settings(
-            score_use_stub=False,
             giga_enabled=True,
             giga_client_id="",
             giga_client_secret="",
@@ -546,7 +526,6 @@ def test_score_embedding_branch_runs_and_sets_similarity() -> None:
         fit,
         judge,
         Settings(
-            score_use_stub=False,
             giga_enabled=True,
             giga_client_id="cid",
             giga_client_secret="secret",
@@ -571,7 +550,6 @@ def test_score_embedding_branch_sets_similarity_but_alpha_zero_keeps_score() -> 
         fit,
         judge,
         Settings(
-            score_use_stub=False,
             giga_enabled=True,
             giga_client_id="c",
             giga_client_secret="s",
@@ -608,7 +586,6 @@ def test_score_embedding_competencies_embedded_once() -> None:
         fit,
         judge,
         Settings(
-            score_use_stub=False,
             giga_enabled=True,
             giga_client_id="cid",
             giga_client_secret="secret",
@@ -637,7 +614,6 @@ def test_score_embedding_different_competencies_embedded_separately() -> None:
         fit,
         judge,
         Settings(
-            score_use_stub=False,
             giga_enabled=True,
             giga_client_id="cid",
             giga_client_secret="secret",
@@ -663,7 +639,6 @@ def _embedding_scorer(
         fit,
         judge,
         Settings(
-            score_use_stub=False,
             giga_enabled=True,
             giga_client_id="cid",
             giga_client_secret="secret",
@@ -742,7 +717,6 @@ def test_score_embedding_prefilter_branch_failure_runs_llm() -> None:
         fit,
         judge,
         Settings(
-            score_use_stub=False,
             giga_enabled=True,
             giga_client_id="cid",
             giga_client_secret="secret",

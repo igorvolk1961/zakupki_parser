@@ -46,7 +46,12 @@ def test_scoring_service_schema_has_no_secrets() -> None:
 
     schema = build_schema(ScoringServiceConfig)
     keys = {f["key"] for f in schema}
-    assert {"llm_base_url", "llm_model", "score_use_stub", "embedding_filter_threshold"} <= keys
+    assert {
+        "llm_base_url",
+        "llm_model",
+        "embedding_filter_threshold",
+        "eval_item_timeout_seconds",
+    } <= keys
     assert not (keys & {"llm_api_key", "giga_client_id", "giga_client_secret", "auth_token"})
 
 
@@ -65,10 +70,10 @@ def test_strip_secrets_removes_only_secret_keys() -> None:
         "llm_api_key": "sk-secret",
         "auth_token": "tok",
         "giga_client_secret": "sec",
-        "score_use_stub": False,
+        "score_round_digits": 2,
     }
     cleaned = _strip_secrets(data, cfg.secrets)
-    assert cleaned == {"llm_base_url": "http://x", "score_use_stub": False}
+    assert cleaned == {"llm_base_url": "http://x", "score_round_digits": 2}
 
 
 def test_validate_env_content_accepts_valid() -> None:

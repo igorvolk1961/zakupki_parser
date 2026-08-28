@@ -11,9 +11,6 @@
    затем повторный judge;
 6. Score = final_fit_score × P(win) × Margin.
 
-Если включён флаг ``score_use_stub`` — LLM-пайплайн не запускается: возвращается
-score, уже присутствующий в данных закупки (см. ``build_scorer``).
-
 Реализация разбита на подпакеты: ``embedding`` (ветка векторной близости),
 ``pipeline`` (fit/judge/refine и сборка результата), ``types`` (внутренние типы).
 Здесь — класс ``Scorer`` и ``build_scorer`` (реэкспорт для совместимости с
@@ -33,7 +30,7 @@ from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.judge_chain import JudgeChain
 from scoring_service.pipeline.tz_reviewer import TzReviewer
 from scoring_service.profile import ProfileTexts
-from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps, ScoringOutput
+from scoring_service.schemas import ScoringOutput
 from scoring_service.scoring.embedding import EmbeddingMixin
 from scoring_service.scoring.pipeline import PipelineMixin
 from scoring_service.settings import Settings
@@ -46,8 +43,8 @@ class Scorer(EmbeddingMixin, PipelineMixin):
 
     def __init__(
         self,
-        fit_chain: FitChain | None,
-        judge_chain: JudgeChain | None,
+        fit_chain: FitChain,
+        judge_chain: JudgeChain,
         settings: Settings,
         callbacks: list[Any] | None = None,
         tz_reviewer: TzReviewer | None = None,
@@ -115,45 +112,6 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             meta.update(extra)
         return meta
 
-    def _stub_score(self, record: dict[str, Any], procurement_id: int | None) -> ScoringOutput:
-        """Заглушка: возвращает score, уже имеющийся в данных закупки (без LLM).
-
-        Fit/Judge — пустые плейсхолдеры; score берётся из карточки ``record["score"]``.
-        """
-        existing = float(record.get("score") or 0.0)
-        score = round(existing, self._settings.score_round_digits)
-        description = extract_description(record)
-        reasoning = ReasoningSteps(
-            procurement_essence="",
-            competencies_essence="",
-            relevant_competencies="",
-            term_overlap_mismatch_check="",
-            synonym_semantic_bridge="",
-            uncovered_scope="",
-            tz_review_necessity="",
-            fit_score_rationale="stub",
-        )
-        fit = FitResult(
-            reasoning=reasoning,
-            fit_score=score,
-            requires_tz_review=False,
-        )
-        judge = JudgeResult(
-            critics="Stub: возвращён существующий score закупки",
-            verdict="accept",
-            final_fit_score=score,
-        )
-        return ScoringOutput(
-            procurement_id=procurement_id,
-            description=description,
-            fit=fit,
-            judge=judge,
-            final_fit_score=score,
-            requires_tz_review=False,
-            fit_multiplier=score,
-            score=score,
-        )
-
     def _langfuse_trace_url(self, trace_id: str | None) -> str | None:
         """Глубокая ссылка на трейс LangFuse по trace_id (или None).
 
@@ -196,9 +154,6 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         Весь скоринг одного задания выполняется внутри единого корневого run,
         поэтому fit/judge/refine попадают в ОДИН трейс как дочерние спаны.
         """
-        if self._settings.score_use_stub:
-            return self._stub_score(record, procurement_id)
-
         texts = (
             competencies
             if isinstance(competencies, ProfileTexts)
@@ -278,13 +233,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
 
 
 def build_scorer(settings: Settings) -> Scorer:
-    """Построить ``Scorer``: заглушку (``score_use_stub``) либо LLM-пайплайн.
-
-    В режиме заглушки LLM/LangChain-цепочки не создаются, поэтому сервис работает
-    без ключа/провайдера, пока пайплайн не отлажен.
-    """
-    if settings.score_use_stub:
-        return Scorer(None, None, settings)
+    """Построить ``Scorer`` с полным LLM-пайплайном (fit/judge/refine)."""
     llm = build_llm(settings)
     lf_handler = langfuse_handler(settings)
     callbacks = callbacks_for(lf_handler)

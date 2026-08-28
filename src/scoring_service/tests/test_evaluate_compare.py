@@ -55,7 +55,7 @@ _STATE = _State()
 
 def _call_cmd_evaluate() -> int:
     return _cmd_evaluate(
-        Settings(score_use_stub=True),
+        Settings(),
         Path("x.json"),
         None,
         None,

@@ -118,14 +118,13 @@ def _cmd_score_csv(
     csv_path: Path,
     competencies: Path | None,
     limit: int,
-    stub: bool,
     out: Path | None,
 ) -> int:
     from scoring_service.debug_csv import render_table, run_debug, write_report
     from scoring_service.llm_factory import flush_langfuse
 
     comp = _profile_texts(competencies, settings)
-    results = run_debug(settings, csv_path, comp, limit=limit, stub=stub)
+    results = run_debug(settings, csv_path, comp, limit=limit)
     if out is not None:
         write_report(out, results)
     print(render_table(results))
@@ -214,7 +213,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="профиль поставщика: YAML/JSON (структурированный) или markdown (legacy)",
     )
     p_csv.add_argument("--limit", type=int, default=0, help="0 = все записи")
-    p_csv.add_argument("--stub", action="store_true", help="использовать заглушку")
     p_csv.add_argument("--out", type=Path, default=None, help="JSON-отчёт")
 
     p_serve = sub.add_parser("serve", help="запустить FastAPI")
@@ -250,9 +248,7 @@ def main(argv: list[str] | None = None) -> int:
             args.min_spearman_reg,
         )
     if args.command == "score-csv":
-        return _cmd_score_csv(
-            settings, args.csv, args.competencies, args.limit, args.stub, args.out
-        )
+        return _cmd_score_csv(settings, args.csv, args.competencies, args.limit, args.out)
     if args.command == "serve":
         return _cmd_serve(settings, args.host, args.port)
     parser = build_parser()

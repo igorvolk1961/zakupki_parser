@@ -240,7 +240,7 @@ def test_services_config_api_roundtrip(ops_client: TestClient) -> None:
     # Схема формы — без секретов.
     schema = ops_client.get("/api/services/scoring/schema", headers=headers).json()["schema"]
     keys = {f["key"] for f in schema}
-    assert {"llm_base_url", "llm_model", "score_use_stub"} <= keys
+    assert {"llm_base_url", "llm_model", "embedding_filter_threshold"} <= keys
     assert not (keys & {"llm_api_key", "auth_token", "giga_client_secret"})
 
     # Raw YAML — без секретов.

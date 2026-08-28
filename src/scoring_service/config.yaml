@@ -1,7 +1,7 @@
 # Конфигурация сервиса скоринга (scoring_service).
 #
 # Значения из этого файла можно переопределить переменными окружения `SCORE_*`
-# (например, `SCORE_USE_STUB=true`, `SCORE_LLM_MODEL=gpt-4o`). Приоритет:
+# (например, `SCORE_LLM_MODEL=deepseek-v4-flash`). Приоритет:
 # аргументы > env `SCORE_*` > `.env` > этот YAML > значения по умолчанию.
 #
 # Путь к файлу можно изменить env `SCORE_CONFIG_FILE`.
@@ -94,9 +94,6 @@ giga_verify_ssl: false
 # через config_service.yaml -> scoring (эндпоинт /api/config/scoring), применяется
 # при сборе scorer без рестарта.
 embedding_filter_threshold: 0.0
-
-# Заглушка: возвращать score из данных закупки без LLM-пайплайна (пока пайплайн не отлажен)
-score_use_stub: false
 
 # LangFuse (пустые значения = выключен)
 langfuse_public_key:

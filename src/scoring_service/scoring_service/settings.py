@@ -141,14 +141,6 @@ class Settings(BaseSettings):
         """Ключ доступа Giga задан (можно выполнять эмбеддинги)."""
         return bool(self.giga_client_id and self.giga_client_secret)
 
-    # Заглушка: возвращать score, уже присутствующий в данных закупки (без LLM-пайплайна).
-    # Включать, пока LLM-пайплайн не отлажен.
-    # AliasChoices: имя поля уже содержит префикс "score_", поэтому без явного
-    # env-алиаса pydantic ждёт переменную SCORE_score_use_stub вместо SCORE_USE_STUB.
-    score_use_stub: bool = Field(
-        default=False, validation_alias=AliasChoices("score_use_stub", "SCORE_USE_STUB")
-    )
-
     # LangFuse (None = выключен)
     # LangFuse-трассировка (стандартные переменные LANGFUSE_*, без SCORE_ префикса).
     # AliasChoices: из-за env_prefix="SCORE_" без явного алиаса pydantic ждёт

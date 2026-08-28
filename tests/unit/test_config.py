@@ -297,7 +297,6 @@ def test_score_service_schema_has_no_secrets_and_expected_fields() -> None:
     assert {
         "llm_base_url",
         "llm_model",
-        "score_use_stub",
         "giga_base_url",
         "embedding_filter_threshold",
         "score_round_digits",
