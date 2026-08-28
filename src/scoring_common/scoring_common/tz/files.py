@@ -18,6 +18,10 @@ _TZ_PHRASES: tuple[str, ...] = (
     "тех задание",
 )
 
+# Маркер «Описание/описания/описанию/описании»: матчится по основе слова
+# ``описан`` в начале лексемы, чтобы покрыть русские падежные формы имени файла.
+_DESCRIPTION_RE = re.compile(r"(^|[^а-яa-z])описан[а-я]*($|[^а-яa-z])")
+
 # Расширения архивированных файлов, внутри которых ищем ТЗ.
 _ARCHIVE_EXTENSIONS: tuple[str, ...] = (
     ".7z",
@@ -68,19 +72,29 @@ def _normalize(name: str | None) -> str:
     return (name or "").strip().lower()
 
 
-def is_tz(name: str | None) -> bool:
-    """Содержит ли имя файла маркер ТЗ (без учёта регистра).
+def _has_tz_marker(name: str | None) -> bool:
+    """Явный маркер ТЗ: «техническое задание»/«тех.задание»/аббревиатура «тз».
 
     Площадки часто генерируют имена файлов с разделителями-подчёркиваниями
     (например, ``техническое_задание_по_модернизации.docx``), поэтому фразы
     сопоставляются по имени, где ``_`` и ``-`` приведены к пробелу. Аббревиатура
-    ``тз`` по-прежнему ищется по границам слова на исходном имени.
+    ``тз`` ищется по границам слова на исходном имени.
     """
     low = _normalize(name)
     if re.search(r"(^|[^а-яa-z])(тз)($|[^а-яa-z])", low):
         return True
     spaced = re.sub(r"[_-]+", " ", low)
     return any(phrase in spaced for phrase in _TZ_PHRASES)
+
+
+def is_description(name: str | None) -> bool:
+    """Указывает ли имя на описание («описание/описания/описанию/описании»)."""
+    return bool(_DESCRIPTION_RE.search(_normalize(name)))
+
+
+def is_tz(name: str | None) -> bool:
+    """Содержит ли имя файла маркер ТЗ или «описание» (без учёта регистра)."""
+    return _has_tz_marker(name) or is_description(name)
 
 
 def is_archive(name: str | None) -> bool:
@@ -98,8 +112,28 @@ def collect_files(record: dict[str, Any]) -> list[FileRef]:
 
 
 def find_tz_file(record: dict[str, Any]) -> FileRef | None:
-    """Прямой файл ТЗ (имя содержит маркер) либо None."""
+    """Прямой файл ТЗ (имя содержит маркер) либо None.
+
+    Приоритет — явный маркер ТЗ («тех. задание»/«тз») над «описание»: если в
+    карточке есть оба типа файлов, берётся настоящий ТЗ.
+    """
+    refs = collect_files(record)
+    for ref in refs:
+        if _has_tz_marker(ref.name):
+            return ref
+    for ref in refs:
+        if is_description(ref.name):
+            return ref
+    return None
+
+
+def find_description_file(record: dict[str, Any]) -> FileRef | None:
+    """Прямой файл «описание» (имя содержит маркер описания) либо None.
+
+    Используется как запасной источник текста: если в основном ТЗ нет
+    требований к Исполнителю, берём текст документа «Описание».
+    """
     for ref in collect_files(record):
-        if is_tz(ref.name):
+        if is_description(ref.name):
             return ref
     return None

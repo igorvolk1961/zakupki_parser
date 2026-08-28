@@ -29,6 +29,7 @@ from scoring_common.tz.archives import (
     _decode_member_name,
     _extract_from_7z,
     _extract_from_zip,
+    find_description_in_archives,
     find_tz_in_archives,
 )
 from scoring_common.tz.download import _download
@@ -37,6 +38,7 @@ from scoring_common.tz.files import (
     FileRef,
     _normalize,
     collect_files,
+    find_description_file,
     find_tz_file,
     is_archive,
     is_tz,
@@ -87,6 +89,14 @@ def find_tz_reference(record: dict[str, Any], timeout: float = 30.0) -> FileRef 
     if direct is not None:
         return direct
     return find_tz_in_archives(record, timeout=timeout)
+
+
+def find_description_reference(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+    """Файл «описание»: прямой → внутри архивов (запасной источник текста)."""
+    direct = find_description_file(record)
+    if direct is not None:
+        return direct
+    return find_description_in_archives(record, timeout=timeout)
 
 
 def extract_text(ref: FileRef, timeout: float = 30.0) -> str | None:
@@ -209,6 +219,7 @@ __all__ = [
     "collect_files",
     "extract_text",
     "extract_text_cached",
+    "find_description_reference",
     "find_tz_file",
     "find_tz_in_archives",
     "find_tz_reference",

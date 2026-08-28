@@ -35,7 +35,12 @@ from analysis_service.pipeline.system_questions import (
 )
 from analysis_service.settings import Settings
 from scoring_common.embeddings import EmbeddingClient, cosine_similarity
-from scoring_common.tz import clean_text, extract_text, find_tz_reference
+from scoring_common.tz import (
+    clean_text,
+    extract_text,
+    find_description_reference,
+    find_tz_reference,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +49,34 @@ VERDICT_SOFT: Literal["soft"] = "soft"
 VERDICT_ABSOLUTE: Literal["absolute"] = "absolute"
 VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE)
 Verdict = Literal["no_stop_condition", "absolute", "soft"]
+
+# Признак того, что в тексте есть требования к Исполнителю/Участнику/Подрядчику.
+# Если в ТЗ таких требований нет, а в карточке есть документ «Описание», текст для
+# анализа берётся из него (BR: «описание» как запасной источник требований).
+#
+# Два шаблона покрывают типовые формулировки:
+# 1. «требования к Исполнителю» — слово «требовани*» перед исполнителем;
+# 2. прямое указание обязанности — «Исполнитель обязан/должен/несёт
+#    ответственность» (исполнитель перед глаголом-обязательством), которое
+#    встречается чаще, чем оборот «требования к …» и раньше детектилось ложно.
+_DUTIES_REQUIREMENT_RE = re.compile(
+    r"требовани[а-яё]+[^.\n]{0,80}?\b(?:исполнител|подрядчик|участник)\w*",
+    re.IGNORECASE,
+)
+_DUTIES_OBLIGATION_RE = re.compile(
+    r"\b(?:исполнител|подрядчик|участник)\w*[^.\n]{0,80}?"
+    r"\b(?:обязан[а-яё]*|долж[а-яё]{1,2}|обязательств[а-яё]*|нес[её]т\s+ответственност[а-яё]+)\b",
+    re.IGNORECASE,
+)
+_DUTIES_TO_EXECUTOR_RES: tuple[re.Pattern[str], ...] = (
+    _DUTIES_REQUIREMENT_RE,
+    _DUTIES_OBLIGATION_RE,
+)
+
+
+def _has_executor_duties(text: str) -> bool:
+    return any(pat.search(text) for pat in _DUTIES_TO_EXECUTOR_RES)
+
 
 # Ключи ответа batch_system.md → id системного вопроса.
 _BATCH_KEYS: dict[str, str] = {
@@ -118,6 +151,19 @@ class RagAnalyzer:
                 "questions": [],
                 "generated_at": generated_at,
             }
+
+        # Если в ТЗ нет требований к Исполнителю, а есть документ «Описание» —
+        # используем его текст (запасной источник, best-effort).
+        if not _has_executor_duties(tz_text):
+            timeout = self._settings.tz_download_timeout
+            desc_ref = find_description_reference(record, timeout=timeout)
+            if desc_ref is not None and desc_ref.url != ref.url:
+                raw_desc = extract_text(desc_ref, timeout=timeout)
+                desc_text = clean_text(raw_desc) if raw_desc else ""
+                if desc_text:
+                    tz_text = desc_text
+                    ref = desc_ref
+                    tz_file = ref.name
 
         chunks = split_tz_sections(tz_text, max_chars=self._settings.chunk_max_chars)
         if not chunks:

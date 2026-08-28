@@ -16,8 +16,10 @@ from scoring_common.tz.files import (
     _MAX_MEMBER_NAME_LEN,
     _MEMBER_NAME_ENCODINGS,
     FileRef,
+    _has_tz_marker,
     collect_files,
     is_archive,
+    is_description,
     is_tz,
 )
 
@@ -109,12 +111,36 @@ def _archive_inner_names(url: str, timeout: float = 30.0) -> list[str]:
 
 
 def find_tz_in_archives(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
-    """Файл ТЗ внутри архива: URL архива + путь записи внутри (через ``#``)."""
+    """Файл ТЗ внутри архива: URL архива + путь записи внутри (через ``#``).
+
+    Явный маркер ТЗ имеет приоритет над «описание»: если в архивах есть записи
+    обоих типов, сначала перебираем архивы в поиске настоящего ТЗ; «описание»
+    используется как запасной вариант, только если ТЗ нигде не найдено.
+    """
+    fallback: FileRef | None = None
     for ref in collect_files(record):
         if not is_archive(ref.name):
             continue
         for inner in _archive_inner_names(ref.url, timeout=timeout):
-            if is_tz(PurePosixPath(inner).name):
+            base = PurePosixPath(inner).name
+            if _has_tz_marker(base):
+                return FileRef(inner, f"{ref.url}#{inner}")
+            if fallback is None and is_description(base):
+                fallback = FileRef(inner, f"{ref.url}#{inner}")
+    return fallback
+
+
+def find_description_in_archives(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+    """Запись «описание» внутри архива (URL архива + путь записи через ``#``).
+
+    Запасной источник текста для анализа, если в основном ТЗ нет требований
+    к Исполнителю.
+    """
+    for ref in collect_files(record):
+        if not is_archive(ref.name):
+            continue
+        for inner in _archive_inner_names(ref.url, timeout=timeout):
+            if is_description(PurePosixPath(inner).name):
                 return FileRef(inner, f"{ref.url}#{inner}")
     return None
 
