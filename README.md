@@ -330,13 +330,19 @@ docker compose -f docker/docker-compose.yml up --build
 `api` (FastAPI на `http://localhost:8000/`). Сервисы связаны по имени (api ↔
 `scoring-transport` ↔ redis), поэтому конвейер каскада скоринга (Fit → P(win) →
 Margin), возврат результата в `POST /score` и RAG-анализ работают из коробки.
+В штатный compose-стек также входит **LangFuse** (профиль `langfuse`, UI
+`http://localhost:3000`) — он нужен для трассировки LLM-вызовов `scoring_service`
+и `analysis_service` (поднимается целиком: `langfuse-db`, `clickhouse`, `minio`,
+`langfuse-web`, `langfuse-worker`). Отключить LangFuse (быстрый dev-стек) можно
+`scripts/compose.sh up --no-langfuse`.
 Команду запускать из корня репозитория —
 контекст сборки и файл `.env` резолвятся относительно `docker/docker-compose.yml`.
 
 Для удобства есть скрипт-обёртка над compose-стеком — `scripts/compose.sh`:
 ```bash
-scripts/compose.sh                     # up (собрать + поднять в фоне, --build)
+scripts/compose.sh                     # up (собрать + поднять в фоне, --build; включает LangFuse)
 scripts/compose.sh up                  # то же
+scripts/compose.sh up --no-langfuse    # то же, но без LangFuse (быстрый dev-стек)
 scripts/compose.sh down                # остановить и удалить контейнеры (том БД сохраняется)
 scripts/compose.sh stop                # то же, что down: останавливает и освобождает порты (том БД сохраняется)
 scripts/compose.sh start               # запустить остановленные контейнеры (если не удалялись)
@@ -344,6 +350,7 @@ scripts/compose.sh restart             # перезапустить
 scripts/compose.sh ps                  # статус контейнеров
 scripts/compose.sh logs [svc]          # логи (-f), например: logs parser
 scripts/compose.sh build               # пересобрать образы
+scripts/compose.sh config --quiet      # проверить манифест (docker compose config) или вывести его
 scripts/compose.sh free-port [порт]    # освободить порт (по умолчанию 5432), занятый контейнером
 scripts/compose.sh free-port --force   # то же без запроса подтверждения
 ```

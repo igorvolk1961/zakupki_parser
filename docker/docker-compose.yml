@@ -353,6 +353,10 @@ services:
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
+      # Обнуляем host-путь к Chromium из корневого .env (env_file ../.env): он нужен
+      # локальному run_all.sh, но в контейнере указывает на несуществующий файл.
+      # Пустая строка = браузер берётся из PLAYWRIGHT_BROWSERS_PATH=/ms-playwright.
+      ZAKUPKI_CHROMIUM_EXECUTABLE: ""
     volumes:
       - ../configs:/app/configs
     restart: unless-stopped
@@ -371,6 +375,8 @@ services:
       ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
+      # Обнуляем host-путь к Chromium из корневого .env (см. комментарий у parser).
+      ZAKUPKI_CHROMIUM_EXECUTABLE: ""
       # Общий том промптов: вкладка «Промпты» пишет сюда, scoring_service читает.
       ZAKUPKI_PROMPTS_DIR: /app/prompts
       # Общий том промптов анализатора: вкладка «Промпты» пишет сюда,
