@@ -24,7 +24,7 @@ def _patch_download(monkeypatch, blob: bytes) -> None:
     """Отдаём байты архива из ``_download`` (без обращения в сеть)."""
     from scoring_common.tz import archives
 
-    monkeypatch.setattr(archives, "_download", lambda url, timeout=30.0: blob)
+    monkeypatch.setattr(archives, "_download", lambda url, timeout=30.0, verify_ssl=True: blob)
 
 
 def test_is_archive_recognizes_7z() -> None:
@@ -89,3 +89,74 @@ def test_extract_from_7z_finds_tz_by_name(monkeypatch) -> None:
     _patch_download(monkeypatch, blob)
     ref = FileRef("Закупочная_документация.7z", "http://x/doc.7z")
     assert extract_text(ref) == "текст ТЗ"
+
+
+def test_find_tz_in_blind_archive_url(monkeypatch) -> None:
+    """ТЗ внутри 7z-архива, URL которого без расширения (как на etp.gpb.ru).
+
+    У ЭТП URL скачивания может быть «глухим» (``/file/get/.../name/<hash>``) без
+    ``.7z``/``.zip`` в самом URL: формат архива должен определяться по содержимому,
+    а не по расширению из ``ref.url``.
+    """
+    blob = _make_7z(
+        {
+            "doc/Приложение № 1 Техническое задание.txt": "текст ТЗ".encode(),
+            "doc/приложение.pdf": b"pdf",
+        }
+    )
+    _patch_download(monkeypatch, blob)
+    record = {
+        "files_json": [
+            # Имя файла — с расширением (.7z), URL — «глухой», без расширения.
+            {"name": "Закупочная_документация.7z", "url": "http://x/file/get/name/abc123"},
+        ]
+    }
+    ref = find_tz_reference(record)
+    assert ref is not None
+    assert ref.name == "doc/Приложение № 1 Техническое задание.txt"
+    assert ref.url == "http://x/file/get/name/abc123#doc/Приложение № 1 Техническое задание.txt"
+    assert extract_text(ref) == "текст ТЗ"
+
+
+def test_download_sends_user_agent(monkeypatch) -> None:
+    """Скачивание обязано слать User-Agent: ЭТП без него отдаёт пустое тело."""
+    from scoring_common.tz.download import _download, clear_download_cache
+
+    clear_download_cache()
+    captured: dict[str, object] = {}
+
+    class _FakeResp:
+        content = b"archive-bytes"
+        headers: dict[str, str] = {"content-length": "13"}
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured["kwargs"] = kwargs
+
+        def __enter__(self) -> _FakeClient:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, url: str) -> _FakeResp:
+            captured["url"] = url
+            return _FakeResp()
+
+    monkeypatch.setattr("scoring_common.tz.download.httpx.Client", _FakeClient)
+    try:
+        assert _download("http://x/doc.7z") == b"archive-bytes"
+        kwargs = captured["kwargs"]
+        headers = kwargs.get("headers", {})
+        assert headers.get("User-Agent")
+        assert "Mozilla" in headers["User-Agent"]
+        # Сертификат проверяется по системному trust (как curl), не по certifi:
+        # иначе TLS-перехват на ЭТП (VPN/корп. прокси) роняет скачивание.
+        from ssl import SSLContext
+
+        assert isinstance(kwargs.get("verify"), SSLContext)
+    finally:
+        clear_download_cache()

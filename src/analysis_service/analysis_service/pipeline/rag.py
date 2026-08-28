@@ -133,7 +133,11 @@ class RagAnalyzer:
         """RAG-отчёт: системные проверки + вопросы клиента. best-effort."""
         generated_at = datetime.now(UTC).isoformat()
 
-        ref = find_tz_reference(record, timeout=self._settings.tz_download_timeout)
+        ref = find_tz_reference(
+            record,
+            timeout=self._settings.tz_download_timeout,
+            verify_ssl=self._settings.tz_verify_ssl,
+        )
         tz_file = ref.name if ref is not None else None
         if ref is None:
             return {
@@ -142,7 +146,9 @@ class RagAnalyzer:
                 "questions": [],
                 "generated_at": generated_at,
             }
-        raw = extract_text(ref, timeout=self._settings.tz_download_timeout)
+        raw = extract_text(
+            ref, timeout=self._settings.tz_download_timeout, verify_ssl=self._settings.tz_verify_ssl
+        )
         tz_text = clean_text(raw) if raw else ""
         if not tz_text:
             return {
@@ -156,9 +162,10 @@ class RagAnalyzer:
         # используем его текст (запасной источник, best-effort).
         if not _has_executor_duties(tz_text):
             timeout = self._settings.tz_download_timeout
-            desc_ref = find_description_reference(record, timeout=timeout)
+            verify_ssl = self._settings.tz_verify_ssl
+            desc_ref = find_description_reference(record, timeout=timeout, verify_ssl=verify_ssl)
             if desc_ref is not None and desc_ref.url != ref.url:
-                raw_desc = extract_text(desc_ref, timeout=timeout)
+                raw_desc = extract_text(desc_ref, timeout=timeout, verify_ssl=verify_ssl)
                 desc_text = clean_text(raw_desc) if raw_desc else ""
                 if desc_text:
                     tz_text = desc_text

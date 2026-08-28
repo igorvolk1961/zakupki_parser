@@ -379,7 +379,7 @@ def test_analyze_falls_back_to_description_when_tz_has_no_duties(
     monkeypatch.setattr(rag_mod, "find_tz_reference", lambda *a, **k: tz_ref)
     monkeypatch.setattr(rag_mod, "find_description_reference", lambda *a, **k: desc_ref)
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0) -> str | None:
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
         if ref == tz_ref:
             return "Порядок приёмки и оплаты работ."  # без обязанностей
         return "Исполнитель обязан предоставить отчёт о выполнении работ."
@@ -404,7 +404,9 @@ def test_analyze_keeps_tz_when_duties_present(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         rag_mod,
         "extract_text",
-        lambda ref, timeout=30.0: "Исполнитель обязан предоставить отчёт о выполнении.",
+        lambda ref, timeout=30.0, verify_ssl=True: (
+            "Исполнитель обязан предоставить отчёт о выполнении."
+        ),
     )
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
     report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], {}))

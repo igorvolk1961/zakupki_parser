@@ -27,6 +27,7 @@ from typing import Any
 
 from scoring_common.tz.archives import (
     _decode_member_name,
+    _extract_archive_member,
     _extract_from_7z,
     _extract_from_zip,
     find_description_in_archives,
@@ -83,35 +84,41 @@ def _record_signature(record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
     )
 
 
-def find_tz_reference(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+def find_tz_reference(
+    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+) -> FileRef | None:
     """Стратегия поиска: прямой файл → внутри архивов."""
     direct = find_tz_file(record)
     if direct is not None:
         return direct
-    return find_tz_in_archives(record, timeout=timeout)
+    return find_tz_in_archives(record, timeout=timeout, verify_ssl=verify_ssl)
 
 
-def find_description_reference(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+def find_description_reference(
+    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+) -> FileRef | None:
     """Файл «описание»: прямой → внутри архивов (запасной источник текста)."""
     direct = find_description_file(record)
     if direct is not None:
         return direct
-    return find_description_in_archives(record, timeout=timeout)
+    return find_description_in_archives(record, timeout=timeout, verify_ssl=verify_ssl)
 
 
-def extract_text(ref: FileRef, timeout: float = 30.0) -> str | None:
-    """Извлечь Markdown-текст из файла ТЗ (в т.ч. из zip-архива)."""
-    url, _, _ = ref.url.partition("#")
+def extract_text(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    """Извлечь Markdown-текст из файла ТЗ (в т.ч. из zip/7z-архива)."""
+    url, sep, inner = ref.url.partition("#")
     name = _normalize(ref.name)
-    if ".zip#" in ref.url:
-        return _extract_from_zip(ref, timeout=timeout)
-    if ".7z#" in ref.url:
-        return _extract_from_7z(ref, timeout=timeout)
+    if sep:
+        # Запись внутри архива: формат определяем по содержимому (URL может быть
+        # глухим, без расширения — например etp.gpb.ru ``/file/get/.../name/<hash>``).
+        return _extract_archive_member(url, inner, timeout=timeout, verify_ssl=verify_ssl)
     if name.endswith(".7z"):
-        return _extract_from_7z(ref, timeout=timeout)
+        return _extract_from_7z(ref, timeout=timeout, verify_ssl=verify_ssl)
+    if name.endswith(".zip"):
+        return _extract_from_zip(ref, timeout=timeout, verify_ssl=verify_ssl)
     if is_archive(name):
         return None  # прочие архивы (rar/tar) — требуют внешних утилит
-    raw = _download(url, timeout=timeout)
+    raw = _download(url, timeout=timeout, verify_ssl=verify_ssl)
     if raw is None:
         return None
     return _decode(raw, name)
@@ -121,6 +128,7 @@ def extract_text_cached(
     ref: FileRef,
     timeout: float = 30.0,
     ttl: float = _TZ_TEXT_TTL_SECONDS,
+    verify_ssl: bool = True,
 ) -> str | None:
     """``extract_text`` с TTL-кэшем: повторно файл не скачивается/не извлекается.
 
@@ -138,7 +146,7 @@ def extract_text_cached(
             # Актуальная запись: поднимаем в конец (LRU-порядок).
             _tz_text_cache.move_to_end(key)
             return cached[1]
-    text = extract_text(ref, timeout=timeout)
+    text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
     if text is not None and len(text) > _TZ_TEXT_MAX_CHARS_PER_ENTRY:
         return text  # слишком большой текст кэшировать не будем (безопасность памяти)
     with _tz_text_lock:
@@ -152,6 +160,7 @@ def find_tz_reference_cached(
     record: dict[str, Any],
     timeout: float = 30.0,
     ttl: float = _TZ_TEXT_TTL_SECONDS,
+    verify_ssl: bool = True,
 ) -> FileRef | None:
     """``find_tz_reference`` с TTL-кэшем: листинг архивов повторно не скачивается.
 
@@ -164,7 +173,7 @@ def find_tz_reference_cached(
         if cached is not None and now - cached[0] < ttl:
             _tz_ref_cache.move_to_end(key)
             return cached[1]
-    ref = find_tz_reference(record, timeout=timeout)
+    ref = find_tz_reference(record, timeout=timeout, verify_ssl=verify_ssl)
     with _tz_text_lock:
         _tz_ref_cache[key] = (time.monotonic(), ref)
         _tz_ref_cache.move_to_end(key)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ssl
 import threading
 import time
 from collections import OrderedDict
@@ -9,6 +10,20 @@ from collections import OrderedDict
 import httpx
 
 from scoring_common.tz.files import _MAX_FILE_BYTES
+
+# Браузерный User-Agent: файлы ЭТП (например, etp.gpb.ru ``/file/get``) отдают
+# ПУСТОЕ тело (200, 0 байт) на запрос без User-Agent (анти-бот), поэтому без него
+# архив скачивается как b"" и листинг/извлечение ТЗ не находит файл.
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+# Проверяем сертификат по СИСТЕМНОМУ хранилищу (как curl/браузер), а не по
+# certifi-metadata: на ЭТП/Russian-host часто встречается TLS-перехват (VPN/
+# корпоративный прокси) с самоподписанным промежуточным сертификатом, которому
+# certifi не доверяет, а системный trust (и Playwright-парсер) — доверяет.
+_SSL_CONTEXT = ssl.create_default_context()
 
 # TTL кэша скачанных байт: один и тот же файл (в т.ч. архив для листинга и
 # последующего извлечения записи) не должен скачиваться дважды за короткий срок.
@@ -51,12 +66,15 @@ def clear_download_cache() -> None:
         _download_cache.clear()
 
 
-def _download(url: str, timeout: float = 30.0, max_bytes: int = _MAX_FILE_BYTES) -> bytes | None:
+def _download(
+    url: str, timeout: float = 30.0, max_bytes: int = _MAX_FILE_BYTES, verify_ssl: bool = True
+) -> bytes | None:
     """Скачать файл (с защитой от превышения размера и TTL-кэшем).
 
     Кэш позволяет листингу архива и последующему извлечению записи из того же
     архива делить одно скачивание, а повторным открытиям карточки — не ходить
-    в сеть заново.
+    в сеть заново. ``verify_ssl=False`` отключает проверку сертификата (для
+    площадок за TLS-перехватом/VPN), по умолчанию — системный trust.
     """
     plain_url = url.split("#", 1)[0]
     now = time.monotonic()
@@ -67,7 +85,12 @@ def _download(url: str, timeout: float = 30.0, max_bytes: int = _MAX_FILE_BYTES)
             return cached[1]
     raw: bytes | None = None
     try:
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        with httpx.Client(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={"User-Agent": _UA},
+            verify=_SSL_CONTEXT if verify_ssl else False,
+        ) as client:
             resp = client.get(plain_url)
             resp.raise_for_status()
             if int(resp.headers.get("content-length", "0") or 0) > max_bytes:

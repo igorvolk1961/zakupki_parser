@@ -58,13 +58,14 @@ class TzReviewer:
 
     def _impl(self, record: dict[str, Any]) -> TzReviewOutcome:
         timeout = self._settings.tz_download_timeout
-        ref = find_tz_reference(record, timeout=timeout)
+        verify_ssl = self._settings.tz_verify_ssl
+        ref = find_tz_reference(record, timeout=timeout, verify_ssl=verify_ssl)
         if ref is None:
             return TzReviewOutcome(
                 found=False,
                 reason="Файл ТЗ не найден ни среди файлов карточки, ни внутри архивов",
             )
-        text = extract_text(ref, timeout=timeout)
+        text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
         if text is None:
             return TzReviewOutcome(
                 found=False,

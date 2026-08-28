@@ -16,7 +16,7 @@ from scoring_common.tz.files import FileRef
 def _calls(monkeypatch) -> list[tuple[str, str]]:
     calls: list[tuple[str, str]] = []
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0) -> str | None:
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
         calls.append((ref.url, ref.name))
         return f"text:{ref.url}"
 
@@ -60,7 +60,7 @@ def test_extract_text_cached_caches_none(monkeypatch) -> None:
     clear_tz_text_cache()
     calls: list[tuple[str, str]] = []
 
-    def failing_extract(ref: FileRef, timeout: float = 30.0) -> str | None:
+    def failing_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
         calls.append((ref.url, ref.name))
         return None
 
@@ -142,7 +142,7 @@ def test_find_tz_reference_cached_extracts_once(monkeypatch) -> None:
         ]
     }
 
-    def fake_find(rec: dict, timeout: float = 30.0) -> FileRef | None:
+    def fake_find(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> FileRef | None:
         find_calls.append(1)
         return FileRef("ТЗ.docx", "http://x/a.zip#doc/ТЗ.docx")
 
@@ -160,7 +160,7 @@ def test_find_tz_reference_cached_distinct_cards(monkeypatch) -> None:
     clear_tz_text_cache()
     find_calls: list[int] = []
 
-    def fake_find(rec: dict, timeout: float = 30.0) -> FileRef | None:
+    def fake_find(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> FileRef | None:
         find_calls.append(1)
         return FileRef("ТЗ.docx", "http://x/a.zip#doc/ТЗ.docx")
 
@@ -183,7 +183,7 @@ def test_extract_text_cached_per_entry_cap(monkeypatch) -> None:
     clear_tz_text_cache()
     calls: list[tuple[str, str]] = []
 
-    def big_extract(ref: FileRef, timeout: float = 30.0) -> str | None:
+    def big_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
         calls.append((ref.url, ref.name))
         return "X" * 100
 
@@ -209,7 +209,7 @@ def test_extract_text_cached_total_budget(monkeypatch) -> None:
     sizes = {"s": 40, "b": 70}
     monkeypatch.setattr(
         "scoring_common.tz.extract_text",
-        lambda ref, timeout=30.0: ref.name * sizes[ref.name],
+        lambda ref, timeout=30.0, verify_ssl=True: ref.name * sizes[ref.name],
     )
     small = FileRef("s", "http://x/small.docx")
     big = FileRef("b", "http://x/b.docx")

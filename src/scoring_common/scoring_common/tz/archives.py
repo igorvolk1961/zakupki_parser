@@ -93,13 +93,13 @@ def _list_7z(raw: bytes) -> list[str] | None:
         return None
 
 
-def _archive_inner_names(url: str, timeout: float = 30.0) -> list[str]:
+def _archive_inner_names(url: str, timeout: float = 30.0, verify_ssl: bool = True) -> list[str]:
     """Имена записей внутри архива (листинг без распаковки целиком).
 
     Пробуем форматы по очереди (zip → tar → 7z): первый распознанный отдаёт
     список имён (пустой список — не ошибка, а пустой архив/нет записей).
     """
-    raw = _download(url, timeout=timeout)
+    raw = _download(url, timeout=timeout, verify_ssl=verify_ssl)
     if raw is None:
         return []
     names = _list_zip(raw)
@@ -110,7 +110,9 @@ def _archive_inner_names(url: str, timeout: float = 30.0) -> list[str]:
     return names or []
 
 
-def find_tz_in_archives(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+def find_tz_in_archives(
+    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+) -> FileRef | None:
     """Файл ТЗ внутри архива: URL архива + путь записи внутри (через ``#``).
 
     Явный маркер ТЗ имеет приоритет над «описание»: если в архивах есть записи
@@ -121,7 +123,7 @@ def find_tz_in_archives(record: dict[str, Any], timeout: float = 30.0) -> FileRe
     for ref in collect_files(record):
         if not is_archive(ref.name):
             continue
-        for inner in _archive_inner_names(ref.url, timeout=timeout):
+        for inner in _archive_inner_names(ref.url, timeout=timeout, verify_ssl=verify_ssl):
             base = PurePosixPath(inner).name
             if _has_tz_marker(base):
                 return FileRef(inner, f"{ref.url}#{inner}")
@@ -130,7 +132,9 @@ def find_tz_in_archives(record: dict[str, Any], timeout: float = 30.0) -> FileRe
     return fallback
 
 
-def find_description_in_archives(record: dict[str, Any], timeout: float = 30.0) -> FileRef | None:
+def find_description_in_archives(
+    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+) -> FileRef | None:
     """Запись «описание» внутри архива (URL архива + путь записи через ``#``).
 
     Запасной источник текста для анализа, если в основном ТЗ нет требований
@@ -139,18 +143,14 @@ def find_description_in_archives(record: dict[str, Any], timeout: float = 30.0) 
     for ref in collect_files(record):
         if not is_archive(ref.name):
             continue
-        for inner in _archive_inner_names(ref.url, timeout=timeout):
+        for inner in _archive_inner_names(ref.url, timeout=timeout, verify_ssl=verify_ssl):
             if is_description(PurePosixPath(inner).name):
                 return FileRef(inner, f"{ref.url}#{inner}")
     return None
 
 
-def _extract_from_zip(ref: FileRef, timeout: float = 30.0) -> str | None:
-    """Текст ТЗ внутри zip-архива (по имени записи в ``ref.url#inner``)."""
-    raw = _download(ref.url, timeout=timeout)
-    if raw is None:
-        return None
-    _, _, inner_path = ref.url.partition("#")
+def _extract_zip_text(raw: bytes, inner_path: str) -> str | None:
+    """Текст записи zip-архива (по ``inner_path``; пустой путь — поиск по маркеру)."""
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
             for info in zf.infolist():
@@ -168,6 +168,15 @@ def _extract_from_zip(ref: FileRef, timeout: float = 30.0) -> str | None:
     except zipfile.BadZipFile:
         pass
     return None
+
+
+def _extract_from_zip(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    """Текст ТЗ внутри zip-архива (по имени записи в ``ref.url#inner``)."""
+    raw = _download(ref.url, timeout=timeout, verify_ssl=verify_ssl)
+    if raw is None:
+        return None
+    _, _, inner_path = ref.url.partition("#")
+    return _extract_zip_text(raw, inner_path)
 
 
 def _extract_7z_member(raw: bytes, member_name: str) -> bytes | None:
@@ -197,12 +206,8 @@ def _extract_7z_member(raw: bytes, member_name: str) -> bytes | None:
         return None
 
 
-def _extract_from_7z(ref: FileRef, timeout: float = 30.0) -> str | None:
-    """Текст ТЗ внутри 7z-архива (по имени записи в ``ref.url#inner``)."""
-    raw = _download(ref.url, timeout=timeout)
-    if raw is None:
-        return None
-    _, _, inner_path = ref.url.partition("#")
+def _extract_7z_text(raw: bytes, inner_path: str) -> str | None:
+    """Текст записи 7z-архива (по ``inner_path``; пустой путь — поиск по маркеру)."""
     if inner_path:
         data = _extract_7z_member(raw, inner_path)
         return _decode(data, inner_path) if data else None
@@ -214,4 +219,32 @@ def _extract_from_7z(ref: FileRef, timeout: float = 30.0) -> str | None:
                 text = _decode(data, member)
                 if text:
                     return text
+    return None
+
+
+def _extract_from_7z(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    """Текст ТЗ внутри 7z-архива (по имени записи в ``ref.url#inner``)."""
+    raw = _download(ref.url, timeout=timeout, verify_ssl=verify_ssl)
+    if raw is None:
+        return None
+    _, _, inner_path = ref.url.partition("#")
+    return _extract_7z_text(raw, inner_path)
+
+
+def _extract_archive_member(
+    url: str, inner_path: str, timeout: float = 30.0, verify_ssl: bool = True
+) -> str | None:
+    """Текст записи внутри архива, когда формат архива не виден из URL.
+
+    URL скачивания членов архива у ЭТП может быть глухим — без расширения
+    (например, etp.gpb.ru ``/file/get/t/.../name/<hash>``), поэтому формат
+    определяем по содержимому (7z -> zip), а не по имени файла.
+    """
+    raw = _download(url, timeout=timeout, verify_ssl=verify_ssl)
+    if not raw:
+        return None
+    if _list_7z(raw) is not None:
+        return _extract_7z_text(raw, inner_path)
+    if _list_zip(raw) is not None:
+        return _extract_zip_text(raw, inner_path)
     return None

@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     chunk_max_chars: int = Field(default=1500, ge=200, description="макс. размер чанка (символов)")
     top_k: int = Field(default=3, ge=1, description="сколько чанков отдавать LLM на вопрос")
     tz_download_timeout: float = 30.0
+    # Проверять SSL-сертификат при скачивании файла ТЗ (см. scoring_service.tz_verify_ssl).
+    tz_verify_ssl: bool = True
 
     @classmethod
     def settings_customise_sources(
