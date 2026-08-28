@@ -24,6 +24,8 @@ processing_meta_key: "analysis:processing_meta"
 processing_ttl_seconds: 600
 processing_recovery_priority: 0.0
 queue_poll_seconds: 2.0
+# Счётчик ретраев задач (HASH).
+jobs_retry_key: "analysis:jobs_retries"
 
 # RAG-параметры.
 chunk_max_chars: 1500

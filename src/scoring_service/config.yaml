@@ -12,9 +12,16 @@ llm_base_url: "https://api.deepseek.com/v1"
 llm_api_key: "sk-dummy"
 llm_model: "deepseek-v4-flash"
 llm_temperature: 0.0
+# Таймаут одного LLM-запроса (сек) и число повторов при сетевой ошибке/таймауте.
+llm_request_timeout: 45.0
+llm_max_retries: 1
+# Способ строгого JSON-выхода: json_mode (совместимо с DeepSeek) / json_schema / function_calling.
+llm_structured_method: "json_mode"
 
 # Парсер закупок (REST, без прямого доступа к БД)
 parser_api_url: "http://localhost:8000"
+# Пауза перед повторной обработкой задачи при недоступности парсера (сек).
+parser_retry_backoff_seconds: 5.0
 
 # Redis-очередь (та же, что у scoring_transport)
 redis_url: "redis://localhost:6379/0"
@@ -42,6 +49,8 @@ max_fit_score: 10.0
 min_fit_score: 0.0
 score_round_digits: 2
 normalize_fit_for_score: true
+# Дедлайн на оценку одной закупки (сек).
+eval_item_timeout_seconds: 300.0
 
 # Уточнение скора по тексту ТЗ (requires_tz_review): поиск файла ТЗ в карточке,
 # извлечение текста и повторный fit/judge по тексту ТЗ.

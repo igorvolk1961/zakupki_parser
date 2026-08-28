@@ -7,6 +7,8 @@
 
 # Парсер закупок (REST, без прямого доступа к БД)
 parser_api_url: "http://localhost:8000"
+# Пауза перед повторной обработкой задачи при недоступности парсера (сек).
+parser_retry_backoff_seconds: 5.0
 
 # Redis-очередь (та же, что у scoring_transport)
 redis_url: "redis://localhost:6379/0"
@@ -17,6 +19,8 @@ processing_meta_key: "margin:processing_meta"
 processing_ttl_seconds: 600
 processing_recovery_priority: 0.0
 queue_poll_seconds: 2.0
+# Счётчик ретраев задач (HASH).
+jobs_retry_key: "margin:jobs_retries"
 
 # Норма прибыли: Margin = НМЦК × margin_rate
 margin_rate: 1.0
