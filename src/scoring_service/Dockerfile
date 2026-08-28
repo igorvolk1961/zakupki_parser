@@ -4,6 +4,12 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_COMPILE_BYTECODE=1
 
+# Конвертеры легаси .doc в текст (catdoc/antiword): MarkItDown .doc не понимает,
+# а экстрактор ТЗ падает на них без внешнего конвертера (download.py/extractors.py).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends catdoc antiword \
+    && rm -rf /var/lib/apt/lists/*
+
 # Build context — ../src (содержит scoring_service и scoring_common).
 WORKDIR /app/scoring_service
 
