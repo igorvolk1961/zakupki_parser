@@ -23,6 +23,16 @@ export function createConfigView(prefix, configPath, opts) {
     if (v && statusEl) statusEl.textContent = "несохранённые изменения";
   }
 
+  // Кнопка «Расширенный режим» должна отражать состояние: название и подсветка.
+  const RAW_LABEL = "Расширенный режим";
+  const FORM_LABEL = "Обычный режим";
+
+  function syncToggleLabel() {
+    if (!toggleBtn) return;
+    toggleBtn.textContent = raw ? FORM_LABEL : RAW_LABEL;
+    toggleBtn.classList.toggle("active", raw);
+  }
+
   async function load() {
     const [schemaData, cfg] = await Promise.all([
       api((opts.schemaPath || configPath) + "/schema"),
@@ -31,6 +41,7 @@ export function createConfigView(prefix, configPath, opts) {
     schema = schemaData.schema;
     renderSchemaForm(formEl, schema, cfg);
     raw = false;
+    syncToggleLabel();
     rawEl.style.display = "none";
     formEl.style.display = "";
     if (statusEl) statusEl.textContent = "";
@@ -39,9 +50,17 @@ export function createConfigView(prefix, configPath, opts) {
 
   async function toggleRaw() {
     raw = !raw;
+    syncToggleLabel();
     if (raw) {
-      const data = await api((opts.schemaPath || configPath) + "/raw");
-      rawEl.value = data.yaml;
+      try {
+        const data = await api((opts.schemaPath || configPath) + "/raw");
+        rawEl.value = data.yaml;
+      } catch (err) {
+        raw = false;
+        syncToggleLabel();
+        if (statusEl) statusEl.textContent = "Ошибка: " + err.message;
+        return;
+      }
       rawEl.style.display = "";
       formEl.style.display = "none";
     } else {

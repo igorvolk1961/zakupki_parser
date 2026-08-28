@@ -71,11 +71,15 @@ const TAB_LOADERS = {
 ALL_TABS.forEach((t) => {
   const btn = $("#tab-" + t);
   if (!btn) return;
-  btn.addEventListener("click", () => {
-    switchTo(t);
-    const loader = TAB_LOADERS[t];
-    if (loader) loader();
-  });
+  btn.addEventListener("click", () => switchTo(t));
+});
+
+// Активация вкладки = переключение + загрузка содержимого. Слушаем событие от
+// switchTo: оно приходит и при клике по кнопке вкладки, и при программном
+// автопереключении из updateRolesUI, поэтому загрузка происходит в обоих случаях.
+document.addEventListener("tab:active", (e) => {
+  const loader = TAB_LOADERS[e.detail.name];
+  if (loader) loader();
 });
 
 window.addEventListener("beforeunload", (e) => {

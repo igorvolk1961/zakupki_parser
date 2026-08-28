@@ -85,6 +85,9 @@ export function switchTo(name) {
     const view = document.getElementById("view-" + t);
     if (view) view.style.display = t === name ? "block" : "none";
   });
+  // Один путь активации вкладки: и клики по кнопкам, и программное переключение
+  // (updateRolesUI при скрытии активной вкладки ролью) должны загружать содержимое.
+  document.dispatchEvent(new CustomEvent("tab:active", { detail: { name } }));
 }
 
 export function updateRolesUI() {

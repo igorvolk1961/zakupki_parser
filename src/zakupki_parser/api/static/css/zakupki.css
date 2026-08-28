@@ -31,6 +31,7 @@
   button.ghost { background: transparent; }
   button.danger { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
   html[data-theme="dark"] button.danger { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
+  button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
   .tabs { display:flex; gap:6px; margin-bottom:16px;}
   .tabs button { border-radius:20px; }
   .tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight:600;}
