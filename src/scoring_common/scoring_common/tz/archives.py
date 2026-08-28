@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import tarfile
 import tempfile
 import zipfile
@@ -22,6 +23,8 @@ from scoring_common.tz.files import (
     is_description,
     is_tz,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _decode_member_name(name: str) -> str:
@@ -80,6 +83,12 @@ def _list_7z(raw: bytes) -> list[str] | None:
     try:
         import py7zr  # lazy: 7z — опциональная зависимость
     except ImportError:
+        # Тихий отказ здесь приводит к «ТЗ не найдено», что сбивает с толку:
+        # причина (не установлена библиотека) должна быть видна в логе.
+        logger.warning(
+            "py7zr не установлен — 7z-архивы закупок не будут читаться "
+            "(закупите py7zr>=0.20 в venv анализа)."
+        )
         return None
     try:
         with py7zr.SevenZipFile(io.BytesIO(raw), mode="r") as archive:

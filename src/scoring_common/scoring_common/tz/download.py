@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import ssl
 import threading
 import time
@@ -10,6 +11,8 @@ from collections import OrderedDict
 import httpx
 
 from scoring_common.tz.files import _MAX_FILE_BYTES
+
+logger = logging.getLogger(__name__)
 
 # Браузерный User-Agent: файлы ЭТП (например, etp.gpb.ru ``/file/get``) отдают
 # ПУСТОЕ тело (200, 0 байт) на запрос без User-Agent (анти-бот), поэтому без него
@@ -97,7 +100,10 @@ def _download(
                 raw = None
             else:
                 raw = resp.content[:max_bytes]
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
+        # Молчаливый None здесь превращается в «ТЗ не найдено» — логируем причину
+        # (SSL-перехват/сеть/5xx), чтобы деградация была диагностируемой.
+        logger.warning("Не удалось скачать файл ТЗ %s: %s", plain_url, exc)
         raw = None
     with _download_lock:
         _download_cache[plain_url] = (time.monotonic(), raw)

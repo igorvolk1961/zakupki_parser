@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -63,6 +64,9 @@ _TZ_TEXT_MAX_TOTAL_CHARS = 20_000_000  # ~40 МБ суммарно
 # Максимум записей в кэше найденных файлов ТЗ (FileRef крошечный — бюджет не нужен).
 _TZ_REF_MAX_ENTRIES = 2048
 
+# Максимум записей в кэше resolve_tz_content (пары ref+text соответственных карточек).
+_TZ_RESOLVE_MAX_ENTRIES = 1024
+
 # Кэш текста: ключ (url#inner, имя файла) -> (время вставки, текст | None).
 # Кэшируется и неуспех (None), чтобы временная недоступность ЭТП не вызывала
 # повторных скачиваний при каждом запросе. OrderedDict — порядок для LRU-эвикции.
@@ -72,7 +76,41 @@ _tz_text_cache: OrderedDict[tuple[str, str], tuple[float, str | None]] = Ordered
 _tz_ref_cache: OrderedDict[tuple[tuple[str, str], ...], tuple[float, FileRef | None]] = (
     OrderedDict()
 )
+# Кэш итогового разрешения ТЗ (ref + очищенный текст): ключ — сигнатура files_json.
+# Используется просмотром ТЗ с карточки, чтобы повторное открытие не скачивало и
+# не конвертировало файл заново.
+_tz_resolve_cache: OrderedDict[
+    tuple[tuple[str, str], ...], tuple[float, FileRef | None, str | None]
+] = OrderedDict()
 _tz_text_lock = threading.Lock()
+
+# --- Детектор обязанностей Исполнителя (фолбэк на «Описание») ----------------
+# Если в ТЗ нет требований к Исполнителю, а в карточке есть документ «Описание»,
+# текст для анализа берётся из него (BR: «описание» как запасной источник).
+# Два шаблона покрывают типовые формулировки: «требования к …» и прямое указание
+# обязанности (Исполнитель обязан/должен/несёт ответственность).
+_DUTIES_REQUIREMENT_RE = re.compile(
+    r"требовани[а-яё]+[^.\n]{0,80}?\b(?:исполнител|подрядчик|участник)\w*",
+    re.IGNORECASE,
+)
+_DUTIES_OBLIGATION_RE = re.compile(
+    r"\b(?:исполнител|подрядчик|участник)\w*[^.\n]{0,80}?"
+    r"\b(?:обязан[а-яё]*|долж[а-яё]{1,2}|обязательств[а-яё]*|нес[её]т\s+ответственност[а-яё]+)\b",
+    re.IGNORECASE,
+)
+_DUTIES_TO_EXECUTOR_RES: tuple[re.Pattern[str], ...] = (
+    _DUTIES_REQUIREMENT_RE,
+    _DUTIES_OBLIGATION_RE,
+)
+
+
+def _has_executor_duties(text: str) -> bool:
+    """Есть ли в тексте требования к Исполнителю/Участнику/Подрядчику.
+
+    Единая эвристика для анализа и просмотра: определяет, считать ли найденный
+    файл полноценным ТЗ или брать текст документа «Описание» как запасной.
+    """
+    return any(pat.search(text) for pat in _DUTIES_TO_EXECUTOR_RES)
 
 
 def _record_signature(record: dict[str, Any]) -> tuple[tuple[str, str], ...]:
@@ -181,6 +219,64 @@ def find_tz_reference_cached(
     return ref
 
 
+def resolve_tz_content(
+    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+) -> tuple[FileRef | None, str | None]:
+    """Единое разрешение текста ТЗ: поиск файла → извлечение → очистка.
+
+    Используется И анализом стоп-условий (rag), И просмотром ТЗ с карточки — чтобы
+    оба видели один и тот же файл и тот же текст. Правила:
+    1. ``find_tz_reference``: прямой файл ТЗ → поиск внутри архивов;
+    2. если в найденном тексте нет требований к Исполнителю, а есть документ
+       «Описание» (и это не тот же файл) — текст берётся из «Описания»;
+    3. текст очищается (``clean_text``).
+
+    Возвращает ``(None, None)``, если файл ТЗ не найден, либо ``(ref, None)``,
+    если файл найден, но текст извлечь не удалось.
+    """
+    ref = find_tz_reference(record, timeout=timeout, verify_ssl=verify_ssl)
+    if ref is None:
+        return None, None
+    raw = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
+    text = clean_text(raw) if raw else ""
+    if not text:
+        return ref, None
+    if not _has_executor_duties(text):
+        desc_ref = find_description_reference(record, timeout=timeout, verify_ssl=verify_ssl)
+        if desc_ref is not None and desc_ref.url != ref.url:
+            raw_desc = extract_text(desc_ref, timeout=timeout, verify_ssl=verify_ssl)
+            desc_text = clean_text(raw_desc) if raw_desc else ""
+            if desc_text:
+                ref = desc_ref
+                text = desc_text
+    return ref, text
+
+
+def resolve_tz_content_cached(
+    record: dict[str, Any],
+    timeout: float = 30.0,
+    ttl: float = _TZ_TEXT_TTL_SECONDS,
+    verify_ssl: bool = True,
+) -> tuple[FileRef | None, str | None]:
+    """``resolve_tz_content`` с TTL-кэшем: карточка повторно не скачивается.
+
+    Ключ — сигнатура ``files_json``. Кэшируется итог (ref + текст), в т.ч. ``None``.
+    """
+    key = _record_signature(record)
+    now = time.monotonic()
+    with _tz_text_lock:
+        cached = _tz_resolve_cache.get(key)
+        if cached is not None and now - cached[0] < ttl:
+            _tz_resolve_cache.move_to_end(key)
+            return cached[1], cached[2]
+    ref, text = resolve_tz_content(record, timeout=timeout, verify_ssl=verify_ssl)
+    with _tz_text_lock:
+        _tz_resolve_cache[key] = (time.monotonic(), ref, text)
+        _tz_resolve_cache.move_to_end(key)
+        _prune_tz_resolve_cache(time.monotonic(), ttl=ttl)
+    return ref, text
+
+
 def _prune_tz_text_cache(now: float, ttl: float = _TZ_TEXT_TTL_SECONDS) -> None:
     """Очистить кэш текста: просроченные записи, LRU-лимит и бюджет символов.
 
@@ -211,6 +307,15 @@ def _prune_tz_ref_cache(now: float, ttl: float = _TZ_TEXT_TTL_SECONDS) -> None:
         _tz_ref_cache.popitem(last=False)
 
 
+def _prune_tz_resolve_cache(now: float, ttl: float = _TZ_TEXT_TTL_SECONDS) -> None:
+    """Очистить кэш resolve_tz_content: просроченные и LRU-лимит записей."""
+    expired = [k for k, (ts, _, _) in _tz_resolve_cache.items() if now - ts >= ttl]
+    for key in expired:
+        del _tz_resolve_cache[key]
+    while len(_tz_resolve_cache) > _TZ_RESOLVE_MAX_ENTRIES:
+        _tz_resolve_cache.popitem(last=False)
+
+
 def clear_tz_text_cache() -> None:
     """Очистить кэши текста ТЗ и найденных файлов (для тестов)."""
     from scoring_common.tz.download import clear_download_cache
@@ -219,6 +324,7 @@ def clear_tz_text_cache() -> None:
     with _tz_text_lock:
         _tz_text_cache.clear()
         _tz_ref_cache.clear()
+        _tz_resolve_cache.clear()
 
 
 __all__ = [
@@ -235,6 +341,8 @@ __all__ = [
     "find_tz_reference_cached",
     "is_archive",
     "is_tz",
+    "resolve_tz_content",
+    "resolve_tz_content_cached",
     # Совместимость с прежним монолитным модулем scoring_common/tz.py.
     "_decode_member_name",
     "_extract_docx",

@@ -348,7 +348,7 @@ def test_resolve_license_code_aliases() -> None:
 
 
 def test_has_executor_duties_matches_obligations() -> None:
-    from analysis_service.pipeline.rag import _has_executor_duties
+    from scoring_common.tz import _has_executor_duties
 
     assert _has_executor_duties("Исполнитель обязан предоставить отчёт.")
     assert _has_executor_duties("Подрядчик должен выполнить работы в срок.")
@@ -358,7 +358,7 @@ def test_has_executor_duties_matches_obligations() -> None:
 
 
 def test_has_executor_duties_rejects_no_duties() -> None:
-    from analysis_service.pipeline.rag import _has_executor_duties
+    from scoring_common.tz import _has_executor_duties
 
     assert not _has_executor_duties("Описание предмета закупки и порядок оплаты.")
     assert not _has_executor_duties("должностной регламент не входит в предмет.")
@@ -373,18 +373,14 @@ def test_analyze_falls_back_to_description_when_tz_has_no_duties(
 
     from scoring_common.tz.files import FileRef
 
-    tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
     desc_ref = FileRef("Описание.docx", "http://x/Описание.docx")
 
-    monkeypatch.setattr(rag_mod, "find_tz_reference", lambda *a, **k: tz_ref)
-    monkeypatch.setattr(rag_mod, "find_description_reference", lambda *a, **k: desc_ref)
+    def fake_resolve(
+        rec: dict, timeout: float = 30.0, verify_ssl: bool = True
+    ) -> tuple[FileRef, str]:
+        return (desc_ref, "Исполнитель обязан предоставить отчёт о выполнении работ.")
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
-        if ref == tz_ref:
-            return "Порядок приёмки и оплаты работ."  # без обязанностей
-        return "Исполнитель обязан предоставить отчёт о выполнении работ."
-
-    monkeypatch.setattr(rag_mod, "extract_text", fake_extract)
+    monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
     report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], {}))
     assert report["tz_found"] is True
@@ -397,17 +393,13 @@ def test_analyze_keeps_tz_when_duties_present(monkeypatch: pytest.MonkeyPatch) -
     from scoring_common.tz.files import FileRef
 
     tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
-    desc_ref = FileRef("Описание.docx", "http://x/Описание.docx")
 
-    monkeypatch.setattr(rag_mod, "find_tz_reference", lambda *a, **k: tz_ref)
-    monkeypatch.setattr(rag_mod, "find_description_reference", lambda *a, **k: desc_ref)
-    monkeypatch.setattr(
-        rag_mod,
-        "extract_text",
-        lambda ref, timeout=30.0, verify_ssl=True: (
-            "Исполнитель обязан предоставить отчёт о выполнении."
-        ),
-    )
+    def fake_resolve(
+        rec: dict, timeout: float = 30.0, verify_ssl: bool = True
+    ) -> tuple[FileRef, str]:
+        return (tz_ref, "Исполнитель обязан предоставить отчёт о выполнении.")
+
+    monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
     report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], {}))
     assert report["tz_found"] is True

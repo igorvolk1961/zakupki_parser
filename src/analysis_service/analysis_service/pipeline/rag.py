@@ -35,12 +35,7 @@ from analysis_service.pipeline.system_questions import (
 )
 from analysis_service.settings import Settings
 from scoring_common.embeddings import EmbeddingClient, cosine_similarity
-from scoring_common.tz import (
-    clean_text,
-    extract_text,
-    find_description_reference,
-    find_tz_reference,
-)
+from scoring_common.tz import resolve_tz_content
 
 logger = logging.getLogger(__name__)
 
@@ -50,32 +45,9 @@ VERDICT_ABSOLUTE: Literal["absolute"] = "absolute"
 VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE)
 Verdict = Literal["no_stop_condition", "absolute", "soft"]
 
-# Признак того, что в тексте есть требования к Исполнителю/Участнику/Подрядчику.
-# Если в ТЗ таких требований нет, а в карточке есть документ «Описание», текст для
-# анализа берётся из него (BR: «описание» как запасной источник требований).
-#
-# Два шаблона покрывают типовые формулировки:
-# 1. «требования к Исполнителю» — слово «требовани*» перед исполнителем;
-# 2. прямое указание обязанности — «Исполнитель обязан/должен/несёт
-#    ответственность» (исполнитель перед глаголом-обязательством), которое
-#    встречается чаще, чем оборот «требования к …» и раньше детектилось ложно.
-_DUTIES_REQUIREMENT_RE = re.compile(
-    r"требовани[а-яё]+[^.\n]{0,80}?\b(?:исполнител|подрядчик|участник)\w*",
-    re.IGNORECASE,
-)
-_DUTIES_OBLIGATION_RE = re.compile(
-    r"\b(?:исполнител|подрядчик|участник)\w*[^.\n]{0,80}?"
-    r"\b(?:обязан[а-яё]*|долж[а-яё]{1,2}|обязательств[а-яё]*|нес[её]т\s+ответственност[а-яё]+)\b",
-    re.IGNORECASE,
-)
-_DUTIES_TO_EXECUTOR_RES: tuple[re.Pattern[str], ...] = (
-    _DUTIES_REQUIREMENT_RE,
-    _DUTIES_OBLIGATION_RE,
-)
-
-
-def _has_executor_duties(text: str) -> bool:
-    return any(pat.search(text) for pat in _DUTIES_TO_EXECUTOR_RES)
+# Признак наличия требований к Исполнителю/Участнику/Подрядчику и фолбэк на
+# документ «Описание» — общая логика в scoring_common.tz (resolve_tz_content),
+# которая используется и анализом, и просмотром ТЗ с карточки.
 
 
 # Ключи ответа batch_system.md → id системного вопроса.
@@ -133,7 +105,7 @@ class RagAnalyzer:
         """RAG-отчёт: системные проверки + вопросы клиента. best-effort."""
         generated_at = datetime.now(UTC).isoformat()
 
-        ref = find_tz_reference(
+        ref, tz_text = resolve_tz_content(
             record,
             timeout=self._settings.tz_download_timeout,
             verify_ssl=self._settings.tz_verify_ssl,
@@ -146,10 +118,6 @@ class RagAnalyzer:
                 "questions": [],
                 "generated_at": generated_at,
             }
-        raw = extract_text(
-            ref, timeout=self._settings.tz_download_timeout, verify_ssl=self._settings.tz_verify_ssl
-        )
-        tz_text = clean_text(raw) if raw else ""
         if not tz_text:
             return {
                 "tz_found": False,
@@ -157,20 +125,6 @@ class RagAnalyzer:
                 "questions": [],
                 "generated_at": generated_at,
             }
-
-        # Если в ТЗ нет требований к Исполнителю, а есть документ «Описание» —
-        # используем его текст (запасной источник, best-effort).
-        if not _has_executor_duties(tz_text):
-            timeout = self._settings.tz_download_timeout
-            verify_ssl = self._settings.tz_verify_ssl
-            desc_ref = find_description_reference(record, timeout=timeout, verify_ssl=verify_ssl)
-            if desc_ref is not None and desc_ref.url != ref.url:
-                raw_desc = extract_text(desc_ref, timeout=timeout, verify_ssl=verify_ssl)
-                desc_text = clean_text(raw_desc) if raw_desc else ""
-                if desc_text:
-                    tz_text = desc_text
-                    ref = desc_ref
-                    tz_file = ref.name
 
         chunks = split_tz_sections(tz_text, max_chars=self._settings.chunk_max_chars)
         if not chunks:
@@ -182,17 +136,35 @@ class RagAnalyzer:
                 "generated_at": generated_at,
             }
 
+        # Системные проверки (опыт 2571 / реестр Минпромторга / лицензии) требуют
+        # только лексического отбора секций и LLM — эмбеддинги им не нужны.
+        # Выполняем их ВСЕГДА, даже если вектор-прокси недоступен, чтобы пользователь
+        # видел обязательные барьеры (главная ценность сервиса), а не молчаливое
+        # «ничего не найдено».
+        verdicts: list[dict[str, Any]] = await self._analyze_system(chunks, profile_facts)
+
         chunk_vectors = await self._embedder.embed(chunks)
         if chunk_vectors is None or len(chunk_vectors) != len(chunks):
+            # Векторы недоступны: пользовательские вопросы профиля оценить нельзя,
+            # но системные проверки уже посчитаны — сохраняем их (best-effort).
+            embed_error = "Не удалось вычислить эмбеддинги чанков ТЗ (вопросы профиля не оценены)"
+            for question in questions:
+                question_id = str(question.get("id") or "")
+                question_text = str(question.get("text") or "").strip()
+                if question_id and question_text:
+                    verdicts.append(
+                        self._profile_verdict(
+                            question_id, question_text, VERDICT_NONE, embed_error, None
+                        )
+                    )
             return {
                 "tz_found": True,
                 "tz_file": tz_file,
-                "error": "Не удалось вычислить эмбеддинги чанков ТЗ",
-                "questions": [],
+                "questions": verdicts,
                 "generated_at": generated_at,
+                "error": embed_error,
             }
 
-        verdicts: list[dict[str, Any]] = await self._analyze_system(chunks, profile_facts)
         for question in questions:
             question_id = str(question.get("id") or "")
             question_text = str(question.get("text") or "").strip()

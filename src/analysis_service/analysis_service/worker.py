@@ -110,23 +110,42 @@ class AnalysisWorker:
             questions = await self._resolve_questions(pfd)
             profile_facts = await self._resolve_profile_facts(pfd)
             report = await self._analyzer.analyze(record, questions, profile_facts)
-            return {
+            result = {
                 "procurement_id": pid,
                 "profile_id": pfd,
                 "score": 0.0,
                 "score_method": "fit",
                 "rag_report": report,
             }
+            logger.info(
+                "Analysis complete for procurement %s (profile %s): tz_found=%s "
+                "file=%r questions=%d%s",
+                pid,
+                pfd,
+                report.get("tz_found"),
+                report.get("tz_file"),
+                len(report.get("questions") or []),
+                f" error={report.get('error')!r}" if report.get("error") else "",
+            )
+            return result
 
-        await process_stage_job(
-            self._queue,
-            self._parser,
-            procurement_id,
-            profile_id,
-            priority,
-            retry_backoff_seconds=self._settings.parser_retry_backoff_seconds,
-            compute=compute,
-        )
+        try:
+            await process_stage_job(
+                self._queue,
+                self._parser,
+                procurement_id,
+                profile_id,
+                priority,
+                retry_backoff_seconds=self._settings.parser_retry_backoff_seconds,
+                compute=compute,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Analysis crashed for procurement %s (profile %s): %s",
+                procurement_id,
+                profile_id,
+                exc,
+            )
 
 
 async def run_worker(settings: Settings) -> None:

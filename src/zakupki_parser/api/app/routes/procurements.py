@@ -11,7 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
-from scoring_common.tz import extract_text_cached, find_tz_reference_cached
+from scoring_common.tz import resolve_tz_content_cached
 from zakupki_parser.api.app.converters import (
     _meets_stage_notify_threshold,
     _procurement_detail_out,
@@ -256,15 +256,20 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         # Тяжёлые блокирующие операции выполняем в потоке, но ограничиваем их
         # число семафором (см. _TZ_EXTRACT_CONCURRENCY): холодный кэш не должен
         # насыщать общий thread-pool одновременными скачиваниями/конвертациями.
-        # find_tz_reference_cached кэширует результат поиска (в т.ч. листинг
-        # архивов) — при повторном открытии карточки архивы заново не скачиваются.
+        # resolve_tz_content_cached использует ту же логику поиска/извлечения,
+        # что и конвейер анализа стоп-условий (scoring_common.tz), и кэширует
+        # результат — при повторном открытии карточки файл заново не скачивается.
         async with _tz_extract_semaphore:
-            ref = await asyncio.to_thread(find_tz_reference_cached, record, 30.0)
-            if ref is None:
-                return {"found": False, "file_name": None, "from_archive": False, "text": None}
-            text = await asyncio.to_thread(extract_text_cached, ref, 30.0)
+            ref, text = await asyncio.to_thread(resolve_tz_content_cached, record, 30.0)
+        if ref is None or text is None:
+            return {
+                "found": False,
+                "file_name": ref.name if ref is not None else None,
+                "from_archive": "#" in ref.url if ref is not None else False,
+                "text": None,
+            }
         return {
-            "found": text is not None,
+            "found": True,
             "file_name": ref.name,
             "from_archive": "#" in ref.url,
             "text": text,

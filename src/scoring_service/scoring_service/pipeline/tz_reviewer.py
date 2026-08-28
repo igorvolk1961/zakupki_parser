@@ -12,11 +12,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from pydantic import BaseModel, Field
 
-from scoring_service.pipeline.tz_review import (
-    clean_text,
-    extract_text,
-    find_tz_reference,
-)
+from scoring_common.tz import resolve_tz_content
 from scoring_service.settings import Settings
 
 
@@ -59,25 +55,19 @@ class TzReviewer:
     def _impl(self, record: dict[str, Any]) -> TzReviewOutcome:
         timeout = self._settings.tz_download_timeout
         verify_ssl = self._settings.tz_verify_ssl
-        ref = find_tz_reference(record, timeout=timeout, verify_ssl=verify_ssl)
+        # Единая логика поиска/извлечения/очистки ТЗ (в т.ч. фолбэк на «Описание»)
+        # — та же, что у анализа стоп-условий и просмотра ТЗ с карточки.
+        ref, cleaned = resolve_tz_content(record, timeout=timeout, verify_ssl=verify_ssl)
         if ref is None:
             return TzReviewOutcome(
                 found=False,
                 reason="Файл ТЗ не найден ни среди файлов карточки, ни внутри архивов",
             )
-        text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
-        if text is None:
+        if cleaned is None:
             return TzReviewOutcome(
                 found=False,
                 file_name=ref.name,
                 reason=f"Не удалось извлечь текст из файла ТЗ: {ref.name}",
-            )
-        cleaned = clean_text(text)
-        if not cleaned:
-            return TzReviewOutcome(
-                found=False,
-                file_name=ref.name,
-                reason=f"Пустой текст ТЗ (не удалось извлечь содержимое): {ref.name}",
             )
         return TzReviewOutcome(
             found=True,
