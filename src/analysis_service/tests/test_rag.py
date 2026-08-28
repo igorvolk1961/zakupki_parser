@@ -337,6 +337,20 @@ def test_resolve_license_code_aliases() -> None:
     )
     assert resolve_license_code({"authority": "ФСБ России (криптографические средства)"}) == "fsb"
     assert (
+        resolve_license_code({"license_name": "Лицензия ФСБ России на работы с гостайной"})
+        == "fsb_gostayna"
+    )
+    assert (
+        resolve_license_code(
+            {
+                "license_name": "лицензия УФСБ на работы с государственной тайной",
+                "authority": "УФСБ",
+                "reasoning": "степень секретности не ниже «совершенно секретно»",
+            }
+        )
+        == "fsb_gostayna"
+    )
+    assert (
         resolve_license_code({"license_name": "Лицензия на образовательную деятельность"})
         == "education"
     )

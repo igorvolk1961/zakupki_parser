@@ -87,7 +87,7 @@ erDiagram
 
     LICENSE_TYPES {
         bigint id PK "автоинкремент"
-        varchar(32) code "стабильный ключ, UNIQUE (fstek|fsb|mincifry|roscomnadzor|minpromtorg|mchs|rosgvardia|education|other)"
+        varchar(32) code "стабильный ключ, UNIQUE (fstek|fsb|fsb_gostayna|mincifry|roscomnadzor|minpromtorg|mchs|rosgvardia|education|other)"
         text name "наименование типа лицензии"
         integer sort_order "порядок сортировки"
         timestamptz created_at "server_default now()"

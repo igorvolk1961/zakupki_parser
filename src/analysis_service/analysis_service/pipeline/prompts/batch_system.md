@@ -53,8 +53,10 @@
    - registry — реестр/выписка (например, Минпромторга),
    - permit — иной разрешительный документ;
 - license_sro.facts.license_code — нормализованный код вида лицензии из справочника
-        (fstek, fsb, mincifry, roscomnadzor, minpromtorg, mchs, rosgvardia, education, other);
+        (fstek, fsb, fsb_gostayna, mincifry, roscomnadzor, minpromtorg, mchs, rosgvardia, education, other);
         если вид не назван — null;
         если назван, но не совпадает ни с одним кодом — other.
+- fsb_gostayna — лицензия ФСБ на работы с государственной тайной (гостайна), включая
+        указание степени секретности («совершенно секретно» и т.п.); для них НЕ использовать fsb.
 - experience_2571.found, minprom_registry.found, license_sro.found:
   если при проверке в фрагментах нет информации — found=false, facts={}.

@@ -21,6 +21,7 @@ from analysis_service.pipeline.system_questions import (
 LICENSE_CODES = {
     "fstek",
     "fsb",
+    "fsb_gostayna",
     "mincifry",
     "roscomnadzor",
     "minpromtorg",
@@ -34,6 +35,11 @@ LICENSE_CODES = {
 LICENSE_ALIASES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"фстэк|техническ\w*\s+защит\w*\s+информаци|техзащит"), "fstek"),
     (re.compile(r"защит\w*\s+информаци"), "fstek"),
+    # Гостайна должна быть распознана раньше общего «фсб» (иначе «УФСБ» утянет в fsb).
+    (
+        re.compile(r"гостайн|государственн\w*\s+тайн|степень\w*\s+секретно|совершенн\w*\s+секретн"),
+        "fsb_gostayna",
+    ),
     (re.compile(r"фсб|криптограф|шифрован|криптосредств"), "fsb"),
     (re.compile(r"минц"), "mincifry"),
     (re.compile(r"роскомнадзор|услуг\w*\s+связ"), "roscomnadzor"),

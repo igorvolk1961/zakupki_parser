@@ -100,6 +100,7 @@ def test_reference_data_seeded(ple_client: TestClient) -> None:
     assert {
         "fstek",
         "fsb",
+        "fsb_gostayna",
         "mincifry",
         "roscomnadzor",
         "minpromtorg",

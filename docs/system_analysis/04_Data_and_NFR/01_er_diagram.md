@@ -57,7 +57,7 @@ erDiagram
 
     LICENSE_TYPES {
         int id PK
-        string code "fstek|fsb|mincifry|roscomnadzor|minpromtorg|mchs|rosgvardia|education|other"
+        string code "fstek|fsb|fsb_gostayna|mincifry|roscomnadzor|minpromtorg|mchs|rosgvardia|education|other"
         string name
         int sort_order
     }

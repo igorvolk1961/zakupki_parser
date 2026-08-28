@@ -142,8 +142,8 @@ class ExperienceConfirmationType(Base):
 class LicenseType(Base):
     """Справочник типов лицензий (сид — набор для ИТ-компании, миграция 1.37).
 
-    ``code`` — стабильный ключ: ``fstek``, ``fsb``, ``mincifry``, ``roscomnadzor``,
-    ``minpromtorg``, ``mchs``, ``rosgvardia``, ``education``, ``other``.
+    ``code`` — стабильный ключ: ``fstek``, ``fsb``, ``fsb_gostayna``, ``mincifry``,
+    ``roscomnadzor``, ``minpromtorg``, ``mchs``, ``rosgvardia``, ``education``, ``other``.
     Справочник глобальный (не привязан к профилю/пользователю); заполняется при
     миграции и идемпотентно ``ensure_reference_data`` на старте приложения.
     """
