@@ -4,6 +4,8 @@
 # Внимание: ОКПД2-фильтр (okpd2Ids) через GET пока не подтверждён — см. TODO.
 name: "ЕИС (44-ФЗ)"
 url: "https://zakupki.gov.ru"
+# Общий бэкенд с zakupki_gov_223fz (ЕИС): не обрабатываются параллельно.
+domain_group: zakupki.gov.ru
 list_path: "/epz/order/extendedsearch/results.html"
 
 list_config:

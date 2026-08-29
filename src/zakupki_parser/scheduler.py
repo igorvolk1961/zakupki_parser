@@ -7,6 +7,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlparse
 
 from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
@@ -67,7 +68,10 @@ class Scheduler:
         Recovery очереди скоринга (догоняем закупки, не попавшие в очередь) выполняется
         до обхода площадок. Каждая включённая площадка обрабатывается отдельной
         ``asyncio.Task`` с лимитом ``config_parser.max_concurrent_platforms``: задержка/
-        backoff/circuit-breaker одной площадки не блокирует остальные. Профили
+        backoff/circuit-breaker одной площадки не блокирует остальные. Площадки одного
+        домена/бэкенда (``domain_group``) дополнительно ограничены
+        ``config_parser.max_concurrent_per_domain`` (44-ФЗ/223-ФЗ одного сайта не идут
+        параллельно — общий IP/антибот). Профили
         распределяются по площадкам через ``_profile_on_platform`` (``target_etp``);
         одинаковые обходы (площадка + набор ОКПД2) дедуплицируются ``_build_units``
         (``deduplicate_requests``).
@@ -77,9 +81,16 @@ class Scheduler:
         ctxs = await self._gather_profile_ctxs()
 
         sem = asyncio.Semaphore(self._cfg.parser.max_concurrent_platforms)
+        # Доменный лимит (R5): 44-ФЗ/223-ФЗ одного сайта (одинаковый domain_group
+        # или hostname url) не обрабатываются параллельно — общий бэкенд/IP/антибот.
+        per_domain_limit = self._cfg.parser.max_concurrent_per_domain
+        per_domain: dict[str, asyncio.Semaphore] = {}
 
         async def _run_platform(platform_id: str, profiles: list[ProfileRunContext]) -> None:
-            async with sem:
+            dkey = self._domain_key(platform_id)
+            d_sem = per_domain.setdefault(dkey, asyncio.Semaphore(per_domain_limit))
+            # Единый порядок захвата (глобальный -> доменный) исключает deadlock.
+            async with sem, d_sem:
                 await self._process_platform(platform_id, profiles)
 
         pending = []
@@ -101,6 +112,20 @@ class Scheduler:
     def _ordered_enabled_platforms(self, enabled: set[str]) -> list[str]:
         """Активные площадки в порядке config_service.yaml (конфиг — интерфейс)."""
         return [s.platform_id for s in self._cfg.service.sites if s.platform_id in enabled]
+
+    def _domain_key(self, platform_id: str) -> str:
+        """Ключ группировки площадок по общему бэкенду/домену.
+
+        Приоритет у явного ``PlatformDom.domain_group`` (надёжен для поддоменов и
+        API-хостов, отличающихся от ``url``). Иначе — hostname из ``url``; для
+        неизвестного platform_id (тесты/заглушки) — сам platform_id.
+        """
+        platform = self._cfg.dom.platforms.get(platform_id)
+        if platform is None:
+            return platform_id
+        if platform.domain_group:
+            return platform.domain_group
+        return urlparse(platform.url).netloc.lower()
 
     async def _process_platform(self, platform_id: str, profiles: list[ProfileRunContext]) -> None:
         """Обрабатывает одну площадку для набора профилей."""

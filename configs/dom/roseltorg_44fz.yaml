@@ -9,6 +9,9 @@
 # только в JSON-LD (script[type='application/ld+json']).
 name: "Росэлторг (44-ФЗ)"
 url: "https://www.roseltorg.ru"
+# Общий бэкенд с roseltorg_223fz (тот же сайт roseltorg.ru): не обрабатываются
+# параллельно (общий IP/антибот/rate-limit, WAF).
+domain_group: roseltorg.ru
 list_path: "/procedures/search"
 list_config:
   # Контейнер карточки процедуры в выдаче поиска (как на /procedures/search).

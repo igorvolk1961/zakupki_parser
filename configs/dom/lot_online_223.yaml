@@ -7,6 +7,9 @@
 # DOM-страница и браузер для деталей не нужны.
 name: "lot-online РАД (223-ФЗ)"
 url: "https://tender.lot-online.ru"
+# Общий бэкенд с lot_online_44 (gz.lot-online.ru): сайт lot-online. Площадки
+# одного домена не обрабатываются параллельно (общий IP/антибот/rate-limit).
+domain_group: lot-online.ru
 list_path: "/search"
 list_config:
   # Контейнер карточки закупки.

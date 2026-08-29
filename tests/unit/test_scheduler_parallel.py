@@ -125,6 +125,45 @@ async def test_run_once_isolates_platform_failure(
 
 
 @pytest.mark.asyncio
+async def test_run_once_respects_per_domain_limit(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Одинаковый domain_group: площадки одного домена не пересекаются (R5).
+
+    Даже при max_concurrent_platforms=2 две площадки общего бэкенда (44-ФЗ/223-ФЗ
+    одного сайта) выполняются строго последовательно — общий IP/антибот/rate-limit.
+    """
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    # Оба platform_id из тестового конфига относим к одному домену.
+    scheduler._cfg.dom.platforms["zakupki_mos"].domain_group = "shared.ru"
+    scheduler._cfg.dom.platforms["zakupki_gov"].domain_group = "shared.ru"
+    _patch_platforms(scheduler, monkeypatch, ["zakupki_mos", "zakupki_gov"])
+    started, finished, max_active_fn = _install_tracked_process(scheduler, monkeypatch)
+
+    await scheduler.run_once()
+
+    assert max_active_fn() == 1
+    assert set(started) == {"zakupki_mos", "zakupki_gov"}
+    assert set(finished) == {"zakupki_mos", "zakupki_gov"}
+
+
+@pytest.mark.asyncio
+async def test_run_once_parallelizes_different_domains(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Разные домены параллелятся в пределах max_concurrent_platforms (R5)."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    scheduler._cfg.dom.platforms["zakupki_mos"].domain_group = "mos.ru"
+    scheduler._cfg.dom.platforms["zakupki_gov"].domain_group = "gov.ru"
+    _patch_platforms(scheduler, monkeypatch, ["zakupki_mos", "zakupki_gov"])
+    _started, _finished, max_active_fn = _install_tracked_process(scheduler, monkeypatch)
+
+    await scheduler.run_once()
+
+    assert max_active_fn() == 2
+
+
+@pytest.mark.asyncio
 async def test_run_once_noop_without_profiles(
     app_config: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -4,6 +4,9 @@
 # JSON-RPC POST /etp_back/api/get (detail.api_format: lot_online — ОКПД2/позиции).
 name: "lot-online РАД (44-ФЗ)"
 url: "https://gz.lot-online.ru"
+# Общий бэкенд с lot_online_223 (tender.lot-online.ru): сайт lot-online. Площадки
+# одного домена не обрабатываются параллельно (общий IP/антибот/rate-limit).
+domain_group: lot-online.ru
 list_path: "/etp_front/procedure/list"
 list_config:
   container: "app-procedure-card"

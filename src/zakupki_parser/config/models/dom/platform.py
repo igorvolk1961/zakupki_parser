@@ -24,6 +24,15 @@ class PlatformDom(BaseModel):
 
     name: str
     url: str = Field(description="базовый адрес платформы")
+    domain_group: str | None = Field(
+        default=None,
+        description=(
+            "общий бэкенд/домен для последовательного обхода: площадки с "
+            "одинаковым ``domain_group`` (44-ФЗ и 223-ФЗ одного сайта) не "
+            "обрабатываются параллельно (лимит ``max_concurrent_per_domain``). "
+            "None — использовать hostname из ``url``"
+        ),
+    )
     list_path: str = Field(default="", description="путь к странице списка закупок")
     list_config: DomListConfig
     detail: DomDetailConfig
