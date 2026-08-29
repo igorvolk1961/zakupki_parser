@@ -59,22 +59,10 @@ jobs:
       - name: Tests (pytest)
         run: uv run pytest
 
-      # Подпроекты — отдельные проекты со своими pyproject.toml/uv.lock/конфигами.
-      - name: Check scoring_service
-        working-directory: src/scoring_service
-        run: |
-          uv sync --frozen
-          uv run ruff check .
-          uv run mypy .
-          uv run pytest
-
-      - name: Check scoring_transport
-        working-directory: src/scoring_transport
-        run: |
-          uv sync --frozen
-          uv run ruff check .
-          uv run mypy .
-          uv run pytest
+      # Подпроекты — отдельные проекты (свои pyproject.toml/uv.lock/mypy/ruff).
+      # Полная проверка ВСЕХ подпроектов с их тестами через общий скрипт.
+      - name: Check all subprojects (ruff + format + mypy + pytest)
+        run: bash scripts/check_subprojects.sh test
 
   docker-build:
     runs-on: ubuntu-latest

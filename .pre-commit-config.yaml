@@ -22,6 +22,13 @@ repos:
         types: [python]
         pass_filenames: false
 
+      - id: subprojects-lint
+        name: subprojects (ruff + format + mypy, без тестов)
+        entry: bash scripts/check_subprojects.sh lint
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: traceability
         name: traceability (требование ↔ код ↔ тест)
         entry: uv run python scripts/check_traceability.py --check

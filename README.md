@@ -394,6 +394,19 @@ uv run ruff format --check src tests
 uv run mypy src tests
 ```
 
+## Проверка подпроектов и полный прогон
+Подпроекты (`src/scoring_*`, `src/{pwin,margin,analysis}_service`) — отдельные uv-проекты
+с собственными mypy/ruff. Их проверка вынесена в общие скрипты:
+```bash
+bash scripts/check_subprojects.sh lint   # ruff + format + mypy по всем подпроектам (без тестов)
+bash scripts/check_subprojects.sh test   # то же + pytest по каждому подпроекту
+bash scripts/test_all.sh                 # полный прогон перед пушем: линтеры/типы корня,
+                                         # тесты корня с покрытием (zakupki_parser) + подпроекты
+```
+`scripts/test_all.sh` выводит отчёт покрытия (терминал); для интеграционных тестов БД
+задайте `ZAKUPKI_TEST_DSN`. Pre-commit и CI используют `check_subprojects.sh`
+(mode `lint`/`test` соответственно).
+
 Подробности алгоритма и конфигурации — в [specification.md](specification.md).
 Сводка по торговым площадкам (статус верификации, фильтрация/сортировка) — в
 [docs/platforms.md](docs/platforms.md).
