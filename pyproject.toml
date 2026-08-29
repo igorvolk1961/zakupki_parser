@@ -71,12 +71,12 @@ platform = "linux"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src/zakupki_parser", "tests"]
-exclude = ["tests/fixtures", "src/scoring_service", "src/scoring_transport", "src/scoring_common", "src/pwin_service", "src/margin_service"]
+exclude = ["tests/fixtures", "src/scoring_service", "src/scoring_transport", "src/scoring_common", "src/pwin_service", "src/margin_service", "src/analysis_service"]
 warn_unused_configs = true
 mypy_path = "src"
 
 [[tool.mypy.overrides]]
-module = ["playwright.*", "asyncpg.*", "py7zr.*"]
+module = ["playwright.*", "asyncpg.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

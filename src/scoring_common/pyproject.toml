@@ -59,7 +59,7 @@ files = ["."]
 exclude = ["tests"]
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "yaml.*"]
+module = ["redis.*", "yaml.*", "py7zr.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

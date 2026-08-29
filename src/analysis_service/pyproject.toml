@@ -55,7 +55,7 @@ exclude = ["tests"]
 mypy_path = [".", "../scoring_common"]
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "yaml.*"]
+module = ["redis.*", "yaml.*", "py7zr.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

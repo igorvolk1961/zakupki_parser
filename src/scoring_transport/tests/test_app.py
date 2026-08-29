@@ -41,8 +41,14 @@ class _FakeQueue:
         if self._client is not None:
             await self._client.aclose()
 
-    async def enqueue(self, procurement_id: int, priority: float, stage: str = "fit") -> None:
-        self.enqueued.append((procurement_id, priority, stage))
+    async def enqueue(
+        self,
+        procurement_id: int,
+        priority: float,
+        stage: str = "fit",
+        profile_id: int | None = None,
+    ) -> None:
+        self.enqueued.append((procurement_id, priority, stage, profile_id))
 
     async def pop_result(self, timeout: float | None = None) -> dict[str, Any] | None:
         await asyncio.sleep(0.005)
@@ -61,28 +67,31 @@ def _make_app() -> tuple[TestClient, _FakeQueue]:
 
 def test_ingest_without_priority_uses_priority_default() -> None:
     client, queue = _make_app()
-    resp = client.post("/api/scoring/jobs", json={"procurement_id": 42})
+    resp = client.post("/api/scoring/jobs", json={"procurement_id": 42, "profile_id": 1})
     assert resp.status_code == 202
     body = resp.json()
     assert body["status"] == "enqueued"
     assert body["priority"] == 0.0
-    assert queue.enqueued == [(42, 0.0, "fit")]
+    assert queue.enqueued == [(42, 0.0, "fit", 1)]
 
 
 def test_ingest_explicit_priority_wins() -> None:
     client, queue = _make_app()
-    resp = client.post("/api/scoring/jobs", json={"procurement_id": 42, "priority": 999.0})
+    resp = client.post(
+        "/api/scoring/jobs", json={"procurement_id": 42, "priority": 999.0, "profile_id": 1}
+    )
     assert resp.status_code == 202
-    assert queue.enqueued == [(42, 999.0, "fit")]
+    assert queue.enqueued == [(42, 999.0, "fit", 1)]
 
 
 def test_ingest_stage_pwin() -> None:
     client, queue = _make_app()
     resp = client.post(
-        "/api/scoring/jobs", json={"procurement_id": 42, "priority": 0.7, "stage": "pwin"}
+        "/api/scoring/jobs",
+        json={"procurement_id": 42, "priority": 0.7, "stage": "pwin", "profile_id": 1},
     )
     assert resp.status_code == 202
-    assert queue.enqueued == [(42, 0.7, "pwin")]
+    assert queue.enqueued == [(42, 0.7, "pwin", 1)]
 
 
 def test_health() -> None:
@@ -139,7 +148,7 @@ def test_ingest_passes_internal_token_to_parser() -> None:
     results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
     client = TestClient(app_module.create_app(settings))
 
-    resp = client.post("/api/scoring/jobs", json={"procurement_id": 42})
+    resp = client.post("/api/scoring/jobs", json={"procurement_id": 42, "profile_id": 1})
     assert resp.status_code == 202
     assert ("http://parser", "sekret") in calls
 
@@ -169,6 +178,6 @@ def test_ingest_502_includes_upstream_status() -> None:
     results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
     client = TestClient(app_module.create_app(settings))
 
-    resp = client.post("/api/scoring/jobs", json={"procurement_id": 1})
+    resp = client.post("/api/scoring/jobs", json={"procurement_id": 1, "profile_id": 1})
     assert resp.status_code == 502
     assert "HTTP 401" in resp.json()["detail"]
