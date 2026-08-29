@@ -150,9 +150,9 @@ case "$CMD" in
         # дефолтные — 5433/9000/9001/3000). Порт 5432 проверяем чуть ниже.
         if [[ -n "$PROFILE" ]]; then
             for lf_port in "${LANGFUSE_DB_PORT:-5433}" "${LANGFUSE_S3_PORT:-9000}" "${LANGFUSE_S3_CONSOLE_PORT:-9001}" "${LANGFUSE_UI_PORT:-3000}"; do
-                if docker ps --filter "publish=$lf_port" --format '{{.Names}}' | grep -q .; then
+                if docker ps --filter "publish=$lf_port" --filter "label=com.docker.compose.project!=$PROJECT" --format '{{.Names}}' | grep -q .; then
                     echo "Внимание: порт $lf_port занят Docker-контейнером(ами):"
-                    docker ps --filter "publish=$lf_port" --format '  - {{.Names}}'
+                    docker ps --filter "publish=$lf_port" --filter "label=com.docker.compose.project!=$PROJECT" --format '  - {{.Names}}'
                     read -r -p "Освободить порт (остановить их, данные сохранятся)? [y/N] " ans
                     if [[ "$ans" =~ ^[yYдД] ]]; then
                         free_port "$lf_port" 1
@@ -167,9 +167,9 @@ case "$CMD" in
         # Порт БД (ZAKUPKI_DB_PORT, по умолчанию 5432) нужен сервису db; если его
         # занимает локальный контейнер (например zakupki_db из db_up.sh) — спросить.
         db_port="${ZAKUPKI_DB_PORT:-5432}"
-        if docker ps --filter "publish=$db_port" --format '{{.Names}}' | grep -q .; then
+        if docker ps --filter "publish=$db_port" --filter "label=com.docker.compose.project!=$PROJECT" --format '{{.Names}}' | grep -q .; then
             echo "Внимание: порт $db_port занят Docker-контейнером(ами):"
-            docker ps --filter "publish=$db_port" --format '  - {{.Names}}'
+            docker ps --filter "publish=$db_port" --filter "label=com.docker.compose.project!=$PROJECT" --format '  - {{.Names}}'
             read -r -p "Освободить порт (остановить их, данные сохранятся)? [y/N] " ans
             if [[ "$ans" =~ ^[yYдД] ]]; then
                 free_port "$db_port" 1
