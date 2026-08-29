@@ -4,13 +4,13 @@
 Читает единый источник правды `docs/system_analysis/traceability/requirements-registry.yaml`
 и сверяет его с фактическими модулями `src/**` и тестами `tests/**` и `src/*/tests/**`.
 
-Ошибки (фатальны при `--check` и `--strict`):
+Ошибки (фатальны всегда):
   * неуникальный id требования;
   * недопустимый type/status;
   * путь в code/tests не существует, либо «path#symbol» не найден в AST;
   * требование `implemented`/`partial` без кода; FR/US без теста (если нет `covered_by`).
 
-Предупреждения (фатальны только при `--strict`):
+Предупреждения (фатальны ПО УМОЛЧАНИЮ; отключаются `--no-strict`):
   * «сирота» — тест-файл, не упомянутый ни в одном требовании и не в exclusions.test_files.
 """
 
@@ -88,8 +88,19 @@ def main() -> int:
     ap.add_argument(
         "--check", action="store_true", help="фаталить ошибки валидации (по умолчанию вкл)"
     )
-    ap.add_argument("--strict", action="store_true", help="фаталить также сироты")
+    ap.add_argument(
+        "--strict",
+        action="store_true",
+        help="фаталить сироты (поведение по умолчанию; флаг для явности)",
+    )
+    ap.add_argument(
+        "--no-strict",
+        action="store_true",
+        help="НЕ фаталить сироты (для ручного просмотра; по умолчанию сироты фатальны)",
+    )
     args = ap.parse_args()
+
+    strict = not args.no_strict
 
     data = load_registry()
     reqs = data["requirements"]
@@ -161,7 +172,7 @@ def main() -> int:
 
     if errors:
         return 1
-    if args.strict and warnings:
+    if strict and warnings:
         return 1
     return 0
 
