@@ -43,8 +43,9 @@ logger = logging.getLogger(__name__)
 VERDICT_NONE: Literal["no_stop_condition"] = "no_stop_condition"
 VERDICT_SOFT: Literal["soft"] = "soft"
 VERDICT_ABSOLUTE: Literal["absolute"] = "absolute"
-VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE)
-Verdict = Literal["no_stop_condition", "absolute", "soft"]
+VERDICT_UNAVAILABLE: Literal["unavailable"] = "unavailable"
+VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE, VERDICT_UNAVAILABLE)
+Verdict = Literal["no_stop_condition", "absolute", "soft", "unavailable"]
 
 # Признак наличия требований к Исполнителю/Участнику/Подрядчику и фолбэк на
 # документ «Описание» — общая логика в scoring_common.tz (resolve_tz_content),
@@ -65,9 +66,9 @@ class QuestionVerdict(BaseModel):
 
     question_id: str
     question_text: str
-    verdict: Literal["no_stop_condition", "absolute", "soft"]
+    verdict: Literal["no_stop_condition", "absolute", "soft", "unavailable"]
     severity: int = Field(ge=0, le=2)
-    marker: str = Field(default="", description="🔴/🟡/🟢 для карточки")
+    marker: str = Field(default="", description="🔴/🟡/🟢/⚪ для карточки")
     excerpt: str | None = Field(default=None, description="цитата фрагмента ТЗ")
     reasoning: str = Field(default="", description="краткое обоснование")
     source: Literal["system", "profile"] = Field(
@@ -136,6 +137,7 @@ class RagAnalyzer:
                 "tz_file": None,
                 "questions": [],
                 "generated_at": generated_at,
+                "status": "no_tz",
             }
         if not tz_text:
             return {
@@ -143,6 +145,7 @@ class RagAnalyzer:
                 "tz_file": tz_file,
                 "questions": [],
                 "generated_at": generated_at,
+                "status": "no_tz",
             }
 
         chunks = split_tz_sections(tz_text, max_chars=self._settings.chunk_max_chars)
@@ -153,6 +156,7 @@ class RagAnalyzer:
                 "error": "Не удалось разбить текст ТЗ на чанки",
                 "questions": [],
                 "generated_at": generated_at,
+                "status": "error",
             }
 
         # Системные проверки (опыт 2571 / реестр Минпромторга / лицензии) требуют
@@ -173,7 +177,7 @@ class RagAnalyzer:
                 if question_id and question_text:
                     verdicts.append(
                         self._profile_verdict(
-                            question_id, question_text, VERDICT_NONE, embed_error, None
+                            question_id, question_text, VERDICT_UNAVAILABLE, embed_error, None
                         )
                     )
             return {
@@ -182,6 +186,7 @@ class RagAnalyzer:
                 "questions": verdicts,
                 "generated_at": generated_at,
                 "error": embed_error,
+                "status": "deferred",
             }
 
         for question in questions:
@@ -198,7 +203,21 @@ class RagAnalyzer:
             "tz_file": tz_file,
             "questions": verdicts,
             "generated_at": generated_at,
+            "status": self._status(True, None, verdicts),
         }
+
+    @staticmethod
+    def _status(
+        tz_found: bool, error: str | None, questions: list[dict[str, Any]]
+    ) -> Literal["no_tz", "deferred", "error", "ok"]:
+        """Итоговый статус RAG-отчёта: ок / отложен / ошибка / ТЗ не найдено."""
+        if not tz_found:
+            return "no_tz"
+        if any(q.get("verdict") == VERDICT_UNAVAILABLE for q in questions):
+            return "deferred"
+        if error:
+            return "error"
+        return "ok"
 
     # ------------------------------------------------------------------ #
     # Системные обязательные проверки (Stage A: batch LLM; Stage B: matcher)
@@ -227,7 +246,7 @@ class RagAnalyzer:
         data = await self._llm.chat_json(system, user)
         if data is None:
             return [
-                self._system_failed(qid, "LLM-извлечение фактов не выполнено (сбой)")
+                self._system_unavailable(qid, "LLM-извлечение фактов не выполнено (сбой)")
                 for qid in _SYSTEM_TEXT
             ]
         extractions: dict[str, Any] = {
@@ -247,13 +266,13 @@ class RagAnalyzer:
             question_version=SYSTEM_QUESTIONS_VERSION,
         ).model_dump()
 
-    def _system_failed(self, question_id: str, reason: str) -> dict[str, Any]:
+    def _system_unavailable(self, question_id: str, reason: str) -> dict[str, Any]:
         return QuestionVerdict(
             question_id=question_id,
             question_text=_SYSTEM_TEXT[question_id],
-            verdict=VERDICT_NONE,
+            verdict=VERDICT_UNAVAILABLE,
             severity=0,
-            marker=MARKERS[VERDICT_NONE],
+            marker=MARKERS[VERDICT_UNAVAILABLE],
             reasoning=reason,
             source="system",
             question_version=SYSTEM_QUESTIONS_VERSION,
@@ -269,7 +288,7 @@ class RagAnalyzer:
         chunks: list[str],
         chunk_vectors: list[list[float]],
     ) -> dict[str, Any]:
-        """Вердикт по одному вопросу профиля (best-effort: сбой → no_stop_condition)."""
+        """Вердикт по одному вопросу профиля (best-effort: сбой → unavailable)."""
         q_vector = self._question_embedding_cache.get(question_id)
         if q_vector is None:
             q_vector = await self._embedder.embed_one(question_text)
@@ -277,7 +296,7 @@ class RagAnalyzer:
                 return self._profile_verdict(
                     question_id,
                     question_text,
-                    VERDICT_NONE,
+                    VERDICT_UNAVAILABLE,
                     "Не удалось вычислить эмбеддинг вопроса (анализ пропущен)",
                     None,
                 )
@@ -296,7 +315,7 @@ class RagAnalyzer:
             return self._profile_verdict(
                 question_id,
                 question_text,
-                VERDICT_NONE,
+                VERDICT_UNAVAILABLE,
                 "LLM-верификация не выполнена (сбой)",
                 None,
             )

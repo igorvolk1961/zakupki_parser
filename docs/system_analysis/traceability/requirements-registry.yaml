@@ -1405,7 +1405,7 @@ requirements:
     title: Graceful degradation при сбое LLM
     stakeholder: DevOps / SRE
     stage: "5"
-    status: partial
+    status: implemented
     adr: ADR-7
     code:
       - src/analysis_service/analysis_service/pipeline/rag.py

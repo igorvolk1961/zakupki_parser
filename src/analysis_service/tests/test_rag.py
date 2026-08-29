@@ -159,6 +159,66 @@ def test_verdict_parsed_from_llm() -> None:
         assert q1["marker"] == "🔴"
 
 
+class _NoneEmbedder:
+    """Эмбеддер, недоступный для анализа (возвращает None)."""
+
+    async def embed(self, texts: list[str]) -> None:
+        return None
+
+    async def embed_one(self, text: str) -> None:
+        return None
+
+
+def test_analyze_system_llm_failure_unavailable() -> None:
+    """Сбой batch-LLM → системные проверки «не проверено» (⚪), а не 🟢."""
+    analyzer = _analyzer(_FakeLlm([None]))
+    verdicts = asyncio.run(
+        analyzer._analyze_system(  # noqa: SLF001
+            ["Требуется опыт на площадке; лицензия МЧС; реестр Минпромторга."], {}
+        )
+    )
+    assert len(verdicts) == 3
+    assert all(v["verdict"] == "unavailable" for v in verdicts)
+    assert all(v["marker"] == "⚪" for v in verdicts)
+    assert all(v["source"] == "system" for v in verdicts)
+
+
+def test_verdict_embed_unavailable() -> None:
+    """Недоступен эмбеддер → вопрос профиля «не проверено»."""
+    analyzer = _analyzer(_FakeLlm([None]))
+    analyzer._embedder = _NoneEmbedder()  # type: ignore[assignment]  # noqa: SLF001
+    v = asyncio.run(
+        analyzer._verdict_for_question(  # noqa: SLF001
+            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]]
+        )
+    )
+    assert v["verdict"] == "unavailable"
+    assert v["marker"] == "⚪"
+    assert v["source"] == "profile"
+
+
+def test_verdict_llm_unavailable() -> None:
+    """LLM-верификация вернула None → вопрос профиля «не проверено»."""
+    analyzer = _analyzer(_FakeLlm([None]))
+    v = asyncio.run(
+        analyzer._verdict_for_question(  # noqa: SLF001
+            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]]
+        )
+    )
+    assert v["verdict"] == "unavailable"
+    assert v["marker"] == "⚪"
+
+
+def test_report_status() -> None:
+    """Верхнеуровневый статус rag_report (ok/deferred/error/no_tz)."""
+    status = RagAnalyzer._status
+    assert status(False, None, []) == "no_tz"
+    assert status(True, None, []) == "ok"
+    assert status(True, "ошибка", []) == "error"
+    assert status(True, None, [{"verdict": "unavailable"}]) == "deferred"
+    assert status(True, None, [{"verdict": "soft"}, {"verdict": "no_stop_condition"}]) == "ok"
+
+
 # --- Лексический ретривал системных проверок ------------------------------
 
 

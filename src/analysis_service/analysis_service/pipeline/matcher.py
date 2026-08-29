@@ -52,14 +52,21 @@ LICENSE_ALIASES: list[tuple[re.Pattern[str], str]] = [
 VERDICT_NONE = "no_stop_condition"
 VERDICT_SOFT = "soft"
 VERDICT_ABSOLUTE = "absolute"
+VERDICT_UNAVAILABLE = "unavailable"
 
 MARKERS: dict[str, str] = {
     VERDICT_ABSOLUTE: "🔴",
     VERDICT_SOFT: "🟡",
     VERDICT_NONE: "🟢",
+    VERDICT_UNAVAILABLE: "⚪",
 }
 
-SEVERITY: dict[str, int] = {VERDICT_NONE: 0, VERDICT_SOFT: 1, VERDICT_ABSOLUTE: 2}
+SEVERITY: dict[str, int] = {
+    VERDICT_NONE: 0,
+    VERDICT_SOFT: 1,
+    VERDICT_ABSOLUTE: 2,
+    VERDICT_UNAVAILABLE: 0,
+}
 
 
 def _facts(block: dict[str, Any] | None) -> dict[str, Any]:

@@ -311,15 +311,27 @@ function ragReportHtml(report) {
   }
   const verdictBadge = (q) => {
     const v = q.verdict;
-    const cls = v === "absolute" ? "active" : v === "soft" ? "" : "";
-    const label = q.marker || (v === "absolute" ? "запрет" : v === "soft" ? "понижает" : "нет");
-    return `<span class="pill ${cls}">${escapeHtml(label)}</span>`;
+    const cls = v === "absolute" ? "active" : "";
+    let label = q.marker || "нет";
+    if (v === "unavailable") {
+      label = "не проверено";
+    } else if (v === "absolute") {
+      label = q.marker || "запрет";
+    } else if (v === "soft") {
+      label = q.marker || "понижает";
+    } else {
+      label = q.marker || "нет";
+    }
+    return `<span class="pill ${cls}"${v === "unavailable" ? ' title="Проверка не выполнена (недоступен LLM/эмбеддинги)"' : ""}>${escapeHtml(label)}</span>`;
   };
   if (report.tz_found === false) {
     return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">ТЗ не найдено.</p>`;
   }
-  if (report.error) {
-    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">${escapeHtml(report.error)}</p>`;
+  let banner = "";
+  if (report.status === "deferred") {
+    banner = `<div style="margin:8px 0;padding:8px 10px;border:1px solid #d97706;border-radius:8px;background:rgba(217,119,6,0.08);">⚠️ Недоступен LLM/эмбеддинги — часть проверок не выполнена.${report.error ? `<span class="muted" style="display:block;margin-top:2px;">${escapeHtml(report.error)}</span>` : ""}</div>`;
+  } else if (report.error) {
+    banner = `<p class="muted" style="margin:8px 0;">${escapeHtml(report.error)}</p>`;
   }
   const items = (report.questions || [])
     .map(
@@ -336,6 +348,7 @@ function ragReportHtml(report) {
     .join("");
   return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
+    ${banner}
     ${items || '<p class="muted">Вопросов к ТЗ пока нет.</p>'}`;
 }
 

@@ -225,6 +225,7 @@ def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
     report = {
         "tz_found": True,
         "tz_file": "ТЗ.docx",
+        "status": "ok",
         "questions": [
             {
                 "question_id": "q1",
@@ -251,6 +252,7 @@ def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
     assert r.status_code == 200
     card = r.json()
     assert card["rag_report"]["tz_found"] is True
+    assert card["rag_report"]["status"] == "ok"
     assert card["rag_report"]["questions"][0]["verdict"] == "absolute"
     # rag_report не меняет score_method.
     assert card["score_method"] == "fit"
