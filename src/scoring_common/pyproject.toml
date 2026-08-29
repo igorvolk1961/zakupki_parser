@@ -63,7 +63,7 @@ module = ["redis.*", "yaml.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["langfuse.*"]
+module = ["langfuse.*", "opentelemetry.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -115,3 +115,27 @@ def test_parent_span_nests_children(monkeypatch) -> None:
         "trace_id": parent.trace_id,
         "parent_span_id": parent.id,
     }
+
+
+def test_start_observation_uses_otel_parent_fallback(monkeypatch) -> None:
+    """Без явного parent_span наблюдение вкладывается в активный OTel-спан."""
+    from scoring_common import langfuse as lf
+
+    monkeypatch.setattr(lf, "_LANGFUSE_AVAILABLE", True)
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk")
+
+    fake = _FakeLangfuseClient()
+    monkeypatch.setattr(lf, "_get_client", lambda: fake)
+    monkeypatch.setattr(
+        lf,
+        "_otel_parent_trace_context",
+        lambda: {"trace_id": "t-otel", "parent_span_id": "s-otel"},
+    )
+
+    lf.start_observation("embeddings", as_type="embedding")
+
+    assert fake.calls[0]["trace_context"] == {
+        "trace_id": "t-otel",
+        "parent_span_id": "s-otel",
+    }

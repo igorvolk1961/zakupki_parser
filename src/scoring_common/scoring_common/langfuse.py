@@ -14,6 +14,11 @@ https://cloud.langfuse.com). Без ключей трассировка откл
 ``parent_span`` позволяет вложить наблюдения единицы работы в общий родительский
 span: эмбеддинги и вердикты одного задания образуют один трейс (общий родитель)
 вместо отдельных корневых наблюдений.
+
+В ``scoring_service`` корневой трейс ведёт LangChain-callback, а не ``parent_span``:
+поэтому ``start_observation`` дополнительно вкладывает наблюдения в текущий
+активный OTel-спан (см. ``_otel_parent_trace_context``) — этап эмбеддингов
+попадает в общий трейс скоринга.
 """
 
 from __future__ import annotations
@@ -32,6 +37,13 @@ try:  # langfuse — опциональная зависимость
     _LANGFUSE_AVAILABLE = True
 except Exception:  # pragma: no cover - langfuse не установлен
     _LANGFUSE_AVAILABLE = False
+
+try:  # opentelemetry — транзитивная зависимость langfuse (родитель по активному span'у)
+    from opentelemetry import trace as _otel_trace
+
+    _OTEL_AVAILABLE = True
+except Exception:  # pragma: no cover - opentelemetry не установлен
+    _OTEL_AVAILABLE = False
 
 _client: Any = None
 
@@ -79,6 +91,29 @@ def _get_client() -> Any:
     return _client
 
 
+def _otel_parent_trace_context() -> dict[str, str] | None:
+    """``trace_context`` активного OTel-спана (родителя) или None.
+
+    Используется как фолбэк к ``_current_parent``: если родительский контекст не
+    задан явно (scoring_service ведёт корневой трейс через LangChain-callback),
+    наблюдения вкладываются в текущий активный span — так этап эмбеддингов
+    попадает в общий трейс скоринга.
+    """
+    if not _OTEL_AVAILABLE:
+        return None
+    try:
+        span = _otel_trace.get_current_span()
+        ctx = span.get_span_context()
+    except Exception:  # noqa: BLE001 - best-effort, не роняет работу
+        return None
+    if not ctx.is_valid:
+        return None
+    return {
+        "trace_id": _otel_trace.format_trace_id(ctx.trace_id),
+        "parent_span_id": _otel_trace.format_span_id(ctx.span_id),
+    }
+
+
 def start_observation(
     name: str,
     *,
@@ -100,6 +135,8 @@ def start_observation(
     trace_context = None
     if parent is not None:
         trace_context = {"trace_id": parent.trace_id, "parent_span_id": parent.span_id}
+    else:
+        trace_context = _otel_parent_trace_context()
     return _get_client().start_observation(
         name=name,
         as_type=as_type,

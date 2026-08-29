@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
@@ -58,7 +59,11 @@ class EmbeddingMixin:
         )
         try:
             with ThreadPoolExecutor(max_workers=1) as pool:
-                fut = pool.submit(branch.invoke, None, config=span_config)
+                # Копируем контекст текущего корневого run: активный OTel-спан
+                # (корневой трейс скоринга) переносится в рабочий поток, поэтому
+                # эмбеддинги вкладываются в общий трейс, а не в отдельный корень.
+                ctx = contextvars.copy_context()
+                fut = pool.submit(ctx.run, branch.invoke, None, config=span_config)
                 return fut.result(timeout=self._settings.giga_timeout_seconds)
         except Exception:  # noqa: BLE001 - best-effort, не роняет скоринг
             logger.exception("embedding branch failed")
