@@ -27,10 +27,6 @@ def test_service_schema_kinds() -> None:
 
     assert _find(schema, "default_cutoff_days")["kind"] == "int"
     assert _find(schema, "sort_by_date_only")["kind"] == "bool"
-
-    loop = _find(schema, "profiles_loop_order")
-    assert loop["kind"] == "select"
-    assert set(loop["options"]) == {"platform_then_profile", "profile_then_platform"}
     assert _find(schema, "deduplicate_requests")["kind"] == "bool"
 
 
@@ -78,3 +74,4 @@ def test_parser_schema_readonly_fields() -> None:
     delay = _find(browser["fields"], "delay_between_actions_seconds")
     assert delay["kind"] == "text"
     assert _find(schema, "max_list_pages")["kind"] == "int"
+    assert _find(schema, "max_concurrent_platforms")["kind"] == "int"

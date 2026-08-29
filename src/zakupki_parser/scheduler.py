@@ -62,30 +62,41 @@ class Scheduler:
         await self._db.dispose()
 
     async def run_once(self) -> None:
-        """Один проход: все включённые профили незаблокированных пользователей.
+        """Один проход: все включённые площадки обрабатываются параллельно.
 
-        Recovery очереди скоринга (догоняем закупки, не попавшие в очередь).
-        Порядок циклов — ``profiles_loop_order``:
-
-        - ``platform_then_profile`` (дефолт): снаружи площадка, внутри профили.
-          Одинаковые запросы разных профилей к одной площадке объединяются.
-        - ``profile_then_platform``: снаружи профиль, внутри площадки (изоляция
-          по профилю, цена — потеря переиспользования обходов).
+        Recovery очереди скоринга (догоняем закупки, не попавшие в очередь) выполняется
+        до обхода площадок. Каждая включённая площадка обрабатывается отдельной
+        ``asyncio.Task`` с лимитом ``config_parser.max_concurrent_platforms``: задержка/
+        backoff/circuit-breaker одной площадки не блокирует остальные. Профили
+        распределяются по площадкам через ``_profile_on_platform`` (``target_etp``);
+        одинаковые обходы (площадка + набор ОКПД2) дедуплицируются ``_build_units``
+        (``deduplicate_requests``).
         """
         await self._recover_scoring_queue()
         enabled_platforms = await self._repository.enabled_platform_ids()
         ctxs = await self._gather_profile_ctxs()
 
-        if self._cfg.service.profiles_loop_order == "profile_then_platform":
-            for ctx in ctxs:
-                for platform_id in self._ordered_platforms_for_profile(ctx, enabled_platforms):
-                    await self._process_platform(platform_id, [ctx])
-        else:
-            for platform_id in self._ordered_enabled_platforms(enabled_platforms):
-                batch = [c for c in ctxs if self._profile_on_platform(c, platform_id)]
-                if not batch:
-                    continue
-                await self._process_platform(platform_id, batch)
+        sem = asyncio.Semaphore(self._cfg.parser.max_concurrent_platforms)
+
+        async def _run_platform(platform_id: str, profiles: list[ProfileRunContext]) -> None:
+            async with sem:
+                await self._process_platform(platform_id, profiles)
+
+        pending = []
+        for platform_id in self._ordered_enabled_platforms(enabled_platforms):
+            batch = [c for c in ctxs if self._profile_on_platform(c, platform_id)]
+            if not batch:
+                continue
+            pending.append(_run_platform(platform_id, batch))
+
+        if pending:
+            # return_exceptions=True: ошибка одной площадки не отменяет остальные
+            # (ошибка площадки уже изолирована внутри _process_platform; здесь —
+            # страховка на случай непредвиденного исключения, напр. в _on_update).
+            results = await asyncio.gather(*pending, return_exceptions=True)
+            for result in results:
+                if isinstance(result, BaseException):
+                    logger.error("Параллельная обработка площадки завершилась ошибкой: %s", result)
 
     def _ordered_enabled_platforms(self, enabled: set[str]) -> list[str]:
         """Активные площадки в порядке config_service.yaml (конфиг — интерфейс)."""
@@ -112,13 +123,6 @@ class Scheduler:
         """True, если профиль относится к площадке (``target_etp`` пуст — все)."""
         etp = set(ctx.profile.target_etp or [])
         return not etp or platform_id in etp
-
-    def _ordered_platforms_for_profile(
-        self, ctx: ProfileRunContext, enabled: set[str]
-    ) -> list[str]:
-        return [
-            p for p in self._ordered_enabled_platforms(enabled) if self._profile_on_platform(ctx, p)
-        ]
 
     async def _gather_profile_ctxs(self) -> list[ProfileRunContext]:
         """Включённые профили незаблокированных пользователей + слова (BR-07).

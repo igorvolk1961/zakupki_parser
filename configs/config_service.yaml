@@ -21,9 +21,6 @@ sites:
   enabled: true
 default_cutoff_days: 14
 sort_by_date_only: true
-# Порядок обхода: снаружи площадки («platform_then_profile», кэширует одинаковые запросы
-# различных профилей к одной площадке) либо снаружи профиль («profile_then_platform»).
-profiles_loop_order: platform_then_profile
 # Объединять идентичные поисковые обходы (площадка + одинаковые коды ОКПД2/НМЦК)
 # разных профилей в один проход с веерной фильтрацией по каждому профилю.
 deduplicate_requests: true

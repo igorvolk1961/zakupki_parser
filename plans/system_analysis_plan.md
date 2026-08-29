@@ -60,7 +60,7 @@
 | 1. Мультитенантная модель (BR-07) | ✅ | миграции 1.29–1.30: `users`, `profiles`(+`user_id`), `keywords`, `procurement_evaluations`(+`profile_id`), tenant-скоуп репозитория |
 | 2. Профили фильтрации (Эпик 1) | ✅ | CRUD профилей per-user, сид `keywords` из `файл-сид профиля` (`zp seed-profile`), критерии в профиле (миграция 1.33) |
 | 3. Парсинг по ОКПД2 + клиентская фильтрация (R1, R9) | ✅ | `parser/filtering.py` (пост-фильтрация до записи), обход «без кода» (глобальный флаг `config_service.yaml → search_criteria.no_code_search`), auto-Fit в `procurement_evaluations` (миграция 1.34) |
-| 4. Кэш ЭТП + параллельные площадки (R4, R5) | 🟡 | 4A (Redis-кэш) / 4B (asyncio) — в работе; 4C (RabbitMQ, воркеры) — пост-MVP |
+| 4. Параллельные площадки (R5) + кэш (R4) | 🟡 | 4B (asyncio-задачи, `max_concurrent_platforms`) — выполнено; 4A (Redis-кэш) — перенесён в пост-MVP (ADR-11); 4C (RabbitMQ, воркеры) — пост-MVP |
 | 5. Глубокая проверка ТЗ с маркерами (Эпик 4) | ⬜ | `analysis_service` + RAG-пайплайн уже есть; формальные маркеры 2571/Минпромторг/лицензии — этап 5 |
 | 6–10 | ⬜ | пост-MVP (аккаунты, решения, доставка/экспорт, compliance, observability) |
 
