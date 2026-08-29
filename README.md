@@ -365,6 +365,13 @@ scripts/compose.sh free-port --force   # то же без запроса под�
 `scoring-transport` `18200`, LangFuse UI `13001`, minio `19002`/`19003`, langfuse-db `15434`.
 Поддерживаются те же подкоманды (`demo up`/`down`/`ps`/`logs`/`config`).
 
+Демо из зафиксированного снапшота: `scripts/compose.sh demo up --ref` (без значения — тег
+`demo-fixed`) или `--ref=<тег>`. Демо разворачивается из кода этого тега через `git worktree`
+(каталог `.demo-src/`, в `.gitignore`), изолированно от dev; секреты (`docker/.env`, `.env`)
+берутся из актуального репозитория. Зафиксировать рабочее состояние: `git tag demo-fixed`
+(переставить тег после изменений — `git tag -f demo-fixed`). Без `--ref` демо собирается из
+текущего рабочего дерева.
+
 `free-port` пригодится, если порт 5432 занят локальным контейнером БД из `scripts/db_up.sh`
 (ошибка `Bind for 0.0.0.0:5432 failed: port is already allocated`) — он остановит контейнер,
 данные в volume сохранятся. Перед `up` скрипт сам заметит занятый порт 5432 и спросит,

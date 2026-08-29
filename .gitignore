@@ -33,6 +33,9 @@ docs/bbk-it/
 # Runtime state (PID-файл фонового стека run_all.sh)
 .run_all.pids
 
+# Снапшот демо-стека из git worktree (DEMO_REF в scripts/compose.sh)
+.demo-src/
+
 # Database backups
 backups/
 

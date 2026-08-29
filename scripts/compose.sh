@@ -11,6 +11,8 @@
 #   scripts/compose.sh up --no-langfuse   # поднять стек БЕЗ LangFuse (быстрый dev-стек)
 #   scripts/compose.sh demo up [args]    # изолированный демо-стек: свой project и свои
 #                                        # host-порты (не конфликтует с dev); demo down/ps/logs/config тоже работают
+#   scripts/compose.sh demo up --ref [тег]  # демо из зафиксированного снапшота (--ref без значения
+#                                        # => demo-fixed; эквивалент DEMO_REF=<тег>)
 #   scripts/compose.sh down              # остановить и удалить контейнеры (тома БД сохраняются)
 #   scripts/compose.sh stop              # остановить и удалить контейнеры (освобождает порты; том БД сохраняется)
 #   scripts/compose.sh start             # запустить остановленные контейнеры (если не удалялись)
@@ -53,6 +55,50 @@ if [[ "$CMD" == "demo" ]]; then
     export ZAKUPKI_DB_PORT=15432 API_PORT=18000 TRANSPORT_PORT=18200 \
         LANGFUSE_DB_PORT=15434 LANGFUSE_S3_PORT=19002 \
         LANGFUSE_S3_CONSOLE_PORT=19003 LANGFUSE_UI_PORT=13001
+
+    # Короткий флаг снапшота: `demo up --ref [тег]` / `demo up --ref=тег` / `-r <тег>`.
+    # Без значения — тег demo-fixed. Перекрывает DEMO_REF из окружения.
+    _demo_ref="${DEMO_REF:-}"
+    _demo_args=()
+    while (( $# )); do
+        case "$1" in
+            --ref|-r)
+                if (( $# >= 2 )) && [[ "${2:-}" != -* ]]; then
+                    _demo_ref="$2"; shift 2
+                else
+                    _demo_ref="demo-fixed"; shift
+                fi
+                ;;
+            --ref=*|-r=*)
+                _demo_ref="${1#*=}"; shift
+                ;;
+            *)
+                _demo_args+=("$1"); shift
+                ;;
+        esac
+    done
+    set -- "${_demo_args[@]}"
+    DEMO_REF="$_demo_ref"
+
+    # Демо из зафиксированного снапшота: `scripts/compose.sh demo up --ref` (или DEMO_REF=<тег>)
+    # разворачивает демо из кода этого рефа через git worktree, изолированно от dev.
+    # Без --ref/DEMO_REF — демо собирается из текущего рабочего дерева.
+    if [[ -n "${DEMO_REF:-}" ]]; then
+        DEMO_SRC="$ROOT_DIR/.demo-src"
+        if [[ -e "$DEMO_SRC/.git" ]]; then
+            # Снапшот уже существует (linked worktree) — переставляем на нужный ref.
+            git -C "$DEMO_SRC" fetch --tags --quiet 2>/dev/null || true
+            git -C "$DEMO_SRC" checkout --detach "$DEMO_REF" >/dev/null
+        else
+            echo "Подготавливаю снапшот демо из '$DEMO_REF' ..." >&2
+            git worktree add --detach "$DEMO_SRC" "$DEMO_REF" >/dev/null
+        fi
+        # Секреты/окружение не входят в git-снапшот — берём из актуального репозитория.
+        if [[ -f "$ROOT_DIR/docker/.env" ]]; then cp "$ROOT_DIR/docker/.env" "$DEMO_SRC/docker/.env"; fi
+        if [[ -f "$ROOT_DIR/.env" ]]; then cp "$ROOT_DIR/.env" "$DEMO_SRC/.env"; fi
+        COMPOSE_FILE="$DEMO_SRC/docker/docker-compose.yml"
+        echo "Снапшот демо: $DEMO_SRC (ref=$DEMO_REF)" >&2
+    fi
 fi
 
 if ! command -v docker >/dev/null 2>&1; then
