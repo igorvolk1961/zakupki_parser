@@ -31,7 +31,7 @@ repos:
 
       - id: traceability
         name: traceability (требование ↔ код ↔ тест)
-        entry: uv run python scripts/check_traceability.py --check
+        entry: uv run python scripts/check_traceability.py --strict
         language: system
         pass_filenames: false
         always_run: true

@@ -1243,6 +1243,20 @@ requirements:
       - src/scoring_transport/tests/test_queue.py
     covered_by: FR-7.3
 
+  - id: NFR-PERF-4
+    type: NFR
+    title: Параллельная обработка площадок
+    stakeholder: DevOps / SRE, Тендеролог (user)
+    stage: "4B"
+    status: implemented
+    adr: ADR-11
+    code:
+      - src/zakupki_parser/scheduler.py#run_once
+      - src/zakupki_parser/scheduler.py#_process_platform
+      - src/zakupki_parser/config/models/parser.py
+    tests:
+      - tests/unit/test_scheduler_parallel.py
+
   - id: NFR-SEC-1
     type: NFR
     title: Изоляция данных (multi-tenancy)
