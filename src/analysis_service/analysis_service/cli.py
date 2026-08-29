@@ -16,6 +16,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from analysis_service.settings import Settings, get_settings
+from scoring_common.langfuse import flush
 from scoring_common.logging import setup_logging
 
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
@@ -47,6 +48,7 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
         timeout=settings.llm_request_timeout,
     )
     report = await RagAnalyzer(settings, embedder, llm).analyze(record, questions, profile_facts)
+    flush()
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 

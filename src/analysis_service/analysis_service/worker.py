@@ -104,7 +104,12 @@ class AnalysisWorker:
         async def compute(record: dict[str, Any], pid: int, pfd: int) -> dict[str, Any]:
             questions = await self._resolve_questions(pfd)
             profile_facts = await self._resolve_profile_facts(pfd)
-            report = await self._analyzer.analyze(record, questions, profile_facts)
+            report = await self._analyzer.analyze(
+                record,
+                questions,
+                profile_facts,
+                metadata={"procurement_id": pid, "profile_id": pfd},
+            )
             result = {
                 "procurement_id": pid,
                 "profile_id": pfd,

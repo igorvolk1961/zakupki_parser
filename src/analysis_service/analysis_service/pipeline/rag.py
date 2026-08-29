@@ -35,6 +35,7 @@ from analysis_service.pipeline.system_questions import (
 )
 from analysis_service.settings import Settings
 from scoring_common.embeddings import Embeddable, cosine_similarity
+from scoring_common.langfuse import parent_span
 from scoring_common.tz import resolve_tz_content
 
 logger = logging.getLogger(__name__)
@@ -101,10 +102,28 @@ class RagAnalyzer:
         record: dict[str, Any],
         questions: list[dict[str, Any]],
         profile_facts: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """RAG-отчёт: системные проверки + вопросы клиента. best-effort."""
-        generated_at = datetime.now(UTC).isoformat()
+        """RAG-отчёт: системные проверки + вопросы клиента. best-effort.
 
+        Весь прогон (эмбеддинги, LLM-вердикты) вкладывается в единый родительский
+        span LangFuse ``rag_analysis``: трейсы эмбеддингов становятся дочерними
+        спанами с общим родителем вместо отдельных корневых наблюдений.
+        """
+        generated_at = datetime.now(UTC).isoformat()
+        run_metadata = {"generated_at": generated_at}
+        if metadata:
+            run_metadata.update(metadata)
+        with parent_span("rag_analysis", metadata=run_metadata):
+            return await self._analyze(record, questions, profile_facts, generated_at)
+
+    async def _analyze(
+        self,
+        record: dict[str, Any],
+        questions: list[dict[str, Any]],
+        profile_facts: dict[str, Any] | None,
+        generated_at: str,
+    ) -> dict[str, Any]:
         ref, tz_text = resolve_tz_content(
             record,
             timeout=self._settings.tz_download_timeout,
