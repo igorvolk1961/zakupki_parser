@@ -19,6 +19,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from scoring_common.costing import embedding_cost_usd, embedding_input_tokens
 from scoring_common.giga import GigaEmbedder, GigaTokenProvider
 from scoring_common.langfuse import start_observation
 
@@ -80,7 +81,12 @@ class EmbeddingClient:
                 obs.update(level="WARNING", status_message="число векторов != числу текстов")
                 obs.end()
                 return None
-            obs.update(output={"vectors": vectors, "model": self._model})
+            input_tokens = embedding_input_tokens(data, texts)
+            obs.update(
+                output={"vectors": vectors, "model": self._model},
+                usage_details={"input": input_tokens},
+                cost_details={"input": embedding_cost_usd(input_tokens)},
+            )
             obs.end()
             return vectors
         except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:

@@ -22,6 +22,7 @@ from collections.abc import Mapping
 
 import httpx
 
+from scoring_common.costing import embedding_cost_usd, embedding_input_tokens
 from scoring_common.langfuse import start_observation
 
 # Общие дефолты настроек Giga. Единый источник, чтобы у scoring_service и
@@ -233,7 +234,17 @@ class GigaEmbedder:
             resp.raise_for_status()
             data = resp.json()
             vectors = [item["embedding"] for item in data["data"]]
-            obs.update(output=vectors)
+            raw_input = payload.get("input")
+            if isinstance(raw_input, list):
+                texts = [t for t in raw_input if isinstance(t, str)]
+            else:
+                texts = [raw_input] if isinstance(raw_input, str) else []
+            input_tokens = embedding_input_tokens(data, texts)
+            obs.update(
+                output=vectors,
+                usage_details={"input": input_tokens},
+                cost_details={"input": embedding_cost_usd(input_tokens)},
+            )
             obs.end()
             return vectors
         except Exception as exc:  # noqa: BLE001

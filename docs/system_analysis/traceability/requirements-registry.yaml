@@ -1205,6 +1205,22 @@ requirements:
       - src/scoring_service/tests/test_debug_csv.py
     covered_by: FR-7.1
 
+  - id: NFR-COST-5
+    type: NFR
+    title: App-side тарификация LLM и эмбеддингов
+    stakeholder: DevOps / SRE, Product Owner
+    stage: "10"
+    status: implemented
+    adr: "-"
+    code:
+      - src/scoring_common/scoring_common/costing.py
+      - src/analysis_service/analysis_service/llm.py
+      - src/scoring_common/scoring_common/giga.py
+      - src/scoring_common/scoring_common/embeddings.py
+    tests:
+      - src/scoring_common/tests/test_costing.py
+      - src/analysis_service/tests/test_llm.py
+
   - id: NFR-PERF-1
     type: NFR
     title: Отклик API (UI)
