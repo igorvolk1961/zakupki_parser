@@ -196,6 +196,12 @@
   .mt-title.mt-sub { margin-top:10px; text-transform:none; letter-spacing:0; color: var(--text); font-size:12.5px; }
   .card-tab-panel table.met { margin-bottom:4px; }
   .card-tab-panel table.met td:first-child { width: 38%; }
+  /* Вкладка «Метрики»: свои таблицы (met вне карточки) — горизонтальная прокрутка
+     и компактные ячейки для журналов циклов и расходов по датам. */
+  #view-metrics table { width:100%; border-collapse:collapse; font-size:13px; }
+  #view-metrics table th, #view-metrics table td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); }
+  #view-metrics table th { color: var(--muted); font-weight:600; white-space:nowrap; }
+  #view-metrics table td { white-space:nowrap; }
   /* Вкладки: базовые — слева, ролевые — справа (объединение ролей пользователя). */
   .tabs-bar { justify-content: space-between; align-items:center; flex-wrap:wrap; }
   .tabs-group { display:flex; gap:6px; flex-wrap:wrap; }

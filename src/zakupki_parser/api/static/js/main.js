@@ -20,6 +20,7 @@ import {
   setCardTab,
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
+import { loadMetrics } from "./metrics.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
 import {
@@ -47,6 +48,7 @@ const TAB_LOADERS = {
   proc: null,
   cust: loadCustomers,
   profiles: loadProfiles,
+  metrics: loadMetrics,
   users: loadUsers,
   monitor: () => {
     if (!monitorDirty) loadMonitor();

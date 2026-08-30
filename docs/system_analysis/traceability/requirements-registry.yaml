@@ -763,6 +763,19 @@ requirements:
       - src/zakupki_parser/api/app/routes/facts.py
     tests:
       - tests/integration/test_multiclient.py
+  - id: FR-4.7
+    type: FR
+    title: Журнал метрик обработки (вкладка «Метрики» аналитика)
+    stakeholder: Тендеролог (user), Аналитик
+    stage: "10"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/metrics.py#build_metrics_journal
+      - src/zakupki_parser/api/app/routes/metrics.py#build_metrics_router
+      - src/zakupki_parser/storage/repository/evaluations.py#list_costed_evaluations
+    tests:
+      - tests/unit/test_metrics_journal.py
 
   - id: FR-5.1
     type: FR

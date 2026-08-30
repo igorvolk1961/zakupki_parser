@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from zakupki_parser.storage.db import ProcurementEvaluation
+from zakupki_parser.storage.db import Procurement, ProcurementEvaluation
 from zakupki_parser.storage.repository.base import RepositoryMixin, _round_score
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,27 @@ class EvaluationMixin(RepositoryMixin):
         )
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def list_costed_evaluations(
+        self, limit: int | None = None
+    ) -> list[tuple[Any, str, str | None]]:
+        """Оценки с сохранённой стоимостью (``costs IS NOT NULL``), последние первыми.
+
+        Возвращает кортежи ``(evaluation, number, subject)`` — номер и предмет
+        закупки для журнала метрик (вкладка «Метрики»). ``limit`` — ограничение
+        сверху (для журнала отдельных циклов).
+        """
+        stmt = (
+            select(ProcurementEvaluation, Procurement.number, Procurement.subject)
+            .join(Procurement, ProcurementEvaluation.procurement_id == Procurement.id)
+            .where(ProcurementEvaluation.costs.isnot(None))
+            .order_by(ProcurementEvaluation.created_at.desc())
+        )
+        if limit:
+            stmt = stmt.limit(limit)
+        async with self._db.session() as session:
+            rows = (await session.execute(stmt)).all()
+            return [(evaluation, number, subject) for evaluation, number, subject in rows]
 
     async def find_group_evaluation(
         self, procurement_id: int, comp_hash: str

@@ -47,6 +47,7 @@
     </div>
     <div class="tabs-group" id="tabs-roles">
       <button id="tab-users">Пользователи</button>
+      <button id="tab-metrics">Метрики</button>
       <button id="tab-monitor">Параметры мониторинга</button>
       <button id="tab-prompts">Промпты</button>
       <button id="tab-refs">Справочники</button>
@@ -120,6 +121,12 @@
 
   <div id="view-cust" style="display:none;">
     <div class="table-wrap" id="customers"></div>
+  </div>
+
+  <div id="view-metrics" style="display:none;">
+    <div class="metrics-view" id="metrics-content">
+      <div class="empty">Журнал метрик обработки.<br><span class="muted" style="font-size:12px">Данные появятся после скоринга и анализа ТЗ.</span></div>
+    </div>
   </div>
 
   <div id="view-monitor" style="display:none;">

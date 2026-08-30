@@ -7,6 +7,7 @@
 import { state } from "./store.js";
 
 export const TAB_BASE = ["proc", "cust", "profiles"];
+export const TAB_METRICS = "metrics";
 export const TAB_USERS = "users";
 export const TAB_MONITOR = "monitor";
 export const TAB_PROMPTS = "prompts";
@@ -20,7 +21,7 @@ export const TAB_PARSER = "parser";
 export const TAB_SETS = {
   user: [...TAB_BASE],
   admin: [TAB_USERS],
-  analyst: [...TAB_BASE, TAB_MONITOR, TAB_PROMPTS, TAB_REFS],
+  analyst: [...TAB_BASE, TAB_METRICS, TAB_MONITOR, TAB_PROMPTS, TAB_REFS],
   devops: [TAB_SERVICES, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS, TAB_PARSER],
 };
 
@@ -28,6 +29,7 @@ export const ALL_TABS = [
   "proc",
   "cust",
   "profiles",
+  TAB_METRICS,
   TAB_USERS,
   TAB_MONITOR,
   TAB_PROMPTS,
