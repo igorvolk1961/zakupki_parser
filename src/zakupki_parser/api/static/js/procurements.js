@@ -232,6 +232,7 @@ function renderModal(row) {
       <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id})">${isAnalyzing ? "Анализ…" : "Анализ ТЗ"}</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
       ${row.langfuse_trace_url && hasRole("analyst") ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
+      ${row.rag_report && row.rag_report.trace_url && hasRole("analyst") ? `<button class="ghost" onclick="viewTraceUrl('${escapeHtml(row.rag_report.trace_url)}')">Анализ</button>` : ""}
     </div>`;
   $("#modal-bg").classList.add("open");
 }
@@ -348,6 +349,7 @@ function ragReportHtml(report) {
     .join("");
   return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
+    ${report.cost ? `<p class="muted" style="margin:2px 0 4px;">Стоимость анализа: LLM $${report.cost.llm_usd ?? 0} · эмбеддинги $${report.cost.embeddings_usd ?? 0} · всего <b>$${report.cost.total_usd ?? 0}</b></p>` : ""}
     ${banner}
     ${items || '<p class="muted">Вопросов к ТЗ пока нет.</p>'}`;
 }
@@ -395,6 +397,13 @@ function viewTrace(id) {
   const row = allItems.find((r) => r.id === id);
   const url = row && row.langfuse_trace_url;
   if (url) window.open(url, "_blank", "noopener");
+}
+
+// Открыть произвольный LangFuse-трейс (анализ) в новой вкладке. Доступно ТОЛЬКО
+// роли analyst; url берётся из rag_report.trace_url (построен analysis_service).
+function viewTraceUrl(url) {
+  if (!hasRole("analyst") || !url) return;
+  window.open(url, "_blank", "noopener");
 }
 
 // Переключить кнопку «Анализ ТЗ» в состояние «выполняется»/«готово».
@@ -473,6 +482,7 @@ export {
   viewTz,
   closeTz,
   viewTrace,
+  viewTraceUrl,
   loadPlatforms,
 };
 

@@ -37,6 +37,15 @@ class Embeddable(Protocol):
         """Вектор одного текста; None — сбой."""
         ...
 
+    @property
+    def cost_usd(self) -> float:
+        """Накопленная стоимость эмбеддингов (USD)."""
+        ...
+
+    def reset_cost(self) -> None:
+        """Обнулить накопленную стоимость (перед обработкой новой закупки)."""
+        ...
+
 
 class EmbeddingClient:
     """Вычисление эмбеддингов через OpenAI-совместимый endpoint ``/embeddings``."""
@@ -52,6 +61,14 @@ class EmbeddingClient:
         self._model = model
         self._api_key = api_key
         self._timeout = timeout
+        self._cost_usd: float = 0.0
+
+    @property
+    def cost_usd(self) -> float:
+        return round(self._cost_usd, 8)
+
+    def reset_cost(self) -> None:
+        self._cost_usd = 0.0
 
     async def embed(self, texts: list[str]) -> list[list[float]] | None:
         """Векторы для текстов (пакетно). None — сбой (best-effort, не роняет задание)."""
@@ -82,6 +99,7 @@ class EmbeddingClient:
                 obs.end()
                 return None
             input_tokens = embedding_input_tokens(data, texts)
+            self._cost_usd += embedding_cost_usd(input_tokens)
             obs.update(
                 output={"vectors": vectors, "model": self._model},
                 usage_details={"input": input_tokens},
@@ -139,6 +157,13 @@ class GigaEmbeddingClient:
             verify_ssl=verify_ssl,
             timeout=timeout,
         )
+
+    @property
+    def cost_usd(self) -> float:
+        return round(self._embedder.total_cost, 8)
+
+    def reset_cost(self) -> None:
+        self._embedder.reset_cost()
 
     async def embed(self, texts: list[str]) -> list[list[float]] | None:
         """Векторы для текстов (пакетно). None — сбой (best-effort, не роняет задание)."""

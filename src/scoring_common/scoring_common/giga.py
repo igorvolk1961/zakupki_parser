@@ -138,6 +138,16 @@ class GigaEmbedder:
         # подключения на каждом следующем задании.
         self._cooldown_until = 0.0
         self._failure_cooldown_seconds = failure_cooldown_seconds
+        self._cost_usd: float = 0.0
+
+    @property
+    def total_cost(self) -> float:
+        """Накопленная стоимость эмбеддингов (USD, best-effort)."""
+        return round(self._cost_usd, 8)
+
+    def reset_cost(self) -> None:
+        """Обнулить накопленную стоимость (перед обработкой новой закупки)."""
+        self._cost_usd = 0.0
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Векторные представления списка текстов (длинные — усреднённые по чанкам)."""
@@ -240,6 +250,7 @@ class GigaEmbedder:
             else:
                 texts = [raw_input] if isinstance(raw_input, str) else []
             input_tokens = embedding_input_tokens(data, texts)
+            self._cost_usd += embedding_cost_usd(input_tokens)
             obs.update(
                 output=vectors,
                 usage_details={"input": input_tokens},

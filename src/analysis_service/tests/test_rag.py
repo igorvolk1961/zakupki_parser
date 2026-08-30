@@ -120,6 +120,14 @@ def test_report_without_tz() -> None:
     assert report["tz_file"] is None
 
 
+def test_report_has_cost_and_trace_url() -> None:
+    """Отчёт всегда содержит cost (0 при отсутствии вызовов) и trace_url (None без LangFuse)."""
+    report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(_NoTzRecord(), [], {}))
+    assert set(report["cost"]) == {"llm_usd", "embeddings_usd", "total_usd"}
+    assert report["cost"]["total_usd"] == 0.0
+    assert report["trace_url"] is None
+
+
 def test_verdict_parsed_from_llm() -> None:
     record = {
         "files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}],

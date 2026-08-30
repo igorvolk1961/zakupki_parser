@@ -40,6 +40,16 @@ class LlmClient:
         self._api_key = api_key
         self._temperature = temperature
         self._timeout = timeout
+        self._cost_usd: float = 0.0
+
+    @property
+    def cost_usd(self) -> float:
+        """Накопленная стоимость вызовов этого клиента (USD, best-effort)."""
+        return round(self._cost_usd, 8)
+
+    def reset_cost(self) -> None:
+        """Обнулить накопленную стоимость (перед обработкой новой закупки)."""
+        self._cost_usd = 0.0
 
     async def chat_json(self, system: str, user: str) -> dict[str, Any] | None:
         """Запрос с JSON-ответом; None — сбой (best-effort, не роняет задание)."""
@@ -110,4 +120,5 @@ class LlmClient:
             datetime.now(UTC),
             input_cache_hit=cache_hit,
         )
+        self._cost_usd += sum(cost_details.values()) if cost_details else 0.0
         return usage_details, cost_details

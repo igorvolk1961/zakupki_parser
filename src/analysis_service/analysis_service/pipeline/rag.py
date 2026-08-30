@@ -35,7 +35,7 @@ from analysis_service.pipeline.system_questions import (
 )
 from analysis_service.settings import Settings
 from scoring_common.embeddings import Embeddable, cosine_similarity
-from scoring_common.langfuse import parent_span
+from scoring_common.langfuse import parent_span, trace_url_from_trace_id
 from scoring_common.tz import resolve_tz_content
 
 logger = logging.getLogger(__name__)
@@ -115,8 +115,22 @@ class RagAnalyzer:
         run_metadata = {"generated_at": generated_at}
         if metadata:
             run_metadata.update(metadata)
-        with parent_span("rag_analysis", metadata=run_metadata):
-            return await self._analyze(record, questions, profile_facts, generated_at)
+        # Стоимость накапливается в LLM- и эмбеддинг-клиентах за время прогона.
+        # getattr-фолбэк: клиенты без поддержки стоимости (напр. тест-фейки) не падают.
+        getattr(self._llm, "reset_cost", lambda: None)()
+        getattr(self._embedder, "reset_cost", lambda: None)()
+        with parent_span("rag_analysis", metadata=run_metadata) as parent:
+            trace_id = getattr(parent, "trace_id", None)
+            report = await self._analyze(record, questions, profile_facts, generated_at)
+        llm_usd = float(getattr(self._llm, "cost_usd", 0.0))
+        embeddings_usd = float(getattr(self._embedder, "cost_usd", 0.0))
+        report["cost"] = {
+            "llm_usd": llm_usd,
+            "embeddings_usd": embeddings_usd,
+            "total_usd": round(llm_usd + embeddings_usd, 8),
+        }
+        report["trace_url"] = trace_url_from_trace_id(trace_id)
+        return report
 
     async def _analyze(
         self,

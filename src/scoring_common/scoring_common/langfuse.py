@@ -190,3 +190,17 @@ def flush() -> None:
         return
     with contextlib.suppress(Exception):  # pragma: no cover - best-effort
         _get_client().flush()
+
+
+def trace_url_from_trace_id(trace_id: str | None) -> str | None:
+    """Ссылка на трейс LangFuse по ``trace_id``; None при выключенной трассировке.
+
+    Возвращает ``None``, если трейс не задан или LangFuse недоступен — вызывающая
+    сторона просто не показывает кнопку «Трейс» (best-effort, не роняет работу).
+    """
+    if not trace_id or not langfuse_enabled():
+        return None
+    try:
+        return _get_client().get_trace_url(trace_id=trace_id)  # type: ignore[no-any-return]
+    except Exception:  # noqa: BLE001 - best-effort, не роняет работу
+        return None
