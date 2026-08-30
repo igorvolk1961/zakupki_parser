@@ -115,20 +115,17 @@ class RagAnalyzer:
         run_metadata = {"generated_at": generated_at}
         if metadata:
             run_metadata.update(metadata)
-        # Стоимость накапливается в LLM- и эмбеддинг-клиентах за время прогона.
-        # getattr-фолбэк: клиенты без поддержки стоимости (напр. тест-фейки) не падают.
-        getattr(self._llm, "reset_cost", lambda: None)()
-        getattr(self._embedder, "reset_cost", lambda: None)()
         with parent_span("rag_analysis", metadata=run_metadata) as parent:
             trace_id = getattr(parent, "trace_id", None)
+            # Стоимость LLM- и эмбеддинг-вызовов именно этого прогона: сбрасываем
+            # счётчики ДО анализа и читаем ПОСЛЕ, чтобы в отчёт попала цена этой
+            # закупки (клиенты переиспользуются воркером на всех закупках).
+            self._llm.reset_cost()
+            getattr(self._embedder, "reset_cost", lambda: None)()
             report = await self._analyze(record, questions, profile_facts, generated_at)
-        llm_usd = float(getattr(self._llm, "cost_usd", 0.0))
+        llm_usd = self._llm.total_cost_usd
         embeddings_usd = float(getattr(self._embedder, "cost_usd", 0.0))
-        report["cost"] = {
-            "llm_usd": llm_usd,
-            "embeddings_usd": embeddings_usd,
-            "total_usd": round(llm_usd + embeddings_usd, 8),
-        }
+        report["cost"] = {"usd": round(llm_usd + embeddings_usd, 8)}
         report["trace_url"] = trace_url_from_trace_id(trace_id)
         return report
 

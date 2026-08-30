@@ -141,6 +141,7 @@ class ScoringWorker:
                     "score_method": result.score_method,
                     "embedding_similarity": result.embedding_similarity,
                     "langfuse_trace_url": result.langfuse_trace_url,
+                    "cost_usd": getattr(result, "cost_usd", None),
                 }
             )
             # Успех: обнуляем счётчик ретраев (если до этого были сбои LLM).

@@ -125,6 +125,11 @@ async def _fetch_details_for_score(state: Any, row: Any) -> None:
         await browser.close()
 
 
+def _is_analyst(user: User | None) -> bool:
+    """Роль analyst: стоимость обработки — внутренняя метрика analyst-роли."""
+    return bool(user is not None and "analyst" in (user.roles or []))
+
+
 def build_procurements_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     state = ctx.state
@@ -169,7 +174,10 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             offset=offset,
             profile_id=profile.id,
         )
-        return ProcurementListOut(total=total, items=[_procurement_out(r) for r in rows])
+        return ProcurementListOut(
+            total=total,
+            items=[_procurement_out(r, include_costs=_is_analyst(user)) for r in rows],
+        )
 
     @router.post(
         "/api/procurements/export",
@@ -201,7 +209,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         writer = csv.DictWriter(buf, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            out = _procurement_out(row).model_dump()
+            out = _procurement_out(row, include_costs=_is_analyst(user)).model_dump()
             for col in ("publication_date", "update_date", "deadline"):
                 if isinstance(out.get(col), datetime):
                     out[col] = out[col].isoformat()
@@ -230,7 +238,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
-        return _procurement_detail_out(row)
+        return _procurement_detail_out(row, include_costs=_is_analyst(user))
 
     @router.get(
         "/api/procurements/{procurement_id}/tz",
@@ -308,9 +316,20 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         # НО ПЕРЕД записью результата в БД — единый интерфейс fetch_api_details
         # (лёгкий APIRequestContext, без DOM/браузера).
         await _fetch_details_for_score(state, existing)
+        # Стоимость обработки закупки: скоринг (body.score_costs) и анализ
+        # (rag_report['cost']). Аналитическую стоимость вынимаем из rag_report ДО
+        # сохранения, чтобы внутренняя метрика (USD) не персистилась/не отдавалась
+        # в общем отчёте — стоимость доступна только роли analyst (см. converters).
+        costs: dict[str, Any] = {}
+        if body.score_costs is not None:
+            costs["scoring"] = body.score_costs
+        if body.rag_report and body.rag_report.get("cost"):
+            costs["analysis"] = body.rag_report.pop("cost")
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт профилю (score_method не меняем).
-            await _repo().update_rag_report(procurement_id, body.profile_id, body.rag_report)
+            await _repo().update_rag_report(
+                procurement_id, body.profile_id, body.rag_report, costs=costs
+            )
         # Результат стадии каскада (fit/pwin/margin/sim) применяется и вместе с
         # rag_report: rag_report не отменяет скоринг. Чисто аналитический результат
         # (rag_report без fit_score/p_win/margin) скоринг не трогает — у analysis-воркера
@@ -329,6 +348,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 score_method=body.score_method,
                 embedding_similarity=body.embedding_similarity,
                 langfuse_trace_url=body.langfuse_trace_url,
+                costs=costs,
             )
             # BR-07 (дедупликация по содержанию компетенций): результат, посчитанный
             # для представителя группы идентичного содержания компетенций,
@@ -369,7 +389,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             and _meets_stage_notify_threshold(row, state)
         ):
             await state.notifier.notify(_row_to_record(row))
-        return _procurement_detail_out(row)
+        return _procurement_detail_out(row, include_costs=True)
 
     @router.post(
         "/api/procurements/analyze",

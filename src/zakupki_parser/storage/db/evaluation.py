@@ -57,6 +57,10 @@ class ProcurementEvaluation(Base):
     # на карточке не отображается).
     langfuse_trace_url: Mapped[str | None] = mapped_column(Text)
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Стоимость обработки закупки (USD), разбитая по этапам: ``{"scoring": {...},
+    # "analysis": {...}}``. Заполняется парсером в POST /score, скор/анализ
+    # приходят от соответствующих воркеров. None, если стоимость не записана.
+    costs: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Ключевые слова профиля, по которым закупка прошла клиентскую фильтрацию (R9).
     matched_keywords: Mapped[list[str] | None] = mapped_column(JSONB)
     # Метка успешной постановки задания в очередь внешнего скоринга — по профилю

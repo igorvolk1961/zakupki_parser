@@ -92,6 +92,13 @@ class _FakeLlm:
     async def chat_json(self, system: str, user: str) -> dict[str, Any] | None:
         return self._responses.pop(0) if self._responses else None
 
+    def reset_cost(self) -> None:
+        pass
+
+    @property
+    def total_cost_usd(self) -> float:
+        return 0.0
+
 
 class _NoTzRecord:
     """Карточка без файлов ТЗ: find_tz_reference вернёт None."""
@@ -123,8 +130,8 @@ def test_report_without_tz() -> None:
 def test_report_has_cost_and_trace_url() -> None:
     """Отчёт всегда содержит cost (0 при отсутствии вызовов) и trace_url (None без LangFuse)."""
     report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(_NoTzRecord(), [], {}))
-    assert set(report["cost"]) == {"llm_usd", "embeddings_usd", "total_usd"}
-    assert report["cost"]["total_usd"] == 0.0
+    assert set(report["cost"]) == {"usd"}
+    assert report["cost"]["usd"] == 0.0
     assert report["trace_url"] is None
 
 

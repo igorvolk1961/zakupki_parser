@@ -116,6 +116,9 @@ class ScoringOutput(BaseModel):
     # кнопка «Трейс» на карточке не отображается. Ссылка строится на стороне
     # скоринга по trace_id, созданному мониторингом root-run одной закупки.
     langfuse_trace_url: str | None = None
+    # Стоимость LLM-вызовов скоринга (fit/judge/refine) в USD. Заполняется
+    # CostCallback-колбэком; None, если сбор стоимости не подключён.
+    cost_usd: float | None = None
 
     @field_validator("final_fit_score")
     @classmethod

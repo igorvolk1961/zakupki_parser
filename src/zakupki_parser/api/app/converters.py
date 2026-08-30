@@ -94,8 +94,12 @@ def _prompt_dir_rel(base: Path, state: AppState) -> str:
         return str(base)
 
 
-def _procurement_out(row: Procurement) -> ProcurementOut:
-    """Карточка закупки с именем заказчика (имя — из связи customers, не колонки)."""
+def _procurement_out(row: Procurement, *, include_costs: bool = False) -> ProcurementOut:
+    """Карточка закупки с именем заказчика (имя — из связи customers, не колонки).
+
+    ``include_costs`` — отдавать стоимость обработки (``costs``). Стоимость —
+    внутренняя метрика для роли analyst; при False поле выставляется в None.
+    """
     out = ProcurementOut.model_validate(row)
     out.customer_id = row.customer_id
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
@@ -106,10 +110,13 @@ def _procurement_out(row: Procurement) -> ProcurementOut:
     out.platform_url = row.platform_rel.url if row.platform_rel is not None else None
     # Клиентская сторона: активность учитывает текущую дату (срок актуальности).
     out.is_active = effective_is_active(row.is_active, row.deadline)
+    out.costs = row.costs if include_costs else None
     return out
 
 
-def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
+def _procurement_detail_out(
+    row: Procurement, *, include_costs: bool = False
+) -> ProcurementDetailOut:
     out = ProcurementDetailOut.model_validate(row)
     out.customer_id = row.customer_id
     out.customer = row.customer_rel.name if row.customer_rel is not None else None
@@ -119,6 +126,7 @@ def _procurement_detail_out(row: Procurement) -> ProcurementDetailOut:
     out.platform_name = row.platform_rel.name if row.platform_rel is not None else None
     out.platform_url = row.platform_rel.url if row.platform_rel is not None else None
     out.is_active = effective_is_active(row.is_active, row.deadline)
+    out.costs = row.costs if include_costs else None
     return out
 
 

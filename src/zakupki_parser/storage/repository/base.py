@@ -66,6 +66,9 @@ def _apply_profile_score(
             # rag_report — per-user, колонки в procurements нет: подкладываем
             # динамическим атрибутом для API-ответа (ClassVar на Procurement).
             row.rag_report = evaluation.rag_report
+            # costs — стоимость обработки закупки (scoring/analysis), как и
+            # rag_report, динамический атрибут карточки.
+            row.costs = evaluation.costs
             return
 
 

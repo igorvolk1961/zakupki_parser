@@ -50,6 +50,9 @@ class ProcurementOut(BaseModel):
     langfuse_trace_url: str | None = None
     # Per-client RAG-отчёт анализа стоп-условий (профиль активного клиента).
     rag_report: dict[str, Any] | None = None
+    # Стоимость обработки закупки (USD) по этапам: {"scoring": {"usd": ...},
+    # "analysis": {"usd": ...}}. Отдаётся только роли analyst (см. converters).
+    costs: dict[str, Any] | None = None
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
@@ -240,6 +243,7 @@ class ScoreUpdate(BaseModel):
     embedding_similarity: float | None = None
     langfuse_trace_url: str | None = None
     rag_report: dict[str, Any] | None = None
+    score_costs: dict[str, Any] | None = None
 
     @field_validator("score_method")
     @classmethod

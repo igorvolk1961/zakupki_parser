@@ -54,6 +54,8 @@ class ResultsConsumer:
             logger.warning("Пропускаю некорректный результат: %s", payload)
             return
         try:
+            cost_usd = payload.get("cost_usd")
+            score_costs = {"usd": cost_usd} if cost_usd is not None else None
             await self._parser.post_score(
                 int(procurement_id),
                 float(score or 0.0),
@@ -64,6 +66,7 @@ class ResultsConsumer:
                 p_win=payload.get("p_win"),
                 margin=payload.get("margin"),
                 rag_report=payload.get("rag_report"),
+                score_costs=score_costs,
                 profile_id=payload.get("profile_id"),
                 retry_max=self._settings.retry_max,
                 retry_backoff=self._settings.retry_backoff_seconds,

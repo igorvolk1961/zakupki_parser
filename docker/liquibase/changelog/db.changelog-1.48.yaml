@@ -1,0 +1,9 @@
+databaseChangeLog:
+- changeSet:
+    id: 49
+    author: zakupki-parser
+    comment: 'procurement_evaluations: costs — стоимость обработки закупки (USD), разбитая по этапам (scoring/analysis). JSONB, nullable. Заполняется парсером в POST /score'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS costs JSONB;

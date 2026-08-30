@@ -203,6 +203,14 @@ function renderModal(row) {
       )
       .join("") || "–";
   const isAnalyzing = analyzingIds.has(row.id);
+  const scoringUsd = row.costs?.scoring?.usd;
+  const analysisUsd = row.costs?.analysis?.usd;
+  const hasCost =
+    (scoringUsd !== undefined && scoringUsd !== null) ||
+    (analysisUsd !== undefined && analysisUsd !== null);
+  const costLine = hasCost && hasRole("analyst")
+    ? `<div class="muted" style="margin:6px 0">Стоимость обработки: скоринг $${(Number(scoringUsd) || 0).toFixed(2)} · анализ $${(Number(analysisUsd) || 0).toFixed(2)} · всего <b>$${((Number(scoringUsd) || 0) + (Number(analysisUsd) || 0)).toFixed(2)}</b></div>`
+    : "";
   $("#modal").innerHTML = `
     <span class="close" onclick="closeModal()">×</span>
     <h2>${escapeHtml(row.number)}</h2>
@@ -226,6 +234,7 @@ function renderModal(row) {
       ${f("Файлы", files)}
       ${f("Ссылка", row.url ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">открыть</a>` : "—")}
     </table>
+    ${costLine}
     ${ragReportHtml(row.rag_report)}
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
@@ -349,7 +358,6 @@ function ragReportHtml(report) {
     .join("");
   return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
-    ${report.cost ? `<p class="muted" style="margin:2px 0 4px;">Стоимость анализа: LLM $${report.cost.llm_usd ?? 0} · эмбеддинги $${report.cost.embeddings_usd ?? 0} · всего <b>$${report.cost.total_usd ?? 0}</b></p>` : ""}
     ${banner}
     ${items || '<p class="muted">Вопросов к ТЗ пока нет.</p>'}`;
 }

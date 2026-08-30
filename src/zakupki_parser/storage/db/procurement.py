@@ -187,6 +187,7 @@ class Procurement(Base):
     embedding_similarity: float | None = None
     langfuse_trace_url: str | None = None
     rag_report: dict[str, Any] | None = None
+    costs: dict[str, Any] | None = None
 
     customer_rel: Mapped[Customer | None] = relationship(back_populates="procurements")
     procedure_type_rel: Mapped[ProcedureType | None] = relationship(back_populates="procurements")

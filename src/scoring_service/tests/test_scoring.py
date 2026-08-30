@@ -6,9 +6,10 @@ from typing import Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.outputs import ChatGeneration, ChatResult, LLMResult
 from langchain_core.runnables import RunnableLambda
 
+from scoring_service.pipeline.cost import CostCallback
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.tz_reviewer import TzReviewOutcome
 from scoring_service.schemas import FitResult, JudgeResult, ReasoningSteps
@@ -729,3 +730,62 @@ def test_score_embedding_prefilter_branch_failure_runs_llm() -> None:
     assert out.embedding_similarity is None
     assert out.score == 0.8
     assert out.score_method == "fit"
+
+
+def test_cost_callback_accumulates_and_rounds() -> None:
+    """on_llm_end суммирует стоимость по token usage (round 8)."""
+    cb = CostCallback("deepseek-v4-flash")
+    assert cb.total_usd == 0.0
+    cb.on_llm_end(
+        LLMResult(
+            generations=[],
+            llm_output={"token_usage": {"prompt_tokens": 1000, "completion_tokens": 500}},
+        )
+    )
+    assert cb.total_usd > 0
+    # Стоимость копеечная: 1000 prompt + 500 completion у flash — меньше цента.
+    assert cb.total_usd < 0.01
+    # Повторный вызов накапливает (не затирает).
+    cb.on_llm_end(
+        LLMResult(
+            generations=[],
+            llm_output={"token_usage": {"prompt_tokens": 1000, "completion_tokens": 500}},
+        )
+    )
+    assert cb.total_usd > 0
+
+
+def test_cost_callback_reset_zeroes() -> None:
+    """reset() обнуляет накопленную стоимость."""
+    cb = CostCallback("deepseek-v4-flash")
+    cb.on_llm_end(
+        LLMResult(
+            generations=[],
+            llm_output={"token_usage": {"prompt_tokens": 1000, "completion_tokens": 500}},
+        )
+    )
+    assert cb.total_usd > 0
+    cb.reset()
+    assert cb.total_usd == 0.0
+
+
+def test_cost_callback_ignores_empty_usage() -> None:
+    """Пустой/отсутствующий token_usage не добавляет стоимость."""
+    cb = CostCallback("deepseek-v4-flash")
+    cb.on_llm_end(LLMResult(generations=[], llm_output={}))
+    cb.on_llm_end(LLMResult(generations=[], llm_output={"token_usage": {}}))
+    assert cb.total_usd == 0.0
+    assert CostCallback("unknown-model").total_usd == 0.0
+
+
+def test_cost_callback_property_rounds_to_8() -> None:
+    """total_usd округляется до 8 знаков."""
+    cb = CostCallback("deepseek-v4-flash")
+    cb.on_llm_end(
+        LLMResult(
+            generations=[],
+            llm_output={"token_usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        )
+    )
+    usd = cb.total_usd
+    assert usd == round(usd, 8)

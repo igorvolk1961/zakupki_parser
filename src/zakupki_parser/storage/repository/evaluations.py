@@ -13,6 +13,20 @@ from zakupki_parser.storage.repository.base import RepositoryMixin, _round_score
 logger = logging.getLogger(__name__)
 
 
+def _deep_merge(dst: dict[str, Any], src: dict[str, Any]) -> None:
+    """Рекурсивно слить ``src`` в ``dst`` (на месте).
+
+    Для совпадающих ключей-словарей — рекурсивный merge; для остальных — простое
+    перезаписывание ``dst[key] = value``. Используется для накопления стоимости
+    обработки по этапам (scoring/analysis) в ``ProcurementEvaluation.costs``.
+    """
+    for key, value in src.items():
+        if isinstance(value, dict) and isinstance(dst.get(key), dict):
+            _deep_merge(dst[key], value)
+        else:
+            dst[key] = value
+
+
 class EvaluationMixin(RepositoryMixin):
     """Per-profile оценки закупок (``procurement_evaluations``)."""
 
@@ -63,6 +77,19 @@ class EvaluationMixin(RepositoryMixin):
                 len(matched),
             )
 
+    @staticmethod
+    def _merge_costs_into(evaluation: ProcurementEvaluation, costs: dict[str, Any] | None) -> None:
+        """Наложить стоимость (scoring/analysis) на ``evaluation.costs`` (в сессии).
+
+        Merge (а не замена): этапы приходят разными вызовами POST /score и каждый
+        обновляет свою ветку, не затирая соседнюю. Пустой ``costs`` — no-op.
+        """
+        if not costs:
+            return
+        current = dict(evaluation.costs or {})
+        _deep_merge(current, costs)
+        evaluation.costs = current
+
     async def upsert_score(
         self,
         procurement_id: int,
@@ -76,6 +103,7 @@ class EvaluationMixin(RepositoryMixin):
         rag_report: dict[str, Any] | None = None,
         embedding_similarity: float | None = None,
         langfuse_trace_url: str | None = None,
+        costs: dict[str, Any] | None = None,
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки."""
         async with self._db.session() as session:
@@ -95,6 +123,7 @@ class EvaluationMixin(RepositoryMixin):
                 evaluation.langfuse_trace_url = langfuse_trace_url
             if rag_report is not None:
                 evaluation.rag_report = rag_report
+            self._merge_costs_into(evaluation, costs)
             await session.commit()
             return evaluation
 
@@ -179,11 +208,17 @@ class EvaluationMixin(RepositoryMixin):
             return len(rows)
 
     async def update_rag_report(
-        self, procurement_id: int, profile_id: int, rag_report: dict[str, Any]
+        self,
+        procurement_id: int,
+        profile_id: int,
+        rag_report: dict[str, Any],
+        *,
+        costs: dict[str, Any] | None = None,
     ) -> ProcurementEvaluation:
         """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method)."""
         async with self._db.session() as session:
             evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             evaluation.rag_report = rag_report
+            self._merge_costs_into(evaluation, costs)
             await session.commit()
         return evaluation

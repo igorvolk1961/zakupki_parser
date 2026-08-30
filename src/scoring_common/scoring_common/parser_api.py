@@ -111,6 +111,7 @@ class ParserApiClient:
         p_win: float | None = None,
         margin: float | None = None,
         rag_report: dict[str, Any] | None = None,
+        score_costs: dict[str, Any] | None = None,
         profile_id: int | None = None,
         retry_max: int = 3,
         retry_backoff: float = 2.0,
@@ -121,6 +122,7 @@ class ParserApiClient:
         ``internal_token`` — внутренний токен парсера (заголовок X-Internal-Token):
         служебные эндпоинты парсера (POST /score) доступны только конвейеру.
         ``rag_report`` — результат RAG-анализа стоп-условий (analysis_service).
+        ``score_costs`` — стоимость обработки (скоринг/анализ) для поля ``costs``.
         ``profile_id`` — профиль, для которого посчитан результат (пер-профильно, BR-07).
         """
         url = f"{self._base}/api/procurements/{procurement_id}/score"
@@ -139,6 +141,8 @@ class ParserApiClient:
             payload["margin"] = margin
         if rag_report is not None:
             payload["rag_report"] = rag_report
+        if score_costs is not None:
+            payload["score_costs"] = score_costs
         headers = self._headers(internal_token)
         last_exc: Exception | None = None
         for attempt in range(retry_max):

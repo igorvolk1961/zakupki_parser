@@ -25,6 +25,7 @@ from typing import Any, cast
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
+from scoring_service.pipeline.cost import CostCallback
 from scoring_service.pipeline.description import extract_description
 from scoring_service.pipeline.fit_chain import FitChain
 from scoring_service.pipeline.judge_chain import JudgeChain
@@ -51,6 +52,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         embedder: Any | None = None,
         embedding_skip_reason: str | None = None,
         langfuse_handler: Any | None = None,
+        cost_callback: CostCallback | None = None,
     ) -> None:
         self._fit = fit_chain
         self._judge = judge_chain
@@ -58,6 +60,9 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         # Callbacks для корневого run скоринга: один трейс на задание, в который
         # вложены fit/judge/refine как дочерние спаны (вместо отдельных трейсов).
         self._callbacks = callbacks
+        # Сбор стоимости LLM-вызовов скоринга (fit/judge/refine) в USD. None, если
+        # сбор не подключён — тогда result.cost_usd остаётся None.
+        self._cost_callback = cost_callback
         # LangFuse LangChain-callback: после каждого score() читаем last_trace_id,
         # чтобы построить глубокую ссылку на трейс закупки. None, если LangFuse
         # не настроен — ссылки нет, кнопка «Трейс» не отображается.
@@ -177,6 +182,10 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         # не прицепить ссылку на трейс предыдущей.
         if self._langfuse_handler is not None:
             self._langfuse_handler.last_trace_id = None
+        # Обнуляем стоимость перед заданием: один Scorer переиспользуется на многих
+        # закупках, поэтому счётчик накапливается и требует сброса на каждый score().
+        if self._cost_callback is not None:
+            self._cost_callback.reset()
         runner = RunnableLambda(self._score_impl, name=run_name)
         result = runner.invoke(
             (record, texts, procurement_id, session_id, trace_meta, root_config),
@@ -185,6 +194,8 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         trace_url = self._langfuse_trace_url(getattr(self._langfuse_handler, "last_trace_id", None))
         if trace_url:
             result.langfuse_trace_url = trace_url
+        if self._cost_callback is not None:
+            result.cost_usd = self._cost_callback.total_usd
         return result
 
     def _score_impl(
@@ -261,14 +272,17 @@ def build_scorer(settings: Settings) -> Scorer:
             )
         else:
             embedding_skip_reason = "missing giga credentials"
+    cost_cb = CostCallback(settings.llm_model)
+    augmented = (callbacks or []) + [cost_cb]
     return Scorer(
-        FitChain(llm, callbacks, method=settings.llm_structured_method),
-        JudgeChain(llm, callbacks, method=settings.llm_structured_method),
+        FitChain(llm, augmented, method=settings.llm_structured_method),
+        JudgeChain(llm, augmented, method=settings.llm_structured_method),
         settings,
-        callbacks=callbacks,
+        callbacks=augmented,
         embedder=embedder,
         embedding_skip_reason=embedding_skip_reason,
         langfuse_handler=lf_handler,
+        cost_callback=cost_cb,
     )
 
 
