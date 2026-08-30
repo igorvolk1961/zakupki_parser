@@ -40,6 +40,7 @@ __all__ = [
     "normalize_model",
     "deepseek_peak_rates",
     "stage_metrics",
+    "stage_metrics_with_components",
     "merge_usage",
     "GIGA_EMBEDDING_RUB_PER_1M",
 ]
@@ -263,4 +264,72 @@ def stage_metrics(
     }
     if generated_at:
         out["generated_at"] = generated_at
+    return out
+
+
+def _component_metrics(part: dict[str, Any]) -> dict[str, Any]:
+    """Метрики одной составляющей стадии (LLM или эмбеддинги).
+
+    Формат повторяет ``stage_metrics``, но без «общего времени» (``duration_ms``)
+    и накладной задержки (``delay_ms``): они осмысленны только на уровне всей
+    стадии, а не отдельного компонента. Нулевые/пустые значения отбрасываются.
+    """
+    usage: dict[str, int] = {k: int(v) for k, v in (part.get("usage") or {}).items() if v}
+    total = sum(usage.values())
+    return {
+        "usd": round(float(part.get("usd") or 0.0), 8),
+        "tokens": {**usage, "total": total},
+        "cost_details": {
+            k: round(float(v), 8) for k, v in (part.get("cost_details") or {}).items() if v
+        },
+        "models": sorted(set(part.get("models") or [])),
+        "calls": int(part.get("calls") or 0),
+        "latency_ms": round(float(part.get("latency_ms") or 0.0), 3),
+    }
+
+
+def stage_metrics_with_components(
+    *,
+    usd: float,
+    duration_ms: float,
+    parts: Sequence[tuple[str, dict[str, Any]]],
+) -> dict[str, Any]:
+    """Агрегатные метрики стадии + разбивка по составляющим (LLM / эмбеддинги).
+
+    ``parts`` — последовательность ``(имя, метрики)``: каждая метрика — словарь с
+    ``usd/usage/cost_details/models/calls/latency_ms`` (без ``duration_ms`` — его
+    задаёт вызывающая сторона). Возвращает метрики ``stage_metrics`` (агрегат)
+    плюс ``components`` — словарь ``{имя: метрики компонента}`` для раздельного
+    показа стоимости и токенов LLM и эмбеддингов на карточке закупки.
+    """
+    usage: dict[str, int] = {}
+    cost_details: dict[str, float] = {}
+    models: list[str] = []
+    calls = 0
+    latency_ms = 0.0
+    components: dict[str, Any] = {}
+    for name, part in parts:
+        if not part:
+            continue
+        # Компонент без реальной активности (0 вызовов, 0 стоимости, 0 токенов)
+        # не попадает в разбивку: на карточке показываются только задействованные.
+        if not (part.get("calls") or part.get("usd") or any((part.get("usage") or {}).values())):
+            continue
+        merge_usage(usage, part.get("usage") or {})
+        for key, value in (part.get("cost_details") or {}).items():
+            cost_details[key] = round((cost_details.get(key) or 0.0) + float(value), 8)
+        models.extend(part.get("models") or [])
+        calls += int(part.get("calls") or 0)
+        latency_ms += float(part.get("latency_ms") or 0.0)
+        components[name] = _component_metrics(part)
+    out = stage_metrics(
+        usd=usd,
+        usage=usage,
+        cost_details=cost_details,
+        models=models,
+        calls=calls,
+        latency_ms=latency_ms,
+        duration_ms=duration_ms,
+    )
+    out["components"] = components
     return out

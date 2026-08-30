@@ -35,7 +35,7 @@ from analysis_service.pipeline.system_questions import (
     SYSTEM_RETRIEVAL_PATTERNS,
 )
 from analysis_service.settings import Settings
-from scoring_common.costing import merge_usage, stage_metrics
+from scoring_common.costing import stage_metrics_with_components
 from scoring_common.embeddings import Embeddable, cosine_similarity
 from scoring_common.langfuse import parent_span, trace_url_from_trace_id
 from scoring_common.tz import resolve_tz_content
@@ -144,32 +144,15 @@ class RagAnalyzer:
 
         ``usd`` берётся из авторитетного источника (``total_cost_usd`` + стоимость
         эмбеддингов), а разбивка токенов/стоимости/латенси — из накопленных клиентами
-        агрегатов. Для фолбэка на старые/заглушечные клиенты без ``metrics`` разбивка
-        остаётся пустой, общая стоимость — корректной.
+        агрегатов (в ``components`` LLM и эмбеддинги хранятся раздельно). Для фолбэка
+        на старые/заглушечные клиенты без ``metrics`` разбивка остаётся пустой,
+        общая стоимость — корректной.
         """
         total_usd = self._llm.total_cost_usd + float(getattr(self._embedder, "cost_usd", 0.0))
-        usage: dict[str, int] = {}
-        cost_details: dict[str, float] = {}
-        models: list[str] = []
-        calls = 0
-        latency_ms = 0.0
-        for part in (llm_metrics, emb_metrics):
-            if not part:
-                continue
-            merge_usage(usage, part.get("usage") or {})
-            for key, value in (part.get("cost_details") or {}).items():
-                cost_details[key] = round((cost_details.get(key) or 0.0) + float(value), 8)
-            models.extend(part.get("models") or [])
-            calls += int(part.get("calls") or 0)
-            latency_ms += float(part.get("latency_ms") or 0.0)
-        return stage_metrics(
+        return stage_metrics_with_components(
             usd=total_usd,
-            usage=usage,
-            cost_details=cost_details,
-            models=models,
-            calls=calls,
-            latency_ms=latency_ms,
             duration_ms=duration_ms,
+            parts=[("llm", llm_metrics), ("embeddings", emb_metrics)],
         )
 
     async def _analyze(

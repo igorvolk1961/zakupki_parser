@@ -25,7 +25,7 @@ from typing import Any, cast
 
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
-from scoring_common.costing import merge_usage, stage_metrics
+from scoring_common.costing import stage_metrics_with_components
 from scoring_service.llm_factory import build_llm, callbacks_for, langfuse_handler
 from scoring_service.pipeline.cost import CostCallback
 from scoring_service.pipeline.description import extract_description
@@ -212,37 +212,21 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         LLM-агрегаты предоставляет ``CostCallback``, эмбеддинги — ``GigaEmbedder``
         (если ветка векторной близости запускалась). ``duration_ms`` — общее время
         всего пайплайна скоринга; ``latency_ms`` — суммарное время моделей/эмбеддингов.
+        В ``components`` LLM и эмбеддинги сохраняются раздельно для карточки.
         """
-        parts: list[dict[str, Any]] = []
+        parts: list[tuple[str, dict[str, Any]]] = []
         if self._cost_callback is not None:
-            parts.append(self._cost_callback.metrics())
+            parts.append(("llm", self._cost_callback.metrics()))
         emb_metrics: dict[str, Any] = getattr(self._embedder, "metrics", lambda: {})()
         if emb_metrics:
-            parts.append(emb_metrics)
+            parts.append(("embeddings", emb_metrics))
         if not parts:
             return None
-        total_usd = 0.0
-        usage: dict[str, int] = {}
-        cost_details: dict[str, float] = {}
-        models: list[str] = []
-        calls = 0
-        latency_ms = 0.0
-        for part in parts:
-            total_usd += float(part.get("usd") or 0.0)
-            merge_usage(usage, part.get("usage") or {})
-            for key, value in (part.get("cost_details") or {}).items():
-                cost_details[key] = round((cost_details.get(key) or 0.0) + float(value), 8)
-            models.extend(part.get("models") or [])
-            calls += int(part.get("calls") or 0)
-            latency_ms += float(part.get("latency_ms") or 0.0)
-        return stage_metrics(
+        total_usd = sum(float(part.get("usd") or 0.0) for _, part in parts)
+        return stage_metrics_with_components(
             usd=total_usd,
-            usage=usage,
-            cost_details=cost_details,
-            models=models,
-            calls=calls,
-            latency_ms=latency_ms,
             duration_ms=duration_ms,
+            parts=parts,
         )
 
     def _score_impl(

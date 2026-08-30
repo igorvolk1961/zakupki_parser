@@ -193,6 +193,7 @@
   .card-tabs button { border-radius:20px; }
   .card-tab-panel { min-height:40px; }
   .mt-title { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin:14px 0 6px; }
+  .mt-title.mt-sub { margin-top:10px; text-transform:none; letter-spacing:0; color: var(--text); font-size:12.5px; }
   .card-tab-panel table.met { margin-bottom:4px; }
   .card-tab-panel table.met td:first-child { width: 38%; }
   /* Вкладки: базовые — слева, ролевые — справа (объединение ролей пользователя). */

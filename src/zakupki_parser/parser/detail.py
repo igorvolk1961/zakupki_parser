@@ -104,6 +104,7 @@ async def detail_files(page: Page, platform: PlatformDom) -> list[dict[str, str]
     """
     await _expand_files(page, platform)
     result: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for spec in platform.detail.files:
         locators = page.locator(spec.selector)
         count = await locators.count()
@@ -119,7 +120,15 @@ async def detail_files(page: Page, platform: PlatformDom) -> list[dict[str, str]
                 continue
             if url.startswith("/"):
                 url = platform.url.rstrip("/") + url
-            result.append({"name": (name or "").strip(), "url": url})
+            name = (name or "").strip()
+            # Некоторые площадки отдают один и тот же документ несколько раз
+            # (или селектор матчит элемент и его обёртку) — дедуплицируем по
+            # (имя, url), чтобы в files_json не было задвоенных файлов.
+            key = (name, url)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append({"name": name, "url": url})
     return result
 
 

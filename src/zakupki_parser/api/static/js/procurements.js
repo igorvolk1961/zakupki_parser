@@ -270,16 +270,21 @@ function cardScoringPanel(row, f) {
   const methodLabel = row.score_method
     ? { manual: "ручная", reject: "отклонена", fit: "fit", sim: "sim", pwin: "pwin", margin: "margin" }[row.score_method] || row.score_method
     : "—";
-  const trace = row.langfuse_trace_url && hasRole("analyst")
-    ? `<a href="${escapeHtml(row.langfuse_trace_url)}" target="_blank" rel="noopener">открыть трейс</a>`
-    : "—";
+  const analyst = hasRole("analyst");
+  // Два отдельных трейса: скоринг (langfuse_trace_url) и анализ ТЗ (rag_report.trace_url).
+  const traceLink = (url) =>
+    `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">открыть трейс</a>`;
+  const scoreTrace = row.langfuse_trace_url && analyst ? traceLink(row.langfuse_trace_url) : "—";
+  const analysisTrace =
+    row.rag_report && row.rag_report.trace_url && analyst ? traceLink(row.rag_report.trace_url) : "—";
   return `<table>
     ${f("Score", (row.score ?? "—") + " <span class='muted'>(" + escapeHtml(methodLabel) + ")</span>")}
     ${f("Fit-скор", fitCell(row))}
     ${f("P(win)", row.p_win ?? "—")}
     ${f("Margin", row.margin ?? "—")}
     ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
-    ${f("LangFuse-трейс", trace)}
+    ${f("Трейс скоринга", scoreTrace)}
+    ${f("Трейс анализа ТЗ", analysisTrace)}
   </table>
   ${ragReportHtml(row.rag_report)}`;
 }
@@ -306,7 +311,11 @@ function cardCostLine(row) {
   const analysisUsd = row.costs?.analysis?.usd;
   const has = (scoringUsd !== undefined && scoringUsd !== null) || (analysisUsd !== undefined && analysisUsd !== null);
   if (!has || !hasRole("analyst")) return "";
-  return `<div class="muted" style="margin:6px 0 4px;">Стоимость обработки: скоринг $${(Number(scoringUsd) || 0).toFixed(2)} · анализ $${(Number(analysisUsd) || 0).toFixed(2)} · всего <b>$${((Number(scoringUsd) || 0) + (Number(analysisUsd) || 0)).toFixed(2)}</b></div>`;
+  // Доли цента (например, $0.0025) не должны округляться до $0.00 — выводим
+  // с той же точностью, что и «Стоимость токенов (USD)» в таблице метрик.
+  const f = (v) => (Number(v) || 0).toFixed(4);
+  const total = f((Number(scoringUsd) || 0) + (Number(analysisUsd) || 0));
+  return `<div class="muted" style="margin:6px 0 4px;">Стоимость обработки: скоринг $${f(scoringUsd)} · анализ $${f(analysisUsd)} · всего <b>$${total}</b></div>`;
 }
 
 function _num(v) {
@@ -334,26 +343,72 @@ function metricsTotals(scoringM, analysisM) {
 }
 
 function metricsBlock(title, m) {
-  const t = m.tokens || {};
-  const cd = m.cost_details || {};
   const has = (v) => v !== undefined && v !== null;
   const cells = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
-  return `<h4 class="mt-title">${escapeHtml(title)}</h4>
+  const models = (m.models || []).join(", ") || "—";
+  // Сводка по стадии: стоимость/вызовы/время (компоненты ниже дают разбивку токенов).
+  const summary = `<h4 class="mt-title">${escapeHtml(title)}</h4>
     <table class="met">
-      ${cells("Модели", escapeHtml((m.models || []).join(", ") || "—"))}
+      ${cells("Модели", escapeHtml(models))}
       ${cells("Вызовов", has(m.calls) ? m.calls : "—")}
-      ${cells("Токенов (вход)", has(t.input) ? t.input.toLocaleString("ru-RU") : "—")}
-      ${cells("Токенов (выход)", has(t.output) ? t.output.toLocaleString("ru-RU") : "—")}
-      ${cells("Токенов (кэш)", has(t.input_cached_tokens) ? t.input_cached_tokens.toLocaleString("ru-RU") : "—")}
-      ${cells("Токенов всего", has(t.total) ? t.total.toLocaleString("ru-RU") : "—")}
-      ${cells("Стоимость, вход", has(cd.input) ? "$" + cd.input.toFixed(4) : "—")}
-      ${cells("Стоимость, выход", has(cd.output) ? "$" + cd.output.toFixed(4) : "—")}
-      ${cells("Стоимость, кэш", has(cd.input_cached_tokens) ? "$" + cd.input_cached_tokens.toFixed(4) : "—")}
       ${cells("Стоимость (USD)", has(m.usd) ? "$" + m.usd.toFixed(4) : "—")}
       ${cells("Латенси (модели)", has(m.latency_ms) ? Math.round(m.latency_ms) + " мс" : "—")}
       ${cells("Задержка (накладные)", has(m.delay_ms) ? Math.round(m.delay_ms) + " мс" : "—")}
       ${cells("Общее время обработки", has(m.duration_ms) ? Math.round(m.duration_ms) + " мс" : "—")}
     </table>`;
+  const comps = m.components || {};
+  const names = Object.keys(comps);
+  if (!names.length) {
+    // Фолбэк: нет разбивки по компонентам (старые данные) — сводная таблица токенов.
+    return summary + metricsTokensTable(m);
+  }
+  // Токены и стоимость LLM и эмбеддингов показываем раздельно.
+  const parts = names.map((n) => metricsComponentBlock(n, comps[n])).join("");
+  return summary + parts;
+}
+
+// Общие строки разбивки токенов и стоимости. Используются и в блоке компонента
+// (LLM/эмбеддинги), и в сводной таблице фолбэка, чтобы форматирование и точность
+// (toLocaleString("ru-RU") / toFixed(4)) не расходились между двумя представлениями.
+function tokenCostRows(tokens, costDetails) {
+  const has = (v) => v !== undefined && v !== null;
+  const cells = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
+  return [
+    cells("Токенов (вход)", has(tokens.input) ? tokens.input.toLocaleString("ru-RU") : "—"),
+    cells("Токенов (выход)", has(tokens.output) ? tokens.output.toLocaleString("ru-RU") : "—"),
+    cells("Токенов (кэш)", has(tokens.input_cached_tokens) ? tokens.input_cached_tokens.toLocaleString("ru-RU") : "—"),
+    cells("Токенов всего", has(tokens.total) ? tokens.total.toLocaleString("ru-RU") : "—"),
+    cells("Стоимость, вход", has(costDetails.input) ? "$" + costDetails.input.toFixed(4) : "—"),
+    cells("Стоимость, выход", has(costDetails.output) ? "$" + costDetails.output.toFixed(4) : "—"),
+    cells("Стоимость, кэш", has(costDetails.input_cached_tokens) ? "$" + costDetails.input_cached_tokens.toFixed(4) : "—"),
+  ].join("");
+}
+
+// Таблица токенов/стоимости одной составляющей стадии (llm или embeddings).
+function metricsComponentBlock(name, c) {
+  const has = (v) => v !== undefined && v !== null;
+  const cells = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
+  const label = (metricsComponentName(name) || name);
+  const models = (c.models || []).join(", ") || "—";
+  return `<h4 class="mt-title mt-sub">${escapeHtml(label)} · <span class="muted">${escapeHtml(models)}</span></h4>
+    <table class="met">
+      ${cells("Вызовов", has(c.calls) ? c.calls : "—")}
+      ${tokenCostRows(c.tokens || {}, c.cost_details || {})}
+      ${cells("Стоимость (USD)", has(c.usd) ? "$" + c.usd.toFixed(4) : "—")}
+      ${cells("Латенси (модели)", has(c.latency_ms) ? Math.round(c.latency_ms) + " мс" : "—")}
+    </table>`;
+}
+
+// Человекочитаемое имя компонента метрик (llm/embeddings).
+function metricsComponentName(name) {
+  return { llm: "LLM", embeddings: "Эмбеддинги" }[name] || null;
+}
+
+// Сводная таблица токенов стадии (фолбэк, когда разбивки по компонентам нет).
+// Показывает только разбивку токенов/стоимости: агрегат (Стоимость/Латенси/
+// Задержка/Общее время) уже выведен в сводке metricsBlock выше.
+function metricsTokensTable(m) {
+  return `<table class="met">${tokenCostRows(m.tokens || {}, m.cost_details || {})}</table>`;
 }
 
 // Переключение вкладки карточки закупки (вызывается из inline onclick).
@@ -460,7 +515,12 @@ function ragReportHtml(report) {
     return `<span class="pill ${cls}"${v === "unavailable" ? ' title="Проверка не выполнена (недоступен LLM/эмбеддинги)"' : ""}>${escapeHtml(label)}</span>`;
   };
   if (report.tz_found === false) {
-    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">ТЗ не найдено.</p>`;
+    // Различаем «файл найден, но текст не извлечён» и «файла ТЗ в карточке нет»:
+    // часто в карточке есть документ с «ТЗ» в имени, но конвертация не удалась.
+    const reason = report.tz_file
+      ? `Файл найден (${escapeHtml(report.tz_file)}), но текст извлечь не удалось.`
+      : "Файл ТЗ не найден среди файлов карточки (и внутри архивов).";
+    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">${reason}</p>`;
   }
   let banner = "";
   if (report.status === "deferred") {
