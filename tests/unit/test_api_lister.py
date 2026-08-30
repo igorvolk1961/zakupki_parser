@@ -25,7 +25,6 @@ from zakupki_parser.config.models import (
 from zakupki_parser.parser.lister.api import build_api_list_url, parse_api_item
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
-from zakupki_parser.parser.orchestrator.processing import _extract_number_from_url
 from zakupki_parser.storage.db import Profile
 
 
@@ -662,31 +661,6 @@ def test_parse_api_item_tender_223_without_number() -> None:
     assert "detail_path" not in v
 
 
-def test_extract_number_from_url() -> None:
-    """Номер извлекается из URL деталей (тот же бизнес-номер, как в DOM-обходе)."""
-    assert (
-        _extract_number_from_url(
-            "https://roseltorg.ru/procedure/COM14082600147/1", r"/procedure/([^/]+)"
-        )
-        == "COM14082600147"
-    )
-    assert _extract_number_from_url("https://x.ru/procedure/37", r"/procedure/([^/]+)") == "37"
-    assert (
-        _extract_number_from_url(
-            "https://zakupki.gov.ru/.../common-info.html?regNumber=0138100003126000026",
-            r"regNumber=(\d+)",
-        )
-        == "0138100003126000026"
-    )
-
-
-def test_extract_number_from_url_returns_none() -> None:
-    """Нет источника/совпадения — None (критическая ошибка на стороне вызывающего)."""
-    assert _extract_number_from_url(None, r"/procedure/([^/]+)") is None
-    assert _extract_number_from_url("https://x.ru/procedure/1", None) is None
-    assert _extract_number_from_url("https://x.ru/", r"/procedure/([^/]+)") is None
-
-
 class _PersistRecorder(Orchestrator):
     """Использует реальный _process_list_record, перехватывает только персист."""
 
@@ -744,12 +718,15 @@ async def test_process_list_record_skips_record_without_number(
 
 
 @pytest.mark.asyncio
-async def test_process_list_record_fallback_resolves_number(
+async def test_process_list_record_no_number_from_url(
     app_config: AppConfig,
 ) -> None:
-    """Пустой номер в карточке + regex — номер восстанавливается и запись персистится."""
+    """Пустой номер даже при «похожем на номер» URL — номер НЕ восстанавливается.
+
+    Номер берётся только из карточки списка; запасных источников (URL) нет, поэтому
+    запись не персистится (критическая ошибка на стороне _process_list_record).
+    """
     platform = _make_api_platform()
-    platform.list_config.number_from_url_regex = r"/procedures/etp/([^/]+)/"
     recorder = _make_real_recorder(app_config, platform)
     vars_ = {"number": "", "subject": "Тест"}
     known, number, saved = await recorder._process_list_record(  # noqa: SLF001
@@ -758,9 +735,9 @@ async def test_process_list_record_fallback_resolves_number(
         detail_url="https://etpgpb.ru/procedures/etp/COM123/1",
         number="",
     )
-    assert number == "COM123"
-    assert vars_["number"] == "COM123"
-    assert recorder.persisted and recorder.persisted[0]["number"] == "COM123"
+    assert (known, number, saved) == (False, "", False)
+    assert vars_["number"] == ""
+    assert recorder.persisted == []
 
 
 @pytest.mark.asyncio

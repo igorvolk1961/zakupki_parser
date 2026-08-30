@@ -12,7 +12,6 @@ from zakupki_parser.config.loader import _load_dom_configs, load_config
 from zakupki_parser.config.models import (
     AppConfig,
     DomConfig,
-    DomListConfig,
     NotificationsConfig,
     ServiceConfig,
     SortConfig,
@@ -77,23 +76,6 @@ def test_sort_default_order() -> None:
     assert SortConfig().order == "publication_date_desc"
 
 
-def test_dom_list_config_number_from_url_default_none() -> None:
-    """Поле number_from_url_regex опционально (по умолчанию None)."""
-    lc = DomListConfig(container="div.card", detail_link="a[href*='/procedure/']", next_page="")
-    assert lc.number_from_url_regex is None
-
-
-def test_roseltorg_number_from_url_regex() -> None:
-    """Запасное извлечение номера из URL деталей (roseltorg /procedure/<номер>/<лот>)."""
-    data = _load_dom_configs(REPO_ROOT / "configs")
-    platform = DomConfig.model_validate(data).platforms["roseltorg_223fz"]
-    pattern = platform.list_config.number_from_url_regex
-    assert pattern == "/procedure/([^/]+)"
-    m = re.search(pattern, "https://www.roseltorg.ru/procedure/COM14082600147/1")
-    assert m is not None
-    assert m.group(1) == "COM14082600147"
-
-
 def test_roseltorg_number_card_regex_both_formats() -> None:
     """Номер из карточки: старый формат (COM…) и новый (только цифры, без COM)."""
     data = _load_dom_configs(REPO_ROOT / "configs")
@@ -121,7 +103,6 @@ def test_roseltorg_44fz_config_complete() -> None:
     platform = DomConfig.model_validate(data).platforms["roseltorg_44fz"]
     assert platform.list_config.container == "div.search-results__item"
     assert platform.list_config.variables, "переменные списка не заданы"
-    assert platform.list_config.number_from_url_regex == "/procedure/([^/]+)"
     # /search/44fz — лендинг без фильтрации; поиск идёт через /procedures/search с place=44fz.
     assert platform.list_path == "/procedures/search"
     assert platform.search is not None

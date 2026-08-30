@@ -11,10 +11,6 @@ list_path: "/epz/order/extendedsearch/results.html"
 list_config:
   container: "div.search-registry-entry-block"
   detail_link: "a[href*='common-info.html']"
-  # Запасной источник номера: если карточка не отдала номер (regex «№…» не совпал) —
-  # берём его из query-параметра regNumber ссылки на детальную страницу
-  # (common-info.html?regNumber=…, подтверждено фикстурой eis_list.html).
-  number_from_url_regex: "regNumber=(\\d+)"
   next_page: "a.paginator-button-next"
   # Стоп-порог по дате «Обновлено» (task.md: дата обновления закупки)
   publication_date: "update_date"

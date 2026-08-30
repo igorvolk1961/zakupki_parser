@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import re
 from datetime import datetime
 from typing import Any
 
@@ -28,28 +27,6 @@ from zakupki_parser.parser.orchestrator.state import OrchestratorState
 
 # Имя логгера сохранено прежним (категория модуля orchestrator).
 logger = logging.getLogger("zakupki_parser.parser.orchestrator.orchestrator")
-
-
-def _extract_number_from_url(
-    detail_url: str | None,
-    url_regex: str | None,
-) -> str | None:
-    """Извлекает номер закупки из URL детальной страницы (тот же бизнес-номер).
-
-    Единственный допустимый «запасной» источник номера — место, где присутствует
-    именно регистрационный/закупочный номер (``regNumber=``, ``/procedure/<номер>/``).
-    Внутренние id площадки (row id, needId) номером НЕ являются: номер уникален в
-    пределах площадки (``null + platform_id``), и подстановка чужого идентификатора
-    ломает дедупликацию и резолв деталей. Возвращает None, когда номер из URL не
-    извлекается; вызывающая сторона трактует это как критическую ошибку.
-    """
-    if detail_url and url_regex:
-        m = re.search(url_regex, detail_url)
-        if m:
-            candidate = m.group(1) if m.lastindex else m.group(0)
-            if candidate is not None and str(candidate).strip():
-                return str(candidate).strip()
-    return None
 
 
 class RecordProcessingMixin(OrchestratorState):
@@ -72,32 +49,21 @@ class RecordProcessingMixin(OrchestratorState):
         запись в БД на этом шаге).
         """
         # Номер закупки — ОБЯЗАТЕЛЬНЫЙ бизнес-ключ (nullable=False + unique) в пределах
-        # площадки (number + platform_id). Отсутствие номера = критическая ошибка
-        # парсинга (селектор/поле API не извлеклось; номер есть всегда). Допустимо
-        # восстановить ТОЛЬКО тот же номер из URL детальной страницы (проверенный
-        # источник номера). Внутренние id (row/needId) номером НЕ подставляются.
+        # площадки (number + platform_id). Номер всегда есть в карточке списка результатов
+        # поиска; если он не извлёкся — это сбой селектора/поля API, а не штатная ситуация.
+        # Никаких «запасных» источников не используем: фиксируем критическую ошибку и
+        # НЕ пишем запись в БД (обход не роняем из-за одной битой карточки, но запись
+        # попадает в «отсеяно» сводки received - saved - known).
         if number is None or str(number).strip() == "":
-            resolved = _extract_number_from_url(
+            logger.critical(
+                "КРИТИЧНО: закупка без номера — запись невозможна "
+                "(platform_id=%s, subject=%r, url=%s, поля_карточки=%s)",
+                self._platform_id,
+                list_vars.get("subject"),
                 detail_url,
-                self._platform.list_config.number_from_url_regex,
+                list_vars,
             )
-            if resolved:
-                number = resolved
-                list_vars["number"] = number
-                logger.info("Номер закупки извлечён из URL деталей: %s", number)
-            else:
-                # Критическая ошибка: закупка без номера. Запись НЕ пишем в БД и не
-                # роняем весь обход из-за одной битой карточки, но фиксируем на уровне
-                # CRITICAL; запись попадает в «отсеяно» сводки (received - saved - known).
-                logger.critical(
-                    "КРИТИЧНО: закупка без номера — запись невозможна "
-                    "(platform_id=%s, subject=%r, url=%s, поля_карточки=%s)",
-                    self._platform_id,
-                    list_vars.get("subject"),
-                    detail_url,
-                    list_vars,
-                )
-                return False, number, False
+            return False, number, False
 
         if not detail_url:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)

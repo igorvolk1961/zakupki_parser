@@ -18,8 +18,6 @@ list_config:
   container: "div.search-results__item"
   # Ссылка на детальную страницу (/procedure/<номер>/<лот>).
   detail_link: "a[href*='/procedure/']"
-  # Запасной источник номера: если карточка не отдала номер — берём из URL деталей.
-  number_from_url_regex: "/procedure/([^/]+)"
   # Пагинация — по query-параметру page (см. URL поиска roseltorg).
   page_param: "page"
   page_size: 10
