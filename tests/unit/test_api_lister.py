@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import urllib.parse
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -24,6 +24,9 @@ from zakupki_parser.config.models import (
 )
 from zakupki_parser.parser.lister.api import build_api_list_url, parse_api_item
 from zakupki_parser.parser.orchestrator import Orchestrator
+from zakupki_parser.parser.orchestrator.context import ProfileRunContext
+from zakupki_parser.parser.orchestrator.processing import _resolve_fallback_number
+from zakupki_parser.storage.db import Profile
 
 
 def _make_api_platform(page_size: int = 2) -> PlatformDom:
@@ -603,3 +606,211 @@ async def test_crawl_api_rebuilds_url_with_offset(app_config: AppConfig) -> None
     dto0 = json.loads(urllib.parse.parse_qsl(urllib.parse.urlsplit(urls[0]).query)[0][1])
     dto1 = json.loads(urllib.parse.parse_qsl(urllib.parse.urlsplit(urls[1]).query)[0][1])
     assert dto0["skip"] == 0 and dto1["skip"] == 2
+
+
+def test_parse_api_item_etpgpb_falls_back_to_id() -> None:
+    """Не пришёл registry_number — number берётся из id item'а (fallback бизнес-ключа)."""
+    item: dict[str, Any] = {
+        "id": "123",
+        "type": "procedure",
+        "attributes": {
+            "title": "Двери",
+            "amount": "0.0",
+            "date_published": "2026-08-17T16:48:00.000+03:00",
+            "end_registration": "2026-08-21T08:00:00.000+03:00",
+            "company_name": "ООО Тест",
+            "stage": "accepting",
+            "kind": "fz44",
+            "rebranding_truncated_path": "/procedures/etp/123-dveri/",
+        },
+    }
+    v = parse_api_item(item)
+    assert v["number"] == "123"
+    assert v["detail_path"] == "/procedures/etp/123-dveri/"
+
+
+def test_parse_api_item_etpgpb_without_number_and_id() -> None:
+    """Ни registry_number, ни id — number пустой (запись будет отсеяна до персиста)."""
+    item: dict[str, Any] = {
+        "type": "procedure",
+        "attributes": {
+            "title": "Двери",
+            "amount": "0.0",
+            "date_published": "2026-08-17T16:48:00.000+03:00",
+            "end_registration": "2026-08-21T08:00:00.000+03:00",
+            "company_name": "ООО Тест",
+            "stage": "accepting",
+            "kind": "fz44",
+            "rebranding_truncated_path": "/procedures/etp/0-dveri/",
+        },
+    }
+    assert parse_api_item(item)["number"] == ""
+
+
+def test_parse_api_item_lot_online_without_number() -> None:
+    """Нет purchaseNumber — number пустой, detail_path не строится (запись без URL)."""
+    item = _lot_online_item("", "Реагенты", "18.08.2026 21:14")
+    v = parse_api_item(item, "lot_online")
+    assert v["number"] == ""
+    assert "detail_path" not in v
+
+
+def test_parse_api_item_mos_without_number_uses_need_id() -> None:
+    """Нет number — number берётся из needId (fallback), как и в _api."""
+    item = _mos_item("6177179", "Активация", "17.08.2026 13:56:07")
+    del item["number"]
+    v = parse_api_item(item, "mos")
+    assert v["number"] == "6177179"
+    assert v["_api"] == {"need_id": 6177179}
+
+
+def test_parse_api_item_tender_223_without_number() -> None:
+    """Нет eisNumber/etpNumber — number пустой, detail_path не строится."""
+    item: dict[str, Any] = {
+        "uuid": "abc123",
+        "lotNumber": 1,
+        "title": "Поставка сервера",
+        "price": 2700000.00,
+        "organizationTitle": "ПАО РОСТЕЛЕКОМ",
+        "status": "Идет прием заявок",
+        "purchaseMethod": "Открытый запрос цен",
+        "publicationDate": {"date": "2026-08-18", "time": "20:33:05", "timezone": "MCK"},
+        "demandEndDate": {"date": "2026-08-24", "time": "09:00:00", "timezone": "MCK"},
+    }
+    v = parse_api_item(item, "tender_223")
+    assert v["number"] == ""
+    assert "detail_path" not in v
+
+
+def test_resolve_fallback_number_from_url() -> None:
+    """Номер восстанавливается regex'ом из URL деталей (как в DOM-обходе)."""
+    assert (
+        _resolve_fallback_number(
+            "https://roseltorg.ru/procedure/COM14082600147/1", r"/procedure/([^/]+)", None
+        )
+        == "COM14082600147"
+    )
+    assert (
+        _resolve_fallback_number("https://x.ru/procedure/37", r"/procedure/([^/]+)", None) == "37"
+    )
+
+
+def test_resolve_fallback_number_from_api_fields() -> None:
+    """Номер восстанавливается из id/need_id API-полей (lot_online/mos)."""
+    assert _resolve_fallback_number(None, None, {"id": 209724}) == "209724"
+    assert _resolve_fallback_number(None, None, {"need_id": 6177179}) == "6177179"
+
+
+def test_resolve_fallback_number_returns_none() -> None:
+    """Нет источника — None (запись будет пропущена до персиста)."""
+    assert _resolve_fallback_number(None, None, None) is None
+    assert _resolve_fallback_number("https://x.ru/procedure/1", None, {"id": ""}) is None
+    assert _resolve_fallback_number(None, r"/procedure/([^/]+)", {"id": None}) is None
+
+
+class _PersistRecorder(Orchestrator):
+    """Использует реальный _process_list_record, перехватывает только персист."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.persisted: list[dict[str, Any]] = []
+
+    async def _persist(self, record: dict[str, Any]) -> bool:
+        self.persisted.append(record)
+        return True
+
+
+class _FakeProfile:
+    id = 1
+    target_etp: list[str] = []
+
+
+def _ctx(keywords: list[str]) -> ProfileRunContext:
+    return ProfileRunContext(
+        profile=cast(Profile, _FakeProfile()), keywords=keywords, exclusion_words=[]
+    )
+
+
+def _make_real_recorder(app_config: AppConfig, platform: PlatformDom) -> _PersistRecorder:
+    cfg = app_config.model_copy(deep=True)
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="etpgpb",
+        platform=platform,
+        delayer=_FakeDelayer(),
+        repository=None,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    recorder._profile_ctxs = [_ctx([])]  # noqa: SLF001
+    return recorder
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_skips_record_without_number(
+    app_config: AppConfig,
+) -> None:
+    """Пустой номер без fallback — запись НЕ доходит до _persist (гвард-пропуск)."""
+    recorder = _make_real_recorder(app_config, _make_api_platform())
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "", "subject": "Тест"},
+        detail_url="https://etpgpb.ru/procedures/etp/0-tekst/",
+        number="",
+    )
+    assert (known, number, saved) == (False, "", False)
+    assert recorder.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_fallback_resolves_number(
+    app_config: AppConfig,
+) -> None:
+    """Пустой номер в карточке + regex — номер восстанавливается и запись персистится."""
+    platform = _make_api_platform()
+    platform.list_config.number_from_url_regex = r"/procedures/etp/([^/]+)/"
+    recorder = _make_real_recorder(app_config, platform)
+    vars_ = {"number": "", "subject": "Тест"}
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars=vars_,
+        detail_url="https://etpgpb.ru/procedures/etp/COM123/1",
+        number="",
+    )
+    assert number == "COM123"
+    assert vars_["number"] == "COM123"
+    assert recorder.persisted and recorder.persisted[0]["number"] == "COM123"
+
+
+@pytest.mark.asyncio
+async def test_crawl_api_skips_record_without_number(app_config: AppConfig) -> None:
+    """API-обход: запись без восстанавливаемого номера не доходит до персиста."""
+    platform = _make_api_platform(page_size=5)
+    recorder = _make_real_recorder(app_config, platform)
+    # Item etpgpb без registry_number и без id — number восстановить невозможно.
+    item: dict[str, Any] = {
+        "type": "procedure",
+        "attributes": {
+            "title": "Без номера",
+            "amount": "0.0",
+            "date_published": "2026-08-18T10:00:00.000+03:00",
+            "end_registration": "2026-08-21T08:00:00.000+03:00",
+            "company_name": "ООО Тест",
+            "stage": "accepting",
+            "kind": "fz44",
+            "rebranding_truncated_path": "/procedures/etp/0-bez/",
+        },
+    }
+    with patch(
+        "zakupki_parser.parser.orchestrator.crawl.fetch_api_items",
+        return_value=[item],
+    ):
+        await recorder._crawl_api(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            cutoff=datetime(2020, 1, 1, tzinfo=UTC),
+            criteria=SearchCriteria(okpd_codes=["62.02"]),
+            retry_cfg=RetryConfig(),
+        )
+    assert recorder.persisted == []

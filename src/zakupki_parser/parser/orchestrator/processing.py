@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -27,6 +28,30 @@ from zakupki_parser.parser.orchestrator.state import OrchestratorState
 
 # Имя логгера сохранено прежним (категория модуля orchestrator).
 logger = logging.getLogger("zakupki_parser.parser.orchestrator.orchestrator")
+
+
+def _resolve_fallback_number(
+    detail_url: str | None,
+    url_regex: str | None,
+    api_fields: dict[str, Any] | None,
+) -> str | None:
+    """Восстанавливает номер закупки из запасных источников (fallback).
+
+    Порядок: 1) regex по URL детальной страницы (``list_config.number_from_url_regex``,
+    как в DOM-обходе ``_process_container``), 2) id/need_id из API-полей
+    (lot_online/mos). Возвращает номер или None, если источник не дал значения.
+    """
+    if detail_url and url_regex:
+        m = re.search(url_regex, detail_url)
+        if m:
+            candidate = m.group(1) if m.lastindex else m.group(0)
+            if candidate is not None and str(candidate).strip():
+                return str(candidate).strip()
+    for key in ("need_id", "id"):
+        value = (api_fields or {}).get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
 
 
 class RecordProcessingMixin(OrchestratorState):
@@ -51,6 +76,33 @@ class RecordProcessingMixin(OrchestratorState):
         if not detail_url:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
             return False, number, False
+
+        # Гарантия бизнес-ключа number до персиста (uq_procurement_number_platform):
+        # номер не должен быть пустым. Пытаемся восстановить его из запасных источников
+        # (URL деталей / id/need_id API-полей). Если номер так и не извлечён — запись
+        # не обрабатываемая: логируем ошибку и ПРОПУСКАЕМ (graceful degradation, как
+        # ошибки данных в _persist): одна битая запись не роняет обход, а её потеря
+        # видна в сводке (получено - сохранено - известно).
+        if number is None or str(number).strip() == "":
+            resolved = _resolve_fallback_number(
+                detail_url,
+                self._platform.list_config.number_from_url_regex,
+                api_fields,
+            )
+            if resolved:
+                number = resolved
+                list_vars["number"] = number
+                logger.info("Номер закупки восстановлен из fallback: %s", number)
+            else:
+                logger.error(
+                    "Закупка без номера — пропуск (platform_id=%s, subject=%r, url=%s, "
+                    "поля карточки=%s)",
+                    self._platform_id,
+                    list_vars.get("subject"),
+                    detail_url,
+                    list_vars,
+                )
+                return False, number, False
 
         ctxs = self._profile_ctxs
         multi = len(ctxs) > 1
