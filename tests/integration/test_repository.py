@@ -156,6 +156,10 @@ async def test_scoring_dedup_by_comp_hash(db: Database) -> None:
     user = await repo.create_user("sd-user", "hash", ["analyst"])
     profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
+    # Второй профиль с тем же содержанием компетенций — участник той же группы.
+    user2 = await repo.create_user("sd-user-2", "hash", ["analyst"])
+    profile2 = await repo.upsert_profile({"name": "clone", "competencies": COMP_JSON}, user2.id)
+    assert profile2.id is not None
     await repo.upsert(
         {
             "number": "DEDUP-1",
@@ -168,18 +172,36 @@ async def test_scoring_dedup_by_comp_hash(db: Database) -> None:
     assert pid is not None
 
     await repo.record_matched_keywords(pid, profile.id, ["ИИ"], comp_hash=comp_hash)
+    await repo.record_matched_keywords(pid, profile2.id, ["ИИ"], comp_hash=comp_hash)
 
     # Группа ещё без результата и без постановки — представителя нет, ставим задание.
     assert await repo.find_group_evaluation(pid, comp_hash) is None
 
     # Результат посчитан представителю: применяем ко всей группе.
-    await repo.upsert_score(pid, profile.id, score=0.6, fit_score=0.6, score_method="fit")
-    n = await repo.apply_score_to_comp_hash_group(
-        pid, comp_hash, score=0.6, fit_score=0.6, score_method="fit"
+    await repo.upsert_score(
+        pid,
+        profile.id,
+        score=0.6,
+        fit_score=0.6,
+        score_method="fit",
+        costs={"scoring": {"usd": 0.01}},
     )
-    assert n == 1
+    n = await repo.apply_score_to_comp_hash_group(
+        pid,
+        comp_hash,
+        score=0.6,
+        fit_score=0.6,
+        score_method="fit",
+        costs={"scoring": {"usd": 0.01}},
+    )
+    assert n == 2
     got = await repo.get_score(pid, profile.id)
     assert got is not None and got.fit_score == 0.6
+    # Стоимость скоринга (один LLM-вызов на группу) распространяется на всех участников.
+    assert got.costs == {"scoring": {"usd": 0.01}}
+    got2 = await repo.get_score(pid, profile2.id)
+    assert got2 is not None and got2.fit_score == 0.6
+    assert got2.costs == {"scoring": {"usd": 0.01}}
 
     # Представитель группы теперь есть (fit_score записан).
     assert await repo.find_group_evaluation(pid, comp_hash) is not None

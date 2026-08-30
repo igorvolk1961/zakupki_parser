@@ -174,6 +174,7 @@ class EvaluationMixin(RepositoryMixin):
         embedding_similarity: float | None = None,
         langfuse_trace_url: str | None = None,
         rag_report: dict[str, Any] | None = None,
+        costs: dict[str, Any] | None = None,
     ) -> int:
         """Распространяет результат скоринга на всех подписанных профилей группы.
 
@@ -181,6 +182,11 @@ class EvaluationMixin(RepositoryMixin):
         представителя группы идентичного содержания компетенций, записывается
         каждому профилю, отобравшему закупку с тем же ``comp_hash``. Возвращает
         число обновлённых оценок.
+
+        ``costs`` — стоимость обработки (scoring/analysis), рассчитанная для
+        представителя. Группа обрабатывается одним вызовом (дедуп BR-07), поэтому
+        стоимость этапа одинакова для всех участников и распространяется на всю
+        группу наравне со скором.
         """
         async with self._db.session() as session:
             stmt = select(ProcurementEvaluation).where(
@@ -204,6 +210,9 @@ class EvaluationMixin(RepositoryMixin):
                     evaluation.langfuse_trace_url = langfuse_trace_url
                 if rag_report is not None:
                     evaluation.rag_report = rag_report
+                # Стоимость этапа одинакова для всей группы: накладываем (merge,
+                # не замена), чтобы не затереть соседнюю ветку (scoring/analysis).
+                self._merge_costs_into(evaluation, costs)
             await session.commit()
             return len(rows)
 

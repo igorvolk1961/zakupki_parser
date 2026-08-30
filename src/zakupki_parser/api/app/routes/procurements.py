@@ -367,6 +367,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                         score_method=body.score_method,
                         embedding_similarity=body.embedding_similarity,
                         langfuse_trace_url=body.langfuse_trace_url,
+                        costs=costs,
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
