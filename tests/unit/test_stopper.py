@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -13,6 +14,7 @@ from zakupki_parser.stopper import (
     _find_pids_linux,
     _find_pids_windows,
     _kill_graceful_windows,
+    render_stop_failure,
 )
 
 
@@ -171,3 +173,41 @@ def test_kill_graceful_windows_reports_remaining(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("zakupki_parser.stopper._alive", lambda pid: True)
     remaining = _kill_graceful_windows([5], force=True)
     assert remaining == [5]
+
+
+def _expect_uid(pid: int) -> int:
+    return 0 if pid == 1 else 1000
+
+
+def test_render_stop_failure_empty() -> None:
+    assert render_stop_failure([]) == ""
+
+
+def test_render_stop_failure_docker_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("zakupki_parser.stopper._in_docker", lambda pid: True)
+    monkeypatch.setattr("zakupki_parser.stopper._pid_uid", _expect_uid)
+    msg = render_stop_failure([560686, 560687])
+    assert "Docker" in msg
+    assert "compose.sh stop" in msg
+
+
+def test_render_stop_failure_foreign_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("zakupki_parser.stopper._in_docker", lambda pid: False)
+    monkeypatch.setattr("zakupki_parser.stopper._pid_uid", lambda pid: 0)
+    msg = render_stop_failure([42])
+    assert "другому пользователю" in msg
+    assert "sudo" in msg
+
+
+def test_render_stop_failure_stuck(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("zakupki_parser.stopper._in_docker", lambda pid: False)
+    monkeypatch.setattr("zakupki_parser.stopper._pid_uid", lambda pid: os.getuid())
+    msg = render_stop_failure([7])
+    assert "--force" in msg
+
+
+def test_render_stop_failure_dedups(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("zakupki_parser.stopper._in_docker", lambda pid: False)
+    monkeypatch.setattr("zakupki_parser.stopper._pid_uid", lambda pid: os.getuid())
+    msg = render_stop_failure([7, 7])
+    assert msg.count("7") == 1

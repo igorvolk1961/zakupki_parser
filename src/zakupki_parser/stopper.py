@@ -142,6 +142,32 @@ def _signal(pid: int, sig: signal.Signals) -> bool:
         return False
 
 
+def _pid_uid(pid: int) -> int | None:
+    """UID владельца процесса (None, если прочитать не удалось)."""
+    try:
+        with open(f"/proc/{pid}/status", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("Uid:"):
+                    return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def _in_docker(pid: int) -> bool:
+    """True, если процесс живёт в cgroup Docker-контейнера.
+
+    Матчит и cgroup v1 (``/docker/<id>``), и cgroup v2
+    (``/system.slice/docker-<id>.scope``).
+    """
+    try:
+        with open(f"/proc/{pid}/cgroup", encoding="utf-8") as f:
+            cgroup = f.read()
+    except OSError:
+        return False
+    return "/docker-" in cgroup or "/docker/" in cgroup
+
+
 def _drain(pid: int, wait: float) -> bool:
     """Ждёт завершения процесса; возвращает False, если процесс ещё жив."""
     if not _alive(pid):
@@ -218,3 +244,38 @@ def stop_parser(force: bool = False) -> list[int]:
         # Браузерные процессы добиваем без мягкой стадии.
         remaining += _kill_graceful(leftover, True)
     return list(dict.fromkeys(remaining))
+
+
+def render_stop_failure(remaining: list[int]) -> str:
+    """Собирает понятное сообщение о неостановленных процессах.
+
+    Различает три случая:
+    - процессы в Docker-контейнерах (root в отдельном user namespace) — их нельзя
+      остановить сигналом с хоста, нужен ``docker stop`` / ``scripts/compose.sh stop``;
+    - процессы другого пользователя — нет прав на сигнал;
+    - обычные процессы, которые просто не завершились — стоит попробовать --force.
+    """
+    pids = list(dict.fromkeys(remaining))
+    if not pids:
+        return ""
+    docker = [p for p in pids if _in_docker(p)]
+    foreign = [p for p in pids if p not in docker and _pid_uid(p) not in (None, os.getuid())]
+    stuck = [p for p in pids if p not in docker and p not in foreign]
+
+    parts: list[str] = []
+    if docker:
+        parts.append(
+            f"процессы {', '.join(map(str, docker))} идут в контейнерах Docker под root и "
+            "не останавливаются сигналом с хоста. Остановите стек: "
+            "`scripts/compose.sh stop` (или `docker stop <контейнер>`)."
+        )
+    if foreign:
+        parts.append(
+            f"процессы {', '.join(map(str, foreign))} принадлежат другому пользователю — "
+            "нет прав на сигнал, остановите их от его имени (sudo)."
+        )
+    if stuck:
+        parts.append(
+            f"процессы {', '.join(map(str, stuck))} не завершились — попробуйте `zp stop --force`."
+        )
+    return "Не удалось остановить: " + " ".join(parts)

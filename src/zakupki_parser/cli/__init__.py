@@ -35,10 +35,9 @@ def main() -> None:
             print(exc, file=sys.stderr)
             sys.exit(1)
         if remaining:
-            print(
-                "Не удалось остановить процессы: " + ", ".join(str(pid) for pid in remaining),
-                file=sys.stderr,
-            )
+            from zakupki_parser.stopper import render_stop_failure
+
+            print(render_stop_failure(remaining), file=sys.stderr)
             sys.exit(1)
         print("Парсер остановлен.")
         sys.exit(0)
