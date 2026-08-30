@@ -185,10 +185,32 @@ def test_render_stop_failure_empty() -> None:
 
 def test_render_stop_failure_docker_hint(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("zakupki_parser.stopper._in_docker", lambda pid: True)
+    monkeypatch.setattr("zakupki_parser.stopper._container_id", lambda pid: f"cid{pid}")
+    monkeypatch.setattr("zakupki_parser.stopper._compose_project_of", lambda cid: "zakupki")
     monkeypatch.setattr("zakupki_parser.stopper._pid_uid", _expect_uid)
     msg = render_stop_failure([560686, 560687])
     assert "Docker" in msg
-    assert "compose.sh stop" in msg
+    assert "проект zakupki" in msg
+    assert "scripts/compose.sh stop" in msg
+    assert "demo stop" not in msg
+
+
+def test_render_stop_failure_docker_demo_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("zakupki_parser.stopper._in_docker", lambda pid: True)
+    monkeypatch.setattr("zakupki_parser.stopper._container_id", lambda pid: f"cid{pid}")
+    monkeypatch.setattr("zakupki_parser.stopper._compose_project_of", lambda cid: "zakupki-demo")
+    monkeypatch.setattr("zakupki_parser.stopper._pid_uid", _expect_uid)
+    msg = render_stop_failure([560686, 560687])
+    assert "scripts/compose.sh demo stop" in msg
+
+
+def test_render_stop_failure_docker_unknown_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("zakupki_parser.stopper._in_docker", lambda pid: True)
+    monkeypatch.setattr("zakupki_parser.stopper._container_id", lambda pid: None)
+    monkeypatch.setattr("zakupki_parser.stopper._compose_project_of", lambda cid: None)
+    monkeypatch.setattr("zakupki_parser.stopper._pid_uid", _expect_uid)
+    msg = render_stop_failure([560686])
+    assert "docker stop <контейнер>" in msg
 
 
 def test_render_stop_failure_foreign_user(monkeypatch: pytest.MonkeyPatch) -> None:

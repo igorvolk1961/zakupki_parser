@@ -14,6 +14,7 @@ Playwright-драйвер и headless-Chromium, запущенные парсе�
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -154,18 +155,109 @@ def _pid_uid(pid: int) -> int | None:
     return None
 
 
-def _in_docker(pid: int) -> bool:
-    """True, если процесс живёт в cgroup Docker-контейнера.
+def _container_id(pid: int) -> str | None:
+    """Docker container ID из cgroup процесса (None, если это не Docker).
 
-    Матчит и cgroup v1 (``/docker/<id>``), и cgroup v2
-    (``/system.slice/docker-<id>.scope``).
+    Матчит и cgroup v1 (``.../docker/<id>``), и cgroup v2
+    (``.../docker-<id>.scope``).
     """
     try:
         with open(f"/proc/{pid}/cgroup", encoding="utf-8") as f:
             cgroup = f.read()
     except OSError:
-        return False
-    return "/docker-" in cgroup or "/docker/" in cgroup
+        return None
+    match = re.search(r"docker-([0-9a-f]{12,64})\.scope", cgroup)
+    if match:
+        return match.group(1)
+    match = re.search(r"docker/([0-9a-f]{12,64})", cgroup)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _in_docker(pid: int) -> bool:
+    """True, если процесс живёт в cgroup Docker-контейнера."""
+    return _container_id(pid) is not None
+
+
+def _compose_project_of(container_id: str) -> str | None:
+    """Compose-проект контейнера (label com.docker.compose.project), либо None.
+
+    Возвращает None, если docker недоступен, контейнер не найден или он
+    не управляется docker compose (например, поднят через db_up.sh).
+    """
+    if shutil.which("docker") is None:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "ps",
+                "-a",
+                "--no-trunc",
+                "--filter",
+                f"id={container_id}",
+                "--format",
+                '{{.Label "com.docker.compose.project"}}',
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except OSError:
+        return None
+    project = (result.stdout or "").strip()
+    return project or None
+
+
+def _compose_stop_command(project: str) -> str:
+    """Команда остановки compose-стека для данного проекта."""
+    if project == "zakupki-demo":
+        return "scripts/compose.sh demo stop"
+    return "scripts/compose.sh stop"
+
+
+def _docker_failure_hint(pids: list[int]) -> str:
+    """Подсказка для процессов в Docker-контейнерах с учётом compose-проекта.
+
+    Группирует процессы по проекту и подбирает корректную команду остановки
+    (dev-стек ``scripts/compose.sh stop``, изолированный демо —
+    ``scripts/compose.sh demo stop``).
+    """
+    by_project: dict[str, list[int]] = {}
+    unknown: list[int] = []
+    project_cache: dict[str, str | None] = {}
+    for pid in pids:
+        container_id = _container_id(pid)
+        if container_id is None:
+            unknown.append(pid)
+            continue
+        if container_id not in project_cache:
+            project_cache[container_id] = _compose_project_of(container_id)
+        project = project_cache[container_id]
+        if project:
+            by_project.setdefault(project, []).append(pid)
+        else:
+            unknown.append(pid)
+
+    hints: list[str] = []
+    for project, ids in by_project.items():
+        ids_str = ", ".join(map(str, ids))
+        hints.append(
+            f"процессы {ids_str} идут в контейнерах Docker под root "
+            f"(проект {project}) и не останавливаются сигналом с хоста. "
+            "Остановите стек: "
+            f"`{_compose_stop_command(project)}` (или `docker stop <контейнер>`)."
+        )
+    if unknown:
+        ids_str = ", ".join(map(str, unknown))
+        hints.append(
+            f"процессы {ids_str} идут в контейнерах Docker под root и не "
+            "останавливаются сигналом с хоста. "
+            "Остановите их: `docker stop <контейнер>`."
+        )
+    return " ".join(hints)
 
 
 def _drain(pid: int, wait: float) -> bool:
@@ -251,7 +343,8 @@ def render_stop_failure(remaining: list[int]) -> str:
 
     Различает три случая:
     - процессы в Docker-контейнерах (root в отдельном user namespace) — их нельзя
-      остановить сигналом с хоста, нужен ``docker stop`` / ``scripts/compose.sh stop``;
+      остановить сигналом с хоста, нужен ``docker stop`` / ``scripts/compose.sh stop``
+      (для изолированного демо — ``scripts/compose.sh demo stop``);
     - процессы другого пользователя — нет прав на сигнал;
     - обычные процессы, которые просто не завершились — стоит попробовать --force.
     """
@@ -264,11 +357,7 @@ def render_stop_failure(remaining: list[int]) -> str:
 
     parts: list[str] = []
     if docker:
-        parts.append(
-            f"процессы {', '.join(map(str, docker))} идут в контейнерах Docker под root и "
-            "не останавливаются сигналом с хоста. Остановите стек: "
-            "`scripts/compose.sh stop` (или `docker stop <контейнер>`)."
-        )
+        parts.append(_docker_failure_hint(docker))
     if foreign:
         parts.append(
             f"процессы {', '.join(map(str, foreign))} принадлежат другому пользователю — "
