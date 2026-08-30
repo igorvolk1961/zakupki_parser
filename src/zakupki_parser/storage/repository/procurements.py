@@ -283,7 +283,19 @@ class ProcurementMixin(RepositoryMixin):
         number = data.get("number")
         platform_id = data.get("platform_id")
         if not number or not platform_id:
-            logger.warning("Пропуск записи: нет number/platform_id")
+            # Номер площадки — обязательный бизнес-ключ (nullable=False + unique). Отсутствие
+            # ключа означает сбой парсинга, а не штатную ситуацию: запись не может быть ни
+            # сохранена, ни дедуплицирована, ни поставлена в очередь скоринга. Фиксируем как
+            # ошибку с контекстом, чтобы причину можно было найти по логу (сравните: ранее —
+            # тихий WARNING без контекста, маскирующий потерю закупки).
+            logger.error(
+                "Закупка без обязательного ключа пропущена при записи: "
+                "number=%r platform_id=%r url=%s subject=%r",
+                number,
+                platform_id,
+                data.get("url"),
+                data.get("subject"),
+            )
             return False
 
         existing_id = await self.find_id(number, platform_id)

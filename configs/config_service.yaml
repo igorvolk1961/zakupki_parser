@@ -2,17 +2,17 @@ sites:
 - platform_id: zakupki_mos
   enabled: true
 - platform_id: zakupki_gov_44fz
-  enabled: false
+  enabled: true
 - platform_id: zakupki_gov_223fz
-  enabled: false
+  enabled: true
 - platform_id: roseltorg_44fz
-  enabled: false
+  enabled: true
 - platform_id: roseltorg_223fz
-  enabled: false
+  enabled: true
 - platform_id: fabrikant
-  enabled: false
+  enabled: true
 - platform_id: b2b_center
-  enabled: false
+  enabled: true
 - platform_id: etpgpb
   enabled: true
 - platform_id: lot_online_44
@@ -21,19 +21,14 @@ sites:
   enabled: true
 default_cutoff_days: 14
 sort_by_date_only: true
-# Объединять идентичные поисковые обходы (площадка + одинаковые коды ОКПД2/НМЦК)
-# разных профилей в один проход с веерной фильтрацией по каждому профилю.
-deduplicate_requests: true
 search_criteria:
   active_only: false
   deadline_not_expired: false
+deduplicate_requests: true
 scoring:
-  # Порог 0.0 = предварительная фильтрация по векторной близости выключена (как в
-  # src/scoring_service/config.yaml). При включении — перекалибровать на исторической
-  # выборке (доля score_method=sim) после изменения render_profile_embedding.
   embedding_filter_threshold: 0.0
   giga_embedding_alpha: 0.0
-  giga_enabled: false
+  giga_enabled: true
   num_refine_rounds: 1
   max_fit_score: 10.0
   min_fit_score: 0.0
