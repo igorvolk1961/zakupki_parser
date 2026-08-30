@@ -19,6 +19,7 @@ import threading
 import time
 import uuid
 from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
@@ -139,6 +140,10 @@ class GigaEmbedder:
         self._cooldown_until = 0.0
         self._failure_cooldown_seconds = failure_cooldown_seconds
         self._cost_usd: float = 0.0
+        self._usage: dict[str, int] = {}
+        self._cost_details: dict[str, float] = {}
+        self._calls = 0
+        self._latency_ms = 0.0
 
     @property
     def total_cost(self) -> float:
@@ -148,6 +153,29 @@ class GigaEmbedder:
     def reset_cost(self) -> None:
         """Обнулить накопленную стоимость (перед обработкой новой закупки)."""
         self._cost_usd = 0.0
+
+    def metrics(self) -> dict[str, Any]:
+        """Сырые агрегаты эмбеддингов: стоимость/токены/латенси/число вызовов.
+
+        Общее ``duration_ms`` стадии вычисляет вызывающая сторона (Scorer/RagAnalyzer),
+        поэтому здесь возвращаются только части без ``duration_ms``.
+        """
+        return {
+            "usd": round(self._cost_usd, 8),
+            "usage": dict(self._usage),
+            "cost_details": dict(self._cost_details),
+            "models": [self._model],
+            "calls": self._calls,
+            "latency_ms": round(self._latency_ms, 3),
+        }
+
+    def reset_metrics(self) -> None:
+        """Обнулить метрики (для независимого сбора по одной закупке)."""
+        self._cost_usd = 0.0
+        self._usage = {}
+        self._cost_details = {}
+        self._calls = 0
+        self._latency_ms = 0.0
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Векторные представления списка текстов (длинные — усреднённые по чанкам)."""
@@ -233,6 +261,7 @@ class GigaEmbedder:
             metadata={"model": payload.get("model")},
         )
         try:
+            start = time.perf_counter()
             resp = self._client.post(
                 f"{self._base}/embeddings",
                 headers={
@@ -243,6 +272,7 @@ class GigaEmbedder:
             )
             resp.raise_for_status()
             data = resp.json()
+            self._latency_ms += (time.perf_counter() - start) * 1000.0
             vectors = [item["embedding"] for item in data["data"]]
             raw_input = payload.get("input")
             if isinstance(raw_input, list):
@@ -250,11 +280,17 @@ class GigaEmbedder:
             else:
                 texts = [raw_input] if isinstance(raw_input, str) else []
             input_tokens = embedding_input_tokens(data, texts)
-            self._cost_usd += embedding_cost_usd(input_tokens)
+            embed_usd = embedding_cost_usd(input_tokens)
+            self._cost_usd += embed_usd
+            self._calls += 1
+            self._usage["input"] = int(self._usage.get("input") or 0) + input_tokens
+            self._cost_details["input"] = round(
+                (self._cost_details.get("input") or 0.0) + embed_usd, 8
+            )
             obs.update(
                 output=vectors,
                 usage_details={"input": input_tokens},
-                cost_details={"input": embedding_cost_usd(input_tokens)},
+                cost_details={"input": embed_usd},
             )
             obs.end()
             return vectors

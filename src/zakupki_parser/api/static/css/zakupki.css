@@ -188,6 +188,13 @@
   .modal .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
   .modal .field label { font-size:13px; color: var(--muted); }
   .modal .error { color: #dc2626; font-size:13px; min-height:18px; margin-bottom:8px; }
+  /* Карточка закупки: вкладки (данные / скоринг+анализ / метрики). */
+  .card-tabs { margin: 2px 0 14px; flex-wrap:wrap; }
+  .card-tabs button { border-radius:20px; }
+  .card-tab-panel { min-height:40px; }
+  .mt-title { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin:14px 0 6px; }
+  .card-tab-panel table.met { margin-bottom:4px; }
+  .card-tab-panel table.met td:first-child { width: 38%; }
   /* Вкладки: базовые — слева, ролевые — справа (объединение ролей пользователя). */
   .tabs-bar { justify-content: space-between; align-items:center; flex-wrap:wrap; }
   .tabs-group { display:flex; gap:6px; flex-wrap:wrap; }

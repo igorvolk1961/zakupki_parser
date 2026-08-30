@@ -27,6 +27,10 @@ const analyzingIds = new Set();
 // id открытой карточки (модалки) и сигнатура её rag_report для автообновления.
 let openDetailId = null;
 let lastDetailSig = "";
+// Активная вкладка карточки закупки («Данные закупки»/«Результаты скоринга и
+// анализа»/«Метрики»). Сохраняется между перерисовками (pollProc автообновляет
+// модалку по изменению rag_report, не сбрасывая выбранную вкладку).
+let openDetailTab = "data";
 
 function updateMinFit() {
   $("#min-fit-wrap").style.display = $("#proc-relevant").checked ? "inline" : "none";
@@ -183,6 +187,9 @@ async function pollProc() {
 
 async function openDetail(id) {
   const row = await api("procurements/" + id);
+  // При открытии новой карточки показываем «Данные закупки»; при возврате из
+  // просмотра ТЗ (тот же id) сохраняем выбранную вкладку.
+  if (id !== openDetailId) openDetailTab = "data";
   openDetailId = id;
   lastDetailSig = detailSig(row);
   renderModal(row);
@@ -203,47 +210,165 @@ function renderModal(row) {
       )
       .join("") || "–";
   const isAnalyzing = analyzingIds.has(row.id);
-  const scoringUsd = row.costs?.scoring?.usd;
-  const analysisUsd = row.costs?.analysis?.usd;
-  const hasCost =
-    (scoringUsd !== undefined && scoringUsd !== null) ||
-    (analysisUsd !== undefined && analysisUsd !== null);
-  const costLine = hasCost && hasRole("analyst")
-    ? `<div class="muted" style="margin:6px 0">Стоимость обработки: скоринг $${(Number(scoringUsd) || 0).toFixed(2)} · анализ $${(Number(analysisUsd) || 0).toFixed(2)} · всего <b>$${((Number(scoringUsd) || 0) + (Number(analysisUsd) || 0)).toFixed(2)}</b></div>`
-    : "";
+  const analyst = hasRole("analyst");
+  // Вкладки карточки: «Данные закупки» — всегда; «Результаты скоринга и анализа» —
+  // всегда; «Метрики» — только роли analyst (внутренняя метрика, costs отдаётся
+  // только ей — см. converters).
+  const tabs = [
+    `<button type="button" class="active" data-cardtab="data" onclick="setCardTab('data')">Данные закупки</button>`,
+    `<button type="button" data-cardtab="scoring" onclick="setCardTab('scoring')">Результаты скоринга и анализа</button>`,
+  ];
+  if (analyst) {
+    tabs.push(`<button type="button" data-cardtab="metrics" onclick="setCardTab('metrics')">Метрики</button>`);
+  }
+  const panels = [
+    `<div class="card-tab-panel active" data-cardpanel="data">${cardDataPanel(row, f, files)}</div>`,
+    `<div class="card-tab-panel" data-cardpanel="scoring" style="display:none">${cardScoringPanel(row, f)}</div>`,
+  ];
+  if (analyst) {
+    panels.push(`<div class="card-tab-panel" data-cardpanel="metrics" style="display:none">${cardMetricsPanel(row)}</div>`);
+  }
   $("#modal").innerHTML = `
     <span class="close" onclick="closeModal()">×</span>
     <h2>${escapeHtml(row.number)}</h2>
-    <table>
-      ${f("Предмет", escapeHtml(row.subject || "—"))}
-      ${f("Заказчик", escapeHtml(row.customer || "—") + " <span class='muted'>(id " + (row.customer_id ?? "—") + ")</span>")}
-      ${f("Площадка", escapeHtml(row.platform_name || row.platform_id) + " <span class='muted'>(" + escapeHtml(row.platform_id) + ")</span>")}
-      ${f("Тип процедуры", escapeHtml(row.procedure_type || "—"))}
-      ${f("Закон", escapeHtml(row.law || "—"))}
-      ${f("НМЦК", fmtMoney(row.nmck))}
-      ${f("Опубликовано", fmtDate(row.publication_date))}
-      ${f("Обновлено", fmtDate(row.update_date))}
-      ${f("Срок подачи", fmtDate(row.deadline))}
-      ${f("Активна", row.is_active ? "да" : "нет")}
-      ${f("Обеспечение", fmtMoney(row.security_amount) + (row.security_amount_unit ? " " + escapeHtml(row.security_amount_unit) : ""))}
-      ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
-      ${f("Score", (row.score ?? "—") + " (" + escapeHtml(row.score_method || "") + ")")}
-      ${f("Fit-скор", fitCell(row))}
-      ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
-      ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
-      ${f("Файлы", files)}
-      ${f("Ссылка", row.url ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">открыть</a>` : "—")}
-    </table>
-    ${costLine}
-    ${ragReportHtml(row.rag_report)}
+    <div class="tabs card-tabs">${tabs.join("")}</div>
+    ${panels.join("")}
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
       <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id})">${isAnalyzing ? "Анализ…" : "Анализ ТЗ"}</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
-      ${row.langfuse_trace_url && hasRole("analyst") ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
-      ${row.rag_report && row.rag_report.trace_url && hasRole("analyst") ? `<button class="ghost" onclick="viewTraceUrl('${escapeHtml(row.rag_report.trace_url)}')">Анализ</button>` : ""}
+      ${row.langfuse_trace_url && analyst ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
+      ${row.rag_report && row.rag_report.trace_url && analyst ? `<button class="ghost" onclick="viewTraceUrl('${escapeHtml(row.rag_report.trace_url)}')">Анализ</button>` : ""}
     </div>`;
+  setCardTab(openDetailTab);
   $("#modal-bg").classList.add("open");
+}
+
+// Вкладка «Данные закупки»: реквизиты карточки (без скоринга и метрик).
+function cardDataPanel(row, f, files) {
+  return `<table>
+    ${f("Предмет", escapeHtml(row.subject || "—"))}
+    ${f("Заказчик", escapeHtml(row.customer || "—") + " <span class='muted'>(id " + (row.customer_id ?? "—") + ")</span>")}
+    ${f("Площадка", escapeHtml(row.platform_name || row.platform_id) + " <span class='muted'>(" + escapeHtml(row.platform_id) + ")</span>")}
+    ${f("Тип процедуры", escapeHtml(row.procedure_type || "—"))}
+    ${f("Закон", escapeHtml(row.law || "—"))}
+    ${f("НМЦК", fmtMoney(row.nmck))}
+    ${f("Опубликовано", fmtDate(row.publication_date))}
+    ${f("Обновлено", fmtDate(row.update_date))}
+    ${f("Срок подачи", fmtDate(row.deadline))}
+    ${f("Активна", row.is_active ? "да" : "нет")}
+    ${f("Обеспечение", fmtMoney(row.security_amount) + (row.security_amount_unit ? " " + escapeHtml(row.security_amount_unit) : ""))}
+    ${f("ОКПД2", escapeHtml(row.okpd2_codes || "—"))}
+    ${f("Срок исполнения", escapeHtml(row.execution_term || "—"))}
+    ${f("Файлы", files)}
+    ${f("Ссылка", row.url ? `<a href="${escapeHtml(row.url)}" target="_blank" rel="noopener">открыть</a>` : "—")}
+  </table>`;
+}
+
+// Вкладка «Результаты скоринга и анализа»: оценки каскада + RAG-отчёт стоп-условий.
+function cardScoringPanel(row, f) {
+  const methodLabel = row.score_method
+    ? { manual: "ручная", reject: "отклонена", fit: "fit", sim: "sim", pwin: "pwin", margin: "margin" }[row.score_method] || row.score_method
+    : "—";
+  const trace = row.langfuse_trace_url && hasRole("analyst")
+    ? `<a href="${escapeHtml(row.langfuse_trace_url)}" target="_blank" rel="noopener">открыть трейс</a>`
+    : "—";
+  return `<table>
+    ${f("Score", (row.score ?? "—") + " <span class='muted'>(" + escapeHtml(methodLabel) + ")</span>")}
+    ${f("Fit-скор", fitCell(row))}
+    ${f("P(win)", row.p_win ?? "—")}
+    ${f("Margin", row.margin ?? "—")}
+    ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
+    ${f("LangFuse-трейс", trace)}
+  </table>
+  ${ragReportHtml(row.rag_report)}`;
+}
+
+// Вкладка «Метрики» (только analyst): токены, стоимость токенов, латенси,
+// задержка и общее время обработки по сервисам (скоринг/анализ).
+function cardMetricsPanel(row) {
+  const scoringM = row.costs?.scoring;
+  const analysisM = row.costs?.analysis;
+  if (!scoringM && !analysisM) {
+    return `<div class="empty" style="padding:20px 0;">Метрики обработки не собраны.<br><span class="muted" style="font-size:12px">Запустите скоринг и анализ ТЗ закупки.</span></div>`;
+  }
+  const blocks = [];
+  if (scoringM) blocks.push(metricsBlock("Скоринг (fit/judge/refine)", scoringM));
+  if (analysisM) blocks.push(metricsBlock("Анализ ТЗ (стоп-условия)", analysisM));
+  const totals = metricsTotals(scoringM, analysisM);
+  const costLine = cardCostLine(row);
+  return `${costLine}${totals}${blocks.join("")}`;
+}
+
+// Строка стоимости обработки закупки (внутри вкладки «Метрики», analyst-only).
+function cardCostLine(row) {
+  const scoringUsd = row.costs?.scoring?.usd;
+  const analysisUsd = row.costs?.analysis?.usd;
+  const has = (scoringUsd !== undefined && scoringUsd !== null) || (analysisUsd !== undefined && analysisUsd !== null);
+  if (!has || !hasRole("analyst")) return "";
+  return `<div class="muted" style="margin:6px 0 4px;">Стоимость обработки: скоринг $${(Number(scoringUsd) || 0).toFixed(2)} · анализ $${(Number(analysisUsd) || 0).toFixed(2)} · всего <b>$${((Number(scoringUsd) || 0) + (Number(analysisUsd) || 0)).toFixed(2)}</b></div>`;
+}
+
+function _num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function metricsTotals(scoringM, analysisM) {
+  const sum = (sel) => (scoringM ? sel(scoringM) : 0) + (analysisM ? sel(analysisM) : 0);
+  const tokens = sum((m) => _num(m.tokens?.total));
+  const calls = sum((m) => _num(m.calls));
+  const usd = sum((m) => _num(m.usd));
+  const latency = sum((m) => _num(m.latency_ms));
+  const delay = sum((m) => _num(m.delay_ms));
+  const duration = sum((m) => _num(m.duration_ms));
+  return `<h4 class="mt-title">Итого по сервисам</h4>
+    <table class="met">
+      <tr><td>Токенов всего</td><td>${tokens.toLocaleString("ru-RU")}</td></tr>
+      <tr><td>Вызовов</td><td>${calls}</td></tr>
+      <tr><td>Стоимость токенов (USD)</td><td>$${usd.toFixed(4)}</td></tr>
+      <tr><td>Латенси (модели)</td><td>${Math.round(latency)} мс</td></tr>
+      <tr><td>Задержка (накладные)</td><td>${Math.round(delay)} мс</td></tr>
+      <tr><td>Общее время обработки</td><td>${Math.round(duration)} мс</td></tr>
+    </table>`;
+}
+
+function metricsBlock(title, m) {
+  const t = m.tokens || {};
+  const cd = m.cost_details || {};
+  const has = (v) => v !== undefined && v !== null;
+  const cells = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
+  return `<h4 class="mt-title">${escapeHtml(title)}</h4>
+    <table class="met">
+      ${cells("Модели", escapeHtml((m.models || []).join(", ") || "—"))}
+      ${cells("Вызовов", has(m.calls) ? m.calls : "—")}
+      ${cells("Токенов (вход)", has(t.input) ? t.input.toLocaleString("ru-RU") : "—")}
+      ${cells("Токенов (выход)", has(t.output) ? t.output.toLocaleString("ru-RU") : "—")}
+      ${cells("Токенов (кэш)", has(t.input_cached_tokens) ? t.input_cached_tokens.toLocaleString("ru-RU") : "—")}
+      ${cells("Токенов всего", has(t.total) ? t.total.toLocaleString("ru-RU") : "—")}
+      ${cells("Стоимость, вход", has(cd.input) ? "$" + cd.input.toFixed(4) : "—")}
+      ${cells("Стоимость, выход", has(cd.output) ? "$" + cd.output.toFixed(4) : "—")}
+      ${cells("Стоимость, кэш", has(cd.input_cached_tokens) ? "$" + cd.input_cached_tokens.toFixed(4) : "—")}
+      ${cells("Стоимость (USD)", has(m.usd) ? "$" + m.usd.toFixed(4) : "—")}
+      ${cells("Латенси (модели)", has(m.latency_ms) ? Math.round(m.latency_ms) + " мс" : "—")}
+      ${cells("Задержка (накладные)", has(m.delay_ms) ? Math.round(m.delay_ms) + " мс" : "—")}
+      ${cells("Общее время обработки", has(m.duration_ms) ? Math.round(m.duration_ms) + " мс" : "—")}
+    </table>`;
+}
+
+// Переключение вкладки карточки закупки (вызывается из inline onclick).
+function setCardTab(tab) {
+  if (tab === "metrics" && !hasRole("analyst")) tab = "data";
+  openDetailTab = tab;
+  const modal = $("#modal");
+  const btns = modal.querySelectorAll("[data-cardtab]");
+  const panels = modal.querySelectorAll("[data-cardpanel]");
+  btns.forEach((b) => b.classList.toggle("active", b.dataset.cardtab === tab));
+  panels.forEach((p) => {
+    const on = p.dataset.cardpanel === tab;
+    p.classList.toggle("active", on);
+    p.style.display = on ? "block" : "none";
+  });
 }
 
 // Автообновление открытой карточки при изменении данных БД (WS): подтягивает
@@ -491,6 +616,7 @@ export {
   closeTz,
   viewTrace,
   viewTraceUrl,
+  setCardTab,
   loadPlatforms,
 };
 

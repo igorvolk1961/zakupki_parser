@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -119,6 +119,10 @@ class ScoringOutput(BaseModel):
     # Стоимость LLM-вызовов скоринга (fit/judge/refine) в USD. Заполняется
     # CostCallback-колбэком; None, если сбор стоимости не подключён.
     cost_usd: float | None = None
+    # Метрики стадии (токены, стоимость, латенси, число вызовов, модели) — для
+    # вкладки «Метрики» карточки закупки. Заполняется ``Scorer.score``; None, если
+    # сбор метрик не подключён.
+    cost_metrics: dict[str, Any] | None = None
 
     @field_validator("final_fit_score")
     @classmethod

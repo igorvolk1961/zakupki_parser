@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -44,15 +45,40 @@ class LlmClient:
         # на каждый прогон (RagAnalyzer.reset_cost) и читается в конце (cost поля
         # rag_report). None-состояния (сбой/без usage) не добавляют стоимость.
         self._total_cost_usd = 0.0
+        # Агрегаты метрик стадии (токены/стоимость/латенси/число вызовов) — как
+        # стоимость, сбрасываются на каждый прогон и читаются в ``metrics()``.
+        self._usage: dict[str, int] = {}
+        self._cost_details: dict[str, float] = {}
+        self._calls = 0
+        self._latency_ms = 0.0
 
     @property
     def total_cost_usd(self) -> float:
         """Итоговая стоимость вызовов (USD) с момента последнего reset."""
         return round(self._total_cost_usd, 8)
 
+    def metrics(self) -> dict[str, Any]:
+        """Сырые агрегаты LLM-стадии: стоимость/токены/латенси/число вызовов.
+
+        Общее ``duration_ms`` стадии вычисляет ``RagAnalyzer``, поэтому здесь
+        возвращаются только части без ``duration_ms``.
+        """
+        return {
+            "usd": round(self._total_cost_usd, 8),
+            "usage": dict(self._usage),
+            "cost_details": dict(self._cost_details),
+            "models": [self._model],
+            "calls": self._calls,
+            "latency_ms": round(self._latency_ms, 3),
+        }
+
     def reset_cost(self) -> None:
-        """Обнулить накопленную стоимость (перед новым прогоном анализа)."""
+        """Обнулить накопленные стоимость и метрики (перед новым прогоном анализа)."""
         self._total_cost_usd = 0.0
+        self._usage = {}
+        self._cost_details = {}
+        self._calls = 0
+        self._latency_ms = 0.0
 
     async def chat_json(self, system: str, user: str) -> dict[str, Any] | None:
         """Запрос с JSON-ответом; None — сбой (best-effort, не роняет задание)."""
@@ -76,14 +102,23 @@ class LlmClient:
             metadata={"model": self._model, "temperature": self._temperature},
         )
         try:
+            start = time.perf_counter()
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
+            self._latency_ms += (time.perf_counter() - start) * 1000.0
             content = data["choices"][0]["message"]["content"]
             result: dict[str, Any] = json.loads(content)
             usage_details, cost_details = self._usage_and_cost(data, payload["messages"])
             self._total_cost_usd += sum(cost_details.values())
+            self._calls += 1
+            for usage_key, usage_value in usage_details.items():
+                self._usage[usage_key] = int(self._usage.get(usage_key) or 0) + int(usage_value)
+            for cost_key, cost_value in cost_details.items():
+                self._cost_details[cost_key] = round(
+                    (self._cost_details.get(cost_key) or 0.0) + cost_value, 8
+                )
             obs.update(
                 output=result,
                 model=self._model,

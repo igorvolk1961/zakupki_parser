@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
@@ -34,6 +35,7 @@ from analysis_service.pipeline.system_questions import (
     SYSTEM_RETRIEVAL_PATTERNS,
 )
 from analysis_service.settings import Settings
+from scoring_common.costing import merge_usage, stage_metrics
 from scoring_common.embeddings import Embeddable, cosine_similarity
 from scoring_common.langfuse import parent_span, trace_url_from_trace_id
 from scoring_common.tz import resolve_tz_content
@@ -115,6 +117,7 @@ class RagAnalyzer:
         run_metadata = {"generated_at": generated_at}
         if metadata:
             run_metadata.update(metadata)
+        stage_start = time.perf_counter()
         with parent_span("rag_analysis", metadata=run_metadata) as parent:
             trace_id = getattr(parent, "trace_id", None)
             # Стоимость LLM- и эмбеддинг-вызовов именно этого прогона: сбрасываем
@@ -122,12 +125,52 @@ class RagAnalyzer:
             # закупки (клиенты переиспользуются воркером на всех закупках).
             self._llm.reset_cost()
             getattr(self._embedder, "reset_cost", lambda: None)()
+            getattr(self._embedder, "reset_metrics", lambda: None)()
             report = await self._analyze(record, questions, profile_facts, generated_at)
-        llm_usd = self._llm.total_cost_usd
-        embeddings_usd = float(getattr(self._embedder, "cost_usd", 0.0))
-        report["cost"] = {"usd": round(llm_usd + embeddings_usd, 8)}
+        duration_ms = (time.perf_counter() - stage_start) * 1000.0
+        llm_metrics: dict[str, Any] = getattr(self._llm, "metrics", lambda: {})()
+        emb_metrics: dict[str, Any] = getattr(self._embedder, "metrics", lambda: {})()
+        report["cost"] = self._stage_cost_metrics(duration_ms, llm_metrics, emb_metrics)
         report["trace_url"] = trace_url_from_trace_id(trace_id)
         return report
+
+    def _stage_cost_metrics(
+        self,
+        duration_ms: float,
+        llm_metrics: dict[str, Any],
+        emb_metrics: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Метрики стадии анализа (LLM + эмбеддинги) для карточки закупки.
+
+        ``usd`` берётся из авторитетного источника (``total_cost_usd`` + стоимость
+        эмбеддингов), а разбивка токенов/стоимости/латенси — из накопленных клиентами
+        агрегатов. Для фолбэка на старые/заглушечные клиенты без ``metrics`` разбивка
+        остаётся пустой, общая стоимость — корректной.
+        """
+        total_usd = self._llm.total_cost_usd + float(getattr(self._embedder, "cost_usd", 0.0))
+        usage: dict[str, int] = {}
+        cost_details: dict[str, float] = {}
+        models: list[str] = []
+        calls = 0
+        latency_ms = 0.0
+        for part in (llm_metrics, emb_metrics):
+            if not part:
+                continue
+            merge_usage(usage, part.get("usage") or {})
+            for key, value in (part.get("cost_details") or {}).items():
+                cost_details[key] = round((cost_details.get(key) or 0.0) + float(value), 8)
+            models.extend(part.get("models") or [])
+            calls += int(part.get("calls") or 0)
+            latency_ms += float(part.get("latency_ms") or 0.0)
+        return stage_metrics(
+            usd=total_usd,
+            usage=usage,
+            cost_details=cost_details,
+            models=models,
+            calls=calls,
+            latency_ms=latency_ms,
+            duration_ms=duration_ms,
+        )
 
     async def _analyze(
         self,

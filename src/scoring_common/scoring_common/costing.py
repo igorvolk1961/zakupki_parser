@@ -39,6 +39,8 @@ __all__ = [
     "is_deepseek_peak",
     "normalize_model",
     "deepseek_peak_rates",
+    "stage_metrics",
+    "merge_usage",
     "GIGA_EMBEDDING_RUB_PER_1M",
 ]
 
@@ -217,3 +219,48 @@ def embedding_input_tokens(data: dict[str, Any], texts: Sequence[str]) -> int:
     if isinstance(pt, (int, float)) and pt > 0:
         return int(pt)
     return sum(max(1, round(len(t) / 3)) for t in texts if isinstance(t, str)) or 0
+
+
+def merge_usage(acc: dict[str, int], delta: dict[str, int]) -> dict[str, int]:
+    """Суммировать usage-бакеты (input/output/input_cached_tokens) по вызовам."""
+    for key, value in delta.items():
+        if value:
+            acc[key] = int(acc.get(key) or 0) + int(value)
+    return acc
+
+
+def stage_metrics(
+    *,
+    usd: float,
+    usage: dict[str, int],
+    cost_details: dict[str, float],
+    models: list[str],
+    calls: int,
+    latency_ms: float,
+    duration_ms: float,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    """Единый формат метрик стадии (scoring/analysis) для «Метрики» на карточке.
+
+    Возвращает стандартизованный словарь: стоимость (``usd``), разбивку токенов по
+    бакетам (``tokens``, с итоговым ``total``), посекционную стоимость (``cost_details``),
+    использованные модели (``models``), число вызовов (``calls``), суммарно затраченное
+    моделями время (``latency_ms``), общее время стадии (``duration_ms``) и накладную
+    задержку (``delay_ms`` = ``duration_ms`` − ``latency_ms``). Нулевые/пустые значения
+    отбрасываются, чтобы метрики были согласованы.
+    """
+    tokens: dict[str, int] = {k: int(v) for k, v in usage.items() if v}
+    total = sum(tokens.values())
+    out: dict[str, Any] = {
+        "usd": round(float(usd), 8),
+        "tokens": {**tokens, "total": total},
+        "cost_details": {k: round(float(v), 8) for k, v in cost_details.items() if v},
+        "models": sorted(set(models)),
+        "calls": int(calls),
+        "latency_ms": round(float(latency_ms), 3),
+        "duration_ms": round(float(duration_ms), 3),
+        "delay_ms": round(max(0.0, float(duration_ms) - float(latency_ms)), 3),
+    }
+    if generated_at:
+        out["generated_at"] = generated_at
+    return out

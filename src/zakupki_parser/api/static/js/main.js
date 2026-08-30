@@ -17,6 +17,7 @@ import {
   viewTz,
   closeTz,
   viewTrace,
+  setCardTab,
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
@@ -117,6 +118,7 @@ window.pwinProc = pwinProc;
 window.viewTz = viewTz;
 window.closeTz = closeTz;
 window.viewTrace = viewTrace;
+window.setCardTab = setCardTab;
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {

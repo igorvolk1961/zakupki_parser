@@ -130,8 +130,20 @@ def test_report_without_tz() -> None:
 def test_report_has_cost_and_trace_url() -> None:
     """Отчёт всегда содержит cost (0 при отсутствии вызовов) и trace_url (None без LangFuse)."""
     report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(_NoTzRecord(), [], {}))
-    assert set(report["cost"]) == {"usd"}
-    assert report["cost"]["usd"] == 0.0
+    cost = report["cost"]
+    assert cost["usd"] == 0.0
+    # Стандартизованные метрики стадии всегда присутствуют.
+    for key in (
+        "usd",
+        "tokens",
+        "cost_details",
+        "models",
+        "calls",
+        "latency_ms",
+        "duration_ms",
+        "delay_ms",
+    ):
+        assert key in cost
     assert report["trace_url"] is None
 
 
