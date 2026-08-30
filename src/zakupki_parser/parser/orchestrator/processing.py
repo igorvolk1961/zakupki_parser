@@ -30,16 +30,18 @@ from zakupki_parser.parser.orchestrator.state import OrchestratorState
 logger = logging.getLogger("zakupki_parser.parser.orchestrator.orchestrator")
 
 
-def _resolve_fallback_number(
+def _extract_number_from_url(
     detail_url: str | None,
     url_regex: str | None,
-    api_fields: dict[str, Any] | None,
 ) -> str | None:
-    """Восстанавливает номер закупки из запасных источников (fallback).
+    """Извлекает номер закупки из URL детальной страницы (тот же бизнес-номер).
 
-    Порядок: 1) regex по URL детальной страницы (``list_config.number_from_url_regex``,
-    как в DOM-обходе ``_process_container``), 2) id/need_id из API-полей
-    (lot_online/mos). Возвращает номер или None, если источник не дал значения.
+    Единственный допустимый «запасной» источник номера — место, где присутствует
+    именно регистрационный/закупочный номер (``regNumber=``, ``/procedure/<номер>/``).
+    Внутренние id площадки (row id, needId) номером НЕ являются: номер уникален в
+    пределах площадки (``null + platform_id``), и подстановка чужого идентификатора
+    ломает дедупликацию и резолв деталей. Возвращает None, когда номер из URL не
+    извлекается; вызывающая сторона трактует это как критическую ошибку.
     """
     if detail_url and url_regex:
         m = re.search(url_regex, detail_url)
@@ -47,10 +49,6 @@ def _resolve_fallback_number(
             candidate = m.group(1) if m.lastindex else m.group(0)
             if candidate is not None and str(candidate).strip():
                 return str(candidate).strip()
-    for key in ("need_id", "id"):
-        value = (api_fields or {}).get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip()
     return None
 
 
@@ -73,36 +71,37 @@ class RecordProcessingMixin(OrchestratorState):
         (известна ли запись как уже сохранённая в БД, номер закупки, сохранена ли
         запись в БД на этом шаге).
         """
-        if not detail_url:
-            logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
-            return False, number, False
-
-        # Гарантия бизнес-ключа number до персиста (uq_procurement_number_platform):
-        # номер не должен быть пустым. Пытаемся восстановить его из запасных источников
-        # (URL деталей / id/need_id API-полей). Если номер так и не извлечён — запись
-        # не обрабатываемая: логируем ошибку и ПРОПУСКАЕМ (graceful degradation, как
-        # ошибки данных в _persist): одна битая запись не роняет обход, а её потеря
-        # видна в сводке (получено - сохранено - известно).
+        # Номер закупки — ОБЯЗАТЕЛЬНЫЙ бизнес-ключ (nullable=False + unique) в пределах
+        # площадки (number + platform_id). Отсутствие номера = критическая ошибка
+        # парсинга (селектор/поле API не извлеклось; номер есть всегда). Допустимо
+        # восстановить ТОЛЬКО тот же номер из URL детальной страницы (проверенный
+        # источник номера). Внутренние id (row/needId) номером НЕ подставляются.
         if number is None or str(number).strip() == "":
-            resolved = _resolve_fallback_number(
+            resolved = _extract_number_from_url(
                 detail_url,
                 self._platform.list_config.number_from_url_regex,
-                api_fields,
             )
             if resolved:
                 number = resolved
                 list_vars["number"] = number
-                logger.info("Номер закупки восстановлен из fallback: %s", number)
+                logger.info("Номер закупки извлечён из URL деталей: %s", number)
             else:
-                logger.error(
-                    "Закупка без номера — пропуск (platform_id=%s, subject=%r, url=%s, "
-                    "поля карточки=%s)",
+                # Критическая ошибка: закупка без номера. Запись НЕ пишем в БД и не
+                # роняем весь обход из-за одной битой карточки, но фиксируем на уровне
+                # CRITICAL; запись попадает в «отсеяно» сводки (received - saved - known).
+                logger.critical(
+                    "КРИТИЧНО: закупка без номера — запись невозможна "
+                    "(platform_id=%s, subject=%r, url=%s, поля_карточки=%s)",
                     self._platform_id,
                     list_vars.get("subject"),
                     detail_url,
                     list_vars,
                 )
                 return False, number, False
+
+        if not detail_url:
+            logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
+            return False, number, False
 
         ctxs = self._profile_ctxs
         multi = len(ctxs) > 1
@@ -158,25 +157,6 @@ class RecordProcessingMixin(OrchestratorState):
 
         # 8) JSONB-карточка на уровне списка (детали дособираются в set_score).
         record["detail_json"] = json_safe(record)
-
-        # КРИТИчно: номер закупки — обязательный бизнес-ключ (nullable=False + unique).
-        # Запись без номера нельзя ни сохранить, ни дедуплицировать, ни поставить в
-        # очередь скоринга — это сбой парсинга (селектор/поле API не извлеклось), а не
-        # штатная ситуация. Фиксируем как ОШИБКУ с контекстом и пропускаем запись
-        # (не роняем весь обход из-за одной битой карточки), но она попадает в
-        # «отсеяно/пропущено» сводки обхода (received - saved - known), а не пропадает
-        # молча. Раньше такая запись доходила до repository.upsert и там отбрасывалась
-        # тихим WARNING «нет number/platform_id».
-        if number is None or str(number).strip() == "":
-            logger.error(
-                "Площадка %s: закупка без номера пропущена — запись невозможна. "
-                "subject=%r url=%s поля_карточки=%s",
-                self._platform_id,
-                record.get("subject"),
-                record.get("url"),
-                sorted(record.keys()),
-            )
-            return False, number, False
 
         # Клиентская фильтрация (R9) и запись — ВЕЕРОМ по профилям текущего обхода.
         # Для одиночного профиля ранний фильтр уже применён к subject из карточки;

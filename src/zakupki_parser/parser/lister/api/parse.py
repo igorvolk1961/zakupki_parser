@@ -89,12 +89,9 @@ def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
     attrs = item.get("attributes") or {}
     list_vars: dict[str, Any] = {}
     reg = attrs.get("registry_number")
-    number = re.sub(r"^\s*№\s*", "", str(reg)) if reg is not None else ""
-    # Если реестровый номер не пришёл — берём внутренний id item'а (он же закодирован
-    # в detail_path), чтобы запись не дошла до персиста без бизнес-ключа number.
-    if not number:
-        number = str(item.get("id") or "")
-    list_vars["number"] = number
+    # Номер — регистрационный/закупочный номер (бизнес-ключ, уникален в пределах
+    # площадки). Внутренний id item'а номером НЕ является — его не подставляем.
+    list_vars["number"] = re.sub(r"^\s*№\s*", "", str(reg)) if reg is not None else ""
     list_vars["subject"] = attrs.get("title")
     list_vars["nmck"] = _amount(attrs.get("amount"))
     list_vars["publication_date"] = _iso_dt(attrs.get("date_published"))
@@ -140,7 +137,9 @@ def _parse_mos_item(item: dict[str, Any]) -> dict[str, Any]:
     customer = customers[0] if customers else {}
     creator = item.get("purchaseCreator") or {}
     need_id = item.get("needId")
-    number = str(item.get("number") or need_id or "")
+    # Номер — регистрационный/закупочный номер (бизнес-ключ). needId — внутренний
+    # идентификатор для деталей (см. _api), НЕ номер: его не подставляем.
+    number = str(item.get("number") or "")
     list_vars: dict[str, Any] = {
         "number": number,
         "subject": item.get("name"),

@@ -25,7 +25,7 @@ from zakupki_parser.config.models import (
 from zakupki_parser.parser.lister.api import build_api_list_url, parse_api_item
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
-from zakupki_parser.parser.orchestrator.processing import _resolve_fallback_number
+from zakupki_parser.parser.orchestrator.processing import _extract_number_from_url
 from zakupki_parser.storage.db import Profile
 
 
@@ -608,8 +608,8 @@ async def test_crawl_api_rebuilds_url_with_offset(app_config: AppConfig) -> None
     assert dto0["skip"] == 0 and dto1["skip"] == 2
 
 
-def test_parse_api_item_etpgpb_falls_back_to_id() -> None:
-    """Не пришёл registry_number — number берётся из id item'а (fallback бизнес-ключа)."""
+def test_parse_api_item_etpgpb_without_number() -> None:
+    """Нет registry_number — number пустой; внутренний id номером НЕ становится."""
     item: dict[str, Any] = {
         "id": "123",
         "type": "procedure",
@@ -624,26 +624,6 @@ def test_parse_api_item_etpgpb_falls_back_to_id() -> None:
             "rebranding_truncated_path": "/procedures/etp/123-dveri/",
         },
     }
-    v = parse_api_item(item)
-    assert v["number"] == "123"
-    assert v["detail_path"] == "/procedures/etp/123-dveri/"
-
-
-def test_parse_api_item_etpgpb_without_number_and_id() -> None:
-    """Ни registry_number, ни id — number пустой (запись будет отсеяна до персиста)."""
-    item: dict[str, Any] = {
-        "type": "procedure",
-        "attributes": {
-            "title": "Двери",
-            "amount": "0.0",
-            "date_published": "2026-08-17T16:48:00.000+03:00",
-            "end_registration": "2026-08-21T08:00:00.000+03:00",
-            "company_name": "ООО Тест",
-            "stage": "accepting",
-            "kind": "fz44",
-            "rebranding_truncated_path": "/procedures/etp/0-dveri/",
-        },
-    }
     assert parse_api_item(item)["number"] == ""
 
 
@@ -655,12 +635,12 @@ def test_parse_api_item_lot_online_without_number() -> None:
     assert "detail_path" not in v
 
 
-def test_parse_api_item_mos_without_number_uses_need_id() -> None:
-    """Нет number — number берётся из needId (fallback), как и в _api."""
+def test_parse_api_item_mos_without_number() -> None:
+    """Нет number — number пустой; needId остаётся только в _api для деталей."""
     item = _mos_item("6177179", "Активация", "17.08.2026 13:56:07")
     del item["number"]
     v = parse_api_item(item, "mos")
-    assert v["number"] == "6177179"
+    assert v["number"] == ""
     assert v["_api"] == {"need_id": 6177179}
 
 
@@ -682,30 +662,29 @@ def test_parse_api_item_tender_223_without_number() -> None:
     assert "detail_path" not in v
 
 
-def test_resolve_fallback_number_from_url() -> None:
-    """Номер восстанавливается regex'ом из URL деталей (как в DOM-обходе)."""
+def test_extract_number_from_url() -> None:
+    """Номер извлекается из URL деталей (тот же бизнес-номер, как в DOM-обходе)."""
     assert (
-        _resolve_fallback_number(
-            "https://roseltorg.ru/procedure/COM14082600147/1", r"/procedure/([^/]+)", None
+        _extract_number_from_url(
+            "https://roseltorg.ru/procedure/COM14082600147/1", r"/procedure/([^/]+)"
         )
         == "COM14082600147"
     )
+    assert _extract_number_from_url("https://x.ru/procedure/37", r"/procedure/([^/]+)") == "37"
     assert (
-        _resolve_fallback_number("https://x.ru/procedure/37", r"/procedure/([^/]+)", None) == "37"
+        _extract_number_from_url(
+            "https://zakupki.gov.ru/.../common-info.html?regNumber=0138100003126000026",
+            r"regNumber=(\d+)",
+        )
+        == "0138100003126000026"
     )
 
 
-def test_resolve_fallback_number_from_api_fields() -> None:
-    """Номер восстанавливается из id/need_id API-полей (lot_online/mos)."""
-    assert _resolve_fallback_number(None, None, {"id": 209724}) == "209724"
-    assert _resolve_fallback_number(None, None, {"need_id": 6177179}) == "6177179"
-
-
-def test_resolve_fallback_number_returns_none() -> None:
-    """Нет источника — None (запись будет пропущена до персиста)."""
-    assert _resolve_fallback_number(None, None, None) is None
-    assert _resolve_fallback_number("https://x.ru/procedure/1", None, {"id": ""}) is None
-    assert _resolve_fallback_number(None, r"/procedure/([^/]+)", {"id": None}) is None
+def test_extract_number_from_url_returns_none() -> None:
+    """Нет источника/совпадения — None (критическая ошибка на стороне вызывающего)."""
+    assert _extract_number_from_url(None, r"/procedure/([^/]+)") is None
+    assert _extract_number_from_url("https://x.ru/procedure/1", None) is None
+    assert _extract_number_from_url("https://x.ru/", r"/procedure/([^/]+)") is None
 
 
 class _PersistRecorder(Orchestrator):
