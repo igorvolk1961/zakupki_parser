@@ -29,10 +29,11 @@ list_config:
   # Сортировка по релевантности -> стоп-порог по дате не применяется.
   publication_date: "publication_date"
   variables:
-    # number — «32616082276 (Лот 1)» / «COM14082600147 (Лот 1)» -> номер процедуры.
-    # Старые процедуры были с префиксом COM, новые — просто цифры (11 знаков).
-    # \d{10,} минимум 10 цифр, чтобы не сматчить номер лота «1»/«2» в скобках.
-    - { name: "number",           selector: "div.search-results__lot a.search-results__link", handler: "regex", handler_arg: "(COM\\d{10,}|\\d{10,})", default: "" }
+    # number — «32616082276 (Лот 1)» / «COM14082600147 (Лот 1)» / «SP10212041 (Лот 1)».
+    # Префиксы: старые процедуры были с COM (11+ цифр), новые — SP (8 цифр)
+    # (проверено 2026-08-31 на живом поиске). \d{10,} — минимум 10 цифр, чтобы
+    # не сматчить номер лота «1»/«2» в скобках; SP\d{8,} — новый формат.
+    - { name: "number",           selector: "div.search-results__lot a.search-results__link", handler: "regex", handler_arg: "(COM\\d{10,}|SP\\d{8,}|\\d{10,})", default: "" }
     # subject — наименование процедуры (ссылка на описание).
     - { name: "subject",          selector: "a.search-results__link--description", handler: "strip", default: "" }
     # law — «Коммерческие закупки и закупки по 223-ФЗ» -> 223-ФЗ.

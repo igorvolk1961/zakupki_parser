@@ -88,10 +88,24 @@ def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
     """Item API etpgpb: атрибуты в ``attributes``."""
     attrs = item.get("attributes") or {}
     list_vars: dict[str, Any] = {}
+    kind = str(attrs.get("kind") or "").lower()
     reg = attrs.get("registry_number")
     # Номер — регистрационный/закупочный номер (бизнес-ключ, уникален в пределах
     # площадки). Внутренний id item'а номером НЕ является — его не подставляем.
-    list_vars["number"] = re.sub(r"^\s*№\s*", "", str(reg)) if reg is not None else ""
+    if reg is not None:
+        number = re.sub(r"^\s*№\s*", "", str(reg))
+    else:
+        # «Закупки.Газпром» (kind=gaz, тип «Маркетинговые исследования») номер
+        # извещения не имеют вовсе (registry_number/procedure_number = null,
+        # has_procedure_number = false, проверено 2026-08-31 на /api/v2/procedures/gaz/).
+        # Единственный стабильный уникальный идентификатор — platform_id
+        # (присутствует в каноническом URL /procedures/gaz/<platform_id>-…/: им же
+        # пользуется _api для запроса деталей), поэтому подставляем его. Значение
+        # неймспейсим префиксом kind, чтобы не коллизировать с реальным номером
+        # (registry_number) других процедур площадки (уникальность — number+platform_id).
+        pid = attrs.get("platform_id")
+        number = f"{kind}-{pid}" if pid else ""
+    list_vars["number"] = number
     list_vars["subject"] = attrs.get("title")
     list_vars["nmck"] = _amount(attrs.get("amount"))
     list_vars["publication_date"] = _iso_dt(attrs.get("date_published"))
@@ -99,7 +113,6 @@ def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
     list_vars["deadline"] = _iso_dt(attrs.get("end_registration"))
     list_vars["customer"] = attrs.get("company_name")
     list_vars["status"] = attrs.get("stage") or ""
-    kind = str(attrs.get("kind") or "").lower()
     if "44" in kind:
         list_vars["law"] = "44-ФЗ"
     elif "223" in kind:

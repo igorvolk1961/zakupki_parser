@@ -26,8 +26,9 @@ list_config:
   publication_date: "publication_date"
   variables:
     # number — «0373200022226001723 (Лот 1)» (44-ФЗ, 19 цифр) / «COM14082600147 (Лот 1)».
-    # \d{10,} минимум 10 цифр, чтобы не сматчить номер лота «1»/«2» в скобках.
-    - { name: "number",           selector: "div.search-results__lot a.search-results__link", handler: "regex", handler_arg: "(COM\\d{10,}|\\d{10,})", default: "" }
+    # \d{10,} минимум 10 цифр, чтобы не сматчить номер лота «1»/«2» в скобках;
+    # SP\d{8,} — формат 223-ФЗ/коммерческих (на 44-ФЗ не встречается, вреда нет).
+    - { name: "number",           selector: "div.search-results__lot a.search-results__link", handler: "regex", handler_arg: "(COM\\d{10,}|SP\\d{8,}|\\d{10,})", default: "" }
     # subject — наименование процедуры (ссылка на описание).
     - { name: "subject",          selector: "a.search-results__link--description", handler: "strip", default: "" }
     # law — «Государственные закупки (44-ФЗ)» -> 44-ФЗ.

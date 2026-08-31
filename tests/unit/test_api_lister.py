@@ -608,7 +608,27 @@ async def test_crawl_api_rebuilds_url_with_offset(app_config: AppConfig) -> None
 
 
 def test_parse_api_item_etpgpb_without_number() -> None:
-    """Нет registry_number — number пустой; внутренний id номером НЕ становится."""
+    """Нет registry_number — номер фолбэчится на kind+platform_id (см. «Закупки.Газпром»)."""
+    item: dict[str, Any] = {
+        "id": "123",
+        "type": "procedure",
+        "attributes": {
+            "title": "Двери",
+            "amount": "0.0",
+            "date_published": "2026-08-17T16:48:00.000+03:00",
+            "end_registration": "2026-08-21T08:00:00.000+03:00",
+            "company_name": "ООО Тест",
+            "stage": "accepting",
+            "kind": "gaz",
+            "platform_id": 258116,
+            "rebranding_truncated_path": "/procedures/gaz/258116-dveri/",
+        },
+    }
+    assert parse_api_item(item)["number"] == "gaz-258116"
+
+
+def test_parse_api_item_etpgpb_without_number_and_id() -> None:
+    """Нет registry_number и platform_id — number остаётся пустым (запись пропускается)."""
     item: dict[str, Any] = {
         "id": "123",
         "type": "procedure",

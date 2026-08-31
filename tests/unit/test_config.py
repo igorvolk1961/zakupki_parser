@@ -77,15 +77,15 @@ def test_sort_default_order() -> None:
 
 
 def test_roseltorg_number_card_regex_both_formats() -> None:
-    """Номер из карточки: старый формат (COM…) и новый (только цифры, без COM)."""
+    """Номер из карточки: старый формат (COM…), новый (SP…) и просто цифры без префикса."""
     data = _load_dom_configs(REPO_ROOT / "configs")
     platforms = DomConfig.model_validate(data).platforms
     for platform_id in ("roseltorg_223fz", "roseltorg_44fz"):
         platform = platforms[platform_id]
         number_var = next(v for v in platform.list_config.variables if v.name == "number")
         arg = number_var.handler_arg
-        assert arg == r"(COM\d{10,}|\d{10,})", platform_id
-        # 223-ФЗ/коммерческие: 11 цифр и COM-префикс; 44-ФЗ: 19 цифр.
+        assert arg == r"(COM\d{10,}|SP\d{8,}|\d{10,})", platform_id
+        # 223-ФЗ/коммерческие: 11 цифр, COM- и SP-префиксы; 44-ФЗ: 19 цифр.
         m1 = re.search(arg, "32616082276\n(Лот 1)")
         assert m1 is not None
         assert m1.group(1) == "32616082276"
@@ -95,6 +95,9 @@ def test_roseltorg_number_card_regex_both_formats() -> None:
         m3 = re.search(arg, "0373200022226001723\n(Лот 1)")
         assert m3 is not None
         assert m3.group(1) == "0373200022226001723"
+        m4 = re.search(arg, "SP10212041 (Лот 1)")
+        assert m4 is not None
+        assert m4.group(1) == "SP10212041"
 
 
 def test_roseltorg_44fz_config_complete() -> None:
