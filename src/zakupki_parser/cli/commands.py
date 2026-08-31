@@ -26,6 +26,9 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
         _print_summary(cfg)
         return 0
 
+    if cmd == "coverage":
+        return await _coverage(cfg, cfg_dir, args.platform)
+
     if cmd == "seed-profile":
         return await _seed_profile(cfg, cfg_dir, args.user, Path(args.file))
 
@@ -106,6 +109,43 @@ async def _seed_profile(cfg: AppConfig, cfg_dir: str, username: str, file_path: 
         f"критерии: ОКПД2={okpd}, НМЦК {parsed.get('nmck_min') or '–'}…"
         f"{parsed.get('nmck_max') or '–'}"
     )
+    return 0
+
+
+async def _coverage(cfg: AppConfig, cfg_dir: str, platform_id: str | None) -> int:
+    """Печатает оценку покрытия полей: статику (конфиг) и динамику (БД, если включена)."""
+    from zakupki_parser.cli.coverage import print_platform_static, render_runtime_row
+
+    platforms = cfg.dom.platforms
+    if platform_id:
+        if platform_id not in platforms:
+            print(f"Площадка {platform_id!r} не найдена в конфиге", file=sys.stderr)
+            return 1
+        ids = [platform_id]
+    else:
+        ids = list(platforms)
+
+    for pid in ids:
+        print_platform_static(platforms[pid], pid)
+
+    if cfg.ops.db.enabled:
+        from zakupki_parser.storage.db import Database
+        from zakupki_parser.storage.repository import ProcurementRepository
+
+        # Read-only диагностика: миграции не запускаем (они применяют DDL к целевой
+        # БД); схема должна быть актуальной — иначе запрос просто завершится ошибкой.
+        db = Database(cfg.ops.db)
+        await db.connect()
+        try:
+            rows = await ProcurementRepository(db).field_coverage_runtime()
+            by_platform = {r["platform_id"]: r for r in rows}
+            print("\nДинамическое покрытие (по сохранённым записям):")
+            for pid in ids:
+                print("\n".join(render_runtime_row(pid, by_platform.get(pid))))
+        finally:
+            await db.dispose()
+    else:
+        print("\nБД отключена — динамическое покрытие недоступно (только статика)")
     return 0
 
 

@@ -20,6 +20,9 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("run-once", help="Один проход по всем площадкам")
     sub.add_parser("run-service", help="Периодический запуск по таймеру")
 
+    cov = sub.add_parser("coverage", help="Оценка покрытия полей конфигурациями площадок")
+    cov.add_argument("--platform", default=None, help="platform_id (по умолчанию — все площадки)")
+
     stop = sub.add_parser("stop", help="Остановить запущенные процессы парсера")
     stop.add_argument(
         "--force", action="store_true", help="убить сразу (SIGKILL) без мягкого закрытия"

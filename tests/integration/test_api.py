@@ -146,6 +146,22 @@ def test_health(api_client: tuple[TestClient, Path]) -> None:
     assert body["db"] is True
 
 
+def test_coverage(api_client: tuple[TestClient, Path]) -> None:
+    """GET /api/coverage — статика (конфиг) + динамика (БД) по площадкам."""
+    client, _ = api_client
+    resp = client.get("/api/coverage")
+    assert resp.status_code == 200
+    body = resp.json()
+    platforms = body["platforms"]
+    assert isinstance(platforms, list) and platforms
+    mos = next(p for p in platforms if p["platform_id"] == "zakupki_mos")
+    assert 0.0 <= mos["coverage_score"] <= 1.0
+    assert isinstance(mos["static"], list) and mos["static"]
+    assert all("key" in f and "tier" in f and "status" in f for f in mos["static"])
+    # Динамика: пустая БД -> runtime None либо корректная структура.
+    assert "runtime" in mos
+
+
 def test_parser_status_initial(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     body = client.get("/api/parser/status").json()

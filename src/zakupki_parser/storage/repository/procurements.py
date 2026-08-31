@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,6 +72,67 @@ class ProcurementMixin(RepositoryMixin):
         async with self._db.session() as session:
             await session.execute(stmt)
             await session.commit()
+
+    async def field_coverage_runtime(self) -> list[dict[str, Any]]:
+        """Доля заполненности полей контракта по сохранённым закупкам (по площадкам).
+
+        Один проход: на каждую платформу — число записей и заполненность каждого
+        поля контракта (не-NULL/непустое). Возвращает список:
+        ``{"platform_id", "total", "fields": {key: {"filled", "fraction"}}}``.
+        """
+        from zakupki_parser.config.models.fields import required_fields
+
+        filled_exprs: dict[str, Any] = {}
+        join_customer = False
+        for spec in required_fields():
+            if spec.column is None:
+                continue
+            if spec.key == "inn":
+                # ИНН живёт в customers.inn (nullable) — считаем по join'у, а не по
+                # customer_id (тот лишь означает, что имя заказчика разрешено).
+                filled_exprs["inn"] = Customer.inn
+                join_customer = True
+                continue
+            if spec.key == "customer":
+                filled_exprs["customer"] = Procurement.customer_id
+                continue
+            col: ColumnElement[Any] | None = getattr(Procurement, spec.column, None)
+            if col is None:
+                continue
+            if spec.key in ("okpd2", "kpgz"):
+                # непустой текст (trim + не пустая строка)
+                filled_exprs[spec.key] = func.nullif(func.trim(col), "")
+            elif spec.key == "files":
+                # непустой массив файлов
+                filled_exprs[spec.key] = case((func.jsonb_array_length(col) > 0, 1))
+            else:
+                filled_exprs[spec.key] = col
+
+        if not filled_exprs:
+            return []
+        total = func.count(Procurement.id).label("total")
+        cols: list[Any] = [total] + [
+            func.count(expr).label(key) for key, expr in filled_exprs.items()
+        ]
+        stmt = select(Procurement.platform_id, *cols).select_from(Procurement)
+        if join_customer:
+            stmt = stmt.outerjoin(Customer, Customer.id == Procurement.customer_id)
+        stmt = stmt.group_by(Procurement.platform_id)
+        async with self._db.session() as session:
+            rows = (await session.execute(stmt)).all()
+
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            total_count = int(row.total)
+            fields: dict[str, dict[str, Any]] = {}
+            for i, key in enumerate(filled_exprs):
+                filled = int(row[i + 2] or 0)
+                fields[key] = {
+                    "filled": filled,
+                    "fraction": (filled / total_count) if total_count else 0.0,
+                }
+            result.append({"platform_id": row.platform_id, "total": total_count, "fields": fields})
+        return result
 
     async def last_processed_date(
         self,

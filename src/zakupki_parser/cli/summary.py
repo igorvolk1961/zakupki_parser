@@ -5,6 +5,28 @@ from __future__ import annotations
 from pathlib import Path
 
 from zakupki_parser.config.models import AppConfig
+from zakupki_parser.config.models.fields import (
+    coverage_score,
+    missing_mandatory,
+    static_field_coverage,
+)
+
+
+def _print_static_coverage(cfg: AppConfig) -> None:
+    """Статическое покрытие полей по каждой площадке + предупреждения по MANDATORY."""
+    if not cfg.dom.platforms:
+        return
+    print("Покрытие полей (статика, из конфига):")
+    for pid, platform in cfg.dom.platforms.items():
+        cov = static_field_coverage(platform)
+        score = coverage_score(cov)
+        missing = missing_mandatory(cov)
+        mark = f"{score:.0%}"
+        if missing:
+            print(f"  {pid:<16} [{mark}]  ! незакрытые MANDATORY: {', '.join(missing)}")
+        else:
+            print(f"  {pid:<16} [{mark}]")
+    print()
 
 
 def _yn(value: bool) -> str:
@@ -52,6 +74,9 @@ def _print_summary(cfg: AppConfig) -> None:
         for path in dom_files:
             print(f"    - {path.stem}")
     print()
+
+    # --- Покрытие полей (статика) ----------------------------------------
+    _print_static_coverage(cfg)
 
     # --- Сервис ----------------------------------------------------------
     print("Сервис (config_service.yaml):")
