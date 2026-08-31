@@ -772,9 +772,12 @@ function renderLicenses() {
       .join("")}</tbody></table></div>`;
   wrap.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.closest("tr").dataset.id);
-      if (btn.dataset.action === "edit") openLicenseForm(id);
-      else deleteLicense(profileLicenses.find((x) => x.id === id));
+      // data-id — строковый идентификатор: для несохранённых записей это "local-N",
+      // поэтому сравнение через String (Number("local-N") даёт NaN и ломает поиск).
+      const rowId = btn.closest("tr").dataset.id;
+      const lic = profileLicenses.find((x) => String(x.id) === rowId);
+      if (btn.dataset.action === "edit") openLicenseForm(lic ? lic.id : null);
+      else deleteLicense(lic);
     });
   });
   syncEntryFormState();
@@ -812,9 +815,10 @@ function renderExperience() {
       .join("")}</tbody></table></div>`;
   wrap.querySelectorAll("button[data-action]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = Number(btn.closest("tr").dataset.id);
-      if (btn.dataset.action === "edit") openExperienceForm(id);
-      else deleteExperience(profileExperience.find((x) => x.id === id));
+      const rowId = btn.closest("tr").dataset.id;
+      const e = profileExperience.find((x) => String(x.id) === rowId);
+      if (btn.dataset.action === "edit") openExperienceForm(e ? e.id : null);
+      else deleteExperience(e);
     });
   });
   syncEntryFormState();
@@ -867,9 +871,10 @@ async function saveLicense() {
 }
 
 function deleteLicense(lic) {
-  const type = lic ? licenseTypes.find((x) => x.id === lic.license_type_id) || null : null;
+  if (!lic) return;
+  const type = licenseTypes.find((x) => x.id === lic.license_type_id) || null;
   const label =
-    lic && (type || lic.number)
+    type || lic.number
       ? `Удалить лицензию${type ? " «" + type.name + "»" : ""}${lic.number ? " №" + lic.number : ""}?`
       : "Удалить лицензию?";
   confirmDialog(label, () => {
@@ -940,7 +945,8 @@ async function saveExperience() {
 }
 
 function deleteExperience(exp) {
-  const label = exp && exp.title ? `Удалить запись опыта «${exp.title}»?` : "Удалить запись опыта?";
+  if (!exp) return;
+  const label = exp.title ? `Удалить запись опыта «${exp.title}»?` : "Удалить запись опыта?";
   confirmDialog(label, () => {
     profileExperience = profileExperience.filter((x) => x.id !== exp.id);
     renderExperience();
