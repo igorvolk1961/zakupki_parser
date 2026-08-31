@@ -150,6 +150,36 @@ async def test_roseltorg_detail_files(app_config: AppConfig, page: Page) -> None
 
 
 @pytest.mark.asyncio
+async def test_fabrikant_commercial_documentation_files(page: Page) -> None:
+    """fabrikant (коммерческие): файлы на вкладке «Документация», имя и URL разделены.
+
+    Регресс: detail.files раньше искал только EIS-ссылки (44-ФЗ), а коммерческие
+    процедуры держат документы на /v2/trades/procedure/documentation/<id> и в другой
+    разметке (имя в td.procedure-document-file span, URL в td.action a.download).
+    Проверяем извлечение по новым name_selector/url_selector.
+    """
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["fabrikant"]
+    await set_html(page, load_fixture("fabrikant_documentation.html"))
+    files = await detail_files(page, platform)
+
+    names = [f["name"] for f in files]
+    expected = {
+        "Анкета_претендента.xlsx",
+        "Заявление_о_добросовестности_контрагента.docx",
+        "Коммерческое_предложение.docx",
+        "Критерии_оценки.docx",
+        "Соглашение_о_конфиденциальности.doc",
+        "Техническое_задание.docx",
+        "Требования_к_участникам.docx",
+    }
+    assert len(files) == 7, f"Ожидалось 7 документов, получено: {names}"
+    assert expected.issubset(set(names)), f"Не найдены: {expected - set(names)}"
+    prefix = "https://fabrikant.ru/v2/trades/procedure/documentation/download/single/"
+    assert all(f["url"].startswith(prefix) for f in files)
+
+
+@pytest.mark.asyncio
 async def test_etpgpb_list_extraction(page: Page) -> None:
     """Верифицированные селекторы etpgpb против реальной HTML-фикстуры."""
     cfg = load_config(REPO_ROOT / "configs")

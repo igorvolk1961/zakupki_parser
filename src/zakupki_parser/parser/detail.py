@@ -110,12 +110,25 @@ async def detail_files(page: Page, platform: PlatformDom) -> list[dict[str, str]
         count = await locators.count()
         for i in range(count):
             element = locators.nth(i)
-            name = (
-                await element.text_content()
-                if not spec.name_attribute
-                else await element.get_attribute(spec.name_attribute)
-            )
-            url = await element.get_attribute(spec.url_attribute)
+            # Имя: либо из отдельного элемента внутри (name_selector), либо из
+            # атрибута (name_attribute), либо из текста самого элемента.
+            if spec.name_selector:
+                name_loc = element.locator(spec.name_selector).first
+                name = await name_loc.text_content() if await name_loc.count() else None
+            else:
+                name = (
+                    await element.text_content()
+                    if not spec.name_attribute
+                    else await element.get_attribute(spec.name_attribute)
+                )
+            # URL: либо из отдельного элемента внутри (url_selector), либо из
+            # атрибута самого элемента (url_attribute, по умолчанию href).
+            url_element = element
+            if spec.url_selector:
+                url_loc = element.locator(spec.url_selector).first
+                if await url_loc.count():
+                    url_element = url_loc
+            url = await url_element.get_attribute(spec.url_attribute)
             if not url:
                 continue
             if url.startswith("/"):

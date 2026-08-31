@@ -48,6 +48,11 @@ class FileSpec(BaseModel):
 
     Имя файла берётся из текста элемента (или атрибута ``name_attribute``),
     URL скачивания с ЭТП — из атрибута ``url_attribute`` (по умолчанию href).
+
+    Для разметки, где имя и URL лежат в РАЗНЫХ элементах (fabrikant: имя в
+    ``td.procedure-document-file span``, URL — в соседней ячейке ``a.download``),
+    задаются относительные ``name_selector``/``url_selector`` (локаторы внутри
+    элемента, найденного по ``selector``).
     """
 
     selector: str
@@ -55,6 +60,20 @@ class FileSpec(BaseModel):
         default=None, description="атрибут с именем файла; None — текст элемента"
     )
     url_attribute: str = Field(default="href", description="атрибут с URL скачивания")
+    name_selector: str | None = Field(
+        default=None,
+        description=(
+            "относительный селектор элемента с именем файла ВНУТРИ элемента, "
+            "найденного по ``selector``; если задан, приоритетнее ``name_attribute``"
+        ),
+    )
+    url_selector: str | None = Field(
+        default=None,
+        description=(
+            "относительный селектор элемента с URL скачивания ВНУТРИ элемента, "
+            "найденного по ``selector``; None — URL берётся из самого элемента"
+        ),
+    )
 
 
 class DetailPageSpec(BaseModel):

@@ -63,10 +63,25 @@ detail:
     - { name: "inn",              selector: "xpath=//*[@data-slot='field-label'][contains(.,'Наименование организации')]/following-sibling::div[@data-slot='field-text']", handler: "regex", handler_arg: "ИНН\\s*(\\d{10,12})", default: null }
     # status — бейдж в шапке «Этапы процедуры» (текущий этап).
     - { name: "status",           selector: "h2:text-is('Этапы процедуры') ~ span[data-slot='badge']", handler: "strip", default: "" }
+  # Коммерческие процедуры: файлы НЕ на детальной странице, а на вкладке «Документация»
+  # (/v2/trades/procedure/documentation/<id>). Переход по ссылке вкладки (сейчас она есть
+  # на детальной странице), после чего detail_files() извлечёт файлы уже с неё.
+  # Для 44-ФЗ ссылки отсутствуют — блок просто пропускается (count == 0).
+  additional_pages:
+    - link_selector: "a[href*='/v2/trades/procedure/documentation/']"
+      variables: []
   files:
-    # Ссылки на файлы — на ЕИС (zakupki.gov.ru filestore), куда уводит fabrikant.
+    # Ссылки на файлы 44-ФЗ — на ЕИС (zakupki.gov.ru filestore), куда уводит fabrikant.
     # ВАЖНО: список документов грузится клиентски — селектор требует верификации.
     - { selector: "a[href*='zakupki.gov.ru/44fz/filestore'], a[href*='zakupki.gov.ru/223fz/filestore']", name_attribute: null, url_attribute: "href" }
+    # Коммерческие: имена и URL в РАЗНЫХ элементах строки документации:
+    #   <tr data-fileIdC> — строка файла; имя в td.procedure-document-file span,
+    #   URL скачивания в соседней ячейке td.action a.download.
+    # name_selector/url_selector — относительные локаторы внутри строки.
+    - selector: "tr[data-fileIdC]"
+      name_selector: "td.procedure-document-file span"
+      url_selector: "td.action a.download"
+      url_attribute: "href"
 
 # ИНН заказчика извлекается прямо с детальной страницы (переменная inn выше),
 # страницу организации открывать не нужно.
