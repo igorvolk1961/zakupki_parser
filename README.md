@@ -9,7 +9,7 @@
 Проект развивается в мультитенантный SaaS «TenderSearch» (по `docs/system_analysis/`):
 per-user аккаунты и профили фильтрации, изоляция данных по `user_id` (BR-07),
 глубокая проверка ТЗ с маркерами, экспорт XLSX, compliance и наблюдаемость.
-Текущее состояние — v0.3.0; целевая модель — в разделе
+Текущее состояние — v0.4.0; целевая модель — в разделе
 [14. Целевая архитектура (TenderSearch)](specification.md#14-целевая-архитектура-tendersearch)
 `specification.md`. Трекер этапов — [plans/plan.md](plans/plan.md); детальные планы —
 `plans/NN_plan.md` (этап 0 — [plans/00_plan.md](plans/00_plan.md)).
