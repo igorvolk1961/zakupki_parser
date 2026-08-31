@@ -15,11 +15,11 @@ def test_clean_text_strips_control_chars() -> None:
     assert clean_text("a\x00b\x08c\td") == "abc d"
 
 
-def test_clean_text_docx_table_becomes_readable_rows() -> None:
-    """Таблица DOCX (GFM, с пустой строкой-заглушкой) → читаемые строки данных.
+def test_clean_text_docx_table_becomes_clean_markdown() -> None:
+    """Таблица DOCX (GFM, с пустой строкой-заглушкой) → корректная GFM-таблица.
 
     MarkItDown отдаёт таблицу с пустой строкой-заглушкой ``|  |  |  |`` вместо
-    заголовка; настоящие заголовки — первая непустая строка.
+    заголовка; настоящие заголовки — первая осмысленная строка.
     """
     md = (
         "# Раздел 1. Требования\n\n"
@@ -34,26 +34,28 @@ def test_clean_text_docx_table_becomes_readable_rows() -> None:
     # Заголовок и текст сохраняются.
     assert "# Раздел 1. Требования" in text
     assert "Обычный текст после таблицы." in text
-    # Разделитель и пустая строка-заглушка убраны.
-    assert "| --- |" not in text
-    assert "|  |  |" not in text
-    # Строки данных стали читаемыми «заголовок: значение».
-    assert "Показатель: Опыт | Значение: 3 года | Комментарий: Подтвердить договорами" in text
-    assert "Показатель: Лицензия | Значение: ФСБ | Комментарий: Гостайна" in text
+    # Пустая строка-заглушка убрана, разделитель ровно один.
+    assert "|  |  |  |" not in text
+    assert text.count("| --- | --- | --- |") == 1
+    # Первая осмысленная строка стала заголовком, строки данных в разметке.
+    assert "| Показатель | Значение | Комментарий |" in text
+    assert "| Опыт | 3 года | Подтвердить договорами |" in text
+    assert "| Лицензия | ФСБ | Гостайна |" in text
 
 
 def test_clean_text_table_with_proper_header() -> None:
     """Таблица с корректным заголовком (первая строка) и без разделителя."""
-    md = "| Имя | Возраст |\n| Иван | 30 |\n| Пётр | 40 |"
+    md = "| Имя | Возраст |\n| --- | --- |\n| Иван | 30 |\n| Пётр | 40 |"
     text = clean_text(md)
-    assert "Имя: Иван | Возраст: 30" in text
-    assert "Имя: Пётр | Возраст: 40" in text
+    assert "| Имя | Возраст |" in text
+    assert "| Иван | 30 |" in text
+    assert "| Пётр | 40 |" in text
 
 
 def test_clean_text_header_only_table() -> None:
     """Таблица только с заголовком («| --- |» без данных) не ломает текст."""
     md = "| A | B |\n| --- | --- |"
-    assert clean_text(md) == "A | B"
+    assert clean_text(md) == "| A | B |\n| --- | --- |"
 
 
 def test_clean_text_single_pipe_line_not_treated_as_table() -> None:

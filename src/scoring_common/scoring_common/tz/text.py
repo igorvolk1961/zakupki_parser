@@ -25,14 +25,14 @@ def _is_dash_row(cells: list[str]) -> bool:
     return bool(cells) and all(bool(c) and _DASH_CELL_RE.fullmatch(c) for c in cells)
 
 
-def _table_to_text(rows: list[str]) -> str:
-    """Преобразовать блок pipe-таблицы в читаемые построчные записи.
+def _table_to_markdown(rows: list[str]) -> str:
+    """Привести блок pipe-таблицы к корректной GFM-таблице.
 
-    MarkItDown отдаёт таблицы DOCX/PDF как GFM-pipe-таблицы (иногда с пустой
-    строкой-заглушкой ``|  |  |`` вместо заголовка столбцов). Чтобы таблица была
-    пригодна и для анализа (чанкер/LLM), и для просмотра, каждая строка данных
-    превращается в ``Заголовок: значение | …`` — самодостаточную строку, которую
-    чанкер может резать построчно без потери смысла.
+    MarkItDown отдаёт таблицы DOCX/PDF как GFM-pipe-таблицы, иногда с пустой
+    строкой-заглушкой ``|  |  |`` и лишним ``| --- |``. Чиним: убираем пустые
+    строки и разделители-заглушки, первой осмысленной строкой делаем заголовок
+    столбцов, а разделитель возвращаем ровно один. Markdown-разметка
+    сохраняется — таблицу можно отрендерить в карточке и прочитать LLM.
     """
     body: list[list[str]] = []
     for cells in (_pipe_cells(r) for r in rows):
@@ -46,18 +46,14 @@ def _table_to_text(rows: list[str]) -> str:
     ncols = max(len(r) for r in body)
     body = [r + [""] * (ncols - len(r)) for r in body]
     header, data_rows = body[0], body[1:]
-    if not data_rows:
-        # Только заголовки — вернём их списком.
-        return " | ".join(c or "—" for c in header)
-    lines: list[str] = []
+    lines = [f"| {' | '.join(header)} |", "| " + " | ".join(["---"] * ncols) + " |"]
     for row in data_rows:
-        parts = [f"{h}: {v}" if h else v for h, v in zip(header, row, strict=True) if (h or v)]
-        lines.append(" | ".join(parts) if parts else " | ".join(v or "—" for v in row))
+        lines.append(f"| {' | '.join(row)} |")
     return "\n".join(lines)
 
 
 def _normalize_tables(text: str) -> str:
-    """Найти блоки GFM-pipe-таблиц и заменить их читаемыми строками.
+    """Найти блоки GFM-pipe-таблиц и привести их к корректной разметке.
 
     Блок — подряд идущие строки вида ``| a | b |``. Таблицей считаем блок из
     ≥2 таких строк, если в нём есть строка-разделитель ``| --- |`` (надёжный
@@ -75,7 +71,7 @@ def _normalize_tables(text: str) -> str:
             block = lines[i:j]
             has_dash = any(_is_dash_row(_pipe_cells(line)) for line in block)
             if len(block) >= 2 and (has_dash or len(block) >= 3):
-                converted = _table_to_text(block)
+                converted = _table_to_markdown(block)
                 if converted:
                     out.append(converted)
                     i = j
@@ -93,9 +89,9 @@ def clean_text(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # Управляющие символы (кроме переноса строки и табуляции).
     text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
-    # GFM-таблицы (MarkItDown docx/pdf) → читаемые построчные записи
-    # «заголовок: значение», чтобы таблицы были анализируемыми и для чанкера,
-    # и для LLM, и для просмотра в карточке (вместо сырых ``| … |``).
+    # GFM-таблицы (MarkItDown docx/pdf) → корректная markdown-разметка таблиц
+    # (без пустых строк-заглушек и лишних разделителей), чтобы таблицы можно
+    # было и отрендерить в карточке, и прочитать чанкеру/LLM.
     text = _normalize_tables(text)
     # Схлопывание пробелов/табов и пустых строк.
     text = re.sub(r"[ \t]+", " ", text)

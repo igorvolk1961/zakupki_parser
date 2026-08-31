@@ -1,9 +1,10 @@
 "use strict";
 
-// Минимальный Markdown-рендерер для предпросмотра промптов (без внешних библиотек).
-// Поддерживает: заголовки, параграфы, списки, код-блоки и инлайн-код,
-// жирный/курсив, ссылки, цитаты и горизонтальную линию. Сначала HTML-экранирует
-// исходник, поэтому рендеринг безопасен (XSS-инъекций не возникает).
+// Минимальный Markdown-рендерер для предпросмотра промптов и просмотра ТЗ
+// (без внешних библиотек). Поддерживает: заголовки, параграфы, списки,
+// код-блоки и инлайн-код, жирный/курсив, ссылки, цитаты, горизонтальную линию
+// и GFM-таблицы (``| a | b |`` с разделителем ``| --- |``). Сначала HTML-
+// экранирует исходник, поэтому рендеринг безопасен (XSS-инъекций нет).
 
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -15,6 +16,39 @@ function inline(s) {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+
+function isPipeRow(s) {
+  return /^\s*\|.*\|\s*$/.test(s);
+}
+
+function pipeCells(s) {
+  return s.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+}
+
+function isSeparatorRow(cells) {
+  return cells.length > 0 && cells.every((c) => /^:?-{2,}:?$/.test(c));
+}
+
+// Собрать из последовательных pipe-строк GFM-таблицу. Возвращает {html, end}
+// либо null, если блок не таблица (нет строки-разделителя после заголовка).
+function renderTable(lines, start) {
+  let i = start;
+  const rows = [];
+  while (i < lines.length && isPipeRow(lines[i])) {
+    rows.push(lines[i]);
+    i++;
+  }
+  const cells = rows.map(pipeCells);
+  const sepIdx = cells.findIndex(isSeparatorRow);
+  if (sepIdx <= 0) return null; // заголовок + разделитель обязательны
+  const header = cells[sepIdx - 1];
+  const data = cells.slice(sepIdx + 1);
+  const headHtml = header.map((c) => `<th>${inline(c)}</th>`).join("");
+  const bodyHtml = data
+    .map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`)
+    .join("");
+  return { html: `<table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table>`, end: i };
 }
 
 export function renderMarkdown(text) {
@@ -38,7 +72,8 @@ export function renderMarkdown(text) {
     }
   };
 
-  for (const raw of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
     if (raw.trim().startsWith("```")) {
       closeList();
       if (inCode) {
@@ -58,6 +93,16 @@ export function renderMarkdown(text) {
     if (!t) {
       closeList();
       continue;
+    }
+    // GFM-таблица — обрабатываем блок строк сразу (может занимать весь абзац).
+    if (isPipeRow(raw.trim())) {
+      const table = renderTable(lines, i);
+      if (table) {
+        closeList();
+        html.push(table.html);
+        i = table.end - 1;
+        continue;
+      }
     }
     const heading = t.match(/^(#{1,6})\s+(.*)$/);
     if (heading) {

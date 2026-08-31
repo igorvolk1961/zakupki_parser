@@ -31,6 +31,22 @@ _HEADING_RE = re.compile(
 # и являются более надёжной границей раздела, чем эвристика по сырому тексту.
 _MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S")
 
+# Строка GFM-таблицы (MarkItDown docx/pdf): начинается с ``|`` и заканчивается ``|``.
+_PIPE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
+# Строка-разделитель заголовка таблицы: ячейки вида ``---``/``:---``/``---:``.
+_TABLE_SEP_RE = re.compile(r"^\s*\|(?:\s*:?-{2,}:?\s*\|)+\s*$")
+
+
+def _is_table_block(text: str) -> bool:
+    """Является ли текст блоком GFM-таблицы (заголовок + разделитель + строки).
+
+    Такой блок нельзя резать по строкам — иначе теряются заголовки столбцов и
+    разметка таблицы, а анализ читает обрывки. Строки данных уходят целиком.
+    """
+    lines = text.splitlines()
+    pipe_rows = [line for line in lines if _PIPE_ROW_RE.match(line)]
+    return len(pipe_rows) >= 2 and any(_TABLE_SEP_RE.match(line) for line in pipe_rows)
+
 
 def _is_heading(line: str) -> bool:
     if not line or not line.strip():
@@ -62,6 +78,12 @@ def _split_by_paragraphs(block: str, max_chars: int) -> list[str]:
             if current:
                 chunks.append("\n\n".join(current))
                 current, current_len = [], 0
+            # Таблицу не режем посередине: отдаём блок целиком (заголовок
+            # столбцов + разделитель + строки данных), иначе анализ читает
+            # обрывки строк без привязки к колонкам.
+            if _is_table_block(para):
+                chunks.append(para)
+                continue
             lines = para.splitlines()
             part: list[str] = []
             part_len = 0

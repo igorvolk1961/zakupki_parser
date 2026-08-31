@@ -96,3 +96,16 @@ def test_markdown_table_is_not_a_heading() -> None:
     chunks = split_tz_sections(text)
     assert len(chunks) == 1
     assert "| Параметр | Значение |" in chunks[0]
+
+
+def test_large_table_kept_in_one_chunk() -> None:
+    """Большая таблица не режется посередине — строки данных уходят целиком."""
+    rows = [f"| Параметр {i} | Значение {i} |" for i in range(60)]
+    text = "# Требования к продукции\n| Параметр | Значение |\n| --- | --- |\n" + "\n".join(rows)
+    chunks = split_tz_sections(text, max_chars=300)
+    # Первый (и единственный с таблицей) чанк содержит таблицу целиком.
+    table_chunks = [c for c in chunks if "| Параметр | Значение |" in c]
+    assert table_chunks
+    # Ни один чанк не разрывает таблицу: разделитель и все строки — в одном чанке.
+    assert all(("| --- | --- |" in c) == ("| Параметр | Значение |" in c) for c in chunks)
+    assert all(("| Параметр 0 |" in c) == ("| Параметр 59 |" in c) for c in chunks)

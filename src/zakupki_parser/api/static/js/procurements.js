@@ -14,6 +14,7 @@ import {
 import { state } from "./store.js";
 import { api, apiJSON } from "./api.js";
 import { hasRole } from "./roles.js";
+import { renderMarkdown } from "./markdown.js";
 
 let allItems = [];
 let selected = new Set();
@@ -471,7 +472,7 @@ async function viewTz(id) {
       <span class="close" onclick="closeTz(${id})">×</span>
       <h2>ТЗ закупки #${id}</h2>
       <p class="muted" style="margin-top:0;">${escapeHtml(r.file_name)}${r.from_archive ? " <span class='pill inactive'>внутри архива</span>" : ""}</p>
-      <pre class="tz-view">${escapeHtml(r.text || "")}</pre>
+      <div class="tz-view md">${renderMarkdown(r.text || "")}</div>
       <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
         <button class="primary" onclick="closeTz(${id})">Закрыть</button>
       </div>`;
