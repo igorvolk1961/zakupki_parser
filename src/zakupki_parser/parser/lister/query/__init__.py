@@ -20,6 +20,11 @@ from datetime import datetime
 
 from zakupki_parser.config.models import PlatformDom, SearchCriteria, SearchFilterConfig
 from zakupki_parser.parser.lister.query.filters_dsl import _filter_dsl_params, _filter_dsl_values
+from zakupki_parser.parser.lister.query.keywords import (
+    MAX_KEYWORD_QUERY_ENC_LEN,
+    keyword_batches,
+    keyword_search_string,
+)
 from zakupki_parser.parser.lister.query.okpd2 import _resolve_okpd2_eis, _resolve_okpd2_ids
 from zakupki_parser.parser.lister.query.values import (
     MSK,
@@ -36,6 +41,7 @@ def build_query(
     cutoff: datetime | None,
     criteria: SearchCriteria | None = None,
     offset: int = 0,
+    keywords: list[str] | None = None,
 ) -> str:
     """Строит строку запроса по конфигурации ``search``.
 
@@ -44,7 +50,10 @@ def build_query(
     уходит либо в ``filter_json`` (по JSON-пути), либо в плоский query-параметр,
     либо в оба места. Не заданные критерии в запрос не попадают. ``offset`` —
     значение плейсхолдера ``{offset}`` в шаблонах ``query_params`` (пагинация
-    take/skip, например mos.ru).
+    take/skip, например mos.ru). ``keywords`` — позитивные слова профиля: если у
+    площадки задан ``search.keyword_query_param``, они собираются в строку
+    ``(фраза) или слово`` и подставляются в этот параметр (серверная предфильтрация,
+    R9; финальная фильтрация по словам остаётся клиентской).
     """
     criteria = criteria or SearchCriteria()
     filter_json = copy.deepcopy(search.filter_json)
@@ -126,6 +135,28 @@ def build_query(
         if mapping.query_param:
             extra_params[mapping.query_param] = _value_to_str(value)
 
+    # Серверная предфильтрация по ключевым словам (R9): если у площадки задан
+    # keyword_query_param и есть позитивные слова, подставляем строку
+    # `(фраза) или слово` (проксимити-выражения приводятся к `(фраза)`, `~N`
+    # убирается). Сервер сужает выдачу до потенциально релевантных закупок;
+    # финальная фильтрация — клиентская (R9).
+    server_keywords = keyword_search_string(keywords or [])
+    if server_keywords and search.keyword_query_param:
+        encoded_len = len(urllib.parse.quote(server_keywords, safe=""))
+        if encoded_len > MAX_KEYWORD_QUERY_ENC_LEN:
+            logger.warning(
+                "Ключевые слова профиля слишком велики для серверной предфильтрации: "
+                "%s=%d симв. после URL-кодирования (порог %d) — параметр %s не подставлен, "
+                "предфильтрация пропущена, фильтрация по словам останется клиентской (R9). "
+                "Задайте меньший набор слов или дробите обход.",
+                search.keyword_query_param,
+                encoded_len,
+                MAX_KEYWORD_QUERY_ENC_LEN,
+                search.keyword_query_param,
+            )
+        else:
+            extra_params[search.keyword_query_param] = server_keywords
+
     filter_json_str = json.dumps(filter_json, ensure_ascii=False, separators=(",", ":"))
     state_json_str = json.dumps(state_json, ensure_ascii=False, separators=(",", ":"))
 
@@ -152,17 +183,19 @@ def build_list_url(
     platform: PlatformDom,
     cutoff: datetime | None = None,
     criteria: SearchCriteria | None = None,
+    keywords: list[str] | None = None,
 ) -> str:
     """Возвращает URL страницы списка.
 
     Если у площадки задан ``search`` (URL-фильтр) и он включён — URL с фильтром;
-    иначе — простой ``list_path`` (для площадок с DOM-фильтрами).
+    иначе — простой ``list_path`` (для площадок с DOM-фильтрами). ``keywords`` —
+    позитивные слова профиля для серверной предфильтрации (см. ``build_query``).
     """
     base = platform.url.rstrip("/") + platform.list_path
     search = platform.search
     if search is None or not search.enabled:
         return base
-    query = build_query(search, cutoff, criteria)
+    query = build_query(search, cutoff, criteria, keywords=keywords)
     return f"{base}?{query}"
 
 
@@ -170,6 +203,8 @@ __all__ = [
     "MSK",
     "build_list_url",
     "build_query",
+    "keyword_batches",
+    "keyword_search_string",
     "_resolve_okpd2_eis",
     "_resolve_okpd2_ids",
 ]

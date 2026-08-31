@@ -19,6 +19,10 @@ from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.circuit import CircuitBreaker
 from zakupki_parser.config.models import AppConfig, PlatformDom, SearchCriteria
 from zakupki_parser.notify import Notifier
+from zakupki_parser.parser.lister.query.keywords import (
+    MAX_KEYWORD_QUERY_ENC_LEN,
+    keyword_batches,
+)
 from zakupki_parser.parser.orchestrator.context import CrawlUnit, ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -53,6 +57,9 @@ class OrchestratorState:
     _by_relevance: bool
     _platform_stats: dict[str, int]
     _normalized_active_statuses: set[str]
+    # Номера закупок, уже обработанных в ТЕКУЩЕМ поисковом обходе (для объединения
+    # нескольких f_keyword-запросов: одна закупка может попасть в несколько батчей).
+    _crawl_seen: set[str] | None = None
 
     # Методы, определённые в других миксинах/базовом классе (типизация).
 
@@ -92,3 +99,40 @@ class OrchestratorState:
         known: int,
     ) -> None:
         raise NotImplementedError
+
+    def _current_keywords(self) -> list[str]:
+        """Позитивные слова текущего обхода (объединение по профилям, без повторов).
+
+        Обход выполняется один раз на группу профилей (дедупликация запросов), поэтому
+        серверная предфильтрация по словам (``keyword_query_param``) строится по
+        объединению слов всех профилей обхода — каждый профиль затем фильтруется
+        клиентски (R9). Пустой список, если обхода нет или слов нет.
+        """
+        if self._current_unit is None:
+            return []
+        seen: set[str] = set()
+        out: list[str] = []
+        for ctx in self._current_unit.profiles:
+            for word in ctx.keywords:
+                key = word.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    out.append(word)
+        return out
+
+    def _keyword_batches(self) -> list[list[str]]:
+        """Слова текущего обхода, разбитые на батчи под лимит длины ``f_keyword``.
+
+        Для серверной предфильтрации (``keyword_query_param``) строка
+        `(фраза) или слово` после URL-кодирования не должна превышать лимит, поэтому
+        слова дробятся на несколько f_keyword-запросов, а результаты объединяются
+        (клиентская фильтрация R9 — поверх, как финальная). Слов нет или
+        ``keyword_query_param`` не задан — один пустой батч (обход без предфильтрации).
+        """
+        search = self._platform.search
+        if not search or not search.keyword_query_param:
+            return [[]]
+        keywords = self._current_keywords()
+        if not keywords:
+            return [[]]
+        return keyword_batches(keywords, MAX_KEYWORD_QUERY_ENC_LEN)

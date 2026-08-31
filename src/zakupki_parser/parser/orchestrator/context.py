@@ -35,5 +35,5 @@ class CrawlUnit:
     """
 
     criteria: SearchCriteria
-    kind: Literal["codes", "no_code"]
+    kind: Literal["codes", "no_code", "keywords"]
     profiles: list[ProfileRunContext] = field(default_factory=list)

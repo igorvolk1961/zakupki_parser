@@ -132,6 +132,19 @@ class Orchestrator(
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
         number = list_vars.get("number")
 
+        # Объединение нескольких f_keyword-запросов (R9): одна закупка может попасть
+        # в несколько батчей слов — повторную обработку пропускаем, чтобы не дособирать
+        # детали/не перезаписывать оценку. В множество заносим только фактически
+        # обрабатываемые записи (после наличия ссылки на детали).
+        if self._crawl_seen is not None and number is not None:
+            number_key = str(number)
+            if number_key in self._crawl_seen:
+                logger.info(
+                    "Закупка %s уже обработана в этом обходе (другая партия слов) — пропуск",
+                    number,
+                )
+                return True, number, False
+
         # Оптимизация повторного прохода: закупка уже в БД — детальную страницу
         # не открываем (upsert не обновляет известные записи, поведение не меняется).
         # Для мультипрофильного прохода пропуск невозможен: запись нужна каждому
@@ -153,6 +166,8 @@ class Orchestrator(
         # Дальше _process_list_record трактует отсутствие номера как критическую ошибку
         # (запись не пишется в БД). Запасных источников (URL деталей) не используем.
 
+        if self._crawl_seen is not None and number is not None:
+            self._crawl_seen.add(str(number))
         return await self._process_list_record(page, list_vars, detail_url, number)
 
     async def run(
@@ -214,10 +229,15 @@ class Orchestrator(
             # каждый профиль получил запись и сформировал собственную оценку.
             self._profile_ctxs = unit.profiles
             scope = "коды ОКПД2: %s" % (unit.criteria.okpd_codes or "весь список")
+            kind_label = {
+                "codes": "по кодам",
+                "no_code": "«без кода»",
+                "keywords": "по ключевым словам",
+            }.get(unit.kind, unit.kind)
             logger.info(
                 "Площадка %s: обход %s (%s), профилей в обходе: %d",
                 self._platform_id,
-                "«без кода»" if unit.kind == "no_code" else "по кодам",
+                kind_label,
                 scope,
                 len(unit.profiles),
             )
@@ -314,6 +334,7 @@ class Orchestrator(
         search = self._platform.search
         sc = self._cfg.service.search_criteria
         okpd_mapped = bool(search and "okpd2" in (search.criteria_map or {}))
+        keyword_mapped = bool(search and search.keyword_query_param)
 
         if not run_profiles:
             # Без профилей (dev/тесты) — единый обход по глобальным критериям конфига.
@@ -329,7 +350,7 @@ class Orchestrator(
         def _emit(
             key: tuple[Any, ...],
             criteria: SearchCriteria,
-            kind: Literal["codes", "no_code"],
+            kind: Literal["codes", "no_code", "keywords"],
             ctx: ProfileRunContext,
         ) -> None:
             nonlocal unique
@@ -348,8 +369,25 @@ class Orchestrator(
             )
             if base.okpd_codes and okpd_mapped:
                 _emit(self._criteria_units_key(base, "codes"), base, "codes", ctx)
-            # Обход «без кода» (R9): отдельный проход по всему реестру площадки.
             has_positive = bool(ctx.keywords)
+            if keyword_mapped:
+                # Серверная предфильтрация по словам (площадка с keyword_query_param,
+                # например b2b-center): обход по позитивным словам профиля. Заменяет
+                # обход «без кода» — сервер сужает выдачу, клиентская фильтрация R9
+                # остаётся финальной. Если ОКПД2 на площадке не подключён, коды не
+                # передаются (они и так не применяются сервером).
+                if has_positive:
+                    kw_criteria = base
+                    if base.okpd_codes and not okpd_mapped:
+                        kw_criteria = base.model_copy(update={"okpd_codes": []})
+                    _emit(
+                        self._criteria_units_key(kw_criteria, "keywords"),
+                        kw_criteria,
+                        "keywords",
+                        ctx,
+                    )
+                continue
+            # Обход «без кода» (R9): отдельный проход по всему реестру площадки.
             no_code_ok = has_positive and search is not None and sc.no_code_search
             if has_positive and not no_code_ok:
                 logger.info(

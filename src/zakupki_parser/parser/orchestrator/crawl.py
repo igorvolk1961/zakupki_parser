@@ -45,15 +45,48 @@ class CrawlMixin(OrchestratorState):
         by_relevance: bool,
         retry_cfg: RetryConfig,
     ) -> None:
-        """Обход страниц и записей для одного поискового запроса."""
+        """Обход страниц и записей для одного поискового запроса.
+
+        Для площадок с серверной предфильтрацией по словам (``keyword_query_param``)
+        ключевые слова дробятся на несколько ``f_keyword``-запросов (батчи) и результаты
+        объединяются: закупка, попавшая в несколько батчей, обрабатывается один раз
+        (``_crawl_seen``); финальная фильтрация по словам — клиентская (R9).
+        """
         search = self._platform.search
         if search is not None and search.api_endpoint:
             # Список читается из JSON API площадки (etpgpb): SSR-страница всегда
             # рендерит базовую выдачу, фильтрует только API после гидрации SPA.
             await self._crawl_api(page, cutoff, criteria, retry_cfg)
             return
+        # Объединение нескольких f_keyword-запросов: одна закупка может попасть в
+        # несколько батчей слов, обрабатываем её только один раз.
+        self._crawl_seen = set()
+        total_received = total_saved = total_known = 0
+        for batch in self._keyword_batches():
+            received, saved, known = await self._crawl_dom(
+                page, cutoff, criteria, by_relevance, retry_cfg, batch
+            )
+            total_received += received
+            total_saved += saved
+            total_known += known
+        self._log_crawl_summary(criteria, total_received, total_saved, total_known)
+
+    async def _crawl_dom(
+        self,
+        page: Page,
+        cutoff: datetime | None,
+        criteria: SearchCriteria,
+        by_relevance: bool,
+        retry_cfg: RetryConfig,
+        keywords: list[str] | None = None,
+    ) -> tuple[int, int, int]:
+        """Обход страниц списка для ОДНОГО поискового запроса (или батча слов).
+
+        Возвращает ``(получено, сохранено, уже было в БД)`` — итоговую сводку по всем
+        батчам агрегирует ``_crawl``.
+        """
         await run_with_retry(
-            lambda: open_list_page(page, self._platform, cutoff, criteria),
+            lambda: open_list_page(page, self._platform, cutoff, criteria, keywords=keywords),
             retry=retry_cfg,
             circuit=self._site_cb,
             label="Открытие списка",
@@ -79,7 +112,7 @@ class CrawlMixin(OrchestratorState):
                         db_total,
                         search_total,
                     )
-                    return
+                    return 0, 0, 0
 
         # Защита от вечного цикла пагинации (например, когда селектор next_page
         # присутствует и на последней странице): жёсткий потолок числа страниц.
@@ -207,7 +240,7 @@ class CrawlMixin(OrchestratorState):
                 break
             await self._delayer.sleep()
 
-        self._log_crawl_summary(criteria, crawl_received, crawl_saved, crawl_known)
+        return crawl_received, crawl_saved, crawl_known
 
     async def _crawl_api(
         self,
@@ -229,7 +262,9 @@ class CrawlMixin(OrchestratorState):
         search = self._platform.search
         assert search is not None, "API-обход требует search-конфига площадки"
         page_size = lc.page_size
-        url = build_api_list_url(self._platform, criteria, offset=0)
+        url = build_api_list_url(
+            self._platform, criteria, offset=0, keywords=self._current_keywords()
+        )
         page_index = 0
         # Жёсткий потолок числа страниц (защита от вечного цикла).
         max_pages = self._cfg.parser.max_list_pages or 0
@@ -362,7 +397,12 @@ class CrawlMixin(OrchestratorState):
             page_index += 1
             if search.api_offset_param:
                 step = search.api_offset_step or 1
-                url = build_api_list_url(self._platform, criteria, offset=page_index * step)
+                url = build_api_list_url(
+                    self._platform,
+                    criteria,
+                    offset=page_index * step,
+                    keywords=self._current_keywords(),
+                )
             else:
                 page_param = lc.page_param or "page"
                 step = search.api_offset_step or 1

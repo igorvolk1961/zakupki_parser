@@ -31,8 +31,9 @@ async def open_list_page(
     platform: PlatformDom,
     cutoff: datetime | None = None,
     criteria: SearchCriteria | None = None,
+    keywords: list[str] | None = None,
 ) -> None:
-    url = build_list_url(platform, cutoff, criteria)
+    url = build_list_url(platform, cutoff, criteria, keywords=keywords)
     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
     # networkidle на этой SPA не наступает (аналитика/чат), ждём фиксированно.
     await page.wait_for_timeout(SETTLE_MS)

@@ -658,6 +658,25 @@ requirements:
       - tests/integration/test_extractor.py
       - tests/integration/test_api.py
 
+  - id: FR-2.9
+    type: FR
+    title: Серверная предфильтрация по ключевым словам (R9, f_keyword)
+    stakeholder: Тендеролог (user)
+    stage: "3"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/zakupki_parser/parser/lister/query/keywords.py
+      - src/zakupki_parser/parser/lister/query/__init__.py#build_query
+      - src/zakupki_parser/parser/lister/page.py#open_list_page
+      - src/zakupki_parser/parser/lister/api/url.py#build_api_list_url
+      - src/zakupki_parser/parser/orchestrator/crawl.py#_crawl
+      - src/zakupki_parser/parser/orchestrator/state.py#_keyword_batches
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#_build_units
+      - src/zakupki_parser/config/models/dom/search.py
+    tests:
+      - tests/unit/test_keyword_filter.py
+
   - id: FR-3.1
     type: FR
     title: Постадийные уведомления (fit/pwin/margin)

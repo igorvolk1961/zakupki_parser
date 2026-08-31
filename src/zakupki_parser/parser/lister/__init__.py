@@ -17,6 +17,8 @@ from zakupki_parser.parser.lister.query import (
     _resolve_okpd2_ids,
     build_list_url,
     build_query,
+    keyword_batches,
+    keyword_search_string,
 )
 
 __all__ = [
@@ -24,6 +26,8 @@ __all__ = [
     "MSK",
     "build_query",
     "build_list_url",
+    "keyword_batches",
+    "keyword_search_string",
     "open_list_page",
     "setup_sort_and_filters",
     "list_containers",
