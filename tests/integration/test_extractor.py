@@ -257,6 +257,26 @@ async def test_eis_documents_files(app_config: AppConfig, page: Page) -> None:
 
 
 @pytest.mark.asyncio
+async def test_eis_223_documents_files(app_config: AppConfig, page: Page) -> None:
+    """223-ФЗ: файлы на notice223/documents.html, доступны по вкладке «Документы».
+
+    Регресс: у 223-ФЗ не был задан ни files_page, ни files_page_link — парсер оставался
+    на common-info.html (там файлов нет) и не извлекал приложения. Подстраницы 223-ФЗ
+    не принимают только regNumber (400/500), поэтому переход выполняется по href
+    вкладки (files_page_link), несущей purchaseNoticeNumber/noticeGuid. Здесь проверено
+    извлечение 5 файлов a[href*='filestore/public/'] (223/filestore ...).
+    """
+    await set_html(page, load_fixture("eis_223_documents.html"))
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["zakupki_gov_223fz"]
+    files = await detail_files(page, platform)
+    assert files, "Должны быть найдены файлы на notice223/documents.html"
+    assert len(files) == 5, f"Ожидалось 5 файлов, получено: {len(files)}"
+    assert all(f["name"] for f in files), "У каждого файла должно быть имя"
+    assert all(f["url"].startswith("https://zakupki.gov.ru/223/filestore/public/") for f in files)
+
+
+@pytest.mark.asyncio
 async def test_eis_223_extraction(app_config: AppConfig, page: Page) -> None:
     await set_html(page, load_fixture("eis_list_223.html"))
     platform = app_config.dom.platforms["zakupki_gov"]

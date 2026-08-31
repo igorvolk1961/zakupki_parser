@@ -37,10 +37,15 @@ detail:
     - link_selector: "a[href*='lot-list.html']"
       variables:
         - { name: "okpd2_code", selector: "table.table.mb-0 td:nth-child(4)", handler: "regex", handler_arg: "(?<![,\\d])(\\d{2}(?:\\.\\d{1,4})*)", default: null }
-  # Файлы 223-ФЗ — путь notice223/documents.html (отличается от 44-ФЗ); TODO:
-  # проверить селектор и страницу документов при верификации.
+  # Файлы 223-ФЗ — страница notice223/documents.html. Список файлов серверный
+  # (проверено 2026-08-31 на рег.Nr 32616334071, 5 файлов a[href*='filestore/public/']
+  # с URL 223/filestore/...). Подстраницы 223-ФЗ (documents/lot-list) не принимают
+  # только regNumber — нужны purchaseNoticeNumber/noticeGuid, которые есть в href
+  # вкладки «Документы» на карточке. Поэтому НЕ files_page (замена имени файла даёт
+  # ?regNumber и отдаёт 400/500), а files_page_link — переход по ссылке вкладки.
   files:
     - { selector: "a[href*='filestore/public/']", name_attribute: null, url_attribute: "href" }
+  files_page_link: "a[href*='/notice223/documents.html']"
 
 # Сортировка: фиксированный порядок — по дате обновления по убыванию
 sort:
