@@ -67,9 +67,11 @@ _TZ_REF_MAX_ENTRIES = 2048
 # Максимум записей в кэше resolve_tz_content (пары ref+text соответственных карточек).
 _TZ_RESOLVE_MAX_ENTRIES = 1024
 
-# Кэш текста: ключ (url#inner, имя файла) -> (время вставки, текст | None).
-# Кэшируется и неуспех (None), чтобы временная недоступность ЭТП не вызывала
-# повторных скачиваний при каждом запросе. OrderedDict — порядок для LRU-эвикции.
+# Кэш текста: ключ (url#inner, имя файла) -> (время вставки, текст).
+# Хранятся только успешно извлечённые тексты. Неуспех (None) транзиентен или
+# чиним (сбой конвертера/OCR, баг вроде имени без расширения) — кэш «на час»
+# замазал бы исправление, поэтому неуспех не кэшируется и перепробуется.
+# OrderedDict — порядок для LRU-эвикции.
 _tz_text_cache: OrderedDict[tuple[str, str], tuple[float, str | None]] = OrderedDict()
 # Кэш найденного файла ТЗ: ключ — сигнатура files_json (name, url) -> (время, FileRef|None).
 # Покрывает листинг архивов: при тёплом кэше архивы повторно не скачиваются.
@@ -168,11 +170,12 @@ def extract_text_cached(
     ttl: float = _TZ_TEXT_TTL_SECONDS,
     verify_ssl: bool = True,
 ) -> str | None:
-    """``extract_text`` с TTL-кэшем: повторно файл не скачивается/не извлекается.
+    """``extract_text`` с TTL-кэшем: успешно извлечённый текст не переизвлекается.
 
     Ключ — ``(ref.url, ref.name)``: для записей внутри архива ``ref.url`` уже
     содержит ``#внутренний_путь``, так что разные записи одного zip не мешают
-    друг другу. Кэшируется и ``None`` (файл не скачался/текст не извлёкся).
+    друг другу. Кэшируется только успех: неуспех (``None``) не кэшируется и
+    перепробуется при следующем обращении (транзиентный/чинимый случай).
     Кэш ограничен: LRU по числу записей + суммарный бюджет символов; очень
     большие тексты (``_TZ_TEXT_MAX_CHARS_PER_ENTRY``) отдаются, но не кэшируются.
     """
@@ -185,7 +188,12 @@ def extract_text_cached(
             _tz_text_cache.move_to_end(key)
             return cached[1]
     text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
-    if text is not None and len(text) > _TZ_TEXT_MAX_CHARS_PER_ENTRY:
+    if text is None:
+        # Неуспех извлечения не кэшируем: он бывает транзиентным (сбой конвертера,
+        # битый файл) либо чинимым (правка конвертера/OCR) — кэш «на час» замазал бы
+        # исправление. Следующее обращение перепробует файл заново.
+        return None
+    if len(text) > _TZ_TEXT_MAX_CHARS_PER_ENTRY:
         return text  # слишком большой текст кэшировать не будем (безопасность памяти)
     with _tz_text_lock:
         _tz_text_cache[key] = (time.monotonic(), text)
@@ -258,9 +266,12 @@ def resolve_tz_content_cached(
     ttl: float = _TZ_TEXT_TTL_SECONDS,
     verify_ssl: bool = True,
 ) -> tuple[FileRef | None, str | None]:
-    """``resolve_tz_content`` с TTL-кэшем: карточка повторно не скачивается.
+    """``resolve_tz_content`` с TTL-кэшем: стабильный итог не пересчитывается.
 
-    Ключ — сигнатура ``files_json``. Кэшируется итог (ref + текст), в т.ч. ``None``.
+    Ключ — сигнатура ``files_json``. Кэшируется либо «файл не найден» (список
+    файлов за час не меняется), либо успешно извлечённый текст. Случай «файл
+    найден, но текст не извлечён» НЕ кэшируется — он транзиентный/чинимый, и
+    повторное открытие карточки перепробует файл заново.
     """
     key = _record_signature(record)
     now = time.monotonic()
@@ -270,10 +281,13 @@ def resolve_tz_content_cached(
             _tz_resolve_cache.move_to_end(key)
             return cached[1], cached[2]
     ref, text = resolve_tz_content(record, timeout=timeout, verify_ssl=verify_ssl)
-    with _tz_text_lock:
-        _tz_resolve_cache[key] = (time.monotonic(), ref, text)
-        _tz_resolve_cache.move_to_end(key)
-        _prune_tz_resolve_cache(time.monotonic(), ttl=ttl)
+    # Кэшируем только стабильный итог: файл не найден (None, None) или успех.
+    # «(ref, None)» (файл найден, текст не извлечён) не кэшируем и перепробуем.
+    if ref is None or text:
+        with _tz_text_lock:
+            _tz_resolve_cache[key] = (time.monotonic(), ref, text)
+            _tz_resolve_cache.move_to_end(key)
+            _prune_tz_resolve_cache(time.monotonic(), ttl=ttl)
     return ref, text
 
 

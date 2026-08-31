@@ -9,6 +9,7 @@ from scoring_common.tz import (
     clear_tz_text_cache,
     extract_text_cached,
     find_tz_reference_cached,
+    resolve_tz_content_cached,
 )
 from scoring_common.tz.files import FileRef
 
@@ -55,8 +56,8 @@ def test_extract_text_cached_archive_members_are_distinct(monkeypatch) -> None:
         clear_tz_text_cache()
 
 
-def test_extract_text_cached_caches_none(monkeypatch) -> None:
-    """Неуспех (None) тоже кэшируется: повторно файл не скачивается."""
+def test_extract_text_cached_does_not_cache_failure(monkeypatch) -> None:
+    """Неуспех извлечения (None) НЕ кэшируется: следующий запрос пробует заново."""
     clear_tz_text_cache()
     calls: list[tuple[str, str]] = []
 
@@ -69,7 +70,55 @@ def test_extract_text_cached_caches_none(monkeypatch) -> None:
     try:
         assert extract_text_cached(ref) is None
         assert extract_text_cached(ref) is None
-        assert calls == [("http://x/tz.pdf", "ТЗ.pdf")]
+        # Каждый вызов перепробует файл (неуспех не попал в кэш).
+        assert len(calls) == 2
+        assert (ref.url, ref.name) not in tz._tz_text_cache
+    finally:
+        clear_tz_text_cache()
+
+
+def test_extract_text_cached_recovers_after_fix(monkeypatch) -> None:
+    """Неуспех не «залипает»: после починки конвертера текст извлекается сразу."""
+    clear_tz_text_cache()
+    state = {"ok": False}
+
+    def flaky_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+        return "извлечённый текст" if state["ok"] else None
+
+    monkeypatch.setattr("scoring_common.tz.extract_text", flaky_extract)
+    ref = FileRef("Техническое задание", "http://x/tz")
+    try:
+        assert extract_text_cached(ref) is None
+        state["ok"] = True  # «фикс» конвертера/OCR
+        assert extract_text_cached(ref) == "извлечённый текст"
+    finally:
+        clear_tz_text_cache()
+
+
+def test_resolve_tz_content_cached_does_not_cache_found_but_not_extracted(
+    monkeypatch,
+) -> None:
+    """«Файл найден, но текст не извлечён» не кэшируется — итог перепробуется."""
+    clear_tz_text_cache()
+    extract_calls: list[int] = []
+    record = {"files_json": [{"name": "Техническое задание", "url": "http://x/tz"}]}
+    ref = FileRef("Техническое задание", "http://x/tz")
+
+    monkeypatch.setattr(
+        "scoring_common.tz.find_tz_reference",
+        lambda rec, timeout=30.0, verify_ssl=True: ref,
+    )
+
+    def failing_extract(r: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+        extract_calls.append(1)
+        return None
+
+    monkeypatch.setattr("scoring_common.tz.extract_text", failing_extract)
+    try:
+        assert resolve_tz_content_cached(record) == (ref, None)
+        assert resolve_tz_content_cached(record) == (ref, None)
+        assert len(extract_calls) == 2  # неуспех перепробуется, а не из кэша
+        assert len(tz._tz_resolve_cache) == 0
     finally:
         clear_tz_text_cache()
 

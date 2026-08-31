@@ -598,6 +598,7 @@ requirements:
       - src/scoring_service/tests/test_evaluate_compare.py
       - src/scoring_common/tests/test_archives.py
       - src/scoring_common/tests/test_extractors.py
+      - src/scoring_common/tests/test_text.py
       - src/scoring_common/tests/test_tz_cache.py
   - id: FR-2.5
     type: FR

@@ -58,3 +58,45 @@ def test_decode_doc_falls_back_to_catdoc(monkeypatch) -> None:
         lambda argv, **kwargs: SimpleNamespace(stdout="текст из catdoc".encode()),
     )
     assert _decode(b"some-doc-bytes", "описание.doc") == "текст из catdoc"
+
+
+def test_decode_detects_docx_by_signature(monkeypatch) -> None:
+    """Имя без расширения (Росэлторг «Техническое задание») → docx по байтам PK.
+
+    ZIP/OOXML-байты читаются как .docx, даже если расширения в имени нет.
+    """
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(extractors, "_extract_docx", lambda raw: f"docx:{raw!r}")
+    assert _decode(b"PK\x03\x04...", "Техническое задание") == "docx:b'PK\\x03\\x04...'"
+
+
+def test_decode_detects_pdf_by_signature(monkeypatch) -> None:
+    """Имя без расширения → PDF по сигнатуре %PDF."""
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(extractors, "_extract_pdf", lambda raw: f"pdf:{raw!r}")
+    assert _decode(b"%PDF-1.7", "Техническое задание") == "pdf:b'%PDF-1.7'"
+
+
+def test_decode_detects_doc_by_signature(monkeypatch) -> None:
+    """Имя без расширения → легаси .doc по OLE2-сигнатуре D0CF11E0."""
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(extractors, "_extract_doc", lambda raw: f"doc:{raw!r}")
+    assert _decode(b"\xd0\xcf\x11\xe0", "Техническое задание") == "doc:b'\\xd0\\xcf\\x11\\xe0'"
+
+
+def test_decode_extension_takes_precedence_over_signature(monkeypatch) -> None:
+    """Явное расширение используется до эвристики по содержимому."""
+    from scoring_common.tz import extractors
+
+    # Тот же документ, но с расширением .pdf — должен уйти в pdf, а не в docx.
+    monkeypatch.setattr(extractors, "_extract_pdf", lambda raw: "pdf-branch")
+    monkeypatch.setattr(extractors, "_extract_docx", lambda raw: "docx-branch")
+    assert _decode(b"PK\x03\x04", "Техническое задание.pdf") == "pdf-branch"
+
+
+def test_decode_unknown_signature_falls_back_to_plain() -> None:
+    """Произвольные байты без расширения читаются как plain-text (cp1251)."""
+    assert _decode("текст закупки".encode("cp1251"), "Техническое задание") == "текст закупки"
