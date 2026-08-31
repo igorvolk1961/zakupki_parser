@@ -61,6 +61,9 @@ sort:
   option_text: null
 search:
   enabled: true
+  # Формат даты порога для start_date_published (dd.mm.yy — проверено на живом
+  # сайте: сервер фильтрует выдачу по дате публикации).
+  date_great_equal_format: "%d.%m.%y"
   query_params:
     sale: "1"
     currency: "all"
@@ -68,6 +71,8 @@ search:
     # ОКПД2 -> okpd2[] (повторяемые параметры с пустыми скобками, PHP-стиль;
     # префиксный матчинг кода — например okpd2[]=62.02).
     okpd2:    { raw_array_flat: "okpd2[]" }
+    # Дата публикации от порога (cutoff) -> start_date_published (формат dd.mm.yy).
+    publish_date: { query_param: "start_date_published" }
     # active_only -> статусы процедур status[] (см. roseltorg_44fz: значения и
     # «активные» проверены на живом сайте).
     active_only: { raw_array_flat: "status[]" }
