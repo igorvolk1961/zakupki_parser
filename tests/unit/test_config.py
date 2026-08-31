@@ -84,7 +84,7 @@ def test_roseltorg_number_card_regex_both_formats() -> None:
         platform = platforms[platform_id]
         number_var = next(v for v in platform.list_config.variables if v.name == "number")
         arg = number_var.handler_arg
-        assert arg == r"(COM\d{10,}|SP\d{8,}|\d{10,})", platform_id
+        assert arg == r"(B\d{10,}|COM\d{10,}|SP\d{8,}|\d{10,})", platform_id
         # 223-ФЗ/коммерческие: 11 цифр, COM- и SP-префиксы; 44-ФЗ: 19 цифр.
         m1 = re.search(arg, "32616082276\n(Лот 1)")
         assert m1 is not None
@@ -98,6 +98,9 @@ def test_roseltorg_number_card_regex_both_formats() -> None:
         m4 = re.search(arg, "SP10212041 (Лот 1)")
         assert m4 is not None
         assert m4.group(1) == "SP10212041"
+        m5 = re.search(arg, "B0308261802236 (Лот 1)")
+        assert m5 is not None
+        assert m5.group(1) == "B0308261802236"
 
 
 def test_roseltorg_44fz_config_complete() -> None:

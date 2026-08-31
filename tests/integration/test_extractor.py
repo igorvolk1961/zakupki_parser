@@ -125,6 +125,31 @@ async def test_detail_files_expand_full_list(app_config: AppConfig, page: Page) 
 
 
 @pytest.mark.asyncio
+async def test_roseltorg_detail_files(app_config: AppConfig, page: Page) -> None:
+    """roseltorg: приложения к извещению берутся из блока #documents.
+
+    Регресс: конфиг раньше имел detail.files: [] и файлы не извлекались, хотя
+    ссылки <a class="lot-docs__file" href="https://business.roseltorg.ru/...">
+    присутствуют в HTML. Проверяем имена и абсолютные URL (поддомен business.ru
+    сохраняется как есть).
+    """
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["roseltorg_223fz"]
+    await set_html(page, load_fixture("roseltorg_detail.html"))
+    files = await detail_files(page, platform)
+
+    assert files, "Должны быть найдены приложения к извещению (detail.files)"
+    names = [f["name"] for f in files]
+    assert "Мобильное_приложение_с_виртуальным_компаньоном 03.08.docx" in names
+    assert "356_МЦ 03.08.docx" in names
+    assert "[B0308261802236] Лот №1" in names
+    # Все ссылки абсолютные на поддомен business.roseltorg.ru — не должны обрезаться.
+    prefix = "https://business.roseltorg.ru/api/v1/documents/"
+    assert all(f["url"].startswith(prefix) for f in files)
+    assert all(f["name"] for f in files), "У каждого файла должно быть имя"
+
+
+@pytest.mark.asyncio
 async def test_etpgpb_list_extraction(page: Page) -> None:
     """Верифицированные селекторы etpgpb против реальной HTML-фикстуры."""
     cfg = load_config(REPO_ROOT / "configs")
