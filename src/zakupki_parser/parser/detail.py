@@ -73,6 +73,30 @@ async def extract_detail_vars(page: Page, platform: PlatformDom) -> dict[str, An
     return await extract_from_scope(page, platform.detail.variables)
 
 
+async def _goto_files_page_link(page: Page, platform: PlatformDom) -> None:
+    """Переходит по ссылке на страницу файлов (вкладка «Документация» и т.п.).
+
+    Нужно для площадок, где файлы лежат не на детальной странице и не выводятся из
+    URL детальной (как ``files_page``), а на отдельной подстранице, на которую ведёт
+    ссылка с детальной. Отсутствие ссылки или сбой перехода не прерывают извлечение.
+    """
+    selector = platform.detail.files_page_link
+    if not selector:
+        return
+    link = page.locator(selector).first
+    try:
+        if await link.count() == 0:
+            return
+        href = await link.get_attribute("href")
+        if not href:
+            return
+        page_url = href if href.startswith("http") else platform.url.rstrip("/") + href
+        await page.goto(page_url, wait_until="domcontentloaded", timeout=45000)
+        await page.wait_for_timeout(3000)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Страница файлов по ссылке не открылась (%s): %s", selector, exc)
+
+
 async def _expand_files(page: Page, platform: PlatformDom) -> None:
     """Раскрывает полный список документов, если есть кнопка «Смотреть все документы».
 
@@ -204,6 +228,9 @@ async def extract_details(
             await page.wait_for_timeout(3000)
         except Exception as exc:  # noqa: BLE001
             logger.debug("Страница файлов не открылась (%s): %s", files_page, exc)
+    # Часть площадок держит файлы на отдельной подстранице (таб «Документация» и т.п.),
+    # на которую ведёт ссылка с детальной страницы — переход по ней перед извлечением.
+    await _goto_files_page_link(page, platform)
     files = await detail_files(page, platform)
     inn = await resolve_inn(page, platform, customer_link)
     return detail_vars, files, inn

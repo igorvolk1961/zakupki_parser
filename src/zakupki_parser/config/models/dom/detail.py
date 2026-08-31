@@ -38,6 +38,15 @@ class DomDetailConfig(BaseModel):
             "файлы извлекаются с неё (URL = детальный URL с заменой имени html-файла)"
         ),
     )
+    files_page_link: str | None = Field(
+        default=None,
+        description=(
+            "CSS-селектор ссылки на страницу файлов (вкладка «Документация» и т.п.); "
+            "переход выполняется после извлечения переменных, перед извлечением файлов. "
+            "Отличается от ``files_page`` тем, что URL берётся из href ссылки на "
+            "детальной странице, а не выводится заменой имени html-файла"
+        ),
+    )
     additional_pages: list[DetailPageSpec] = Field(
         default_factory=list,
         description="доп. страницы деталей (переход по ссылке с детальной страницы)",

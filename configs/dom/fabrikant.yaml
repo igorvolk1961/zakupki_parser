@@ -64,12 +64,10 @@ detail:
     # status — бейдж в шапке «Этапы процедуры» (текущий этап).
     - { name: "status",           selector: "h2:text-is('Этапы процедуры') ~ span[data-slot='badge']", handler: "strip", default: "" }
   # Коммерческие процедуры: файлы НЕ на детальной странице, а на вкладке «Документация»
-  # (/v2/trades/procedure/documentation/<id>). Переход по ссылке вкладки (сейчас она есть
-  # на детальной странице), после чего detail_files() извлечёт файлы уже с неё.
-  # Для 44-ФЗ ссылки отсутствуют — блок просто пропускается (count == 0).
-  additional_pages:
-    - link_selector: "a[href*='/v2/trades/procedure/documentation/']"
-      variables: []
+  # (/v2/trades/procedure/documentation/<id>). Переход по ссылке вкладки (она есть на
+  # детальной странице), после чего detail_files() извлечёт файлы уже с неё.
+  # Для 44-ФЗ ссылки отсутствуют — переход просто пропускается, файлы берутся с ЕИС.
+  files_page_link: "a[href*='/v2/trades/procedure/documentation/']"
   files:
     # Ссылки на файлы 44-ФЗ — на ЕИС (zakupki.gov.ru filestore), куда уводит fabrikant.
     # ВАЖНО: список документов грузится клиентски — селектор требует верификации.
