@@ -82,12 +82,12 @@ class AnalysisWorker:
             facts = (client or {}).get("facts")
             if isinstance(facts, dict):
                 return {
-                    "license_codes": list(facts.get("license_codes") or []),
+                    "license_names": list(facts.get("license_names") or []),
                     "experience_codes": list(facts.get("experience_codes") or []),
                 }
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             logger.warning("Не удалось получить факты профиля: %s", exc)
-        return {"license_codes": [], "experience_codes": []}
+        return {"license_names": [], "experience_codes": []}
 
     async def _process_once(self) -> None:
         job = await self._queue.pop_job()

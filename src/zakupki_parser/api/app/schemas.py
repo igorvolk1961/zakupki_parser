@@ -301,12 +301,13 @@ class ExperienceIn(BaseModel):
 
 
 class ProfileFactsOut(BaseModel):
-    """Факты профиля для Stage B анализа ТЗ (лицензии, подтверждённый опыт).
+    """Факты профиля для Stage B анализа ТЗ (виды лицензий, подтверждённый опыт).
 
     Лёгкий срез для сопоставления с фактами ТЗ; профиль в промпт RAG не попадает.
+    Виды лицензий — наименования (``license_types.name``), а не коды.
     """
 
-    license_codes: list[str]
+    license_names: list[str]
     experience_codes: list[str]
 
 
@@ -387,12 +388,11 @@ class ProfileListOut(BaseModel):
 
 
 class LicenseTypeOut(BaseModel):
-    """Справочник типов лицензий (сид — набор для ИТ-компании)."""
+    """Справочник видов лицензий (сид — docs/references/licenze_kind.md)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    code: str
     name: str
 
 
@@ -456,10 +456,9 @@ class ExperienceListOut(BaseModel):
 
 
 class LicenseTypeIn(BaseModel):
-    """Создание/обновление типа лицензии (админ-страница «Справочники»)."""
+    """Создание/обновление вида лицензии (админ-страница «Справочники»)."""
 
-    code: str = Field(min_length=1, max_length=32)
-    name: str = Field(min_length=1, max_length=256)
+    name: str = Field(min_length=1, max_length=512)
     sort_order: int = 0
 
 

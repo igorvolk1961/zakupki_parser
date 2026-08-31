@@ -38,7 +38,7 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
     # Пользовательские вопросы не передаём: обязательные проверки (опыт 2571,
     # реестр Минпромторга, лицензии/СРО) выполняются автоматически.
     questions: list[dict[str, str]] = []
-    profile_facts: dict[str, list[str]] = {"license_codes": [], "experience_codes": []}
+    profile_facts: dict[str, list[str]] = {"license_names": [], "experience_codes": []}
     embedder = build_embedder(settings)
     llm = LlmClient(
         base_url=settings.llm_base_url,

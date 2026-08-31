@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from analysis_service.pipeline.matcher import (
     apply_profile_facts,
-    resolve_license_code,
+    resolve_license_kind,
 )
 from analysis_service.pipeline.prompts import (
     build_batch_system_messages,
@@ -175,7 +175,7 @@ def test_verdict_parsed_from_llm() -> None:
         analyzer.analyze(
             record,
             [{"id": "q1", "text": "Лицензии?"}],
-            {"license_codes": [], "experience_codes": []},
+            {"license_names": [], "experience_codes": []},
         )
     )
     assert report["tz_found"] in (True, False)
@@ -299,7 +299,7 @@ def test_analyze_system_batch_and_matcher() -> None:
     }
     analyzer = _analyzer(_FakeLlm([batch_response]))
     verdicts = asyncio.run(
-        analyzer._analyze_system(chunks, {"license_codes": [], "experience_codes": []})  # noqa: SLF001
+        analyzer._analyze_system(chunks, {"license_names": [], "experience_codes": []})  # noqa: SLF001
     )
     by_id = {v["question_id"]: v for v in verdicts}
     assert by_id["sys:exp_2571"]["verdict"] == "absolute"
@@ -315,7 +315,13 @@ def test_analyze_system_batch_and_matcher() -> None:
     verdicts_ok = asyncio.run(
         analyzer_ok._analyze_system(  # noqa: SLF001
             chunks,
-            {"license_codes": ["mchs"], "experience_codes": ["platform"]},
+            {
+                "license_names": [
+                    "деятельность по монтажу, техническому обслуживанию и ремонту средств "
+                    "обеспечения пожарной безопасности зданий и сооружений"
+                ],
+                "experience_codes": ["platform"],
+            },
         )
     )
     by_id_ok = {v["question_id"]: v for v in verdicts_ok}
@@ -349,8 +355,8 @@ def _batch(
 
 
 def test_matcher_experience_rules() -> None:
-    empty = {"license_codes": [], "experience_codes": []}
-    platform_ok = {"license_codes": [], "experience_codes": ["platform"]}
+    empty = {"license_names": [], "experience_codes": []}
+    platform_ok = {"license_names": [], "experience_codes": ["platform"]}
 
     v = apply_profile_facts(
         _batch(exp={"found": True, "facts": {"required": True, "confirmation": "platform"}}), empty
@@ -378,7 +384,7 @@ def test_matcher_experience_rules() -> None:
 
 
 def test_matcher_minprom_rules() -> None:
-    empty = {"license_codes": [], "experience_codes": []}
+    empty = {"license_names": [], "experience_codes": []}
     v = apply_profile_facts(_batch(mp={"found": True, "facts": {"required": True}}), empty)
     assert v[1]["verdict"] == "absolute" and v[1]["marker"] == "🔴"
     v = apply_profile_facts(
@@ -389,8 +395,14 @@ def test_matcher_minprom_rules() -> None:
 
 
 def test_matcher_license_rules() -> None:
-    no_license = {"license_codes": [], "experience_codes": []}
-    has_mchs = {"license_codes": ["mchs"], "experience_codes": []}
+    no_license = {"license_names": [], "experience_codes": []}
+    has_mchs = {
+        "license_names": [
+            "деятельность по монтажу, техническому обслуживанию и ремонту средств "
+            "обеспечения пожарной безопасности зданий и сооружений"
+        ],
+        "experience_codes": [],
+    }
 
     lic = {
         "found": True,
@@ -414,21 +426,21 @@ def test_matcher_license_rules() -> None:
     assert v[2]["verdict"] == "no_stop_condition"
 
 
-def test_resolve_license_code_aliases() -> None:
-    assert resolve_license_code({"license_code": "mchs"}) == "mchs"
+def test_resolve_license_kind_aliases() -> None:
+    assert resolve_license_kind({"license_code": "mchs"}) == "mchs"
     assert (
-        resolve_license_code(
+        resolve_license_kind(
             {"license_name": "Лицензия МЧС России на монтаж пожарной сигнализации"}
         )
         == "mchs"
     )
-    assert resolve_license_code({"authority": "ФСБ России (криптографические средства)"}) == "fsb"
+    assert resolve_license_kind({"authority": "ФСБ России (криптографические средства)"}) == "fsb"
     assert (
-        resolve_license_code({"license_name": "Лицензия ФСБ России на работы с гостайной"})
+        resolve_license_kind({"license_name": "Лицензия ФСБ России на работы с гостайной"})
         == "fsb_gostayna"
     )
     assert (
-        resolve_license_code(
+        resolve_license_kind(
             {
                 "license_name": "лицензия УФСБ на работы с государственной тайной",
                 "authority": "УФСБ",
@@ -438,11 +450,11 @@ def test_resolve_license_code_aliases() -> None:
         == "fsb_gostayna"
     )
     assert (
-        resolve_license_code({"license_name": "Лицензия на образовательную деятельность"})
+        resolve_license_kind({"license_name": "Лицензия на образовательную деятельность"})
         == "education"
     )
-    assert resolve_license_code({"license_name": "непонятное разрешение"}) is None
-    assert resolve_license_code({"license_code": "other"}) is None
+    assert resolve_license_kind({"license_name": "непонятное разрешение"}) is None
+    assert resolve_license_kind({"license_code": "other"}) is None
 
 
 # --- Детектор обязанностей Исполнителя и фолбэк на «Описание» ---------------

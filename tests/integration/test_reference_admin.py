@@ -167,7 +167,7 @@ def test_reference_tables_listed(ref_client: TestClient) -> None:
     keys = {t["key"] for t in r.json()}
     assert {"license_types", "experience_confirmation_types"} <= keys
     lic = next(t for t in r.json() if t["key"] == "license_types")
-    assert {c["key"] for c in lic["columns"]} == {"code", "name", "sort_order"}
+    assert {c["key"] for c in lic["columns"]} == {"name", "sort_order"}
     assert lic["title"]
 
 
@@ -176,11 +176,16 @@ def test_reference_rows_seeded(ref_client: TestClient) -> None:
     r = client.get("/api/reference/license_types")
     assert r.status_code == 200
     body = r.json()
-    codes = {row["code"] for row in body["items"]}
-    assert {"fstek", "fsb", "mincifry", "other"} <= codes
+    names = {row["name"] for row in body["items"]}
+    # Сид — каталог из docs/references/licenze_kind.md (80 видов; без кода).
+    assert {
+        "образовательная деятельность",
+        "оказание услуг связи",
+        "частная охранная деятельность",
+    } <= names
     # Строка содержит id и колонки редактора.
     row = body["items"][0]
-    assert set(row) >= {"id", "code", "name", "sort_order"}
+    assert set(row) >= {"id", "name", "sort_order"}
 
     conf = client.get("/api/reference/experience_confirmation_types")
     assert conf.status_code == 200
@@ -196,38 +201,29 @@ def test_license_type_crud(ref_client: TestClient) -> None:
     client = ref_client
     created = client.post(
         "/api/reference/license_types",
-        json={"code": "test_lic", "name": "Тестовая лицензия", "sort_order": 99},
+        json={"name": "Тестовая лицензия", "sort_order": 99},
     )
     assert created.status_code == 201, created.text
     body = created.json()
-    assert body["code"] == "test_lic"
     assert body["sort_order"] == 99
     lid = body["id"]
 
-    # Дубликат кода — 409.
-    dup = client.post(
-        "/api/reference/license_types",
-        json={"code": "test_lic", "name": "Дубликат"},
-    )
+    # Дубликат имени — 409 (уникальный name).
+    dup = client.post("/api/reference/license_types", json={"name": "Тестовая лицензия"})
     assert dup.status_code == 409
 
     # Валидация полей — 422.
-    bad = client.post("/api/reference/license_types", json={"code": "", "name": "X"})
+    bad = client.post("/api/reference/license_types", json={"name": ""})
     assert bad.status_code == 422
 
     updated = client.put(
         f"/api/reference/license_types/{lid}",
-        json={"code": "test_lic", "name": "Тестовая лицензия v2", "sort_order": 1},
+        json={"name": "Тестовая лицензия v2", "sort_order": 1},
     )
     assert updated.status_code == 200
     assert updated.json()["name"] == "Тестовая лицензия v2"
 
-    assert (
-        client.put(
-            "/api/reference/license_types/999999", json={"code": "x", "name": "y"}
-        ).status_code
-        == 404
-    )
+    assert client.put("/api/reference/license_types/999999", json={"name": "y"}).status_code == 404
 
     assert client.delete(f"/api/reference/license_types/{lid}").status_code == 204
     assert client.delete(f"/api/reference/license_types/{lid}").status_code == 404
@@ -269,7 +265,7 @@ def test_delete_used_license_type_conflict(ref_client: TestClient) -> None:
 
     lic = client.post(
         "/api/reference/license_types",
-        json={"code": "used_lic", "name": "Используемый тип"},
+        json={"name": "Используемый тип"},
     )
     assert lic.status_code == 201
     lid = lic.json()["id"]
@@ -289,27 +285,27 @@ def test_delete_used_license_type_conflict(ref_client: TestClient) -> None:
     assert client.delete(f"/api/reference/license_types/{lid}").status_code == 204
 
 
-def test_seed_code_rename_blocked(ref_client: TestClient) -> None:
-    """Код предустановленной записи (сид BR-03) переименовать нельзя (409)."""
+def test_seed_name_rename_blocked(ref_client: TestClient) -> None:
+    """Ключевое поле (name) предустановленной записи (сид) переименовать нельзя (409)."""
     client = ref_client
-    fstek = next(
+    seed = next(
         row
         for row in client.get("/api/reference/license_types").json()["items"]
-        if row["code"] == "fstek"
+        if row["name"] == "образовательная деятельность"
     )
     rename = client.put(
-        f"/api/reference/license_types/{fstek['id']}",
-        json={"code": "renamed", "name": "Другое имя", "sort_order": 1},
+        f"/api/reference/license_types/{seed['id']}",
+        json={"name": "Другое имя", "sort_order": 1},
     )
     assert rename.status_code == 409
 
-    # Имя/порядок предустановленной записи менять можно.
+    # Остальные поля предустановленной записи (порядок) менять можно.
     ok = client.put(
-        f"/api/reference/license_types/{fstek['id']}",
-        json={"code": "fstek", "name": "ФСТЭК (обновлено)", "sort_order": 1},
+        f"/api/reference/license_types/{seed['id']}",
+        json={"name": "образовательная деятельность", "sort_order": 2},
     )
     assert ok.status_code == 200
-    assert ok.json()["name"] == "ФСТЭК (обновлено)"
+    assert ok.json()["sort_order"] == 2
 
     platform = next(
         row

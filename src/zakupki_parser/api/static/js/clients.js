@@ -70,6 +70,8 @@ let licenseTypes = [];
 let confirmationTypes = [];
 let licenseEditorId = null;
 let experienceEditorId = null;
+// Фильтр поиска вида лицензии по подстроке (выбор в форме лицензии профиля).
+let licenseTypeFilter = "";
 // Временные id для новых записей лицензий/опыта в форме (до сохранения профиля).
 let localEntrySeq = 0;
 
@@ -692,6 +694,28 @@ async function ensureLicenseTypes() {
   }
 }
 
+function renderLicenseTypeOptions() {
+  const sel = $("#lic-type");
+  const q = licenseTypeFilter.trim().toLowerCase();
+  const visible = q
+    ? licenseTypes.filter((t) => t.name.toLowerCase().includes(q))
+    : licenseTypes;
+  sel.innerHTML = visible
+    .map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`)
+    .join("");
+  return visible;
+}
+
+function wireLicenseTypeFilter(value) {
+  const input = $("#lic-type-filter");
+  input.value = value;
+  // oninput (а не addEventListener) — повторное открытие формы не плодит обработчики.
+  input.oninput = () => {
+    licenseTypeFilter = input.value;
+    renderLicenseTypeOptions();
+  };
+}
+
 async function ensureConfirmationTypes() {
   if (confirmationTypes.length) return;
   try {
@@ -800,11 +824,10 @@ async function openLicenseForm(id) {
   licenseEditorId = id || null;
   await ensureLicenseTypes();
   const l = id ? profileLicenses.find((x) => x.id === id) : null;
-  const sel = $("#lic-type");
-  sel.innerHTML = licenseTypes
-    .map((t) => `<option value="${t.id}">${escapeHtml(t.name)}</option>`)
-    .join("");
-  sel.value = l ? l.license_type_id : licenseTypes.length ? licenseTypes[0].id : "";
+  licenseTypeFilter = "";
+  wireLicenseTypeFilter("");
+  const visible = renderLicenseTypeOptions();
+  $("#lic-type").value = l ? l.license_type_id : visible.length ? visible[0].id : "";
   $("#lic-number").value = l ? l.number || "" : "";
   $("#lic-authority").value = l ? l.authority || "" : "";
   $("#lic-issue-date").value = l ? l.issue_date || "" : "";

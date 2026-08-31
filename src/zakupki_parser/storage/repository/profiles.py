@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, func, or_, select, update
@@ -24,26 +27,46 @@ from zakupki_parser.storage.repository.base import RepositoryMixin
 logger = logging.getLogger(__name__)
 
 
+LICENSES_REF = Path(__file__).resolve().parents[4] / "docs" / "references" / "licenze_kind.md"
+
+
+def _clean_license_name(raw: str) -> str:
+    """Чистка строки вида лицензии из справочника (хвостовые знаки, пробелы)."""
+    s = re.sub(r"^-\s*", "", raw).strip()
+    s = re.sub(r"[\.,;:\s]+$", "", s).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+@lru_cache(maxsize=1)
+def license_type_names() -> list[str]:
+    """Каталожные наименования видов лицензий/допусков (docs/references/licenze_kind.md).
+
+    Единый источник истины справочника ``license_types`` (миграция 1.50, ``name`` —
+    уникальный ключ). Повторный вызов безопасен (кэш); при недоступном файле — пустой
+    список (сид не меняет существующие строки).
+    """
+    if not LICENSES_REF.is_file():
+        logger.warning("Не найден файл справочника лицензий: %s", LICENSES_REF)
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in LICENSES_REF.read_text(encoding="utf-8").splitlines():
+        if not raw.lstrip().startswith("-"):
+            continue
+        name = _clean_license_name(raw)
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        out.append(name)
+    return out
+
+
 class ProfileMixin(RepositoryMixin):
     """Профили фильтрации (``profiles``), ключевые слова и факты BR-03."""
 
     DEFAULT_PROFILE_NAME = "default"
 
-    LICENSE_TYPES_SEED = [
-        ("fstek", "ФСТЭК России (техзащита конфиденциальной информации)"),
-        ("fsb", "ФСБ России (криптографические средства)"),
-        (
-            "fsb_gostayna",
-            "ФСБ России (работы с гостайной, степень секретности не ниже «совершенно секретно»",
-        ),
-        ("mincifry", "Минцифры России (средства защиты информации)"),
-        ("roscomnadzor", "Роскомнадзор (услуги связи)"),
-        ("minpromtorg", "Минпромторг России"),
-        ("mchs", "МЧС России (пожарная безопасность)"),
-        ("rosgvardia", "Росгвардия (частная охранная деятельность)"),
-        ("education", "Лицензия на образовательную деятельность"),
-        ("other", "Прочая лицензия"),
-    ]
     CONFIRMATION_TYPES_SEED = [
         ("platform", "Через электронную площадку (ПП РФ 2571)"),
         ("documents", "Сканы договоров/актов"),
@@ -212,24 +235,25 @@ class ProfileMixin(RepositoryMixin):
         return result
 
     async def ensure_reference_data(self) -> None:
-        """Идемпотентный сид справочников профиля (типы лицензий и BR-03).
+        """Идемпотентный сид справочников профиля (виды лицензий и BR-03).
 
         Нужен и в проде (при неполной миграции), и в тестах (там схема создаётся
         через ``Base.metadata.create_all`` без Liquibase). Повторный сид безопасен:
-        ``ON CONFLICT (code) DO NOTHING``.
+        ``ON CONFLICT (name|code) DO NOTHING``.
         """
         async with self._db.session() as session:
-            for model, seed in (
-                (LicenseType, self.LICENSE_TYPES_SEED),
-                (ExperienceConfirmationType, self.CONFIRMATION_TYPES_SEED),
-            ):
-                stmt = pg_insert(model).values(
-                    [
-                        {"code": code, "name": name, "sort_order": i + 1}
-                        for i, (code, name) in enumerate(seed)
-                    ]
-                )
-                await session.execute(stmt.on_conflict_do_nothing(index_elements=["code"]))
+            license_rows = [
+                {"name": name, "sort_order": i + 1} for i, name in enumerate(license_type_names())
+            ]
+            if license_rows:
+                stmt = pg_insert(LicenseType).values(license_rows)
+                await session.execute(stmt.on_conflict_do_nothing(index_elements=["name"]))
+            conf_rows = [
+                {"code": code, "name": name, "sort_order": i + 1}
+                for i, (code, name) in enumerate(self.CONFIRMATION_TYPES_SEED)
+            ]
+            stmt = pg_insert(ExperienceConfirmationType).values(conf_rows)
+            await session.execute(stmt.on_conflict_do_nothing(index_elements=["code"]))
             await session.commit()
 
     async def list_license_types(self) -> list[LicenseType]:
@@ -358,14 +382,15 @@ class ProfileMixin(RepositoryMixin):
             return list((await session.execute(stmt)).scalars().all())
 
     async def get_profile_facts(self, profile_id: int) -> dict[str, list[str]]:
-        """Коды лицензий и типов подтверждения опыта профиля (для анализа ТЗ).
+        """Наименования видов лицензий и коды подтверждения опыта профиля.
 
         Лёгкий срез фактов BR-03 для Stage B (сопоставление фактов ТЗ с профилем
-        выполняется кодом, профиль в промпт не попадает).
+        выполняется кодом, профиль в промпт не попадает). Лицензии теперь
+        идентифицируются наименованием (``license_types.name``), а не кодом.
         """
         async with self._db.session() as session:
             license_stmt = (
-                select(LicenseType.code)
+                select(LicenseType.name)
                 .join(ProfileLicense, ProfileLicense.license_type_id == LicenseType.id)
                 .where(ProfileLicense.profile_id == profile_id)
             )
@@ -377,9 +402,9 @@ class ProfileMixin(RepositoryMixin):
                 )
                 .where(ProfileExperience.profile_id == profile_id)
             )
-            license_codes = list((await session.execute(license_stmt)).scalars().all())
+            license_names = list((await session.execute(license_stmt)).scalars().all())
             experience_codes = list((await session.execute(experience_stmt)).scalars().all())
-        return {"license_codes": license_codes, "experience_codes": experience_codes}
+        return {"license_names": license_names, "experience_codes": experience_codes}
 
     async def get_experience(self, profile_id: int, experience_id: int) -> ProfileExperience | None:
         stmt = select(ProfileExperience).where(

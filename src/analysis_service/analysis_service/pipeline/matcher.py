@@ -17,8 +17,10 @@ from analysis_service.pipeline.system_questions import (
     SYSTEM_QUESTIONS_VERSION,
 )
 
-# Коды справочника license_types (сид BR-03, repository.py).
-LICENSE_CODES = {
+# Внутренние «виды» лицензий (дескрипторы для детекции из текста ТЗ). Это НЕ коды
+# справочника license_types (у них теперь только name): дескрипторы нужны матчеру,
+# чтобы понять, что за лицензия требуется, и сопоставить её с названиями в профиле.
+LICENSE_KINDS = {
     "fstek",
     "fsb",
     "fsb_gostayna",
@@ -28,10 +30,9 @@ LICENSE_CODES = {
     "mchs",
     "rosgvardia",
     "education",
-    "other",
 }
 
-# Лексические синонимы «вид лицензии» → код справочника (дёшево и без LLM).
+# Лексические синонимы «вид лицензии» → дескриптор (дёшево и без LLM).
 LICENSE_ALIASES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"фстэк|техническ\w*\s+защит\w*\s+информаци|техзащит"), "fstek"),
     (re.compile(r"защит\w*\s+информаци"), "fstek"),
@@ -48,6 +49,20 @@ LICENSE_ALIASES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"росгварди|частн\w*\s+охранн|охранн\w*\s+деятельн"), "rosgvardia"),
     (re.compile(r"образован\w*|образоват\w*"), "education"),
 ]
+
+# Маркеры попадания дескриптора в НАЗВАНИЕ лицензии профиля (license_types.name):
+# если хотя бы один маркер встречается в любом названии лицензии — вид «есть».
+LICENSE_KIND_MARKERS: dict[str, list[str]] = {
+    "fstek": ["фстэк", "техзащит", "конфиденциальн"],
+    "fsb": ["криптограф", "шифрован", "шифрованн", "фсб"],
+    "fsb_gostayna": ["гостайн", "государственн", "секретн"],
+    "mincifry": ["минц"],
+    "roscomnadzor": ["роскомнадзор", "радиочастотн"],
+    "minpromtorg": ["минпромторг"],
+    "mchs": ["мчс", "пожар"],
+    "rosgvardia": ["охранн"],
+    "education": ["образован"],
+}
 
 VERDICT_NONE = "no_stop_condition"
 VERDICT_SOFT = "soft"
@@ -94,15 +109,15 @@ def _reasoning(block: dict[str, Any] | None, fallback: str) -> str:
     return fallback
 
 
-def resolve_license_code(facts: dict[str, Any]) -> str | None:
-    """Нормализовать вид лицензии из фактов ТЗ до кода справочника.
+def resolve_license_kind(facts: dict[str, Any]) -> str | None:
+    """Нормализовать вид лицензии из фактов ТЗ до внутреннего дескриптора.
 
     Сначала берётся ``license_code``, указанный LLM; если он не назван или
-    равен ``other`` — лексический матч по названию/органу/обоснованию.
+    не распознан дескриптором — лексический матч по названию/органу/обоснованию.
     Возвращает None, если вид не распознан.
     """
     code = str(facts.get("license_code") or "").strip()
-    if code in LICENSE_CODES and code != "other":
+    if code in LICENSE_KINDS:
         return code
     haystack = " ".join(
         str(facts.get(k) or "") for k in ("license_name", "authority", "reasoning")
@@ -112,6 +127,19 @@ def resolve_license_code(facts: dict[str, Any]) -> str | None:
         if pattern.search(haystack):
             return mapped
     return None
+
+
+def kind_in_profile(kind: str, license_names: list[str]) -> bool:
+    """Есть ли в профиле лицензия, относящаяся к дескриптору ``kind``.
+
+    Сопоставление по маркерам вида, встречающимся в названиях лицензий профиля
+    (``license_types.name``). Возвращается истина, если любой маркер вида найден
+    в любом названии — recall-over-precision.
+    """
+    if not license_names:
+        return False
+    haystack = " ".join(license_names).lower()
+    return any(marker in haystack for marker in LICENSE_KIND_MARKERS.get(kind, []))
 
 
 def _verdict(
@@ -250,9 +278,9 @@ def _license_verdict(block: dict[str, Any] | None, profile_facts: dict[str, Any]
             facts,
         )
 
-    license_codes = profile_facts.get("license_codes") or []
-    code = resolve_license_code(facts)
-    if code is None:
+    license_names = profile_facts.get("license_names") or []
+    kind = resolve_license_kind(facts)
+    if kind is None:
         return _verdict(
             qid,
             qtext,
@@ -262,13 +290,13 @@ def _license_verdict(block: dict[str, Any] | None, profile_facts: dict[str, Any]
             _excerpt(block),
             facts,
         )
-    if code in license_codes:
+    if kind_in_profile(kind, license_names):
         return _verdict(
             qid,
             qtext,
             VERDICT_NONE,
             MARKERS[VERDICT_NONE],
-            f"Требуется {code}; лицензия этого типа в профиле есть",
+            f"Требуется {kind}; лицензия этого вида в профиле есть",
             _excerpt(block),
             facts,
         )
@@ -277,7 +305,7 @@ def _license_verdict(block: dict[str, Any] | None, profile_facts: dict[str, Any]
         qtext,
         VERDICT_ABSOLUTE,
         MARKERS[VERDICT_ABSOLUTE],
-        f"Требуется {code}; лицензия этого типа в профиле отсутствует",
+        f"Требуется {kind}; лицензии этого вида в профиле нет",
         _excerpt(block),
         facts,
     )
@@ -289,7 +317,7 @@ def apply_profile_facts(
     """Сопоставить факты ТЗ (по системным проверкам) с фактами профиля.
 
     ``extractions`` — ответ Stage A (batch_system): ключи ``experience_2571``,
-    ``minprom_registry``, ``license_sro``. ``profile_facts`` — ``{"license_codes": [...],
+    ``minprom_registry``, ``license_sro``. ``profile_facts`` — ``{"license_names": [...],
     "experience_codes": [...]}``. Возвращает список вердиктов по системным вопросам.
     """
     profile_facts = profile_facts or {}

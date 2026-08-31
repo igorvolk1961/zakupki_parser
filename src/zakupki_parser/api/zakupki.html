@@ -270,7 +270,10 @@
           <div id="pf-pane-licenses" style="display:none;">
             <div id="license-form" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px;">
               <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                <label>Тип лицензии <select id="lic-type"></select></label>
+                <label>Тип лицензии
+                  <input type="text" id="lic-type-filter" placeholder="Поиск по названию…" autocomplete="off" style="margin-bottom:4px;">
+                  <select id="lic-type" size="6" style="width:100%;"></select>
+                </label>
                 <label>Номер <input id="lic-number"></label>
                 <label>Орган, выдавший <input id="lic-authority"></label>
                 <label>Дата выдачи <input type="date" id="lic-issue-date"></label>

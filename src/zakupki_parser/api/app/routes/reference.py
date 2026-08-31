@@ -25,26 +25,22 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.storage.db import ExperienceConfirmationType, LicenseType
 from zakupki_parser.storage.repository import ProcurementRepository
+from zakupki_parser.storage.repository.profiles import license_type_names
 
 logger = logging.getLogger(__name__)
 
-# Коды предустановленных записей справочников (сид BR-03): на них завязан
-# analysis_service (матчер сверяет license_codes/experience_codes с хардкод-набором),
-# поэтому их нельзя переименовывать (иначе после ре-сида появится дубликат).
-SEED_CODES = {
-    code
-    for seed in (
-        ProcurementRepository.LICENSE_TYPES_SEED,
-        ProcurementRepository.CONFIRMATION_TYPES_SEED,
-    )
-    for code, _ in seed
-}
+# Предустановленные записи справочников (сид BR-03 / docs/references/licenze_kind.md):
+# на них завязан analysis_service (матчер сверяет названия лицензий и коды опыта с
+# хардкод-набором), поэтому их ключевое поле (name|code) переименовывать нельзя
+# (иначе после ре-сида появится дубликат).
+SEED_CONFIRMATION_CODES = {code for code, _ in ProcurementRepository.CONFIRMATION_TYPES_SEED}
+SEED_LICENSE_NAMES = set(license_type_names())
 
 
 class _ReferenceTable:
     """Описание справочной таблицы для редактора."""
 
-    __slots__ = ("key", "title", "model", "schema", "columns", "seed_codes")
+    __slots__ = ("key", "title", "model", "schema", "columns", "seed_attr", "seed_keys")
 
     def __init__(
         self,
@@ -53,14 +49,16 @@ class _ReferenceTable:
         model: type[Any],
         schema: type[BaseModel],
         columns: list[ReferenceColumnOut],
-        seed_codes: set[str] | None = None,
+        seed_attr: str = "",
+        seed_keys: set[str] | None = None,
     ) -> None:
         self.key = key
         self.title = title
         self.model = model
         self.schema = schema
         self.columns = columns
-        self.seed_codes = seed_codes or set()
+        self.seed_attr = seed_attr
+        self.seed_keys = seed_keys or set()
 
 
 REFERENCE_TABLES: dict[str, _ReferenceTable] = {
@@ -68,15 +66,15 @@ REFERENCE_TABLES: dict[str, _ReferenceTable] = {
     for table in [
         _ReferenceTable(
             key="license_types",
-            title="Типы лицензий",
+            title="Виды лицензий",
             model=LicenseType,
             schema=LicenseTypeIn,
             columns=[
-                ReferenceColumnOut(key="code", label="Код", type="text"),
                 ReferenceColumnOut(key="name", label="Наименование", type="text"),
                 ReferenceColumnOut(key="sort_order", label="Порядок", type="integer"),
             ],
-            seed_codes=SEED_CODES,
+            seed_attr="name",
+            seed_keys=SEED_LICENSE_NAMES,
         ),
         _ReferenceTable(
             key="experience_confirmation_types",
@@ -88,7 +86,8 @@ REFERENCE_TABLES: dict[str, _ReferenceTable] = {
                 ReferenceColumnOut(key="name", label="Наименование", type="text"),
                 ReferenceColumnOut(key="sort_order", label="Порядок", type="integer"),
             ],
-            seed_codes=SEED_CODES,
+            seed_attr="code",
+            seed_keys=SEED_CONFIRMATION_CODES,
         ),
     ]
 }
@@ -155,7 +154,7 @@ def build_reference_router(ctx: ApiContext) -> APIRouter:
             row = await _repo().create_reference_row(cfg.model, data)
         except IntegrityError as exc:
             raise HTTPException(
-                status_code=409, detail="Запись с таким кодом уже существует"
+                status_code=409, detail="Запись с таким ключевым полем уже существует"
             ) from exc
         return _row_to_dict(row)
 
@@ -170,18 +169,22 @@ def build_reference_router(ctx: ApiContext) -> APIRouter:
         if existing is None:
             raise HTTPException(status_code=404, detail="Запись не найдена")
         data = _validate_body(cfg, body)
-        # Предустановленные записи (сид BR-03) защищены от переименования: код
-        # используют внешние компоненты (матчер analysis_service) и ре-сид.
-        if cfg.seed_codes and existing.code in cfg.seed_codes and data.get("code") != existing.code:
+        # Предустановленные записи (сид BR-03 / каталожные виды) защищены от
+        # переименования ключевого поля: его использует матчер analysis_service и ре-сид.
+        if (
+            cfg.seed_attr
+            and getattr(existing, cfg.seed_attr) in cfg.seed_keys
+            and data.get(cfg.seed_attr) != getattr(existing, cfg.seed_attr)
+        ):
             raise HTTPException(
                 status_code=409,
-                detail="Код предустановленной записи изменить нельзя (доступны имя и порядок)",
+                detail="Изменять ключевое поле предустановленной записи нельзя",
             )
         try:
             row = await _repo().update_reference_row(cfg.model, row_id, data)
         except IntegrityError as exc:
             raise HTTPException(
-                status_code=409, detail="Запись с таким кодом уже существует"
+                status_code=409, detail="Запись с таким ключевым полем уже существует"
             ) from exc
         return _row_to_dict(row)
 

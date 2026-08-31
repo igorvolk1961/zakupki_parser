@@ -96,19 +96,13 @@ def test_reference_data_seeded(ple_client: TestClient) -> None:
     client = ple_client
     types = client.get("/api/license-types")
     assert types.status_code == 200
-    codes = {t["code"] for t in types.json()}
+    names = {t["name"] for t in types.json()}
+    # Сид — каталог из docs/references/licenze_kind.md (80 видов), без кода.
     assert {
-        "fstek",
-        "fsb",
-        "fsb_gostayna",
-        "mincifry",
-        "roscomnadzor",
-        "minpromtorg",
-        "mchs",
-        "rosgvardia",
-        "education",
-        "other",
-    } <= codes
+        "образовательная деятельность",
+        "оказание услуг связи",
+        "частная охранная деятельность",
+    } <= names
 
     conf = client.get("/api/confirmation-types")
     assert conf.status_code == 200
@@ -118,12 +112,12 @@ def test_reference_data_seeded(ple_client: TestClient) -> None:
 def test_licenses_crud(ple_client: TestClient) -> None:
     client = ple_client
     pid = _create_profile(client, "lic-profile")
-    fstek = next(t for t in client.get("/api/license-types").json() if t["code"] == "fstek")
+    lic_type = next(t for t in client.get("/api/license-types").json())
 
     created = client.post(
         f"/api/clients/{pid}/licenses",
         json={
-            "license_type_id": fstek["id"],
+            "license_type_id": lic_type["id"],
             "number": "1234/Ф",
             "authority": "ФСТЭК России",
             "issue_date": "2023-01-15",
@@ -134,7 +128,7 @@ def test_licenses_crud(ple_client: TestClient) -> None:
     assert created.status_code == 200
     body = created.json()
     assert body["number"] == "1234/Ф"
-    assert body["license_type"]["code"] == "fstek"
+    assert body["license_type"]["name"] == lic_type["name"]
     lid = body["id"]
 
     lst = client.get(f"/api/clients/{pid}/licenses")
@@ -145,7 +139,7 @@ def test_licenses_crud(ple_client: TestClient) -> None:
     # прежние значения), переданное значение обновляется.
     updated = client.put(
         f"/api/clients/{pid}/licenses/{lid}",
-        json={"license_type_id": fstek["id"], "number": "5678/Ф"},
+        json={"license_type_id": lic_type["id"], "number": "5678/Ф"},
     )
     assert updated.status_code == 200
     body = updated.json()
@@ -256,7 +250,7 @@ def test_experience_validation(ple_client: TestClient) -> None:
 def test_profile_save_with_entries(ple_client: TestClient) -> None:
     """Лицензии/опыт сохраняются полной заменой вместе с профилем (BR-03)."""
     client = ple_client
-    fstek = next(t for t in client.get("/api/license-types").json() if t["code"] == "fstek")
+    lic_type = next(t for t in client.get("/api/license-types").json())
     platform = next(
         t for t in client.get("/api/confirmation-types").json() if t["code"] == "platform"
     )
@@ -268,7 +262,7 @@ def test_profile_save_with_entries(ple_client: TestClient) -> None:
             "name": "entries-profile",
             "competencies": COMP_JSON,
             "keywords": [],
-            "licenses": [{"license_type_id": fstek["id"], "number": "Л-1"}],
+            "licenses": [{"license_type_id": lic_type["id"], "number": "Л-1"}],
             "experience": [
                 {
                     "title": "Опыт-1",

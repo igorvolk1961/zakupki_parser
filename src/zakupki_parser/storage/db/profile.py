@@ -140,19 +140,19 @@ class ExperienceConfirmationType(Base):
 
 
 class LicenseType(Base):
-    """Справочник типов лицензий (сид — набор для ИТ-компании, миграция 1.37).
+    """Справочник видов лицензий/допусков (сид — docs/references/licenze_kind.md).
 
-    ``code`` — стабильный ключ: ``fstek``, ``fsb``, ``fsb_gostayna``, ``mincifry``,
-    ``roscomnadzor``, ``minpromtorg``, ``mchs``, ``rosgvardia``, ``education``, ``other``.
+    Вид лицензии идентифицируется ``name`` (уникальный, case-sensitive индекс):
+    каталожные наименования, например «деятельность по тушению пожаров в населённых
+    пунктах…». Поле ``code`` удалено (миграция 1.50): код больше не идентифицирует вид.
     Справочник глобальный (не привязан к профилю/пользователю); заполняется при
     миграции и идемпотентно ``ensure_reference_data`` на старте приложения.
     """
 
     __tablename__ = "license_types"
-    __table_args__ = (UniqueConstraint("code", name="uq_license_types_code"),)
+    __table_args__ = (UniqueConstraint("name", name="uq_license_types_name"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    code: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     sort_order: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0"), default=0
