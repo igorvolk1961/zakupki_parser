@@ -9,13 +9,21 @@ from __future__ import annotations
 from scoring_common.logging import (
     _NameRewriteFilter,
     _ScrubbingFormatter,
+    reset_run_context,
+    set_run_context,
 )
 from scoring_common.logging import (
     setup_logging as _setup_logging,
 )
 from zakupki_parser.config.models import LoggingConfig
 
-__all__ = ["setup_logging", "_NameRewriteFilter", "_ScrubbingFormatter"]
+__all__ = [
+    "setup_logging",
+    "_NameRewriteFilter",
+    "_ScrubbingFormatter",
+    "set_run_context",
+    "reset_run_context",
+]
 
 
 def setup_logging(cfg: LoggingConfig) -> None:

@@ -53,6 +53,7 @@ class Orchestrator(
         db_cb: CircuitBreaker,
         new_page: Callable[[], Awaitable[Page]] | None = None,
         now: datetime | None = None,
+        iteration: int = 0,
         on_record_saved: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._cfg = cfg
@@ -65,6 +66,9 @@ class Orchestrator(
         self._db_cb = db_cb
         self._new_page = new_page
         self._now = now or datetime.now(UTC)
+        # Номер итерации цикла планировщика: фиксируется в scoring_iteration
+        # закупок, поставленных в очередь скоринга этим проходом (журнал «Метрики»).
+        self._iteration = iteration
         # Колбэк при сохранении закупки (живые обновления в web-интерфейсе).
         self._on_record_saved = on_record_saved
         # Авто-пуш задания на внешний скоринг в транспорт (ADR-7). Если адрес не задан —

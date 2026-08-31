@@ -569,6 +569,25 @@ class ProcurementMixin(RepositoryMixin):
             await session.commit()
             return (cursor.rowcount or 0) > 0
 
+    async def mark_scoring_iteration(self, procurement_id: int, iteration: int) -> bool:
+        """Зафиксировать номер итерации цикла, в которую закупка поставлена в очередь.
+
+        Пишется в ``procurements.scoring_iteration`` (база журнала «Метрики»):
+        каждая закупка группируется по тому проходу планировщика, который её
+        отобрал. Идемпотентно: повторная постановка (recovery) обновляет номер.
+        """
+        async with self._db.session() as session:
+            cursor = cast(
+                CursorResult[Any],
+                await session.execute(
+                    update(Procurement)
+                    .where(Procurement.id == procurement_id)
+                    .values(scoring_iteration=iteration)
+                ),
+            )
+            await session.commit()
+            return (cursor.rowcount or 0) > 0
+
     async def find_unscored(
         self,
         limit: int | None = None,

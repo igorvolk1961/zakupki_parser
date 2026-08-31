@@ -37,6 +37,9 @@ class OrchestratorState:
     _db_cb: CircuitBreaker
     _new_page: Callable[[], Awaitable[Page]] | None
     _now: datetime
+    # Номер итерации цикла планировщика (фиксируется в scoring_iteration при
+    # постановке закупки в очередь — граница батча журнала «Метрики»).
+    _iteration: int
     _on_record_saved: Callable[[], Awaitable[None]] | None
     _transport: ScoringTransportClient | None
     _inn_cache: dict[str, str | None]

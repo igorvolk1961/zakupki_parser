@@ -1,4 +1,9 @@
-"""Тесты журнала метрик обработки (вкладка «Метрики» для аналитика)."""
+"""Тесты журнала метрик обработки (вкладка «Метрики» для аналитика).
+
+Строки журнала — батчи: закупки, обработанные подряд до задержки повтора
+(``batch_gap_seconds``, по умолчанию 1 час = 3600 с). Внутри батча суммируются
+стоимости, остальные метрики усредняются.
+"""
 
 from __future__ import annotations
 
@@ -6,17 +11,18 @@ from typing import Any
 
 from zakupki_parser.api.app.routes.metrics import build_metrics_journal
 
+GAP = 3600.0
+
 
 def _cycle(
     eid: int,
-    pid: int,
     number: str,
     created_at: str,
     costs: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "evaluation_id": eid,
-        "procurement_id": pid,
+        "procurement_id": eid,
         "number": number,
         "subject": "Предмет",
         "created_at": created_at,
@@ -40,27 +46,26 @@ def _scoring(
     }
 
 
-def test_journal_cycles_and_stats() -> None:
+def test_journal_batches_sum_cost_avg_metrics() -> None:
+    # Три цикла: первые два — подряд (зазор 1800 с < 3600), третий — новый батч
+    # (зазор 4200 с от второго).
     cycles = [
         _cycle(
             1,
-            10,
             "А",
             "2026-08-30T10:00:00+00:00",
             {"scoring": _scoring(0.0026, 10983, 31500.0, 31525.0, 9983, 1000)},
         ),
         _cycle(
             2,
-            11,
             "Б",
-            "2026-08-30T11:00:00+00:00",
+            "2026-08-30T10:30:00+00:00",
             {"scoring": _scoring(0.0014, 8000, 20000.0, 20010.0, 7000, 1000)},
         ),
         _cycle(
             3,
-            12,
             "В",
-            "2026-08-31T09:00:00+00:00",
+            "2026-08-30T11:40:00+00:00",
             {
                 "scoring": _scoring(0.0008, 4000, 9000.0, 9010.0, 3500, 500),
                 "analysis": {
@@ -73,35 +78,49 @@ def test_journal_cycles_and_stats() -> None:
             },
         ),
     ]
-    r = build_metrics_journal(cycles)
-    assert r["total_cycles"] == 3
-    assert len(r["cycles"]) == 3
-    # Циклы: подсчёт стоимости скоринга/анализа/всего.
-    assert r["cycles"][0]["number"] == "А"
-    assert r["cycles"][0]["cost_scoring"] == 0.0026
-    assert r["cycles"][0]["cost_total"] == 0.0026
-    assert r["cycles"][0]["llm"]["tokens"] == 9983
-    assert r["cycles"][0]["embeddings"]["latency_ms"] == 100.0
-    # Цикл с анализом: стоимость анализа учитывается в total.
-    assert r["cycles"][2]["cost_analysis"] == 0.001
-    assert r["cycles"][2]["cost_total"] == 0.0018
-    # Статистика скоринга: среднее/мин/макс стоимости.
+    r = build_metrics_journal(cycles, batch_gap_seconds=GAP)
+    assert r["total_batches"] == 2
+    # Журнал — последние батчи первыми: сначала одиночный «В», затем «А+Б».
+    assert r["batches"][0]["count"] == 1
+    assert r["batches"][0]["cost_scoring"] == 0.0008
+    assert r["batches"][0]["cost_analysis"] == 0.001
+    assert r["batches"][0]["cost_total"] == 0.0018
+    assert r["batches"][1]["count"] == 2
+    # Сумма стоимостей по батчу, среднее остальных метрик.
+    assert r["batches"][1]["cost_scoring"] == round(0.0026 + 0.0014, 8)
+    assert r["batches"][1]["cost_total"] == round(0.0026 + 0.0014, 8)
+    assert r["batches"][1]["tokens_scoring"] == round((10983 + 8000) / 2, 3)
+    assert r["batches"][1]["duration_ms"] == round((31525.0 + 20010.0) / 2, 3)
+    assert r["batches"][1]["llm"]["tokens"] == round((9983 + 7000) / 2, 3)
+    # Средние/разброс — по отдельным циклам скоринга (не по батчам).
     s = r["scoring_stats"]
     assert s["count"] == 3
     assert s["cost"]["avg"] == round((0.0026 + 0.0014 + 0.0008) / 3, 6)
-    assert s["cost"]["min"] == 0.0008
-    assert s["cost"]["max"] == 0.0026
     assert s["llm"]["tokens"]["count"] == 3
-    assert s["llm"]["tokens"]["avg"] == round((9983 + 7000 + 3500) / 3, 6)
-    assert s["embeddings"]["latency_ms"]["count"] == 3
-    assert s["duration_ms"]["max"] == 31525.0
     # Журнал по датам: суммирование токенов/стоимости.
     by = {d["date"]: d for d in r["by_date"]}
-    assert by["2026-08-31"]["scoring_tokens"] == 4000
-    assert by["2026-08-31"]["analysis_tokens"] == 3000
-    assert by["2026-08-30"]["scoring_tokens"] == 10983 + 8000
-    assert by["2026-08-30"]["total_tokens"] == 10983 + 8000
-    assert by["2026-08-31"]["total_tokens"] == 4000 + 3000
+    assert by["2026-08-30"]["scoring_tokens"] == 10983 + 8000 + 4000
+    assert by["2026-08-30"]["analysis_tokens"] == 3000
+
+
+def test_batch_gap_controls_batching() -> None:
+    cycles = [
+        _cycle(
+            1,
+            "А",
+            "2026-08-30T10:00:00+00:00",
+            {"scoring": _scoring(0.001, 100, 10.0, 12.0, 90, 10)},
+        ),
+        _cycle(
+            2,
+            "Б",
+            "2026-08-30T10:30:00+00:00",
+            {"scoring": _scoring(0.002, 200, 20.0, 22.0, 190, 10)},
+        ),
+    ]
+    # Зазор 1800 с: при пороге 3600 — один батч, при пороге 600 — два.
+    assert build_metrics_journal(cycles, batch_gap_seconds=3600.0)["total_batches"] == 1
+    assert build_metrics_journal(cycles, batch_gap_seconds=600.0)["total_batches"] == 2
 
 
 def test_journal_without_components_uses_stage_totals() -> None:
@@ -110,7 +129,6 @@ def test_journal_without_components_uses_stage_totals() -> None:
     cycles = [
         _cycle(
             1,
-            10,
             "А",
             "2026-08-30T10:00:00+00:00",
             {
@@ -124,10 +142,10 @@ def test_journal_without_components_uses_stage_totals() -> None:
             },
         )
     ]
-    r = build_metrics_journal(cycles)
-    cycle = r["cycles"][0]
-    assert cycle["llm"] is None and cycle["embeddings"] is None
-    assert cycle["tokens_scoring"] == 9983
+    r = build_metrics_journal(cycles, batch_gap_seconds=GAP)
+    batch = r["batches"][0]
+    assert batch["llm"] is None and batch["embeddings"] is None
+    assert batch["tokens_scoring"] == 9983.0
     assert r["scoring_stats"]["count"] == 1
     assert r["scoring_stats"]["tokens"]["avg"] == 9983.0
     assert r["scoring_stats"]["llm"]["tokens"]["count"] == 0
@@ -135,23 +153,71 @@ def test_journal_without_components_uses_stage_totals() -> None:
 
 def test_journal_empty() -> None:
     r = build_metrics_journal([])
-    assert r["total_cycles"] == 0
-    assert r["cycles"] == []
+    assert r["total_batches"] == 0
+    assert r["batches"] == []
     assert r["scoring_stats"]["count"] == 0
     assert r["by_date"] == []
 
 
-def test_journal_skips_empty_costs_and_limits_cycles() -> None:
+def test_journal_skips_empty_costs_and_limits_batches() -> None:
     cycles = [
-        _cycle(1, 10, "А", "2026-08-30T10:00:00+00:00", {}),  # без стоимости — пропускается
+        _cycle(1, "А", "2026-08-30T10:00:00+00:00", {}),  # без стоимости — пропускается
         _cycle(
             2,
-            11,
             "Б",
-            "2026-08-30T11:00:00+00:00",
+            "2026-08-30T10:30:00+00:00",
             {"scoring": _scoring(0.001, 100, 10.0, 12.0, 90, 10)},
         ),
     ]
-    r = build_metrics_journal(cycles, limit=1)
-    assert r["total_cycles"] == 1
-    assert len(r["cycles"]) == 1
+    r = build_metrics_journal(cycles, limit=1, batch_gap_seconds=GAP)
+    assert r["total_batches"] == 1
+    assert len(r["batches"]) == 1
+
+
+def test_journal_groups_by_iteration() -> None:
+    # Закупки с одинаковым номером итерации попадают в один батч (даже при малом
+    # зазоре по времени); разные итерации — в разные батчи. Площадка копируется.
+    cycles = [
+        {
+            "evaluation_id": 1,
+            "procurement_id": 1,
+            "number": "А",
+            "subject": "Предмет",
+            "platform": "zakupki_gov_44fz",
+            "iteration": 3,
+            "created_at": "2026-08-30T10:00:00+00:00",
+            "costs": {"scoring": _scoring(0.001, 100, 10.0, 12.0, 90, 10)},
+        },
+        {
+            "evaluation_id": 2,
+            "procurement_id": 2,
+            "number": "Б",
+            "subject": "Предмет",
+            "platform": "zakupki_gov_44fz",
+            "iteration": 3,
+            "created_at": "2026-08-30T10:01:00+00:00",  # 60 с — внутри паузы
+            "costs": {"scoring": _scoring(0.002, 200, 20.0, 22.0, 190, 10)},
+        },
+        {
+            "evaluation_id": 3,
+            "procurement_id": 3,
+            "number": "В",
+            "subject": "Предмет",
+            "platform": "roseltorg_44fz",
+            "iteration": 4,
+            "created_at": "2026-08-30T10:02:00+00:00",
+            "costs": {"scoring": _scoring(0.003, 300, 30.0, 32.0, 290, 10)},
+        },
+    ]
+    r = build_metrics_journal(cycles, batch_gap_seconds=GAP)
+    assert r["total_batches"] == 2
+    # Последний батч первым — итерация 4, затем итерация 3 (2 закупки).
+    assert r["batches"][0]["iteration"] == 4
+    assert r["batches"][0]["platform"] == "roseltorg_44fz"
+    assert r["batches"][0]["count"] == 1
+    assert r["batches"][1]["iteration"] == 3
+    assert r["batches"][1]["platform"] == "zakupki_gov_44fz"
+    assert r["batches"][1]["count"] == 2
+    assert r["batches"][1]["cost_scoring"] == round(0.001 + 0.002, 8)
+    # Средние по батчу итерации 3.
+    assert r["batches"][1]["tokens_scoring"] == round((100 + 200) / 2, 3)

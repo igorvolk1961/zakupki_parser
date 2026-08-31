@@ -13,7 +13,7 @@ from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.manager import BrowserManager
 from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import AppConfig, PlatformDom
-from zakupki_parser.logging_conf import setup_logging
+from zakupki_parser.logging_conf import reset_run_context, set_run_context, setup_logging
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
@@ -50,6 +50,9 @@ class Scheduler:
             cfg.ops.circuit_breaker_failure_threshold,
             cfg.ops.circuit_breaker_reset_timeout_seconds,
         )
+        # Номер текущей итерации цикла (run_once): растёт с каждым проходом,
+        # записывается в scoring_iteration закупок — граница батча журнала «Метрики».
+        self._iteration = 0
 
     async def start(self) -> None:
         setup_logging(self._cfg.logging)
@@ -62,7 +65,7 @@ class Scheduler:
         self._stop.set()
         await self._db.dispose()
 
-    async def run_once(self) -> None:
+    async def run_once(self, iteration: int = 0) -> None:
         """Один проход: все включённые площадки обрабатываются параллельно.
 
         Recovery очереди скоринга (догоняем закупки, не попавшие в очередь) выполняется
@@ -76,7 +79,7 @@ class Scheduler:
         одинаковые обходы (площадка + набор ОКПД2) дедуплицируются ``_build_units``
         (``deduplicate_requests``).
         """
-        await self._recover_scoring_queue()
+        await self._recover_scoring_queue(iteration)
         enabled_platforms = await self._repository.enabled_platform_ids()
         ctxs = await self._gather_profile_ctxs()
 
@@ -91,7 +94,7 @@ class Scheduler:
             d_sem = per_domain.setdefault(dkey, asyncio.Semaphore(per_domain_limit))
             # Единый порядок захвата (глобальный -> доменный) исключает deadlock.
             async with sem, d_sem:
-                await self._process_platform(platform_id, profiles)
+                await self._process_platform(platform_id, profiles, iteration)
 
         pending = []
         for platform_id in self._ordered_enabled_platforms(enabled_platforms):
@@ -127,7 +130,9 @@ class Scheduler:
             return platform.domain_group
         return urlparse(platform.url).netloc.lower()
 
-    async def _process_platform(self, platform_id: str, profiles: list[ProfileRunContext]) -> None:
+    async def _process_platform(
+        self, platform_id: str, profiles: list[ProfileRunContext], iteration: int = 0
+    ) -> None:
         """Обрабатывает одну площадку для набора профилей."""
         platform = self._cfg.dom.platforms.get(platform_id)
         if platform is None:
@@ -136,11 +141,21 @@ class Scheduler:
                 platform_id,
             )
             return
-        logger.info("Обработка площадки: %s (профилей: %d)", platform_id, len(profiles))
+        logger.info(
+            "Обработка площадки: %s (профилей: %d, итерация: %d)",
+            platform_id,
+            len(profiles),
+            iteration,
+        )
+        # Контекст для логов: последующие записи этой площадки (и её подзадач)
+        # автоматически получают префикс [platform#iteration] (см. logging_filter).
+        token = set_run_context(platform_id, iteration)
         try:
-            await self._parse_platform(platform_id, platform, profiles)
+            await self._parse_platform(platform_id, platform, profiles, iteration)
         except Exception as exc:  # noqa: BLE001
             logger.error("Ошибка обработки площадки %s: %s", platform_id, exc)
+        finally:
+            reset_run_context(token)
         if self._on_update is not None:
             await self._on_update()
 
@@ -195,7 +210,8 @@ class Scheduler:
         await self.start()
         try:
             while not self._stop.is_set():
-                await self.run_once()
+                self._iteration += 1
+                await self.run_once(self._iteration)
                 logger.info("Цикл завершён, ожидание %d с", self._cfg.ops.timeout_seconds)
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.ops.timeout_seconds)
@@ -204,7 +220,7 @@ class Scheduler:
         finally:
             await self.stop()
 
-    async def _recover_scoring_queue(self) -> None:
+    async def _recover_scoring_queue(self, iteration: int = 0) -> None:
         """Догоняющая постановка пар (закупка, профиль) в очередь скоринга.
 
         Ищет в БД пары (закупка, профиль), у которых профиль отобрал закупку
@@ -241,6 +257,10 @@ class Scheduler:
                 try:
                     await transport.enqueue(item["id"], priority, profile_id=item["profile_id"])
                     await self._repository.mark_scoring_queued(item["id"], item["profile_id"], now)
+                    # Итерация recovery = текущая итерация цикла: фиксируем батч
+                    # для журнала «Метрики» (закупка встала в очередь этого прохода).
+                    if iteration:
+                        await self._repository.mark_scoring_iteration(item["id"], iteration)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
                         "Recovery очереди скоринга прерван: %s (профиль %s) не поставлена (%s)",
@@ -259,6 +279,7 @@ class Scheduler:
         platform_id: str,
         platform: PlatformDom,
         profiles: list[ProfileRunContext],
+        iteration: int = 0,
     ) -> None:
         browser = BrowserManager(self._cfg.parser.browser)
         try:
@@ -274,6 +295,7 @@ class Scheduler:
                 site_cb=self._site_cb,
                 db_cb=self._db_cb,
                 new_page=browser.new_page,
+                iteration=iteration,
                 on_record_saved=self._on_update,
             )
             try:

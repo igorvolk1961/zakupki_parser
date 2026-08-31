@@ -9,7 +9,7 @@ import { api } from "./api.js";
 
 const usd = (v) => (v == null ? "—" : "$" + Number(v).toFixed(4));
 const num = (v) => (v == null ? "—" : Number(v).toLocaleString("ru-RU"));
-const ms = (v) => (v == null || Number(v) === 0 ? "—" : Math.round(Number(v)) + " мс");
+const avgMs = (v) => (v == null ? "—" : Math.round(Number(v)).toLocaleString("ru-RU") + " мс");
 
 // Одна ячейка статистики: среднее и разброс (мин–макс ± ско).
 function statCell(st) {
@@ -42,31 +42,37 @@ function statsBlock(data) {
   </div>`;
 }
 
-function cyclesBlock(cycles) {
-  const rows = (cycles || [])
-    .map((c) => `<tr>
-      <td>${fmtDT(c.created_at)}</td>
-      <td>${escapeHtml(c.number || "—")}</td>
-      <td class="muted">${escapeHtml((c.subject || "").slice(0, 60) || "—")}</td>
-      <td>${usd(c.cost_scoring)}</td>
-      <td>${usd(c.cost_analysis)}</td>
-      <td><b>${usd(c.cost_total)}</b></td>
-      <td>${num(c.llm ? c.llm.tokens : c.tokens_scoring)}</td>
-      <td>${num(c.embeddings ? c.embeddings.tokens : "—")}</td>
-      <td>${ms(c.llm ? c.llm.latency_ms : "—")}</td>
-      <td>${ms(c.embeddings ? c.embeddings.latency_ms : "—")}</td>
-      <td>${ms(c.duration_ms)}</td>
+// Журнал батчей: строка — закупки, обработанные подряд до задержки повтора
+// (recovery_ttl_seconds). Внутри батча суммируются стоимости, остальные метрики
+// (токены, латенси, время) — средние по закупкам батча.
+function batchesBlock(batches) {
+  const avg = (v) => (v == null ? "—" : Number(v).toLocaleString("ru-RU"));
+  const rows = (batches || [])
+    .map((b) => `<tr>
+      <td>${fmtDT(b.started_at)}</td>
+      <td>${b.iteration == null ? "—" : b.iteration}</td>
+      <td>${escapeHtml(b.platform || "—")}</td>
+      <td>${num(b.count)}</td>
+      <td>${usd(b.cost_scoring)}</td>
+      <td>${usd(b.cost_analysis)}</td>
+      <td><b>${usd(b.cost_total)}</b></td>
+      <td>${avg(b.llm ? b.llm.tokens : "—")}</td>
+      <td>${avg(b.embeddings ? b.embeddings.tokens : "—")}</td>
+      <td>${avgMs(b.llm ? b.llm.latency_ms : "—")}</td>
+      <td>${avgMs(b.embeddings ? b.embeddings.latency_ms : "—")}</td>
+      <td>${avgMs(b.duration_ms)}</td>
     </tr>`)
     .join("");
   return `<div class="panel">
-    <div class="panel-title">Циклы обработки (журнал) · всего ${num(cycles ? cycles.length : 0)}</div>
+    <div class="panel-title">Батчи обработки (журнал) · всего ${num(batches ? batches.length : 0)}</div>
     <div class="table-wrap" style="max-height:420px; overflow:auto;">
       <table class="met">
         <thead><tr>
-          <th>Дата</th><th>№ закупки</th><th>Предмет</th><th>Скоринг $</th><th>Анализ $</th><th>Всего $</th>
-          <th>Токены LLM</th><th>Токены Эмбеддинги</th><th>Латенси LLM</th><th>Латенси Эмбеддинги</th><th>Время (мс)</th>
+          <th>Начало</th><th>Итер.</th><th>Площадка</th><th>Закупок</th>
+          <th>Скоринг $ (сумма)</th><th>Анализ $ (сумма)</th><th>Всего $ (сумма)</th>
+          <th>Токены LLM (сред.)</th><th>Токены Эмбеддинги (сред.)</th><th>Латенси LLM (сред.)</th><th>Латенси Эмбеддинги (сред.)</th><th>Время (сред., мс)</th>
         </tr></thead>
-        <tbody>${rows || '<tr><td colspan="11" class="muted">Циклов с метриками пока нет.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="12" class="muted">Батчей с метриками пока нет.</td></tr>'}</tbody>
       </table>
     </div>
   </div>`;
@@ -105,7 +111,7 @@ function renderMetrics(data) {
       <span class="muted">Метрики обработки закупок (доступны только аналитику).</span>
     </div>
     ${statsBlock(data)}
-    ${cyclesBlock(data.cycles)}
+    ${batchesBlock(data.batches)}
     ${byDateBlock(data.by_date)}`;
   $("#metrics-refresh").addEventListener("click", loadMetrics);
 }

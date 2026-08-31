@@ -304,6 +304,11 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         existing = await _repo().get_by_id(procurement_id)
         if existing is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
+        # Батч-метрики закупки (журнал «Метрики»): итерация цикла планировщика,
+        # в которую закупка поставлена в очередь, и площадка. Копируются на
+        # записываемую оценку напрямую из закупки (set_score уже читает её).
+        batch_iteration = existing.scoring_iteration
+        batch_platform = existing.platform_id
         logger.info(
             "Получен результат скоринга закупки %s (профиль %s): score=%s method=%s fit=%s",
             procurement_id,
@@ -328,7 +333,12 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт профилю (score_method не меняем).
             await _repo().update_rag_report(
-                procurement_id, body.profile_id, body.rag_report, costs=costs
+                procurement_id,
+                body.profile_id,
+                body.rag_report,
+                costs=costs,
+                iteration=batch_iteration,
+                platform=batch_platform,
             )
         # Результат стадии каскада (fit/pwin/margin/sim) применяется и вместе с
         # rag_report: rag_report не отменяет скоринг. Чисто аналитический результат
@@ -349,6 +359,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 embedding_similarity=body.embedding_similarity,
                 langfuse_trace_url=body.langfuse_trace_url,
                 costs=costs,
+                iteration=batch_iteration,
+                platform=batch_platform,
             )
             # BR-07 (дедупликация по содержанию компетенций): результат, посчитанный
             # для представителя группы идентичного содержания компетенций,
@@ -368,6 +380,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                         embedding_similarity=body.embedding_similarity,
                         langfuse_trace_url=body.langfuse_trace_url,
                         costs=costs,
+                        iteration=batch_iteration,
+                        platform=batch_platform,
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(

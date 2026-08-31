@@ -41,7 +41,10 @@ async def _run(cmd: str, cfg_dir: str, args: argparse.Namespace) -> int:
     if cmd == "run-once":
         await scheduler.start()
         try:
-            await scheduler.run_once()
+            # Одиночный проход считаем итерацией 1 (run-service ведёт счёт с 1):
+            # так закупки, поставленные в очередь этим проходом, попадают в батч
+            # журнала «Метрики», даже без циклического запуска.
+            await scheduler.run_once(1)
         finally:
             await scheduler.stop()
         return 0

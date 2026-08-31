@@ -249,6 +249,12 @@ class RecordProcessingMixin(OrchestratorState):
                                 await self._repository.mark_scoring_queued(
                                     int(record["id"]), ctx.profile.id, self._now
                                 )
+                                # Итерация цикла планировщика, в которую закупка
+                                # поставлена в очередь — граница батча журнала «Метрики».
+                                if self._iteration:
+                                    await self._repository.mark_scoring_iteration(
+                                        int(record["id"]), self._iteration
+                                    )
                                 logger.info(
                                     "Закупка %s поставлена в очередь скоринга (профиль %s)",
                                     record.get("number"),

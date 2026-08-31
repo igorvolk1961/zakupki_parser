@@ -59,7 +59,7 @@ def _install_tracked_process(
     active = 0
     max_active = 0
 
-    async def fake_process(platform_id: str, profiles: object) -> None:
+    async def fake_process(platform_id: str, profiles: object, iteration: int = 0) -> None:
         nonlocal active, max_active
         active += 1
         max_active = max(max_active, active)
@@ -172,7 +172,7 @@ async def test_run_once_noop_without_profiles(
     _patch_platforms(scheduler, monkeypatch, ["p1", "p2"])
     called: list[str] = []
 
-    async def fake_process(platform_id: str, profiles: object) -> None:
+    async def fake_process(platform_id: str, profiles: object, iteration: int = 0) -> None:
         called.append(platform_id)
 
     async def no_ctxs() -> list[object]:
@@ -195,7 +195,7 @@ async def test_run_once_noop_without_platforms(
     _patch_platforms(scheduler, monkeypatch, [])
     called: list[str] = []
 
-    async def fake_process(platform_id: str, profiles: object) -> None:
+    async def fake_process(platform_id: str, profiles: object, iteration: int = 0) -> None:
         called.append(platform_id)
 
     monkeypatch.setattr(scheduler, "_process_platform", fake_process)

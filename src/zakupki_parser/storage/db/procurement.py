@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -171,6 +172,10 @@ class Procurement(Base):
     detail_api: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Метка успешной досборки деталей площадки (BR-08): NULL — досборка не выполнена.
     details_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Номер итерации цикла планировщика, в которой закупка поставлена в очередь
+    # скоринга (батч для журнала метрик «Метрики»). NULL — метрика не записана
+    # (старые данные / постановка вне цикла парсера).
+    scoring_iteration: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

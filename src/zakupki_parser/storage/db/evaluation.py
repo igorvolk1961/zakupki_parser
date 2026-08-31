@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -56,6 +57,13 @@ class ProcurementEvaluation(Base):
     # по trace_id; None, если LangFuse не настроен/недоступен — кнопка «Трейс»
     # на карточке не отображается).
     langfuse_trace_url: Mapped[str | None] = mapped_column(Text)
+    # Номер итерации цикла планировщика, в которой закупка поставлена в очередь
+    # скоринга (батч журнала «Метрики»). Копируется из ``procurement.scoring_iteration``
+    # при записи результата (POST /score); NULL — метрика не записана (старые данные).
+    iteration: Mapped[int | None] = mapped_column(Integer)
+    # Площадка (``platform_id`` строкой), с которой закупка поставлена в очередь
+    # (для журнала «Метрики» и логов). Копируется из процедуры при записи результата.
+    platform: Mapped[str | None] = mapped_column(String(128))
     rag_report: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Стоимость обработки закупки (USD), разбитая по этапам: ``{"scoring": {...},
     # "analysis": {...}}``. Заполняется парсером в POST /score, скор/анализ

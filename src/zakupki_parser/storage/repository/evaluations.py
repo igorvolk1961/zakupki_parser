@@ -78,6 +78,18 @@ class EvaluationMixin(RepositoryMixin):
             )
 
     @staticmethod
+    def _set_batch_meta(
+        evaluation: ProcurementEvaluation,
+        iteration: int | None,
+        platform: str | None,
+    ) -> None:
+        """Записать батч-метрики (итерация цикла + площадка) на оценку."""
+        if iteration is not None:
+            evaluation.iteration = iteration
+        if platform is not None:
+            evaluation.platform = platform
+
+    @staticmethod
     def _merge_costs_into(evaluation: ProcurementEvaluation, costs: dict[str, Any] | None) -> None:
         """Наложить стоимость (scoring/analysis) на ``evaluation.costs`` (в сессии).
 
@@ -104,6 +116,8 @@ class EvaluationMixin(RepositoryMixin):
         embedding_similarity: float | None = None,
         langfuse_trace_url: str | None = None,
         costs: dict[str, Any] | None = None,
+        iteration: int | None = None,
+        platform: str | None = None,
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки."""
         async with self._db.session() as session:
@@ -123,6 +137,7 @@ class EvaluationMixin(RepositoryMixin):
                 evaluation.langfuse_trace_url = langfuse_trace_url
             if rag_report is not None:
                 evaluation.rag_report = rag_report
+            self._set_batch_meta(evaluation, iteration, platform)
             self._merge_costs_into(evaluation, costs)
             await session.commit()
             return evaluation
@@ -137,15 +152,20 @@ class EvaluationMixin(RepositoryMixin):
 
     async def list_costed_evaluations(
         self, limit: int | None = None
-    ) -> list[tuple[Any, str, str | None]]:
+    ) -> list[tuple[Any, str, str | None, str]]:
         """Оценки с сохранённой стоимостью (``costs IS NOT NULL``), последние первыми.
 
-        Возвращает кортежи ``(evaluation, number, subject)`` — номер и предмет
-        закупки для журнала метрик (вкладка «Метрики»). ``limit`` — ограничение
-        сверху (для журнала отдельных циклов).
+        Возвращает кортежи ``(evaluation, number, subject, platform)`` — номер,
+        предмет и площадку закупки для журнала метрик (вкладка «Метрики»).
+        ``limit`` — ограничение сверху (для журнала отдельных циклов).
         """
         stmt = (
-            select(ProcurementEvaluation, Procurement.number, Procurement.subject)
+            select(
+                ProcurementEvaluation,
+                Procurement.number,
+                Procurement.subject,
+                Procurement.platform_id,
+            )
             .join(Procurement, ProcurementEvaluation.procurement_id == Procurement.id)
             .where(ProcurementEvaluation.costs.isnot(None))
             .order_by(ProcurementEvaluation.created_at.desc())
@@ -154,7 +174,10 @@ class EvaluationMixin(RepositoryMixin):
             stmt = stmt.limit(limit)
         async with self._db.session() as session:
             rows = (await session.execute(stmt)).all()
-            return [(evaluation, number, subject) for evaluation, number, subject in rows]
+            return [
+                (evaluation, number, subject, platform)
+                for evaluation, number, subject, platform in rows
+            ]
 
     async def find_group_evaluation(
         self, procurement_id: int, comp_hash: str
@@ -196,6 +219,8 @@ class EvaluationMixin(RepositoryMixin):
         langfuse_trace_url: str | None = None,
         rag_report: dict[str, Any] | None = None,
         costs: dict[str, Any] | None = None,
+        iteration: int | None = None,
+        platform: str | None = None,
     ) -> int:
         """Распространяет результат скоринга на всех подписанных профилей группы.
 
@@ -233,6 +258,7 @@ class EvaluationMixin(RepositoryMixin):
                     evaluation.rag_report = rag_report
                 # Стоимость этапа одинакова для всей группы: накладываем (merge,
                 # не замена), чтобы не затереть соседнюю ветку (scoring/analysis).
+                self._set_batch_meta(evaluation, iteration, platform)
                 self._merge_costs_into(evaluation, costs)
             await session.commit()
             return len(rows)
@@ -244,11 +270,14 @@ class EvaluationMixin(RepositoryMixin):
         rag_report: dict[str, Any],
         *,
         costs: dict[str, Any] | None = None,
+        iteration: int | None = None,
+        platform: str | None = None,
     ) -> ProcurementEvaluation:
         """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method)."""
         async with self._db.session() as session:
             evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             evaluation.rag_report = rag_report
+            self._set_batch_meta(evaluation, iteration, platform)
             self._merge_costs_into(evaluation, costs)
             await session.commit()
         return evaluation

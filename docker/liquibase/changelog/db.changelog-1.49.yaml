@@ -1,0 +1,15 @@
+databaseChangeLog:
+- changeSet:
+    id: 50
+    author: zakupki-parser
+    comment: 'батч-метрики обработки: номер итерации цикла планировщика и площадка. procurements.scoring_iteration — итерация постановки в очередь скоринга; procurement_evaluations.iteration/platform — копия при записи результата (габариты журнала «Метрики»). JSONB->INT/VARCHAR, nullable'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS scoring_iteration INTEGER;
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS iteration INTEGER;
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS platform VARCHAR(128);
