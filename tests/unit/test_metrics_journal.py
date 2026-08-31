@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from zakupki_parser.api.app.routes.metrics import build_metrics_journal
 
@@ -221,3 +222,87 @@ def test_journal_groups_by_iteration() -> None:
     assert r["batches"][1]["cost_scoring"] == round(0.001 + 0.002, 8)
     # Средние по батчу итерации 3.
     assert r["batches"][1]["tokens_scoring"] == round((100 + 200) / 2, 3)
+
+
+def test_bydate_uses_configured_tz_not_utc_slice() -> None:
+    # 22:00/23:30 UTC 30.08 — по Москве (UTC+3) это уже 31.08 (01:00/02:30).
+    # Разрез «по датам» должен считать локальный день (31.08), а не UTC-срез (30.08).
+    msk = ZoneInfo("Europe/Moscow")
+    cycles = [
+        {
+            "evaluation_id": 1,
+            "procurement_id": 1,
+            "number": "А",
+            "subject": "Предмет",
+            "iteration": 7,
+            "platform": "zakupki_gov_44fz",
+            "created_at": "2026-08-30T22:00:00+00:00",
+            "costs": {"scoring": _scoring(0.001, 100, 10.0, 12.0, 90, 10)},
+        },
+        {
+            "evaluation_id": 2,
+            "procurement_id": 2,
+            "number": "Б",
+            "subject": "Предмет",
+            "iteration": 7,
+            "platform": "zakupki_gov_44fz",
+            "created_at": "2026-08-30T23:30:00+00:00",
+            "costs": {"scoring": _scoring(0.002, 200, 20.0, 22.0, 190, 10)},
+        },
+    ]
+    r = build_metrics_journal(cycles, batch_gap_seconds=GAP, tz=msk)
+    by = {d["date"]: d for d in r["by_date"]}
+    assert "2026-08-31" in by
+    assert by["2026-08-31"]["scoring_usd"] == round(0.001 + 0.002, 8)
+    assert "2026-08-30" not in by
+
+
+def test_batch_splits_at_local_midnight_and_reconciles() -> None:
+    # Один (iteration, platform), но по Москве записи попадают на 30.08 и 31.08:
+    # 20:00 UTC = 23:00 МСК 30.08; 21:00 и 22:30 UTC = 00:00/01:30 МСК 31.08.
+    # Батч должен разбиться по локальной полуночи, а сумма батчей по дате должна
+    # сходиться с разрезом «по датам».
+    msk = ZoneInfo("Europe/Moscow")
+    cycles = [
+        {
+            "evaluation_id": 1,
+            "procurement_id": 1,
+            "number": "А",
+            "subject": "Предмет",
+            "iteration": 5,
+            "platform": "roseltorg_44fz",
+            "created_at": "2026-08-30T20:00:00+00:00",
+            "costs": {"scoring": _scoring(0.001, 100, 10.0, 12.0, 90, 10)},
+        },
+        {
+            "evaluation_id": 2,
+            "procurement_id": 2,
+            "number": "Б",
+            "subject": "Предмет",
+            "iteration": 5,
+            "platform": "roseltorg_44fz",
+            "created_at": "2026-08-30T21:00:00+00:00",
+            "costs": {"scoring": _scoring(0.002, 200, 20.0, 22.0, 190, 10)},
+        },
+        {
+            "evaluation_id": 3,
+            "procurement_id": 3,
+            "number": "В",
+            "subject": "Предмет",
+            "iteration": 5,
+            "platform": "roseltorg_44fz",
+            "created_at": "2026-08-30T22:30:00+00:00",
+            "costs": {"scoring": _scoring(0.003, 300, 30.0, 32.0, 290, 10)},
+        },
+    ]
+    r = build_metrics_journal(cycles, batch_gap_seconds=GAP, tz=msk)
+    assert r["total_batches"] == 2
+    # Новые батчи первыми: сначала 31.08 (Б+В), затем 30.08 (А).
+    assert r["batches"][0]["count"] == 2
+    assert r["batches"][0]["cost_scoring"] == round(0.002 + 0.003, 8)
+    assert r["batches"][1]["count"] == 1
+    assert r["batches"][1]["cost_scoring"] == 0.001
+    # Разрез по датам сходится с суммой батчей по дате.
+    by = {d["date"]: d for d in r["by_date"]}
+    assert by["2026-08-30"]["scoring_usd"] == 0.001
+    assert by["2026-08-31"]["scoring_usd"] == round(0.002 + 0.003, 8)

@@ -15,8 +15,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 
@@ -71,6 +72,32 @@ def _parse_dt(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def _load_tz(name: str | None) -> Any:
+    """Часовой пояс из строки конфига (``Europe/Moscow``); при ошибке — UTC.
+
+    Используется для единой атрибуции дат в журнале метрик: и по-датовый
+    разрез, и строки батчей должны считать даты в одном поясе (том, что видит
+    пользователь), а не в UTC-срезе исходной ISO-строки.
+    """
+    if not name:
+        return UTC
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        return UTC
+
+
+def _local_date(dt: datetime | None, tz: Any) -> str | None:
+    """Локальная дата ``YYYY-MM-DD`` в поясе ``tz`` (None при отсутствии).
+
+    Aware-``datetime`` конвертируется в ``tz``; naive-значение берётся как есть
+    (дата уже локальная), чтобы не зависеть от таймзоны хоста.
+    """
+    if dt is None:
+        return None
+    return (dt.astimezone(tz) if dt.tzinfo is not None else dt).date().isoformat()
 
 
 def _cycle_record(
@@ -188,6 +215,7 @@ def build_metrics_journal(
     *,
     limit: int | None = None,
     batch_gap_seconds: float = 3600.0,
+    tz: Any = UTC,
 ) -> dict[str, Any]:
     """Собрать журнал метрик: батчи + статистика скоринга + расходы по датам.
 
@@ -199,6 +227,10 @@ def build_metrics_journal(
     1 час): зазор по времени между последовательными циклами больше порога начинает
     новый батч. Строка журнала — один батч: сумма стоимостей (скоринг/анализ/всего)
     и среднее остальных метрик (токены, латенси, время выполнения).
+
+    ``tz`` — часовой пояс, в котором считается дата (по нему же режется полночь):
+    батч не должен «размазываться» на несколько дней, и разрез по датам и строки
+    батчей опираются на один и тот же локальный день.
 
     Средние считаются по одному проходу по записям, отсортированным по времени:
     батч копится по мере итерации, а его итоговая строка (сумма стоимостей и среднее
@@ -244,9 +276,11 @@ def build_metrics_journal(
     batch_rows: list[dict[str, Any]] = []
     current_batch: list[dict[str, Any]] = []
     prev_ts: datetime | None = None
+    prev_local_date: str | None = None
 
     for record in sorted(records, key=lambda r: (_rec_order(r), r["created_at"] or "")):
         ts = _parse_dt(record["created_at"])
+        local_date = _local_date(ts, tz)
         head_key = (
             (
                 current_batch[0]["iteration"],
@@ -256,7 +290,10 @@ def build_metrics_journal(
             else None
         )
         # Граница батча: сменилась пара (итерация, площадка) — либо у легаси-записей
-        # (без итерации) зазор по времени превысил паузу цикла.
+        # (без итерации) зазор по времени превысил паузу цикла, либо у любых записей
+        # сменился локальный день (батч пересёк полночь). Последнее нужно, чтобы
+        # батч не «размазывался» на несколько дней и в сумме сходился с разрезом
+        # по датам (считается в том же поясе ``tz``).
         if current_batch and (
             (record["iteration"], record["platform"]) != head_key
             or (
@@ -266,15 +303,20 @@ def build_metrics_journal(
                 and ts is not None
                 and (ts - prev_ts).total_seconds() > float(batch_gap_seconds)
             )
+            or (
+                prev_local_date is not None
+                and local_date is not None
+                and local_date != prev_local_date
+            )
         ):
             batch_rows.append(_batch_row(current_batch))
             current_batch = []
         current_batch.append(record)
         prev_ts = ts
+        prev_local_date = local_date
 
-        date_key = (record["created_at"] or "")[:10]
-        if date_key:
-            day = by_date[date_key]
+        if local_date:
+            day = by_date[local_date]
             day["scoring_usd"] += record["cost_scoring"]
             day["analysis_usd"] += record["cost_analysis"]
             day["total_usd"] += record["cost_total"]
@@ -340,6 +382,9 @@ def build_metrics_router(ctx: ApiContext) -> APIRouter:
         # именно она отделяет закупки одного прохода от следующего. recovery_ttl_seconds
         # тоже равен 1 часу по умолчанию, но это порог повторной постановки, а не пауза.
         batch_gap_seconds = float(ctx.state.cfg.ops.timeout_seconds)
+        # Часовой пояс, в котором пользователь видит даты (совпадает с браузером):
+        # по нему же режется полночь и считается разрез «по датам».
+        tz = _load_tz(ctx.state.cfg.parser.browser.timezone)
         rows = await repo.list_costed_evaluations()
         cycles = [
             {
@@ -356,6 +401,8 @@ def build_metrics_router(ctx: ApiContext) -> APIRouter:
             }
             for evaluation, number, subject, platform in rows
         ]
-        return build_metrics_journal(cycles, limit=limit, batch_gap_seconds=batch_gap_seconds)
+        return build_metrics_journal(
+            cycles, limit=limit, batch_gap_seconds=batch_gap_seconds, tz=tz
+        )
 
     return router
