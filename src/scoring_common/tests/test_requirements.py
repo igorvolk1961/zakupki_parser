@@ -29,6 +29,33 @@ def test_matches_requirement_in_names() -> None:
     assert not _matches_requirement("проект договора")
 
 
+def test_matches_requirement_with_predyavlyaemye_pattern() -> None:
+    from scoring_common.requirements import _matches_requirement
+
+    assert _matches_requirement("Требования, предъявляемые к участнику закупки")
+    assert _matches_requirement("Требования предъявляемые к участнику закупки")
+    assert _matches_requirement("требования, предъявляемые к участникам закупки")
+    assert _matches_requirement(
+        "Требования, предъявляемые к участнику закупки, изложены в разделе 3"
+    )
+    assert not _matches_requirement("Требования предъявляемые исполнителю закупки")
+
+
+def test_matches_requirement_strict_word_order() -> None:
+    """Между указанными словами не должно быть других слов (только пробелы)."""
+    from scoring_common.requirements import _matches_requirement
+
+    assert _matches_requirement("Требования к участнику")
+    # Дополнительное слово между «к» и «участнику» ломает шаблон.
+    assert not _matches_requirement("Требования в части к участнику")
+    # Дополнительное слово между «требования» и «к».
+    assert not _matches_requirement("Требования закупки к участнику")
+    # Обратный порядок слов.
+    assert not _matches_requirement("Участнику к требования")
+    # У «предъявляемые» и «к» не должно быть посторонних слов.
+    assert not _matches_requirement("Требования, предъявляемые в части к участнику закупки")
+
+
 def test_split_sections_markdown_headings() -> None:
     md = (
         "# Общие положения\n\nТекст общих положений.\n\n"
