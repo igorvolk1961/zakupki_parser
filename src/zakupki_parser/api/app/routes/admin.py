@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -131,6 +132,32 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         task.cancel()
         logger.info("Запрошена остановка парсера из web-интерфейса")
         return {"status": "stopping"}
+
+    @router.post(
+        "/api/parser/restart",
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def restart_parser() -> dict[str, Any]:
+        """Перезапускает парсер: останавливает текущий проход (если запущен)
+        и запускает постоянный мониторинг заново."""
+        async with state.parser_lock:
+            task = state.parser_task
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+                # _run_parser сбрасывает state.parser_task в блоке finally.
+            state.parser_status = {
+                "running": True,
+                "stopped": False,
+                "error": None,
+                "started_at": datetime.now(UTC).isoformat(),
+                "finished_at": None,
+            }
+            state.parser_task = asyncio.create_task(_run_parser(state))
+        logger.info("Перезапущен парсер по команде из web-интерфейса")
+        return {"status": "restarting"}
 
     @router.post("/api/db/clear", include_in_schema=False, dependencies=[Depends(require_devops)])
     async def clear_db() -> dict[str, Any]:

@@ -1108,6 +1108,18 @@ requirements:
     tests:
       - src/scoring_service/tests/test_auth.py
       - tests/integration/test_api.py
+  - id: FR-10.9
+    type: FR
+    title: Перезапуск фоновых сервисов скоринга из web (devops)
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/restart_services.py
+      - src/zakupki_parser/api/app/routes/config.py
+    tests:
+      - tests/unit/test_restart_services.py
 
   # ===== Бизнес-правила =====
   - id: BR-01

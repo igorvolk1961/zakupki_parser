@@ -46,6 +46,7 @@
       <button id="tab-profiles">Профили</button>
     </div>
     <div class="tabs-group" id="tabs-roles">
+      <button id="tab-parser">Парсер</button>
       <button id="tab-users">Пользователи</button>
       <button id="tab-metrics">Метрики</button>
       <button id="tab-monitor">Параметры мониторинга</button>
@@ -55,7 +56,6 @@
       <button id="tab-cfgops">Конфигурация</button>
       <button id="tab-logcfg">Управление логами</button>
       <button id="tab-logs">Логи</button>
-      <button id="tab-parser">Парсер</button>
     </div>
   </div>
 
@@ -385,6 +385,7 @@
           <button id="svc-scoring-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
           <button id="svc-scoring-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
           <button id="svc-scoring-reload">Отменить изменения</button>
+          <button class="ghost" id="svc-scoring-restart" title="Перезапустить сервер scoring_service">⟳ Перезагрузить</button>
           <span id="svc-scoring-status" class="muted"></span>
         </div>
       </div>
@@ -399,6 +400,7 @@
           <button id="svc-analysis-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
           <button id="svc-analysis-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
           <button id="svc-analysis-reload">Отменить изменения</button>
+          <button class="ghost" id="svc-analysis-restart" title="Перезапустить сервер analysis_service">⟳ Перезагрузить</button>
           <span id="svc-analysis-status" class="muted"></span>
         </div>
       </div>
@@ -496,7 +498,8 @@
         <button class="primary" id="parser-save" title="Сохранить конфигурацию парсера. Изменения применяются при следующем старте сервиса.">Сохранить</button>
         <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
         <button id="parser-reload">Отменить изменения</button>
-        <span id="parser-status" class="muted"></span>
+        <button class="ghost" id="parser-restart" title="Перезапустить парсер (остановить и запустить заново)">⟳ Перезагрузить</button>
+        <span id="parser-restart-status" class="muted"></span>
       </div>
     </div>
     <div id="parser-form"></div>

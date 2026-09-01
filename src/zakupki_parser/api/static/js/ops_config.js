@@ -5,6 +5,8 @@
 // и «Парсер» (config_parser.yaml) — форма + текстовый режим.
 import { api, apiJSON } from "./api.js";
 import { createConfigView } from "./config_view.js";
+import { confirmDialogAsync } from "./dialogs.js";
+import { refreshParserStatus } from "./admin.js";
 
 export let opsDirty = false;
 export let logDirty = false;
@@ -143,6 +145,75 @@ const serviceUIs = SERVICES.map((s) => {
     isDirty: () => viewDirty,
   };
 });
+
+// Перезапуск фонового сервиса скоринга (вариант A): подтверждение +
+// POST /api/services/<key>/restart. Статус показываем в соответствующей вкладке.
+async function restartService(service, triggerBtn) {
+  if (triggerBtn) triggerBtn.disabled = true;
+  const ok = await confirmDialogAsync(
+    `Перезапустить сервер «${service.label}»? Процесс будет остановлен и запущен заново.`,
+  );
+  if (!ok) {
+    if (triggerBtn) triggerBtn.disabled = false;
+    return;
+  }
+  const statusEl = document.getElementById("svc-" + service.key + "-status");
+  if (statusEl) statusEl.textContent = "перезапуск…";
+  try {
+    const r = await apiJSON("/api/services/" + service.key + "/restart", { method: "POST" });
+    if (r.status === 401) return;
+    if (!r.ok) {
+      if (statusEl) statusEl.textContent = "не удалось перезапустить";
+      return;
+    }
+    const res = await r.json();
+    if (statusEl) {
+      statusEl.textContent =
+        "перезапуск отправлен (завершено: " + (res.terminated ?? 0) + ", новый PID: " + (res.pid ?? "—") + ")";
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "Ошибка: " + err.message;
+  } finally {
+    if (triggerBtn) triggerBtn.disabled = false;
+  }
+}
+
+serviceUIs.forEach((s) => {
+  const restartBtn = document.getElementById("svc-" + s.key + "-restart");
+  if (restartBtn) restartBtn.addEventListener("click", () => restartService(s, restartBtn));
+});
+
+// Перезапуск парсера (вкладка «Парсер»): после успеха обновляем статус в шапке.
+const parserRestartBtn = document.getElementById("parser-restart");
+if (parserRestartBtn) {
+  parserRestartBtn.addEventListener("click", async () => {
+    if (parserRestartBtn.disabled) return;
+    parserRestartBtn.disabled = true;
+    const ok = await confirmDialogAsync(
+      "Перезапустить парсер? Текущий проход будет остановлен и запущен заново.",
+    );
+    if (!ok) {
+      parserRestartBtn.disabled = false;
+      return;
+    }
+    const statusEl = document.getElementById("parser-restart-status");
+    if (statusEl) statusEl.textContent = "перезапуск…";
+    try {
+      const r = await apiJSON("/api/parser/restart", { method: "POST" });
+      if (r.status === 401) return;
+      if (!r.ok) {
+        if (statusEl) statusEl.textContent = "не удалось перезапустить";
+        return;
+      }
+      if (statusEl) statusEl.textContent = "перезапуск отправлен";
+      await refreshParserStatus();
+    } catch (err) {
+      if (statusEl) statusEl.textContent = "Ошибка: " + err.message;
+    } finally {
+      parserRestartBtn.disabled = false;
+    }
+  });
+}
 
 export function servicesDirty() {
   return serviceUIs.some((s) => s.isDirty());

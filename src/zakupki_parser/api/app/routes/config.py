@@ -17,6 +17,7 @@ config_log.yaml, config_parser.yaml (devops) и редактор промпто�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -38,6 +39,11 @@ from zakupki_parser.api.app.converters import (
     _service_config_public,
 )
 from zakupki_parser.api.app.deps import ApiContext
+from zakupki_parser.api.app.restart_services import (
+    find_worker_pids,
+    launch_worker,
+    terminate_pids,
+)
 from zakupki_parser.api.app.schemas import PlatformOut, PlatformsListOut, PromptUpdate
 from zakupki_parser.api.app.state import AppState
 from zakupki_parser.config.models import (
@@ -396,6 +402,11 @@ class _ServiceConfig:
     secrets: frozenset[str]
     title: str
     groups: tuple[tuple[str, tuple[str, ...]], ...]  # (подпись группы, ключи полей)
+    # Метаданные рестарта (вариант A: subprocess, как в scripts/run_all.sh).
+    module: str = ""  # модуль для `python -m <module> worker`
+    worker_cmd: str = "worker"  # подкоманда воркера
+    parser_env: str = ""  # env-переменная с URL парсера
+    log_name: str = ""  # имя файла лога (data/logs/<log_name>.log)
 
 
 SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
@@ -418,6 +429,10 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                 }
             ),
             title="Скоринг-сервис",
+            module="scoring_service",
+            worker_cmd="worker",
+            parser_env="SCORE_PARSER_API_URL",
+            log_name="scoring_service",
             groups=(
                 (
                     "LLM (OpenAI-совместимый)",
@@ -491,6 +506,10 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
             model=AnalysisServiceConfig,
             secrets=frozenset({"llm_api_key", "embedding_api_key", "parser_internal_token"}),
             title="Анализ ТЗ",
+            module="analysis_service.cli",
+            worker_cmd="worker",
+            parser_env="ANALYSIS_PARSER_API_URL",
+            log_name="analysis_service",
             groups=(
                 (
                     "LLM (OpenAI-совместимый)",
@@ -535,6 +554,10 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
             model=PwinServiceConfig,
             secrets=frozenset({"parser_internal_token"}),
             title="P(win)",
+            module="pwin_service",
+            worker_cmd="worker",
+            parser_env="PWIN_PARSER_API_URL",
+            log_name="pwin_service",
             groups=(
                 ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
                 (
@@ -579,6 +602,10 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
             model=MarginServiceConfig,
             secrets=frozenset({"parser_internal_token"}),
             title="Margin",
+            module="margin_service",
+            worker_cmd="worker",
+            parser_env="MARGIN_PARSER_API_URL",
+            log_name="margin_service",
             groups=(
                 ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
                 (
@@ -784,8 +811,54 @@ def _register_service_config_routes(
             logger.info("Сохранён .env сервиса %s", svc.title)
             return {"content": content, "exists": True}
 
+        @router.post(
+            f"{prefix}/restart",
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def restart_service() -> dict[str, Any]:
+            """Перезапускает фоновый сервис скоринга (вариант A: subprocess).
+
+            Находит рабочие процессы сервиса по командной строке, завершает их и
+            поднимает сервис заново той же командой, что и scripts/run_all.sh.
+            Рестарт может занимать до нескольких секунд (ожидание завершения
+            процессов) — выполняем в отдельном потоке, чтобы не блокировать цикл.
+            """
+            return await asyncio.to_thread(_restart_service, state, svc)
+
     for svc in SERVICE_CONFIGS.values():
         _register_one(svc)
+
+
+def _restart_service(state: AppState, svc: _ServiceConfig) -> dict[str, Any]:
+    """Перезапуск одного фонового сервиса скоринга (вариант A: subprocess)."""
+    root = Path(state.configs_dir).resolve().parent
+    port = int(getattr(state, "parser_port", 8000) or 8000)
+    log_path = root / "data" / "logs" / f"{svc.log_name}.log"
+    pids = find_worker_pids(svc.module, svc.worker_cmd)
+    terminated = terminate_pids(pids)
+    pid = launch_worker(
+        project_root=root,
+        service_dir=svc.dir,
+        module=svc.module,
+        cmd=svc.worker_cmd,
+        parser_env=svc.parser_env,
+        parser_url=f"http://127.0.0.1:{port}",
+        log_path=log_path,
+    )
+    logger.info(
+        "Перезапущен сервис %s (%s): завершено %s, новый PID %s",
+        svc.title,
+        svc.name,
+        terminated,
+        pid,
+    )
+    return {
+        "status": "restarting",
+        "service": svc.name,
+        "terminated": terminated,
+        "pid": pid,
+    }
 
 
 def build_config_router(ctx: ApiContext) -> APIRouter:

@@ -22,13 +22,14 @@ export const TAB_SETS = {
   user: [...TAB_BASE],
   admin: [TAB_USERS],
   analyst: [...TAB_BASE, TAB_METRICS, TAB_MONITOR, TAB_PROMPTS, TAB_REFS],
-  devops: [TAB_SERVICES, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS, TAB_PARSER],
+  devops: [TAB_PARSER, TAB_SERVICES, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS],
 };
 
 export const ALL_TABS = [
   "proc",
   "cust",
   "profiles",
+  TAB_PARSER,
   TAB_METRICS,
   TAB_USERS,
   TAB_MONITOR,
@@ -38,7 +39,6 @@ export const ALL_TABS = [
   TAB_CFGOPS,
   TAB_LOGCFG,
   TAB_LOGS,
-  TAB_PARSER,
 ];
 
 export const ROLE_LABELS = {
