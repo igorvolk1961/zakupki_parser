@@ -28,6 +28,48 @@ def _load_md(name: str) -> str:
 VERDICT_SYSTEM = _load_md("verdict_system.md")
 VERDICT_USER_TEMPLATE = _load_md("verdict_user.md")
 BATCH_SYSTEM = _load_md("batch_system.md")
+REQUIREMENTS_DATA = _load_md("requirements_data.md")
+
+# Структуры data для трёх основных типов требований + обобщённая для «прочих».
+# Точная схема лицензий/опыта/Минпромторга — рабочий контракт (финализируется при
+# накоплении примеров); у «прочих» требования к атрибутам — обобщённость имён.
+REQUIREMENTS_DATA_STRUCTURES: dict[str, dict[str, str]] = {
+    "licenses": {
+        "label": "лицензии и допуски",
+        "schema": (
+            '{"required": true|false,'
+            ' "kinds": [{"type": "license|sro|registry|permit|other",'
+            ' "name": "<название>", "code": "<код из справочника>"|null,'
+            ' "authority": "<выдавший орган>"|null, "mandatory": true|false}],'
+            ' "notes": "<дополнительные условия>"|null}'
+        ),
+    },
+    "experience": {
+        "label": "требования к опыту",
+        "schema": (
+            '{"required": true|false,'
+            ' "confirmation": "platform|documents|registry|evaluation_only"|null,'
+            ' "min_period_months": <число>|null, "min_contracts": <число>|null,'
+            ' "ref_2571": true|false, "notes": "<пояснение>"|null}'
+        ),
+    },
+    "minprom": {
+        "label": "требования по Минпромторгу (подтверждение происхождения)",
+        "schema": (
+            '{"required": true|false, "foreign_goods_ban": true|false,'
+            ' "not_established_note": true|false, "notes": "<пояснение>"|null}'
+        ),
+    },
+    "other": {
+        "label": "прочие требования к участнику",
+        "schema": (
+            '{"type": "<обобщённое название требования>",'
+            ' "summary": "<краткое содержание>"|null,'
+            ' "conditions": ["<условие>", ...],'
+            ' "references": "<ссылки/документы>"|null}'
+        ),
+    },
+}
 
 
 def _substitute(template: str, values: dict[str, str]) -> str:
@@ -61,3 +103,18 @@ def build_batch_system_messages(context: str) -> tuple[str, str]:
     """
     user = _substitute(BATCH_SYSTEM, {"context": context})
     return BATCH_SYSTEM, user
+
+
+def build_requirements_data_messages(kind: str, text: str) -> tuple[str, str]:
+    """Системный и пользовательский промпты для data одного типа требования.
+
+    ``kind`` — одно из ``licenses``/``experience``/``minprom``/``other``.
+    ``text`` — Markdown-текст раздела требования. ``structure`` — целевая JSON-схема
+    (для трёх типов своя, для ``other`` — обобщённая).
+    """
+    meta = REQUIREMENTS_DATA_STRUCTURES[kind]
+    user = _substitute(
+        REQUIREMENTS_DATA,
+        {"kind": meta["label"], "structure": meta["schema"], "text": text},
+    )
+    return REQUIREMENTS_DATA, user

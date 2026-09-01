@@ -1,0 +1,9 @@
+databaseChangeLog:
+- changeSet:
+    id: 52
+    author: zakupki-parser
+    comment: 'требования к участнику (поиск по всем документам, не только ТЗ): JSONB-колонка procurements.requirements_json — структура {licenses, experience, minprom, other}, каждое {text, data}; NULL — не извлекалось, {} — шаблоны не найдены'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS requirements_json JSONB;

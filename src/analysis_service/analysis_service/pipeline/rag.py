@@ -1,17 +1,15 @@
-"""RAG-пайплайн анализа стоп-условий по вопросам клиента.
+"""RAG-пайплайн анализа по персональным вопросам профиля.
 
-Обязательные (системные) проверки — опыт (ПП РФ 2571), реестр Минпромторга,
-лицензии/СРО — извлекаются из ТЗ одним LLM-вызовом (``batch_system``) по
-лексически отобранным секциям, затем сопоставляются с фактами профиля
-детерминированными правилами (``matcher``): профиль в промпт не попадает.
-Пользовательские вопросы профиля обрабатываются по одному LLM-вызову на вопрос
-(эмбеддинги вопросов кэшируются). Результат — ``rag_report`` для карточки.
+Персонализированные вопросы профиля (единственное сохраняемое RAG-звено) обрабатываются
+по одному LLM-вызову на вопрос: эмбеддинги вопросов кэшируются, контекст — разделы ТЗ
+(как раньше). Обязательные стоп-условия ушли в отдельный детерминированный поиск
+«Требований к участнику» по всем документам плюс LLM-заполнение ``data``
+(``fill_requirements_data``). Результат — ``rag_report`` для карточки.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 import time
 from datetime import UTC, datetime
 from typing import Any, Literal, cast
@@ -20,19 +18,10 @@ from pydantic import BaseModel, Field
 
 from analysis_service.llm import LlmClient
 from analysis_service.pipeline.chunker import split_tz_sections
-from analysis_service.pipeline.matcher import (
-    MARKERS,
-    SEVERITY,
-    apply_profile_facts,
-)
+from analysis_service.pipeline.matcher import MARKERS, SEVERITY
 from analysis_service.pipeline.prompts import (
-    build_batch_system_messages,
+    build_requirements_data_messages,
     build_verdict_messages,
-)
-from analysis_service.pipeline.system_questions import (
-    SYSTEM_QUESTIONS,
-    SYSTEM_QUESTIONS_VERSION,
-    SYSTEM_RETRIEVAL_PATTERNS,
 )
 from analysis_service.settings import Settings
 from scoring_common.costing import stage_metrics_with_components
@@ -54,17 +43,8 @@ Verdict = Literal["no_stop_condition", "absolute", "soft", "unavailable"]
 # которая используется и анализом, и просмотром ТЗ с карточки.
 
 
-# Ключи ответа batch_system.md → id системного вопроса.
-_BATCH_KEYS: dict[str, str] = {
-    "experience_2571": "sys:exp_2571",
-    "minprom_registry": "sys:minprom_registry",
-    "license_sro": "sys:license_sro",
-}
-_SYSTEM_TEXT: dict[str, str] = {q["id"]: q["text"] for q in SYSTEM_QUESTIONS}
-
-
 class QuestionVerdict(BaseModel):
-    """Вердикт по одному вопросу (системному или профильному)."""
+    """Вердикт по одному профильному вопросу."""
 
     question_id: str
     question_text: str
@@ -104,10 +84,9 @@ class RagAnalyzer:
         self,
         record: dict[str, Any],
         questions: list[dict[str, Any]],
-        profile_facts: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """RAG-отчёт: системные проверки + вопросы клиента. best-effort.
+        """RAG-отчёт по персональным вопросам профиля. best-effort.
 
         Весь прогон (эмбеддинги, LLM-вердикты) вкладывается в единый родительский
         span LangFuse ``rag_analysis``: трейсы эмбеддингов становятся дочерними
@@ -126,7 +105,7 @@ class RagAnalyzer:
             self._llm.reset_cost()
             getattr(self._embedder, "reset_cost", lambda: None)()
             getattr(self._embedder, "reset_metrics", lambda: None)()
-            report = await self._analyze(record, questions, profile_facts, generated_at)
+            report = await self._analyze(record, questions, generated_at)
         duration_ms = (time.perf_counter() - stage_start) * 1000.0
         llm_metrics: dict[str, Any] = getattr(self._llm, "metrics", lambda: {})()
         emb_metrics: dict[str, Any] = getattr(self._embedder, "metrics", lambda: {})()
@@ -159,7 +138,6 @@ class RagAnalyzer:
         self,
         record: dict[str, Any],
         questions: list[dict[str, Any]],
-        profile_facts: dict[str, Any] | None,
         generated_at: str,
     ) -> dict[str, Any]:
         ref, tz_text = resolve_tz_content(
@@ -196,17 +174,11 @@ class RagAnalyzer:
                 "status": "error",
             }
 
-        # Системные проверки (опыт 2571 / реестр Минпромторга / лицензии) требуют
-        # только лексического отбора секций и LLM — эмбеддинги им не нужны.
-        # Выполняем их ВСЕГДА, даже если вектор-прокси недоступен, чтобы пользователь
-        # видел обязательные барьеры (главная ценность сервиса), а не молчаливое
-        # «ничего не найдено».
-        verdicts: list[dict[str, Any]] = await self._analyze_system(chunks, profile_facts)
+        verdicts: list[dict[str, Any]] = []
 
         chunk_vectors = await self._embedder.embed(chunks)
         if chunk_vectors is None or len(chunk_vectors) != len(chunks):
-            # Векторы недоступны: пользовательские вопросы профиля оценить нельзя,
-            # но системные проверки уже посчитаны — сохраняем их (best-effort).
+            # Векторы недоступны: вопросы профиля оценить нельзя (best-effort).
             embed_error = "Не удалось вычислить эмбеддинги чанков ТЗ (вопросы профиля не оценены)"
             for question in questions:
                 question_id = str(question.get("id") or "")
@@ -257,63 +229,52 @@ class RagAnalyzer:
         return "ok"
 
     # ------------------------------------------------------------------ #
-    # Системные обязательные проверки (Stage A: batch LLM; Stage B: matcher)
+    # Заполнение data структуры «Требования к участнику» (LLM-этап)
     # ------------------------------------------------------------------ #
-    def _select_relevant_chunks(self, patterns: list[str], chunks: list[str]) -> list[int]:
-        """Индексы чанков, задевающих хотя бы один из паттернов проверки."""
-        compiled = [re.compile(p, re.IGNORECASE) for p in patterns]
-        return [
-            idx for idx, chunk in enumerate(chunks) if any(pat.search(chunk) for pat in compiled)
-        ]
+    async def fill_requirements_data(self, structure: dict[str, Any]) -> dict[str, Any]:
+        """LLM-заполнение ``data`` каждого поля структуры требований (per-procurement).
 
-    async def _analyze_system(
-        self,
-        chunks: list[str],
-        profile_facts: dict[str, Any] | None,
-    ) -> list[dict[str, Any]]:
-        """Системные проверки: лексический отбор секций → 1 LLM-вызов → matcher."""
-        selected: set[int] = set()
-        for patterns in SYSTEM_RETRIEVAL_PATTERNS.values():
-            selected.update(self._select_relevant_chunks(patterns, chunks))
-        if not selected:
-            # В ТЗ нет ни одной стандартной секции стоп-условий: LLM не зовём.
-            return [self._system_skip(qid) for qid in _SYSTEM_TEXT]
-        context = "\n\n---\n\n".join(chunks[idx] for idx in sorted(selected))
-        system, user = build_batch_system_messages(context)
+        Три основных поля (``licenses``/``experience``/``minprom``) и каждый элемент
+        ``other`` обрабатываются отдельным LLM-вызовом по своей JSON-схеме. Уже
+        заполненные ``data`` не пересчитываются (идемпотентность). При сбое вызова
+        ``data`` остаётся ``None`` (best-effort), остальные поля достраиваются.
+        """
+        filled: dict[str, Any] = {}
+        for key in ("licenses", "experience", "minprom"):
+            entry = structure.get(key)
+            if not isinstance(entry, dict):
+                continue
+            text = entry.get("text") or ""
+            if not text or entry.get("data") is not None:
+                filled[key] = entry
+                continue
+            data = await self._llm_requirement_data(key, text)
+            filled[key] = {"text": text, "data": data}
+        other = structure.get("other")
+        if isinstance(other, list):
+            other_filled: list[Any] = []
+            for item in other:
+                if not isinstance(item, dict):
+                    other_filled.append(item)
+                    continue
+                text = item.get("text") or ""
+                if not text or item.get("data") is not None:
+                    other_filled.append(item)
+                    continue
+                data = await self._llm_requirement_data("other", text)
+                other_filled.append({"text": text, "data": data})
+            filled["other"] = other_filled
+        # Служебные ключи (не разделы требований) переносим как есть.
+        for key, value in structure.items():
+            if key not in ("licenses", "experience", "minprom", "other"):
+                filled[key] = value
+        return filled
+
+    async def _llm_requirement_data(self, kind: str, text: str) -> dict[str, Any] | None:
+        """JSON-структура требования вида ``kind`` из текста раздела (или None при сбое)."""
+        system, user = build_requirements_data_messages(kind, text)
         data = await self._llm.chat_json(system, user)
-        if data is None:
-            return [
-                self._system_unavailable(qid, "LLM-извлечение фактов не выполнено (сбой)")
-                for qid in _SYSTEM_TEXT
-            ]
-        extractions: dict[str, Any] = {
-            key: (data.get(key) if isinstance(data.get(key), dict) else None) for key in _BATCH_KEYS
-        }
-        return apply_profile_facts(extractions, profile_facts)
-
-    def _system_skip(self, question_id: str) -> dict[str, Any]:
-        return QuestionVerdict(
-            question_id=question_id,
-            question_text=_SYSTEM_TEXT[question_id],
-            verdict=VERDICT_NONE,
-            severity=0,
-            marker=MARKERS[VERDICT_NONE],
-            reasoning="В ТЗ не найдено упоминаний, релевантных проверке",
-            source="system",
-            question_version=SYSTEM_QUESTIONS_VERSION,
-        ).model_dump()
-
-    def _system_unavailable(self, question_id: str, reason: str) -> dict[str, Any]:
-        return QuestionVerdict(
-            question_id=question_id,
-            question_text=_SYSTEM_TEXT[question_id],
-            verdict=VERDICT_UNAVAILABLE,
-            severity=0,
-            marker=MARKERS[VERDICT_UNAVAILABLE],
-            reasoning=reason,
-            source="system",
-            question_version=SYSTEM_QUESTIONS_VERSION,
-        ).model_dump()
+        return data if isinstance(data, dict) else None
 
     # ------------------------------------------------------------------ #
     # Пользовательские вопросы профиля (по одному LLM-вызову на вопрос)

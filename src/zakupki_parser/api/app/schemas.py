@@ -62,6 +62,27 @@ class ProcurementDetailOut(ProcurementOut):
     """Карточка закупки с полным detail_json."""
 
     detail_json: dict[str, Any] | None = None
+    # Требования к участнику (поиск по всем документам, не только ТЗ): структура
+    # {licenses, experience, minprom, other}. Нужна analysis-воркеру (get_procurement),
+    # чтобы понять, извлечены ли требования и какие data уже заполнены.
+    requirements_json: dict[str, Any] | None = None
+
+
+class RequirementsOut(BaseModel):
+    """Структура «Требования к участнику» закупки (просмотр в карточке).
+
+    ``found`` — False, если требования не найдены (структура пустая ``{}``) либо
+    поле ещё не извлекалось и извлечение тоже ничего не нашло.
+    """
+
+    found: bool
+    requirements: dict[str, Any] | None = None
+
+
+class RequirementsIn(BaseModel):
+    """Сохранение структуры требований (analysis-воркер / извлечение)."""
+
+    structure: dict[str, Any]
 
 
 class ProcurementListOut(BaseModel):

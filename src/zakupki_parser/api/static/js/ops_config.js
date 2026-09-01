@@ -40,7 +40,7 @@ const SERVICES = [
   },
   {
     key: "analysis",
-    label: "Анализ ТЗ",
+    label: "Анализ документов",
     configPath: "services/analysis/config",
     schemaPath: "services/analysis",
   },
