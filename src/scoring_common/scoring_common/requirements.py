@@ -221,11 +221,25 @@ def _merge_texts(entries: list[dict[str, str]]) -> str:
     return "\n\n---\n\n".join(e["text"] for e in entries if e["text"])
 
 
+def _source_names(entries: list[dict[str, str]]) -> str | list[str]:
+    """Имя(ена) файла, из которого(ых) взят текст раздела.
+
+    Один уникальный источник — строка; несколько — список (без дубликатов).
+    """
+    names: list[str] = []
+    for entry in entries:
+        source = entry.get("source") or ""
+        if source and source not in names:
+            names.append(source)
+    return names[0] if len(names) == 1 else names
+
+
 def build_structure(candidates: list[dict[str, str]]) -> dict[str, Any]:
     """Собрать json-структуру требований: ``{licenses, experience, minprom, other}``.
 
-    Три основных поля — ``{text, data=None}`` (text объединяет все разделы типа);
-    ``other`` — список таких же объектов. Пусто — ``{}``.
+    Каждая запись — ``{text, data=None, file_name}``: ``text`` объединяет все
+    разделы типа (для трёх основных полей), ``file_name`` — название файла,
+    из которого взята информация (список, если несколько файлов). Пусто — ``{}``.
     """
     if not candidates:
         return {}
@@ -237,9 +251,16 @@ def build_structure(candidates: list[dict[str, str]]) -> dict[str, Any]:
     for key in ("licenses", "experience", "minprom"):
         entries = grouped.get(key)
         if entries:
-            structure[key] = {"text": _merge_texts(entries), "data": None}
+            structure[key] = {
+                "text": _merge_texts(entries),
+                "data": None,
+                "file_name": _source_names(entries),
+            }
     if grouped.get("other"):
-        structure["other"] = [{"text": e["text"], "data": None} for e in grouped["other"]]
+        structure["other"] = [
+            {"text": e["text"], "data": None, "file_name": e.get("source") or ""}
+            for e in grouped["other"]
+        ]
     return structure
 
 

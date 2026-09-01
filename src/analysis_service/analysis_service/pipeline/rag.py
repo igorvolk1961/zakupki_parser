@@ -249,7 +249,7 @@ class RagAnalyzer:
                 filled[key] = entry
                 continue
             data = await self._llm_requirement_data(key, text)
-            filled[key] = {"text": text, "data": data}
+            filled[key] = {"text": text, "data": data, "file_name": entry.get("file_name")}
         other = structure.get("other")
         if isinstance(other, list):
             other_filled: list[Any] = []
@@ -262,7 +262,9 @@ class RagAnalyzer:
                     other_filled.append(item)
                     continue
                 data = await self._llm_requirement_data("other", text)
-                other_filled.append({"text": text, "data": data})
+                other_filled.append(
+                    {"text": text, "data": data, "file_name": item.get("file_name")}
+                )
             filled["other"] = other_filled
         # Служебные ключи (не разделы требований) переносим как есть.
         for key, value in structure.items():

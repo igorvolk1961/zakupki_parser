@@ -82,12 +82,25 @@ def test_build_structure_groups_main_and_other() -> None:
     structure = build_structure(candidates)
     assert structure["licenses"]["text"].startswith("Требуется лицензия МЧС")
     assert structure["licenses"]["data"] is None
+    assert structure["licenses"]["file_name"] == "a.pdf"
     assert structure["experience"]["data"] is None
     assert structure["minprom"]["data"] is None
     assert len(structure["other"]) == 1
     assert structure["other"][0]["data"] is None
+    assert structure["other"][0]["file_name"] == "d.pdf"
     # Поля с несколькими разделами одного типа объединяются в один text.
     assert structure["licenses"]["text"] == candidates[0]["text"]
+
+
+def test_build_structure_file_name_list_when_multiple_sources() -> None:
+    candidates = [
+        {"source": "a.pdf", "text": "Требуется лицензия МЧС."},
+        {"source": "b.docx", "text": "Нужно членство в СРО."},
+    ]
+    structure = build_structure(candidates)
+    assert structure["licenses"]["file_name"] == ["a.pdf", "b.docx"]
+    assert "лицензия МЧС" in structure["licenses"]["text"]
+    assert "членство в СРО" in structure["licenses"]["text"]
 
 
 def test_classify_section() -> None:
@@ -119,6 +132,7 @@ def test_extract_requirements_by_heading(_fake_extract_text: dict[str, str]) -> 
     structure = extract_requirements(record)
     assert "licenses" in structure
     assert "Требуется лицензия МЧС" in structure["licenses"]["text"]
+    assert structure["licenses"]["file_name"] == "req.pdf"
 
 
 def test_extract_requirements_name_match_whole_doc(_fake_extract_text: dict[str, str]) -> None:
@@ -130,6 +144,7 @@ def test_extract_requirements_name_match_whole_doc(_fake_extract_text: dict[str,
     structure = extract_requirements(record)
     assert "licenses" in structure
     assert "Требуется лицензия МЧС" in structure["licenses"]["text"]
+    assert structure["licenses"]["file_name"] == "Требования к участникам.docx"
 
 
 def test_extract_requirements_fallback_to_doc_text(_fake_extract_text: dict[str, str]) -> None:

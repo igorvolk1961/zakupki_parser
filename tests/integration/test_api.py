@@ -477,6 +477,7 @@ def test_procurement_requirements_extract_and_persist(
     assert "licenses" in body["requirements"]
     assert body["requirements"]["licenses"]["text"]
     assert body["requirements"]["licenses"]["data"] is None
+    assert body["requirements"]["licenses"]["file_name"] == "Требования к участникам.docx"
 
     # Структура сохранена в БД: повторный запрос не извлекает заново.
     again = client.get(f"/api/procurements/{req_id}/requirements").json()
