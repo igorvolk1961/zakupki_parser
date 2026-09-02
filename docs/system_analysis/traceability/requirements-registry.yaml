@@ -1130,6 +1130,7 @@ requirements:
     code:
       - src/scoring_common/scoring_common/requirements.py
       - src/scoring_common/scoring_common/tables.py
+      - src/scoring_common/scoring_common/law_requirements.py
       - src/scoring_common/scoring_common/parser_api.py
       - src/zakupki_parser/api/app/routes/procurements.py
       - src/zakupki_parser/storage/repository/procurements.py
@@ -1138,6 +1139,7 @@ requirements:
     tests:
       - src/scoring_common/tests/test_requirements.py
       - src/scoring_common/tests/test_tables.py
+      - src/scoring_common/tests/test_law_requirements.py
       - src/analysis_service/tests/test_rag.py
       - tests/integration/test_api.py
 

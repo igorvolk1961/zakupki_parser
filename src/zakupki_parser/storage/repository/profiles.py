@@ -27,7 +27,17 @@ from zakupki_parser.storage.repository.base import RepositoryMixin
 logger = logging.getLogger(__name__)
 
 
-LICENSES_REF = Path(__file__).resolve().parents[4] / "docs" / "references" / "licenze_kind.md"
+_LICENSES_REF_FILE = "licenze_kind.md"
+
+
+def _licenses_ref() -> Any:
+    """Путь к справочнику видов лицензий: ``docs/references/licenze_kind.md`` (данные сида БД).
+
+    Виды лицензий используются ВНЕ сервисов — для предварительного заполнения БД
+    (сид ``license_types``), поэтому файл лежит как справочные данные в ``docs/``,
+    а не как рантайм-ресурс какого-либо сервиса.
+    """
+    return Path(__file__).resolve().parents[4] / "docs" / "references" / _LICENSES_REF_FILE
 
 
 def _clean_license_name(raw: str) -> str:
@@ -40,18 +50,19 @@ def _clean_license_name(raw: str) -> str:
 
 @lru_cache(maxsize=1)
 def license_type_names() -> list[str]:
-    """Каталожные наименования видов лицензий/допусков (docs/references/licenze_kind.md).
+    """Каталожные наименования видов лицензий (docs/references/licenze_kind.md).
 
     Единый источник истины справочника ``license_types`` (миграция 1.50, ``name`` —
     уникальный ключ). Повторный вызов безопасен (кэш); при недоступном файле — пустой
     список (сид не меняет существующие строки).
     """
-    if not LICENSES_REF.is_file():
-        logger.warning("Не найден файл справочника лицензий: %s", LICENSES_REF)
+    ref = _licenses_ref()
+    if not ref.is_file():
+        logger.warning("Не найден файл справочника лицензий: %s", ref)
         return []
     seen: set[str] = set()
     out: list[str] = []
-    for raw in LICENSES_REF.read_text(encoding="utf-8").splitlines():
+    for raw in ref.read_text(encoding="utf-8").splitlines():
         if not raw.lstrip().startswith("-"):
             continue
         name = _clean_license_name(raw)

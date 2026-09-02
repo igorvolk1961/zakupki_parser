@@ -31,6 +31,7 @@ import logging
 import re
 from typing import Any
 
+from scoring_common.law_requirements import annotate_requirements
 from scoring_common.tables import _MARKER_VALUE_RE, pdf_to_markdown_tables
 from scoring_common.tz import extract_text
 from scoring_common.tz.archives import _archive_inner_names
@@ -386,11 +387,16 @@ def extract_requirements(
     требованием. Иначе — legacy-поиск разделов по имени файла/заголовку.
 
     Детерминированный этап: заполняет только ``text`` (и ``additional``), ``data``
-    остаётся ``None``. Если ничего не найдено — возвращает ``{}``.
+    остаётся ``None``; каждому требованию добавляются флаги ``universal/negated/show``
+    (см. ``scoring_common.law_requirements``). Если ничего не найдено — ``{}``.
     """
     if candidates := _table_requirement_candidates(record, timeout=timeout, verify_ssl=verify_ssl):
-        return build_structure(candidates)
-    return build_structure(_candidate_sections(record, timeout=timeout, verify_ssl=verify_ssl))
+        structure = build_structure(candidates)
+    else:
+        structure = build_structure(
+            _candidate_sections(record, timeout=timeout, verify_ssl=verify_ssl)
+        )
+    return annotate_requirements(structure)
 
 
 __all__ = ["extract_requirements", "build_structure", "split_sections", "enumerate_document_refs"]
