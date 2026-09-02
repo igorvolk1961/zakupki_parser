@@ -237,7 +237,7 @@ def _fake_extract_text(monkeypatch) -> None:
 
 def test_extract_requirements_by_heading(_fake_extract_text: dict[str, str]) -> None:
     _fake_extract_text["req.pdf"] = (
-        "# Требования к участнику\n\nТребуется лицензия МЧС.\n\n"
+        "# Требования к участнику\n\nТребуется лицензия МЧС. Не установлено.\n\n"
         "# Общие положения\n\nСрок исполнения 90 дней."
     )
     record = {"files_json": [{"name": "req.pdf", "url": "http://x/req.pdf"}]}
@@ -250,7 +250,7 @@ def test_extract_requirements_by_heading(_fake_extract_text: dict[str, str]) -> 
 def test_extract_requirements_name_match_whole_doc(_fake_extract_text: dict[str, str]) -> None:
     # Имя файла матчит шаблон → весь документ считается разделом требований.
     _fake_extract_text["Требования к участникам.docx"] = (
-        "Требуется лицензия МЧС.\n\nПодтверждённый опыт за 3 года."
+        "Требуется лицензия МЧС. Не установлено.\n\nПодтверждённый опыт за 3 года."
     )
     record = {"files_json": [{"name": "Требования к участникам.docx", "url": "http://x/req.docx"}]}
     structure = extract_requirements(record)
@@ -262,7 +262,7 @@ def test_extract_requirements_name_match_whole_doc(_fake_extract_text: dict[str,
 def test_extract_requirements_fallback_to_doc_text(_fake_extract_text: dict[str, str]) -> None:
     # Заголовок не матчит, но текст раздела содержит шаблон — фолбэк по тексту.
     _fake_extract_text["doc.pdf"] = (
-        "Порядок оказания услуг.\n\nТребования к участнику изложены в настоящем документе."
+        "Порядок оказания услуг.\n\nТребования к участнику изложены. Не установлено."
     )
     record = {"files_json": [{"name": "doc.pdf", "url": "http://x/doc.pdf"}]}
     structure = extract_requirements(record)

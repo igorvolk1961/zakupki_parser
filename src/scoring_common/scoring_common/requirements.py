@@ -394,9 +394,9 @@ def extract_requirements(
     требованием. Иначе — legacy-поиск разделов по имени файла/заголовку.
 
     Детерминированный этап: заполняет только ``text`` (и ``additional``/``negated``),
-    ``data`` остаётся ``None``; универсальные нормы закона без отклонения
-    отфильтровываются, а отклонения помечаются ``negated`` (см. ``scoring_common.
-    law_requirements``). Если ничего не найдено — ``{}``.
+    ``data`` остаётся ``None``; в структуре остаются только требования с отрицанием
+    («не установлено», «не требуется» и т.п.), остальное удаляется
+    (см. ``scoring_common.law_requirements``). Если ничего не найдено — ``{}``.
     """
     if candidates := _table_requirement_candidates(record, timeout=timeout, verify_ssl=verify_ssl):
         structure = build_structure(candidates)

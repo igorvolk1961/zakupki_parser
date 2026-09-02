@@ -76,8 +76,8 @@ def test_is_negated_uses_net_not_phrase() -> None:
     assert not is_negated({"text": "если Правительством не установлено иное.", "additional": ""})
 
 
-def test_annotate_removes_universal_norm() -> None:
-    """Универсальная норма закона без отрицания выкидывается из структуры."""
+def test_annotate_removes_restatement() -> None:
+    """Дословный пересказ нормы (покрытие ≥ верхнего порога) удаляется."""
     structure = {
         "other": [
             {
@@ -95,8 +95,23 @@ def test_annotate_removes_universal_norm() -> None:
     assert "other" not in structure
 
 
-def test_annotate_keeps_negated_deviations() -> None:
-    """Отрицание нормы (маркер) и специфика остаются; «НЕТ» не дублируется в additional."""
+def test_annotate_keeps_low_zone() -> None:
+    """Нижняя зона («не норма», покрытие ≤ нижнего) пока всегда оставляется."""
+    structure = {
+        "other": [
+            {
+                "text": "17.2 Требования к содержанию, составу второй части заявки…",
+                "data": None,
+                "file_name": "x.pdf",
+            },
+        ]
+    }
+    annotate_requirements(structure, _LAW)
+    assert len(structure["other"]) == 1
+
+
+def test_annotate_keeps_negated_and_embed_review() -> None:
+    """Отрицания остаются с negated (без «НЕТ»); между порогами — embed_review."""
     structure = {
         "other": [
             {
@@ -111,14 +126,17 @@ def test_annotate_keeps_negated_deviations() -> None:
                 "file_name": "x.pdf",
                 "additional": "НЕТ",
             },
+            {
+                "text": "10 Участник должен иметь наличие финансовых ресурсов и оборудования.",
+                "data": None,
+                "file_name": "x.pdf",
+            },
         ]
     }
     annotate_requirements(structure, _LAW)
-    assert len(structure["other"]) == 2
-    uni, specific = structure["other"]
-    # отрицание представлено флагом negated, без дублирующего additional="НЕТ"
-    assert uni["negated"] is True
-    assert "additional" not in uni
-    assert specific["negated"] is True
-    assert "additional" not in specific
-    assert "show" not in uni and "show" not in specific
+    assert len(structure["other"]) == 3
+    neg1, neg2, mid = structure["other"]
+    assert neg1["negated"] is True and "additional" not in neg1
+    assert neg2["negated"] is True and "additional" not in neg2
+    assert mid["embed_review"] is True
+    assert "show" not in neg1 and "show" not in neg2 and "show" not in mid
