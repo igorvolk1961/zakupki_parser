@@ -76,7 +76,8 @@ def test_is_negated_uses_net_not_phrase() -> None:
     assert not is_negated({"text": "если Правительством не установлено иное.", "additional": ""})
 
 
-def test_annotate_adds_show_hide_flags() -> None:
+def test_annotate_removes_universal_norm() -> None:
+    """Универсальная норма закона без отрицания выкидывается из структуры."""
     structure = {
         "other": [
             {
@@ -88,6 +89,22 @@ def test_annotate_adds_show_hide_flags() -> None:
                 "data": None,
                 "file_name": "x.pdf",
             },
+        ]
+    }
+    annotate_requirements(structure, _LAW)
+    assert "other" not in structure
+
+
+def test_annotate_keeps_negated_deviations() -> None:
+    """Отрицание нормы (маркер) и специфика остаются; «НЕТ» не дублируется в additional."""
+    structure = {
+        "other": [
+            {
+                "text": "11.1 Соответствие требованиям, установленным ….",
+                "data": None,
+                "file_name": "x.pdf",
+                "additional": "НЕТ",
+            },
             {
                 "text": "13 Дополнительные требования к аудиторским услугам.",
                 "data": None,
@@ -97,10 +114,11 @@ def test_annotate_adds_show_hide_flags() -> None:
         ]
     }
     annotate_requirements(structure, _LAW)
+    assert len(structure["other"]) == 2
     uni, specific = structure["other"]
-    assert uni["universal"] is True
-    assert uni["negated"] is False
-    assert uni["show"] is False  # универсальное без отрицания — скрыто
-    assert specific["universal"] is False
+    # отрицание представлено флагом negated, без дублирующего additional="НЕТ"
+    assert uni["negated"] is True
+    assert "additional" not in uni
     assert specific["negated"] is True
-    assert specific["show"] is True  # отрицание нормы/специфика — показано
+    assert "additional" not in specific
+    assert "show" not in uni and "show" not in specific

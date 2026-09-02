@@ -268,7 +268,7 @@ class RagAnalyzer:
                     filled_items.append(item)
                     continue
                 data = await self._llm_requirement_data(key, text)
-                # сохранить служебные поля (file_name, additional, universal/negated/show).
+                # сохранить служебные поля (file_name, additional, negated, universal).
                 rebuilt: dict[str, Any] = dict(item)
                 rebuilt["text"] = text
                 rebuilt["data"] = data

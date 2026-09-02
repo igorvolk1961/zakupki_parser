@@ -316,13 +316,14 @@ def _requirement_section_rows(markdown: str) -> list[list[str]]:
 
 def _table_requirement_candidates(
     record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     """Разобрать требования из таблиц PDF-документов (по одному требованию на строку).
 
     Строка из 3 ячеек: третья — дополнительный параметр требования (``additional``).
-    Значения-маркеры заменяются на «НЕТ».
+    Если третья ячейка — значение-маркер («не установлено», «не требуется» … → «НЕТ»),
+    оно НЕ попадает в ``additional``, а помечается флагом ``negated`` (без дубля «НЕТ»).
     """
-    candidates: list[dict[str, str]] = []
+    candidates: list[dict[str, Any]] = []
     for ref in enumerate_document_refs(record, timeout=timeout, verify_ssl=verify_ssl):
         if not ref.name.lower().endswith(".pdf"):
             continue
@@ -337,25 +338,29 @@ def _table_requirement_candidates(
             text = " ".join(c for c in cells[:2] if c)
             if not text:
                 continue
-            item: dict[str, str] = {"source": source, "text": text}
-            additional = _replace_marker_values(cells[2]) if len(cells) >= 3 else ""
-            if additional:
-                item["additional"] = additional
+            item: dict[str, Any] = {"source": source, "text": text}
+            if len(cells) >= 3 and cells[2].strip():
+                third = _replace_marker_values(cells[2])
+                if third == "НЕТ":
+                    item["negated"] = True
+                else:
+                    item["additional"] = third
             candidates.append(item)
     return candidates
 
 
-def build_structure(candidates: list[dict[str, str]]) -> dict[str, Any]:
+def build_structure(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     """Собрать json-структуру требований: ``{licenses, experience, minprom, other}``.
 
     Каждое поле — список объектов ``{text, data=None, file_name}``: один объект на
     найденный раздел требования (тексты разделов одного типа НЕ сливаются). Для
-    требований из таблиц дополнительно сохраняется ``additional`` (3-я ячейка строки).
+    требований из таблиц дополнительно сохраняется ``additional`` (3-я ячейка, если
+    это реальный параметр) и ``negated`` (если 3-я ячейка — значение-маркер).
     ``data`` заполняется LLM на этапе анализа. Пусто — ``{}``.
     """
     if not candidates:
         return {}
-    grouped: dict[str, list[dict[str, str]]] = {"other": []}
+    grouped: dict[str, list[dict[str, Any]]] = {"other": []}
     for cand in candidates:
         grouped.setdefault(_classify_section(cand["text"]), []).append(cand)
 
@@ -372,6 +377,8 @@ def build_structure(candidates: list[dict[str, str]]) -> dict[str, Any]:
                 }
                 if e.get("additional"):
                     item["additional"] = e["additional"]
+                if e.get("negated"):
+                    item["negated"] = True
                 items.append(item)
             structure[key] = items
     return structure
@@ -386,9 +393,10 @@ def extract_requirements(
     «Требования к участникам», каждая строка таблицы становится отдельным
     требованием. Иначе — legacy-поиск разделов по имени файла/заголовку.
 
-    Детерминированный этап: заполняет только ``text`` (и ``additional``), ``data``
-    остаётся ``None``; каждому требованию добавляются флаги ``universal/negated/show``
-    (см. ``scoring_common.law_requirements``). Если ничего не найдено — ``{}``.
+    Детерминированный этап: заполняет только ``text`` (и ``additional``/``negated``),
+    ``data`` остаётся ``None``; универсальные нормы закона без отклонения
+    отфильтровываются, а отклонения помечаются ``negated`` (см. ``scoring_common.
+    law_requirements``). Если ничего не найдено — ``{}``.
     """
     if candidates := _table_requirement_candidates(record, timeout=timeout, verify_ssl=verify_ssl):
         structure = build_structure(candidates)

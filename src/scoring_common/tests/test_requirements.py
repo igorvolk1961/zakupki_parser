@@ -214,7 +214,9 @@ def test_extract_requirements_from_table_rows(monkeypatch) -> None:
     assert "other" in structure
     item = structure["other"][0]
     assert "аудиторских" in item["text"]
-    assert item["additional"] == "НЕТ"
+    # маркер-отрицание → флаг negated, без дублирующего additional="НЕТ".
+    assert item["negated"] is True
+    assert "additional" not in item
     assert item["file_name"] == "req.pdf"
 
 

@@ -3,16 +3,16 @@
 Логика показа для тендеролога:
 
 * требования, устанавливаемые законом (ст. 31 44-ФЗ, часть 1), обязательны и
-  универсальны — по умолчанию их НЕ показываем (это норма, отвлекает от
-  специфики закупки);
+  универсальны — в структуру требований они НЕ попадают (это норма, отвлекает
+  от специфики закупки);
 * НО если закупка явно указывает, что соответствующее требование «не установлено»,
-  «не применяется», «не требуется» и т.п. — показываем: это отклонение от нормы,
-  важно для тендеролога;
-* специфические требования (не покрытые законом) — показываем всегда.
+  «не применяется», «не требуется» и т.п. — оставляем и помечаем ``negated``:
+  это отклонение от нормы, важно для тендеролога;
+* специфические требования (не покрытые законом) — остаются всегда.
 
 Здесь — детерминированная часть: загрузка реестра требований закона (JSON),
 поиск совпадения требования закупки с универсальным и признак «отрицание»
-(маркер → «НЕТ»). Куда девать результат — на уровне показа/аналитики.
+(маркер → ``negated``, без дублирующего значения «НЕТ»).
 """
 
 from __future__ import annotations
@@ -209,24 +209,45 @@ def is_negated(item: dict[str, Any]) -> bool:
 def annotate_requirements(
     structure: dict[str, Any], doc: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Добавить каждому требованию флаги ``universal``/``negated`` для показа.
+    """Отфильтровать универсальные требования закона и пометить отклонения.
 
-    Правило показа: ``show = not universal or negated``.
+    Правило: универсальная норма (дословно повторяющая ст. 31 ч. 1 44-ФЗ) БЕЗ
+    отрицания показываться не должна — выкидываем её из структуры целиком
+    (значит, и ``show`` больше не нужен). Отрицание («не установлено», «не требуется»
+    и т.п. → ``negated``) и специфика остаются. Значение-маркер не дублируем в
+    ``additional`` — оно представлено флагом ``negated``.
     """
     if doc is None:
         doc = load_law_requirements()
     law_items = universal_items(doc)
-    for entries in structure.values():
+    for key in list(structure.keys()):
+        entries = structure.get(key)
         if not isinstance(entries, list):
             continue
+        kept: list[Any] = []
         for item in entries:
             if not isinstance(item, dict):
+                kept.append(item)
                 continue
-            uni = _best_match(item.get("text") or "", law_items) >= _MATCH_THRESHOLD
-            neg = is_negated(item)
-            item["universal"] = uni
-            item["negated"] = neg
-            item["show"] = not uni or neg
+            text = item.get("text") or ""
+            uni = _best_match(text, law_items) >= _MATCH_THRESHOLD
+            neg = bool(item.get("negated")) or is_negated(item)
+            if uni and not neg:
+                # универсальная норма без отклонения — не показываем (убираем).
+                continue
+            # убрать дубль: значение-маркер уже выражено флагом negated.
+            if (item.get("additional") or "") == "НЕТ":
+                item.pop("additional", None)
+            item.pop("show", None)
+            if neg:
+                item["negated"] = True
+            if uni:
+                item["universal"] = True
+            kept.append(item)
+        if kept:
+            structure[key] = kept
+        else:
+            del structure[key]
     return structure
 
 
