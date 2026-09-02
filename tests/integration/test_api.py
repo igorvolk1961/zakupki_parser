@@ -475,9 +475,9 @@ def test_procurement_requirements_extract_and_persist(
     body = client.get(f"/api/procurements/{req_id}/requirements").json()
     assert body["found"] is True
     assert "licenses" in body["requirements"]
-    assert body["requirements"]["licenses"]["text"]
-    assert body["requirements"]["licenses"]["data"] is None
-    assert body["requirements"]["licenses"]["file_name"] == "Требования к участникам.docx"
+    assert body["requirements"]["licenses"][0]["text"]
+    assert body["requirements"]["licenses"][0]["data"] is None
+    assert body["requirements"]["licenses"][0]["file_name"] == "Требования к участникам.docx"
 
     # Структура сохранена в БД: повторный запрос не извлекает заново.
     again = client.get(f"/api/procurements/{req_id}/requirements").json()
@@ -554,7 +554,7 @@ def test_procurement_requirements_post_internal(api_client: tuple[TestClient, Pa
 
     req_id = asyncio.run(_seed())
     structure = {
-        "licenses": {"text": "Требуется лицензия МЧС.", "data": {"required": True}},
+        "licenses": [{"text": "Требуется лицензия МЧС.", "data": {"required": True}}],
         "other": [{"text": "Состав заявки.", "data": {"type": "состав заявки"}}],
     }
     resp = client.post(

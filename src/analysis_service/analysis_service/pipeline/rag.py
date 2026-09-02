@@ -38,6 +38,19 @@ VERDICT_UNAVAILABLE: Literal["unavailable"] = "unavailable"
 VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE, VERDICT_UNAVAILABLE)
 Verdict = Literal["no_stop_condition", "absolute", "soft", "unavailable"]
 
+# Ключи полей структуры «Требования к участнику»: каждый тип — список объектов.
+_REQUIREMENT_KEYS = ("licenses", "experience", "minprom", "other")
+
+
+def _requirement_items(value: Any) -> list[Any]:
+    """Элементы поля требований: список; легаси-форма (один объект) приводится к списку."""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return [value]
+    return []
+
+
 # Признак наличия требований к Исполнителю/Участнику/Подрядчику и фолбэк на
 # документ «Описание» — общая логика в scoring_common.tz (resolve_tz_content),
 # которая используется и анализом, и просмотром ТЗ с карточки.
@@ -232,43 +245,41 @@ class RagAnalyzer:
     # Заполнение data структуры «Требования к участнику» (LLM-этап)
     # ------------------------------------------------------------------ #
     async def fill_requirements_data(self, structure: dict[str, Any]) -> dict[str, Any]:
-        """LLM-заполнение ``data`` каждого поля структуры требований (per-procurement).
+        """LLM-заполнение ``data`` элементов структуры требований (per-procurement).
 
-        Три основных поля (``licenses``/``experience``/``minprom``) и каждый элемент
-        ``other`` обрабатываются отдельным LLM-вызовом по своей JSON-схеме. Уже
-        заполненные ``data`` не пересчитываются (идемпотентность). При сбое вызова
-        ``data`` остаётся ``None`` (best-effort), остальные поля достраиваются.
+        В каждом поле (``licenses``/``experience``/``minprom``/``other``) каждый
+        элемент ``{text, data, file_name}`` обрабатывается отдельным LLM-вызовом по
+        своей JSON-схеме. Уже заполненные ``data`` не пересчитываются (идемпотентность).
+        При сбое вызова ``data`` остаётся ``None`` (best-effort), остальные поля
+        достраиваются. Легаси-форма (dict вместо списка) приводится к списку.
         """
         filled: dict[str, Any] = {}
-        for key in ("licenses", "experience", "minprom"):
-            entry = structure.get(key)
-            if not isinstance(entry, dict):
+        for key in _REQUIREMENT_KEYS:
+            entries = _requirement_items(structure.get(key))
+            if not entries:
                 continue
-            text = entry.get("text") or ""
-            if not text or entry.get("data") is not None:
-                filled[key] = entry
-                continue
-            data = await self._llm_requirement_data(key, text)
-            filled[key] = {"text": text, "data": data, "file_name": entry.get("file_name")}
-        other = structure.get("other")
-        if isinstance(other, list):
-            other_filled: list[Any] = []
-            for item in other:
+            filled_items: list[Any] = []
+            for item in entries:
                 if not isinstance(item, dict):
-                    other_filled.append(item)
+                    filled_items.append(item)
                     continue
                 text = item.get("text") or ""
                 if not text or item.get("data") is not None:
-                    other_filled.append(item)
+                    filled_items.append(item)
                     continue
-                data = await self._llm_requirement_data("other", text)
-                other_filled.append(
-                    {"text": text, "data": data, "file_name": item.get("file_name")}
-                )
-            filled["other"] = other_filled
+                data = await self._llm_requirement_data(key, text)
+                rebuilt: dict[str, Any] = {
+                    "text": text,
+                    "data": data,
+                    "file_name": item.get("file_name"),
+                }
+                if item.get("additional"):
+                    rebuilt["additional"] = item["additional"]
+                filled_items.append(rebuilt)
+            filled[key] = filled_items
         # Служебные ключи (не разделы требований) переносим как есть.
         for key, value in structure.items():
-            if key not in ("licenses", "experience", "minprom", "other"):
+            if key not in _REQUIREMENT_KEYS:
                 filled[key] = value
         return filled
 

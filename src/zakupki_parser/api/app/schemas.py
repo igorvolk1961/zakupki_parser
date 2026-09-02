@@ -63,8 +63,9 @@ class ProcurementDetailOut(ProcurementOut):
 
     detail_json: dict[str, Any] | None = None
     # Требования к участнику (поиск по всем документам, не только ТЗ): структура
-    # {licenses, experience, minprom, other}. Нужна analysis-воркеру (get_procurement),
-    # чтобы понять, извлечены ли требования и какие data уже заполнены.
+    # {licenses, experience, minprom, other}, где каждый тип — список объектов
+    # {text, data, file_name} (+ optional additional для таблиц). Нужна analysis-воркеру
+    # (get_procurement), чтобы понять, извлечены ли требования и какие data заполнены.
     requirements_json: dict[str, Any] | None = None
 
 

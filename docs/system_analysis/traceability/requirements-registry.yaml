@@ -1129,6 +1129,7 @@ requirements:
     adr: "-"
     code:
       - src/scoring_common/scoring_common/requirements.py
+      - src/scoring_common/scoring_common/tables.py
       - src/scoring_common/scoring_common/parser_api.py
       - src/zakupki_parser/api/app/routes/procurements.py
       - src/zakupki_parser/storage/repository/procurements.py
@@ -1136,6 +1137,7 @@ requirements:
       - src/analysis_service/analysis_service/worker.py
     tests:
       - src/scoring_common/tests/test_requirements.py
+      - src/scoring_common/tests/test_tables.py
       - src/analysis_service/tests/test_rag.py
       - tests/integration/test_api.py
 

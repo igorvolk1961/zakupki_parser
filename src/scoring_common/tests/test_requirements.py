@@ -107,27 +107,30 @@ def test_build_structure_groups_main_and_other() -> None:
         {"source": "d.pdf", "text": "В состав заявки входят паспорт и смета."},
     ]
     structure = build_structure(candidates)
-    assert structure["licenses"]["text"].startswith("Требуется лицензия МЧС")
-    assert structure["licenses"]["data"] is None
-    assert structure["licenses"]["file_name"] == "a.pdf"
-    assert structure["experience"]["data"] is None
-    assert structure["minprom"]["data"] is None
+    assert structure["licenses"][0]["text"].startswith("Требуется лицензия МЧС")
+    assert structure["licenses"][0]["data"] is None
+    assert structure["licenses"][0]["file_name"] == "a.pdf"
+    assert structure["experience"][0]["data"] is None
+    assert structure["minprom"][0]["data"] is None
     assert len(structure["other"]) == 1
     assert structure["other"][0]["data"] is None
     assert structure["other"][0]["file_name"] == "d.pdf"
-    # Поля с несколькими разделами одного типа объединяются в один text.
-    assert structure["licenses"]["text"] == candidates[0]["text"]
+    # Разделы одного типа НЕ сливаются: каждый — отдельный элемент списка.
+    assert structure["licenses"] == [
+        {"text": "Требуется лицензия МЧС на монтаж.", "data": None, "file_name": "a.pdf"}
+    ]
 
 
-def test_build_structure_file_name_list_when_multiple_sources() -> None:
+def test_build_structure_file_names_list_when_multiple_sources() -> None:
     candidates = [
         {"source": "a.pdf", "text": "Требуется лицензия МЧС."},
         {"source": "b.docx", "text": "Нужно членство в СРО."},
     ]
     structure = build_structure(candidates)
-    assert structure["licenses"]["file_name"] == ["a.pdf", "b.docx"]
-    assert "лицензия МЧС" in structure["licenses"]["text"]
-    assert "членство в СРО" in structure["licenses"]["text"]
+    assert structure["licenses"] == [
+        {"text": "Требуется лицензия МЧС.", "data": None, "file_name": "a.pdf"},
+        {"text": "Нужно членство в СРО.", "data": None, "file_name": "b.docx"},
+    ]
 
 
 def test_classify_section() -> None:
@@ -135,6 +138,84 @@ def test_classify_section() -> None:
     assert _classify_section("Подтверждённый опыт исполнения контрактов.") == "experience"
     assert _classify_section("Запрет иностранной продукции, реестр Минпромторга.") == "minprom"
     assert _classify_section("В состав заявки входят документы.") == "other"
+
+
+def test_replace_marker_values() -> None:
+    from scoring_common.requirements import _replace_marker_values
+
+    assert (
+        _replace_marker_values("Дополнительные требования. Не установлено")
+        == "Дополнительные требования. НЕТ"
+    )
+    assert _replace_marker_values("Лот № 1: Не требуется") == "Лот № 1: НЕТ"
+    assert _replace_marker_values("Не предоставляются") == "НЕТ"
+    assert _replace_marker_values("Не применяется") == "НЕТ"
+
+
+def test_requirement_section_rows_split_by_single_cell_header() -> None:
+    from scoring_common.requirements import _requirement_section_rows
+
+    md = (
+        "| I. Информация о проведении закупки |  |  |\n"
+        "| --- | --- | --- |\n"
+        "| 1 | Наименование объекта закупки |  |\n\n"
+        "| II. Требования, предъявляемые к участникам закупки |  |  |\n"
+        "| --- | --- | --- |\n"
+        "| 10 | Общие требования |  |\n"
+        "| 13 | Требования к участникам закупок аудиторских услуг. | Не установлено |\n\n"
+        "| III. Размер и порядок обеспечения заявок |  |  |\n"
+        "| --- | --- | --- |\n"
+        "| 21 | Обеспечение |  |\n"
+    )
+    rows = _requirement_section_rows(md)
+    assert [r[0] for r in rows] == ["10", "13"]
+    assert rows[1][2] == "Не установлено"
+
+
+def test_build_structure_includes_additional() -> None:
+    structure = build_structure(
+        [{"source": "req.pdf", "text": "Отсутствие ограничений.", "additional": "НЕТ"}]
+    )
+    assert structure["other"][0]["additional"] == "НЕТ"
+
+
+def test_replaces_markers_in_plain_text_candidate() -> None:
+    # Маркеры отрицания учитываются и в плоском (не табличном) требовании.
+    structure = build_structure(
+        [{"source": "req.pdf", "text": "13 Доп. требования к аудиторским услугам.\nНе установлено"}]
+    )
+    texts = [it["text"] for items in structure.values() for it in items]
+    assert any("НЕТ" in t for t in texts)
+
+
+def test_extract_requirements_plain_text_marker_to_net(_fake_extract_text: dict[str, str]) -> None:
+    _fake_extract_text["req.pdf"] = (
+        "# Требования к участнику\n\n"
+        "Дополнительные требования к участникам закупок аудиторских услуг. Не установлено"
+    )
+    record = {"files_json": [{"name": "req.pdf", "url": "http://x/req.pdf"}]}
+    structure = extract_requirements(record)
+    texts = [it["text"] for items in structure.values() for it in items]
+    assert any("НЕТ" in t for t in texts)
+
+
+def test_extract_requirements_from_table_rows(monkeypatch) -> None:
+    import scoring_common.requirements as req_mod
+
+    md = (
+        "| II. Требования, предъявляемые к участникам закупки |  |  |\n"
+        "| --- | --- | --- |\n"
+        "| 13 | Требования к участникам закупок аудиторских услуг. | Не установлено |\n"
+    )
+    monkeypatch.setattr(req_mod, "_download", lambda *a, **k: b"pdf")
+    monkeypatch.setattr(req_mod, "pdf_to_markdown_tables", lambda raw: md)
+    record = {"files_json": [{"name": "req.pdf", "url": "http://x/req.pdf"}]}
+    structure = extract_requirements(record)
+    assert "other" in structure
+    item = structure["other"][0]
+    assert "аудиторских" in item["text"]
+    assert item["additional"] == "НЕТ"
+    assert item["file_name"] == "req.pdf"
 
 
 @pytest.fixture
@@ -147,6 +228,8 @@ def _fake_extract_text(monkeypatch) -> None:
         return docs.get(ref.name)
 
     monkeypatch.setattr("scoring_common.requirements.extract_text", fake)
+    # Table-путь не должен ходить в сеть в юнит-тестах.
+    monkeypatch.setattr("scoring_common.requirements._download", lambda *a, **k: None)
     return docs
 
 
@@ -158,8 +241,8 @@ def test_extract_requirements_by_heading(_fake_extract_text: dict[str, str]) -> 
     record = {"files_json": [{"name": "req.pdf", "url": "http://x/req.pdf"}]}
     structure = extract_requirements(record)
     assert "licenses" in structure
-    assert "Требуется лицензия МЧС" in structure["licenses"]["text"]
-    assert structure["licenses"]["file_name"] == "req.pdf"
+    assert "Требуется лицензия МЧС" in structure["licenses"][0]["text"]
+    assert structure["licenses"][0]["file_name"] == "req.pdf"
 
 
 def test_extract_requirements_name_match_whole_doc(_fake_extract_text: dict[str, str]) -> None:
@@ -170,8 +253,8 @@ def test_extract_requirements_name_match_whole_doc(_fake_extract_text: dict[str,
     record = {"files_json": [{"name": "Требования к участникам.docx", "url": "http://x/req.docx"}]}
     structure = extract_requirements(record)
     assert "licenses" in structure
-    assert "Требуется лицензия МЧС" in structure["licenses"]["text"]
-    assert structure["licenses"]["file_name"] == "Требования к участникам.docx"
+    assert "Требуется лицензия МЧС" in structure["licenses"][0]["text"]
+    assert structure["licenses"][0]["file_name"] == "Требования к участникам.docx"
 
 
 def test_extract_requirements_fallback_to_doc_text(_fake_extract_text: dict[str, str]) -> None:

@@ -1,20 +1,28 @@
 """Извлечение и классификация требований к участнику из всех документов закупки.
 
 Отличие от ``scoring_common.tz`` (поиск только в ТЗ): требования к участнику ищутся
-в любом приложенном к закупке документе. Детерминированная часть (без LLM):
+в любом приложенном к закупке документе. Детерминированная часть (без LLM).
 
-1. перебираем все документы (прямые файлы + записи архивов);
-2. для каждого документа находим разделы требований: по имени файла (весь документ)
-   или по заголовку раздела (``требования к участнику``/``к исполнителю``/``к составу
-   заявки``/``требования, предъявляемые к участнику закупки``); во всех шаблонах
-   важен порядок слов и отсутствие других слов между указанными частями;
-3. если ни одного раздела по заголовкам не найдено — ищем эти шаблоны в текстах
-   документов и берём разделы вокруг вхождений (фолбэк);
-4. каждый найденный раздел классифицируем по ключевым словам в один из трёх типов
-   (licenses / experience / minprom) либо в ``other`` и собираем структуру
-   ``{licenses, experience, minprom, other}`` с полями ``{text, data=None}``.
+Основной (table-)путь для PDF: разбираем таблицу раздела «Требования к участникам»
+(см. ``scoring_common.tables``): каждая строка таблицы — отдельное требование; если
+в строке 3 ячейки, третья — дополнительный параметр (``additional``).
 
-Если шаблоны не найдены нигде — возвращается пустой объект ``{}``.
+Значения-маркеры («не установлено», «не применяется/-ются», «не предоставляется/-ются»,
+«не требуется/-ются») заменяются на «НЕТ» ЕДИНООБРАЗНО: и в требованиях из таблиц, и в
+требованиях, изложенных плоским (иерархическим) текстом (см. ``_replace_marker_values``).
+
+Если таблица не найдена — fallback-путь: ищем разделы требований по имени файла
+(весь документ) или по заголовку раздела (``требования к участнику``/``к исполнителю``/
+``к составу заявки``/``требования, предъявляемые к участнику закупки``); во всех
+шаблонах важен порядок слов и отсутствие других слов между указанными частями; если
+ни одного раздела по заголовкам не найдено — ищем эти шаблоны в текстах документов.
+
+Каждый найденный раздел/строку классифицируем по ключевым словам в один из трёх
+типов (licenses / experience / minprom) либо в ``other`` и собираем структуру
+``{licenses, experience, minprom, other}``, где каждый тип — список объектов
+``{text, data=None, file_name}`` (по одному на раздел, без слияния текстов).
+
+Если ничего не найдено — возвращается пустой объект ``{}``.
 """
 
 from __future__ import annotations
@@ -23,8 +31,10 @@ import logging
 import re
 from typing import Any
 
+from scoring_common.tables import _MARKER_VALUE_RE, pdf_to_markdown_tables
 from scoring_common.tz import extract_text
 from scoring_common.tz.archives import _archive_inner_names
+from scoring_common.tz.download import _download
 from scoring_common.tz.files import FileRef, collect_files, is_archive
 from scoring_common.tz.text import clean_text
 
@@ -221,30 +231,126 @@ def _classify_section(text: str) -> str:
     return best if counts[best] > 0 else "other"
 
 
-def _merge_texts(entries: list[dict[str, str]]) -> str:
-    """Объединить тексты нескольких разделов одного типа в один Markdown."""
-    return "\n\n---\n\n".join(e["text"] for e in entries if e["text"])
+def _replace_marker_values(text: str) -> str:
+    """Заменить значения-маркеры («не установлено», «не требуется»…) на «НЕТ».
 
-
-def _source_names(entries: list[dict[str, str]]) -> str | list[str]:
-    """Имя(ена) файла, из которого(ых) взят текст раздела.
-
-    Один уникальный источник — строка; несколько — список (без дубликатов).
+    Работает и в табличной ячейке, и в плоском/иерархическом тексте: маркер как
+    значение распознаётся в конце строки (``_MARKER_VALUE_RE``).
     """
-    names: list[str] = []
-    for entry in entries:
-        source = entry.get("source") or ""
-        if source and source not in names:
-            names.append(source)
-    return names[0] if len(names) == 1 else names
+    return " ".join(_MARKER_VALUE_RE.sub("НЕТ", text).split())
+
+
+def _piece_row(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return [c.strip() for c in stripped.strip("|").split("|")]
+
+
+def _is_sep_row(cells: list[str]) -> bool:
+    return bool(cells) and all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c != "")
+
+
+def _parse_pipe_tables(markdown: str) -> list[list[list[str]]]:
+    """Markdown-таблицы (GFM) в список ``[[ячейки], …]``."""
+    lines = markdown.splitlines()
+    tables: list[list[list[str]]] = []
+    i, n = 0, len(lines)
+    while i < n:
+        if _piece_row(lines[i]) is None:
+            i += 1
+            continue
+        j = i
+        while j < n and _piece_row(lines[j]) is not None:
+            j += 1
+        rows: list[list[str]] = []
+        for k in range(i, j):
+            pieces = _piece_row(lines[k])
+            if pieces and not _is_sep_row(pieces):
+                rows.append(pieces)
+        if rows:
+            tables.append(rows)
+        i = j
+    return tables
+
+
+# Заголовок таблицы-раздела: единственная непустая ячейка со словами «требования… участник».
+_REQ_HEADER_RE = re.compile(r"требован[а-яё]*.{0,40}участник[а-яё]*", re.IGNORECASE | re.DOTALL)
+
+
+def _is_single_cell_row(row: list[str]) -> str | None:
+    nonempty = [c for c in row if c]
+    return nonempty[0] if len(nonempty) == 1 else None
+
+
+def _requirement_section_rows(markdown: str) -> list[list[str]]:
+    """Строки раздела «Требования к участникам» (каждая строка — одно требование).
+
+    Правило: строка с одной непустой ячейкой — заголовок раздела; раздел — строки
+    после него до следующей такой строки. Уже применяются вертикальная склейка и
+    вынос маркеров (см. ``scoring_common.tables``).
+    """
+    tables = _parse_pipe_tables(markdown)
+    start: tuple[int, int] | None = None
+    for ti, table in enumerate(tables):
+        for ri, row in enumerate(table):
+            header = _is_single_cell_row(row)
+            if header and _REQ_HEADER_RE.search(header):
+                start = (ti, ri)
+                break
+        if start:
+            break
+    if not start:
+        return []
+    ti0, ri0 = start
+    rows: list[list[str]] = []
+    for ti in range(ti0, len(tables)):
+        r0 = ri0 + 1 if ti == ti0 else 0
+        for row in tables[ti][r0:]:
+            if _is_single_cell_row(row):
+                return rows
+            rows.append(row)
+    return rows
+
+
+def _table_requirement_candidates(
+    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+) -> list[dict[str, str]]:
+    """Разобрать требования из таблиц PDF-документов (по одному требованию на строку).
+
+    Строка из 3 ячеек: третья — дополнительный параметр требования (``additional``).
+    Значения-маркеры заменяются на «НЕТ».
+    """
+    candidates: list[dict[str, str]] = []
+    for ref in enumerate_document_refs(record, timeout=timeout, verify_ssl=verify_ssl):
+        if not ref.name.lower().endswith(".pdf"):
+            continue
+        raw = _download(ref.url.split("#", 1)[0], timeout=timeout, verify_ssl=verify_ssl)
+        if not raw:
+            continue
+        markdown = pdf_to_markdown_tables(raw)
+        if not markdown:
+            continue
+        source = ref.name.rsplit("/", 1)[-1]
+        for cells in _requirement_section_rows(markdown):
+            text = " ".join(c for c in cells[:2] if c)
+            if not text:
+                continue
+            item: dict[str, str] = {"source": source, "text": text}
+            additional = _replace_marker_values(cells[2]) if len(cells) >= 3 else ""
+            if additional:
+                item["additional"] = additional
+            candidates.append(item)
+    return candidates
 
 
 def build_structure(candidates: list[dict[str, str]]) -> dict[str, Any]:
     """Собрать json-структуру требований: ``{licenses, experience, minprom, other}``.
 
-    Каждая запись — ``{text, data=None, file_name}``: ``text`` объединяет все
-    разделы типа (для трёх основных полей), ``file_name`` — название файла,
-    из которого взята информация (список, если несколько файлов). Пусто — ``{}``.
+    Каждое поле — список объектов ``{text, data=None, file_name}``: один объект на
+    найденный раздел требования (тексты разделов одного типа НЕ сливаются). Для
+    требований из таблиц дополнительно сохраняется ``additional`` (3-я ячейка строки).
+    ``data`` заполняется LLM на этапе анализа. Пусто — ``{}``.
     """
     if not candidates:
         return {}
@@ -253,19 +359,20 @@ def build_structure(candidates: list[dict[str, str]]) -> dict[str, Any]:
         grouped.setdefault(_classify_section(cand["text"]), []).append(cand)
 
     structure: dict[str, Any] = {}
-    for key in ("licenses", "experience", "minprom"):
+    for key in ("licenses", "experience", "minprom", "other"):
         entries = grouped.get(key)
         if entries:
-            structure[key] = {
-                "text": _merge_texts(entries),
-                "data": None,
-                "file_name": _source_names(entries),
-            }
-    if grouped.get("other"):
-        structure["other"] = [
-            {"text": e["text"], "data": None, "file_name": e.get("source") or ""}
-            for e in grouped["other"]
-        ]
+            items: list[dict[str, Any]] = []
+            for e in entries:
+                item: dict[str, Any] = {
+                    "text": _replace_marker_values(e["text"]),
+                    "data": None,
+                    "file_name": e.get("source") or "",
+                }
+                if e.get("additional"):
+                    item["additional"] = e["additional"]
+                items.append(item)
+            structure[key] = items
     return structure
 
 
@@ -274,9 +381,15 @@ def extract_requirements(
 ) -> dict[str, Any]:
     """Извлечь структуру требований к участнику из всех документов карточки.
 
-    Детерминированный этап: заполняет только ``text``, ``data`` остаётся ``None``.
-    Если шаблоны не найдены нигде — возвращает ``{}``.
+    Предпочтителен table-путь: если в PDF-документе найден раздел-таблица
+    «Требования к участникам», каждая строка таблицы становится отдельным
+    требованием. Иначе — legacy-поиск разделов по имени файла/заголовку.
+
+    Детерминированный этап: заполняет только ``text`` (и ``additional``), ``data``
+    остаётся ``None``. Если ничего не найдено — возвращает ``{}``.
     """
+    if candidates := _table_requirement_candidates(record, timeout=timeout, verify_ssl=verify_ssl):
+        return build_structure(candidates)
     return build_structure(_candidate_sections(record, timeout=timeout, verify_ssl=verify_ssl))
 
 

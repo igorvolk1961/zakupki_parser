@@ -235,21 +235,15 @@ def test_report_status() -> None:
 
 def test_requirements_data_fill() -> None:
     structure = {
-        "licenses": {
-            "text": "Требуется лицензия МЧС на монтаж.",
-            "data": None,
-            "file_name": "req.pdf",
-        },
-        "experience": {
-            "text": "Подтверждённый опыт за 3 года.",
-            "data": None,
-            "file_name": "req.pdf",
-        },
-        "minprom": {
-            "text": "Выписка из реестра Минпромторга.",
-            "data": None,
-            "file_name": "req.pdf",
-        },
+        "licenses": [
+            {"text": "Требуется лицензия МЧС на монтаж.", "data": None, "file_name": "req.pdf"}
+        ],
+        "experience": [
+            {"text": "Подтверждённый опыт за 3 года.", "data": None, "file_name": "req.pdf"}
+        ],
+        "minprom": [
+            {"text": "Выписка из реестра Минпромторга.", "data": None, "file_name": "req.pdf"}
+        ],
         "other": [
             {"text": "Состав заявки: паспорт, смета.", "data": None, "file_name": "docs.pdf"}
         ],
@@ -264,10 +258,10 @@ def test_requirements_data_fill() -> None:
     )
     analyzer = _analyzer(llm)
     filled = asyncio.run(analyzer.fill_requirements_data(structure))
-    assert filled["licenses"]["data"]["kinds"][0]["name"] == "МЧС"
-    assert filled["licenses"]["file_name"] == "req.pdf"
-    assert filled["experience"]["data"]["confirmation"] == "documents"
-    assert filled["minprom"]["data"]["foreign_goods_ban"] is True
+    assert filled["licenses"][0]["data"]["kinds"][0]["name"] == "МЧС"
+    assert filled["licenses"][0]["file_name"] == "req.pdf"
+    assert filled["experience"][0]["data"]["confirmation"] == "documents"
+    assert filled["minprom"][0]["data"]["foreign_goods_ban"] is True
     assert filled["other"][0]["data"]["type"] == "состав заявки"
     assert filled["other"][0]["file_name"] == "docs.pdf"
     # Уже заполненные data не пересчитываются (идемпотентность).
@@ -277,13 +271,13 @@ def test_requirements_data_fill() -> None:
 def test_requirements_data_fill_llm_failure_keeps_none() -> None:
     # Сбой LLM (None) → data остаётся None, структура сохраняется.
     structure = {
-        "licenses": {"text": "Требуется лицензия МЧС.", "data": None, "file_name": "req.pdf"},
+        "licenses": [{"text": "Требуется лицензия МЧС.", "data": None, "file_name": "req.pdf"}],
         "other": [{"text": "Состав заявки.", "data": None, "file_name": "docs.pdf"}],
     }
     analyzer = _analyzer(_FakeLlm([None, None]))
     filled = asyncio.run(analyzer.fill_requirements_data(structure))
-    assert filled["licenses"]["data"] is None
-    assert filled["licenses"]["file_name"] == "req.pdf"
+    assert filled["licenses"][0]["data"] is None
+    assert filled["licenses"][0]["file_name"] == "req.pdf"
     assert filled["other"][0]["data"] is None
     assert filled["other"][0]["file_name"] == "docs.pdf"
 
