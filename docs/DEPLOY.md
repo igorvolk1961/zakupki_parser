@@ -206,7 +206,76 @@ curl -s http://localhost:8000/   # API отвечает (health/redirect)
 
 ---
 
-## 8. Частые ошибки и решение
+## 8. Доступ с удалённой машины и публикация (reverse-proxy / HTTPS)
+
+Что наружу отдаёт сервер (по умолчанию):
+
+| Сервис | Host-порт | Назначение | Наружу |
+|---|---|---|---|
+| `api` | `8000` (`API_PORT`) | FastAPI + веб-интерфейс | ✅ точка входа |
+| LangFuse UI | `3001` (`LANGFUSE_UI_PORT`) | панель трассировки LLM | ⚠️ по желанию |
+| PostgreSQL | `5432` (`ZAKUPKI_DB_PORT`) | БД | ❌ только внутренний |
+| scoring-transport | `8200` (`TRANSPORT_PORT`) | служебный (`X-Internal-Token`) | ❌ внутренний |
+| MinIO | `9002`/`9003` | объектное хранилище | ❌ внутренний |
+
+Публично открываем только **`api` :8000** (и, при необходимости, LangFuse UI). Остальное —
+по SSH-туннелю либо только внутри compose-сети.
+
+### 8.1 SSH-туннель (безопасно, рекомендую)
+
+С локальной машины (порт 22 открыт в security group; пользователь — `igor`, пароль/ключ):
+
+```bash
+ssh -N -L 8000:localhost:8000 igor@pyfdbjrwen      # API + веб
+ssh -N -L 3001:localhost:3001 igor@pyfdbjrwen      # LangFuse UI
+```
+
+Открывать локально: `http://localhost:8000/`, `http://localhost:3001/`.
+
+### 8.2 Публичный порт
+
+Открыть в облачном фаерволе **inbound TCP 8000** → `http://<IP_СЕРВЕРА>:8000/`.
+Проверка с самого сервера: `curl -s http://localhost:8000/ | head`.
+
+### 8.3 Авторизация
+
+API защищён `require_user_or_internal`:
+
+- логин/пароль админа — из `.env` (`ZAKUPKI_ADMIN_USERNAME` / `ZAKUPKI_ADMIN_PASSWORD`);
+- служебные вызовы конвейера — заголовок `X-Internal-Token: <ZAKUPKI_INTERNAL_TOKEN>`
+  (только внутренние сервисы; наружу его не отдавать).
+
+### 8.4 Reverse-proxy + HTTPS
+
+Проще всего Caddy (автосертификат Let's Encrypt). На хосте — `/etc/caddy/Caddyfile`:
+
+```
+example.com {
+    reverse_proxy localhost:8000
+}
+langfuse.example.com {
+    reverse_proxy localhost:3001
+}
+```
+
+```bash
+docker run -d --name caddy -p 80:80 -p 443:443 \
+  -v /etc/caddy/Caddyfile:/etc/caddy/Caddyfile \
+  caddy
+```
+
+- Домен → A-запись на IP сервера (DNS нужен для выпуска сертификата).
+- Наружу пробрасываются только 80/443; `api` остаётся на внутреннем :8000.
+- Для nginx/traefik делается аналогично: upstream `127.0.0.1:8000`.
+
+Проверка: `https://example.com/`, `https://example.com/docs` (Swagger). Сертификат держит
+reverse-proxy; контейнеры остаются на HTTP внутри.
+
+> Не открывайте наружу БД/`scoring-transport`/MinIO — это внутренние сервисы.
+
+---
+
+## 9. Частые ошибки и решение
 
 | Симптом | Причина | Решение |
 |---|---|---|
@@ -220,7 +289,7 @@ curl -s http://localhost:8000/   # API отвечает (health/redirect)
 
 ---
 
-## 9. Отключение / перезапуск
+## 10. Отключение / перезапуск
 
 ```bash
 ./scripts/compose.sh down                # остановить и удалить контейнеры (том БД сохранён)
