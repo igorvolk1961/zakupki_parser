@@ -13,6 +13,7 @@ from typing import Any, cast
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import selectinload
 
 from zakupki_parser.storage.db import (
     Procurement,
@@ -40,22 +41,9 @@ class WorkMixin(RepositoryMixin):
         принятии (та же пара) снимок обновляется. Возвращает None, если закупка
         с таким id не найдена.
         """
-        async with self._db.session() as session:
-            row = (
-                await session.execute(select(Procurement).where(Procurement.id == procurement_id))
-            ).scalar_one_or_none()
-        if row is None:
+        snapshot = await self._work_snapshot(procurement_id)
+        if not snapshot:
             return None
-        snapshot = {
-            "number": row.number,
-            "platform_id": row.platform_id,
-            "url": row.url,
-            "subject": row.subject,
-            "nmck": row.nmck,
-            "deadline": row.deadline,
-            "law": row.law,
-            "customer_name": row.customer_rel.name if row.customer_rel is not None else None,
-        }
         stmt = (
             pg_insert(ProcurementWorkItem)
             .values(
@@ -83,6 +71,28 @@ class WorkMixin(RepositoryMixin):
             source,
         )
         return await self.get_work_item(profile_id, procurement_id)
+
+    async def _work_snapshot(self, procurement_id: int) -> dict[str, Any]:
+        """Снимок ключевых полей карточки закупки (заказчик — eager-load)."""
+        stmt = (
+            select(Procurement)
+            .where(Procurement.id == procurement_id)
+            .options(selectinload(Procurement.customer_rel))
+        )
+        async with self._db.session() as session:
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            if row is None:
+                return {}
+            return {
+                "number": row.number,
+                "platform_id": row.platform_id,
+                "url": row.url,
+                "subject": row.subject,
+                "nmck": row.nmck,
+                "deadline": row.deadline,
+                "law": row.law,
+                "customer_name": row.customer_rel.name if row.customer_rel is not None else None,
+            }
 
     async def accept_into_work_by_url(
         self,

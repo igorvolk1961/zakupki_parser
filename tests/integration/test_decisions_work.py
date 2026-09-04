@@ -179,9 +179,12 @@ async def test_accept_by_url_existing_and_snapshot(db: Database) -> None:
     assert snapshot.notes == "проверить"
     assert snapshot.status == "in_work"
 
-    # Снимок удаляется по id записи «в работе» (профильный скоуп BR-07).
+    # Снимок удаляется по id записи «в работе» (профильный скоуп BR-07) —
+    # привязанная к закупке запись остаётся.
     assert await repo.remove_work_item(profile_id, snapshot.id) is True
-    assert await repo.list_work_items(profile_id) == []
+    items = await repo.list_work_items(profile_id)
+    assert len(items) == 1
+    assert items[0].procurement_id == pid
 
 
 @pytest.mark.asyncio
