@@ -35,13 +35,20 @@ detail:
     - { name: "publication_date", selector: "tr#trade_info_date_begin td:last-child", handler: "datetime", default: null }
     - { name: "deadline",         selector: "tr#trade_info_date_end td:last-child", handler: "datetime", default: null }
     - { name: "customer",         selector: "tr#trade-info-organizer-name td:last-child", handler: "strip", default: "" }
+    # region — «Адрес поставки / оказания услуг» на новой SSR-детали market-next
+    # (секция delivery-address-list, значение в .collapsable-items-list-item p):
+    # «Россия, г. Санкт-Петербург, 196643, поселок Понтонный, ул. Фанерная, д. 5».
+    # Виден анонимно (в отличие от документации/контактов). Проверено по SSR
+    # 2026-09-04 (тендер №4589779). Если адрес в legacy-разметке market/view.html
+    # не найдётся — default null (TODO verify на обходе).
+    - { name: "region",           selector: ".delivery-address-list .collapsable-items-list-item p", handler: "strip", default: null }
   # Файлы/документы на B2B-Center доступны только зарегистрированным — TODO
   # при необходимости авторизации (см. plan).
   files: []
-  # Регион: приоритет — место поставки, иначе регион/местонахождение заказчика.
-  # Детали B2B-Center и регион-фильтры доступны только зарегистрированным
-  # (docs/platforms.md); в открытой разметке региона нет.
-  # TODO: verify после авторизации (zp capture-fixture).
+  # Регион: приоритет — место поставки («Адрес поставки / оказания услуг»,
+  # новая SSR-деталь market-next, виден анонимно — переменная region выше);
+  # иначе регион/местонахождение заказчика. Регион-ФИЛЬТРЫ поиска — только
+  # зарегистрированным (docs/platforms.md).
 search:
   enabled: true
   # Статические параметры формы поиска: searching (обязательный маркер поиска),

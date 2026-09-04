@@ -158,12 +158,17 @@ def region_match(record: dict[str, Any], regions: list[str]) -> bool:
     как выражения R9 (стем-префиксы/фразы/проксимити). Простые записи без
     шаблона — литеральные: равенство либо взаимное вхождение подстроки
     (целевой регион может быть частью названия: «область» <-> «Московская область»).
+    Для литеральных сравнений пробелы вокруг дефиса игнорируются: «Санкт - Петербург»
+    из адреса поставки совпадает с целевым «Санкт-Петербург».
     """
     if not regions:
         return True
     value = _region_of(record).strip().lower()
     if not value:
         return False
+    # Литеральная форма без пробелов вокруг дефиса («санкт - петербург» ->
+    # «санкт-петербург»). Для шаблонов сохраняем исходные слова value.
+    flat = re.sub(r"\s*-\s*", "-", value)
     for raw in regions:
         expr = str(raw).strip()
         if not expr:
@@ -172,7 +177,7 @@ def region_match(record: dict[str, Any], regions: list[str]) -> bool:
             if _expression_match(value, expr):
                 return True
             continue
-        norm = expr.lower()
-        if value == norm or value in norm or norm in value:
+        norm = re.sub(r"\s*-\s*", "-", expr.lower())
+        if flat == norm or flat in norm or norm in flat:
             return True
     return False

@@ -342,3 +342,23 @@ async def test_roseltorg_region_from_search_card(page: Page) -> None:
     region = (data.get("region") or "").strip()
     assert region, "Регион должен извлекаться из карточки выдачи"
     assert region == "г. Москва", f"Ожидался «г. Москва», получено: {region!r}"
+
+
+@pytest.mark.asyncio
+async def test_b2b_center_region_from_delivery_address(page: Page) -> None:
+    """b2b-center: регион из «Адрес поставки / оказания услуг» (SSR market-next).
+
+    Блок .delivery-address-list (значение в .collapsable-items-list-item p) виден
+    анонимно; содержит регион/населённый пункт («г. Санкт-Петербург, поселок
+    Понтонный…»). Документация/контакты — только зарегистрированным.
+    """
+    await set_html(page, load_fixture("b2b_delivery_address.html"))
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["b2b_center"]
+    data = await extract_detail_vars(page, platform)
+    region = (data.get("region") or "").strip()
+    assert region, "Регион должен извлекаться из адреса поставки"
+    # Сырой адрес: «Санкт - Петербург» (пробелы вокруг дефиса) — проверяем слова.
+    assert "Санкт" in region, f"Ожидался адрес с «Санкт», получено: {region!r}"
+    assert "Петербург" in region, f"Ожидался адрес с «Петербург», получено: {region!r}"
+    assert "Понтонный" in region, f"Ожидался адрес с «Понтонный», получено: {region!r}"

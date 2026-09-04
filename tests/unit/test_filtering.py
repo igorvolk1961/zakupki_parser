@@ -157,6 +157,18 @@ def test_region_match_contains_either_direction() -> None:
     assert region_match(_region_record("Область"), ["Московская область"])
 
 
+def test_region_match_hyphen_spaces_in_delivery_address() -> None:
+    # Адрес поставки b2b-center: «г. Санкт - Петербург, …» — пробелы вокруг дефиса
+    # игнорируются для литерального целевого региона.
+    address = "Россия, г. Санкт - Петербург, 196643, поселок Понтонный, ул. Фанерная, д. 5"
+    assert region_match({"number": "N", "region": address}, ["Санкт-Петербург"])
+    assert region_match({"number": "N", "region": address}, ["Санкт"])
+    assert region_match({"number": "N", "region": address}, ["Понтонный"])
+    assert not region_match({"number": "N", "region": address}, ["Москва"])
+    # Шаблон-фраза по-прежнему работает по отдельным словам значения.
+    assert region_match({"number": "N", "region": address}, ["санкт* петербург*"])
+
+
 def test_region_match_no_match() -> None:
     assert not region_match(_region_record("Москва"), ["Санкт-Петербург"])
     assert not region_match(_region_record("Новосибирская область"), ["Москва"])
