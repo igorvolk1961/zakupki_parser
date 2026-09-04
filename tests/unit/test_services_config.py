@@ -100,3 +100,12 @@ def test_service_paths_resolves_to_src_dir() -> None:
 def test_instance_is_pydantic_model() -> None:
     # Модели наследуют BaseModel (необходимо для build_schema).
     assert issubclass(ScoringServiceConfig, BaseModel)
+
+
+def test_service_configs_have_restart_launch_metadata() -> None:
+    """Каждый сервис несёт метаданные для рестарта (вариант A: subprocess)."""
+    for svc in SERVICE_CONFIGS.values():
+        assert svc.module, f"service {svc.name}: пустой module"
+        assert svc.worker_cmd, f"service {svc.name}: пустой worker_cmd"
+        assert svc.parser_env, f"service {svc.name}: пустой parser_env"
+        assert svc.log_name, f"service {svc.name}: пустой log_name"

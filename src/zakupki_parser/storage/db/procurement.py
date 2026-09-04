@@ -163,6 +163,11 @@ class Procurement(Base):
     okpd2_codes: Mapped[str | None] = mapped_column(Text)
     kpgz_codes: Mapped[str | None] = mapped_column(Text)
     files_json: Mapped[list[Any] | None] = mapped_column(JSONB)
+    # Требования к участнику (поиск по всем документам, не только ТЗ): структура
+    # {licenses, experience, minprom, other}, где каждый тип — список объектов
+    # {text, data, file_name} (и, для таблиц, optional additional — 3-я ячейка строки
+    # с заменой маркеров на «НЕТ»). NULL — не извлекалось; {} — ничего не найдено.
+    requirements_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )

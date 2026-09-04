@@ -162,7 +162,7 @@ def _serve(cfg_dir: str, host: str, port: int) -> int:
 
     from zakupki_parser.api.app import create_app
 
-    app = create_app(cfg_dir)
+    app = create_app(cfg_dir, port=port)
     # log_config=None: uvicorn использует наш root-логгер (config_log.yaml), чтобы
     # логи/ошибки (в т.ч. access и ASGI-ошибки) попадали в файл лога, а не только
     # в консоль.

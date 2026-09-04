@@ -47,6 +47,7 @@
       <button id="tab-profiles">Профили</button>
     </div>
     <div class="tabs-group" id="tabs-roles">
+      <button id="tab-parser">Парсер</button>
       <button id="tab-users">Пользователи</button>
       <button id="tab-metrics">Метрики</button>
       <button id="tab-monitor">Параметры мониторинга</button>
@@ -56,7 +57,6 @@
       <button id="tab-cfgops">Конфигурация</button>
       <button id="tab-logcfg">Управление логами</button>
       <button id="tab-logs">Логи</button>
-      <button id="tab-parser">Парсер</button>
     </div>
   </div>
 
@@ -94,7 +94,7 @@
         </label>
         <div class="proc-table">
           <div class="toolbar" style="margin-bottom:8px;">
-            <button class="primary" id="batch-analyze" disabled>Анализировать ТЗ</button>
+            <button class="primary" id="batch-analyze" disabled>Анализировать документы</button>
             <button class="ghost" id="batch-pwin-margin" disabled>Оценить P(win)/Margin</button>
             <button class="ghost" id="db-export" title="Скачать CSV активных релевантных закупок (браузер предложит выбрать папку)">Выгрузить CSV</button>
             <span id="sel-count" class="muted"></span>
@@ -157,7 +157,7 @@
 
   <div id="view-metrics" style="display:none;">
     <div class="metrics-view" id="metrics-content">
-      <div class="empty">Журнал метрик обработки.<br><span class="muted" style="font-size:12px">Данные появятся после скоринга и анализа ТЗ.</span></div>
+      <div class="empty">Журнал метрик обработки.<br><span class="muted" style="font-size:12px">Данные появятся после скоринга и анализа документов.</span></div>
     </div>
   </div>
 
@@ -180,7 +180,7 @@
       <div class="panel-title">Промпты сервисов</div>
       <div class="toolbar" style="margin-bottom:0;">
         <label title="Сервис, чьи промпты редактируются">Сервис:
-          <select id="prompt-service" title="scoring_service — скоринг, analysis_service — анализ ТЗ">
+          <select id="prompt-service" title="scoring_service — скоринг, analysis_service — анализ документов">
             <option value="prompts">scoring_service</option>
             <option value="analysis-prompts">analysis_service</option>
           </select>
@@ -405,7 +405,7 @@
   <div id="view-services" style="display:none;">
     <div class="tabs tabs-bar services-tabs" style="margin-bottom:10px;">
       <button class="active" id="svc-tab-scoring" title="config.yaml сервиса скоринга">Скоринг</button>
-      <button id="svc-tab-analysis" title="config.yaml сервиса анализа ТЗ">Анализ ТЗ</button>
+      <button id="svc-tab-analysis" title="config.yaml сервиса анализа документов">Анализ документов</button>
       <button id="svc-tab-pwin" title="config.yaml сервиса P(win)">P(win)</button>
       <button id="svc-tab-margin" title="config.yaml сервиса Margin">Margin</button>
     </div>
@@ -417,6 +417,7 @@
           <button id="svc-scoring-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
           <button id="svc-scoring-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
           <button id="svc-scoring-reload">Отменить изменения</button>
+          <button class="ghost" id="svc-scoring-restart" title="Перезапустить сервер scoring_service">⟳ Перезагрузить</button>
           <span id="svc-scoring-status" class="muted"></span>
         </div>
       </div>
@@ -425,12 +426,13 @@
     </div>
     <div id="svc-pane-analysis" style="display:none;">
       <div class="panel">
-        <div class="panel-title" title="src/analysis_service/config.yaml">Анализ ТЗ (analysis_service)</div>
+        <div class="panel-title" title="src/analysis_service/config.yaml">Анализ документов (analysis_service)</div>
         <div class="toolbar" style="margin-bottom:0;">
           <button class="primary" id="svc-analysis-save" title="Сохранить конфигурацию analysis_service. Изменения применяются при следующем старте сервиса.">Сохранить</button>
           <button id="svc-analysis-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
           <button id="svc-analysis-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
           <button id="svc-analysis-reload">Отменить изменения</button>
+          <button class="ghost" id="svc-analysis-restart" title="Перезапустить сервер analysis_service">⟳ Перезагрузить</button>
           <span id="svc-analysis-status" class="muted"></span>
         </div>
       </div>
@@ -528,7 +530,8 @@
         <button class="primary" id="parser-save" title="Сохранить конфигурацию парсера. Изменения применяются при следующем старте сервиса.">Сохранить</button>
         <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
         <button id="parser-reload">Отменить изменения</button>
-        <span id="parser-status" class="muted"></span>
+        <button class="ghost" id="parser-restart" title="Перезапустить парсер (остановить и запустить заново)">⟳ Перезагрузить</button>
+        <span id="parser-restart-status" class="muted"></span>
       </div>
     </div>
     <div id="parser-form"></div>

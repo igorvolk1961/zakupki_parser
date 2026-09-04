@@ -1,4 +1,4 @@
-"""Извлечение текста из файлов ТЗ: plain-text, DOCX, легаси DOC, PDF."""
+"""Извлечение текста из файлов ТЗ: plain-text, DOCX, XLSX, легаси DOC, PDF."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ _DOC_CONVERT_TIMEOUT = 90.0
 
 
 def _decode(raw: bytes, name: str) -> str | None:
-    """Извлечь текст из байт по расширению (docx/pdf/dot — Markdown/текст).
+    """Извлечь текст из байт по расширению (docx/xlsx/pptx/pdf/dot — Markdown/текст).
 
     Если расширение неизвестно или отсутствует (например, у Росэлторг имя файла
     «Техническое задание» без расширения, а URL вида ``/api/v1/documents/<uuid>``),
@@ -30,11 +31,17 @@ def _decode(raw: bytes, name: str) -> str | None:
         if ext.endswith(candidate):
             return _decode_text(raw)
     if ext.endswith(".docx"):
-        return _extract_docx(raw)
+        # Имя может «врать»: площадки нередко отдают xlsx/PDF под именем .docx.
+        # Если конвертация docx не удалась — определяем формат по содержимому.
+        return _extract_docx(raw) or _decode_by_signature(raw)
+    if ext.endswith(".xlsx") or ext.endswith(".xlsm"):
+        return _convert_markdown(raw, ".xlsx")
+    if ext.endswith(".pptx"):
+        return _convert_markdown(raw, ".pptx")
     if ext.endswith(".doc"):
         return _extract_doc(raw)
     if ext.endswith(".pdf"):
-        return _extract_pdf(raw)
+        return _extract_pdf(raw) or _decode_by_signature(raw)
     # Нераспознанное/отсутствующее расширение — формат по содержимому.
     return _decode_by_signature(raw)
 
@@ -53,15 +60,44 @@ def _decode_by_signature(raw: bytes) -> str | None:
     """Определить формат по магическим байтам, когда расширение неизвестно.
 
     Покрывает файлы ЭТП с именами без расширения: PDF (``%PDF``), OOXML/zip
-    (``PK`` — почти всегда .docx), легаси OLE2 (``.doc``), иначе — plain-text.
+    (``PK`` — docx/xlsx/pptx, подтип по структуре архива), легаси OLE2 (``.doc``),
+    иначе — plain-text.
     """
     if raw.startswith(b"%PDF"):
         return _extract_pdf(raw)
     if raw.startswith(b"PK\x03\x04"):
-        return _extract_docx(raw)
+        # OOXML — это zip, и по PK-сигнатуре нельзя понять docx/xlsx/pptx.
+        # Подтип определяем по внутренней структуре архива.
+        ext = _detect_ooxml(raw)
+        if ext == ".xlsx":
+            return _convert_markdown(raw, ".xlsx")
+        if ext == ".pptx":
+            return _convert_markdown(raw, ".pptx")
+        return _extract_docx(raw)  # .docx или нераспознанный OOXML (best-effort)
     if raw.startswith(b"\xd0\xcf\x11\xe0"):
         return _extract_doc(raw)
     return _decode_text(raw)
+
+
+def _detect_ooxml(raw: bytes) -> str | None:
+    """Определить подтип OOXML (``.docx``/``.xlsx``/``.pptx``) по записям zip.
+
+    docx/xlsx/pptx — это один и тот же контейнер ``PK``, а его структура разная:
+    ``word/`` (текстовый документ), ``xl/`` (книга Excel) или ``ppt/``
+    (презентация). Возвращает ``None``, если это не zip/OOXML.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            members = zf.namelist()
+    except zipfile.BadZipFile:
+        return None
+    if any(m.startswith("word/") for m in members):
+        return ".docx"
+    if any(m.startswith("xl/") for m in members):
+        return ".xlsx"
+    if any(m.startswith("ppt/") for m in members):
+        return ".pptx"
+    return None
 
 
 # Ленивый MarkItDown (Microsoft): конвертация docx/pdf в Markdown с сохранением

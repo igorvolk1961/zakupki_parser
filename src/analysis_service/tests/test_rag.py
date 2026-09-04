@@ -11,7 +11,7 @@ from analysis_service.pipeline.matcher import (
     resolve_license_kind,
 )
 from analysis_service.pipeline.prompts import (
-    build_batch_system_messages,
+    build_requirements_data_messages,
     build_verdict_messages,
 )
 from analysis_service.pipeline.rag import RagAnalyzer
@@ -46,14 +46,12 @@ def test_build_verdict_messages_no_rescan_of_inserted_values() -> None:
     assert user.count("Контекст ТЗ") == 1
 
 
-def test_build_batch_system_messages() -> None:
-    system, user = build_batch_system_messages("Секции ТЗ")
-    assert "Секции ТЗ" in user
-    assert "experience_2571" in user
-    assert "minprom_registry" in user
-    assert "license_sro" in user
-    assert "{context}" not in user
-    # Профиль поставщика в промпт не попадает.
+def test_build_requirements_data_messages() -> None:
+    system, user = build_requirements_data_messages("licenses", "Требуется лицензия МЧС.")
+    assert "Требуется лицензия МЧС." in user
+    assert "{kind}" not in user and "{text}" not in user and "{structure}" not in user
+    # Контракт схемы лицензий присутствует в промпте.
+    assert "kinds" in user
     assert "профил" not in system.lower()
 
 
@@ -196,20 +194,6 @@ class _NoneEmbedder:
         return None
 
 
-def test_analyze_system_llm_failure_unavailable() -> None:
-    """Сбой batch-LLM → системные проверки «не проверено» (⚪), а не 🟢."""
-    analyzer = _analyzer(_FakeLlm([None]))
-    verdicts = asyncio.run(
-        analyzer._analyze_system(  # noqa: SLF001
-            ["Требуется опыт на площадке; лицензия МЧС; реестр Минпромторга."], {}
-        )
-    )
-    assert len(verdicts) == 3
-    assert all(v["verdict"] == "unavailable" for v in verdicts)
-    assert all(v["marker"] == "⚪" for v in verdicts)
-    assert all(v["source"] == "system" for v in verdicts)
-
-
 def test_verdict_embed_unavailable() -> None:
     """Недоступен эмбеддер → вопрос профиля «не проверено»."""
     analyzer = _analyzer(_FakeLlm([None]))
@@ -246,101 +230,56 @@ def test_report_status() -> None:
     assert status(True, None, [{"verdict": "soft"}, {"verdict": "no_stop_condition"}]) == "ok"
 
 
-# --- Лексический ретривал системных проверок ------------------------------
+# --- Заполнение data требований к участнику (LLM-этап) ---------------------
 
 
-def test_select_relevant_chunks() -> None:
-    from analysis_service.pipeline.system_questions import SYSTEM_RETRIEVAL_PATTERNS
-
-    analyzer = _analyzer(_FakeLlm([]))
-    chunks = [
-        "Общие положения о проведении закупки",
-        "Требование к опыту: подтверждение на электронной площадке по ПП РФ 2571",
-        "Требования к продукции: реестр Минпромторга, пометка «не установлено»",
-        "Требуется лицензия МЧС на монтаж пожарной сигнализации",
-        "Срок исполнения контракта — 90 дней",
-    ]
-    assert analyzer._select_relevant_chunks(  # noqa: SLF001
-        SYSTEM_RETRIEVAL_PATTERNS["sys:exp_2571"], chunks
-    ) == [1]
-    assert analyzer._select_relevant_chunks(  # noqa: SLF001
-        SYSTEM_RETRIEVAL_PATTERNS["sys:minprom_registry"], chunks
-    ) == [2]
-    assert analyzer._select_relevant_chunks(  # noqa: SLF001
-        SYSTEM_RETRIEVAL_PATTERNS["sys:license_sro"], chunks
-    ) == [3]
-
-
-def test_analyze_system_batch_and_matcher() -> None:
-    chunks = [
-        "Требуется опыт исполнения контрактов, подтверждённый на электронной площадке.",
-        "Запрет иностранной продукции; реестр Минпромторга — не установлено.",
-        "Требуется лицензия МЧС на монтаж пожарной сигнализации.",
-    ]
-    batch_response = {
-        "experience_2571": {
-            "found": True,
-            "facts": {"required": True, "confirmation": "platform", "ref_2571": True},
-            "excerpt": "подтверждение на электронной площадке",
-            "reasoning": "ПП РФ 2571",
-        },
-        "minprom_registry": {
-            "found": True,
-            "facts": {"required": False, "not_established_note": True, "foreign_goods_ban": True},
-            "excerpt": "не установлено",
-            "reasoning": "пометка",
-        },
-        "license_sro": {
-            "found": True,
-            "facts": {"required": True, "license_name": "лицензия МЧС", "authority": "МЧС России"},
-            "excerpt": "лицензия МЧС",
-            "reasoning": "монтаж пожарной сигнализации",
-        },
+def test_requirements_data_fill() -> None:
+    structure = {
+        "licenses": [
+            {"text": "Требуется лицензия МЧС на монтаж.", "data": None, "file_name": "req.pdf"}
+        ],
+        "experience": [
+            {"text": "Подтверждённый опыт за 3 года.", "data": None, "file_name": "req.pdf"}
+        ],
+        "minprom": [
+            {"text": "Выписка из реестра Минпромторга.", "data": None, "file_name": "req.pdf"}
+        ],
+        "other": [
+            {"text": "Состав заявки: паспорт, смета.", "data": None, "file_name": "docs.pdf"}
+        ],
     }
-    analyzer = _analyzer(_FakeLlm([batch_response]))
-    verdicts = asyncio.run(
-        analyzer._analyze_system(chunks, {"license_names": [], "experience_codes": []})  # noqa: SLF001
+    llm = _FakeLlm(
+        [
+            {"required": True, "kinds": [{"type": "license", "name": "МЧС", "mandatory": True}]},
+            {"required": True, "confirmation": "documents", "min_contracts": 1, "ref_2571": False},
+            {"required": True, "foreign_goods_ban": True, "not_established_note": False},
+            {"type": "состав заявки", "summary": "паспорт, смета", "conditions": []},
+        ]
     )
-    by_id = {v["question_id"]: v for v in verdicts}
-    assert by_id["sys:exp_2571"]["verdict"] == "absolute"
-    assert by_id["sys:exp_2571"]["marker"] == "🔴"
-    assert by_id["sys:exp_2571"]["source"] == "system"
-    assert by_id["sys:minprom_registry"]["verdict"] == "no_stop_condition"
-    assert by_id["sys:minprom_registry"]["marker"] == "🟢"
-    assert by_id["sys:license_sro"]["verdict"] == "absolute"
-    assert by_id["sys:license_sro"]["marker"] == "🔴"
-
-    # Те же факты, но у компании есть опыт на площадке и лицензия МЧС.
-    analyzer_ok = _analyzer(_FakeLlm([batch_response]))
-    verdicts_ok = asyncio.run(
-        analyzer_ok._analyze_system(  # noqa: SLF001
-            chunks,
-            {
-                "license_names": [
-                    "деятельность по монтажу, техническому обслуживанию и ремонту средств "
-                    "обеспечения пожарной безопасности зданий и сооружений"
-                ],
-                "experience_codes": ["platform"],
-            },
-        )
-    )
-    by_id_ok = {v["question_id"]: v for v in verdicts_ok}
-    assert by_id_ok["sys:exp_2571"]["verdict"] == "no_stop_condition"
-    assert by_id_ok["sys:license_sro"]["verdict"] == "no_stop_condition"
-
-
-def test_analyze_system_no_llm_when_no_sections() -> None:
-    """Если в ТЗ нет стандартных секций стоп-условий — LLM не вызывается."""
-    llm = _FakeLlm([])
     analyzer = _analyzer(llm)
-    verdicts = asyncio.run(
-        analyzer._analyze_system(  # noqa: SLF001
-            ["Только общие положения и условия оплаты."], {}
-        )
-    )
-    assert len(verdicts) == 3
-    assert all(v["verdict"] == "no_stop_condition" for v in verdicts)
-    assert all(v["source"] == "system" for v in verdicts)
+    filled = asyncio.run(analyzer.fill_requirements_data(structure))
+    assert filled["licenses"][0]["data"]["kinds"][0]["name"] == "МЧС"
+    assert filled["licenses"][0]["file_name"] == "req.pdf"
+    assert filled["experience"][0]["data"]["confirmation"] == "documents"
+    assert filled["minprom"][0]["data"]["foreign_goods_ban"] is True
+    assert filled["other"][0]["data"]["type"] == "состав заявки"
+    assert filled["other"][0]["file_name"] == "docs.pdf"
+    # Уже заполненные data не пересчитываются (идемпотентность).
+    assert asyncio.run(analyzer.fill_requirements_data(filled)) == filled
+
+
+def test_requirements_data_fill_llm_failure_keeps_none() -> None:
+    # Сбой LLM (None) → data остаётся None, структура сохраняется.
+    structure = {
+        "licenses": [{"text": "Требуется лицензия МЧС.", "data": None, "file_name": "req.pdf"}],
+        "other": [{"text": "Состав заявки.", "data": None, "file_name": "docs.pdf"}],
+    }
+    analyzer = _analyzer(_FakeLlm([None, None]))
+    filled = asyncio.run(analyzer.fill_requirements_data(structure))
+    assert filled["licenses"][0]["data"] is None
+    assert filled["licenses"][0]["file_name"] == "req.pdf"
+    assert filled["other"][0]["data"] is None
+    assert filled["other"][0]["file_name"] == "docs.pdf"
 
 
 # --- Stage B: матчер фактов ТЗ × фактов профиля -----------------------------

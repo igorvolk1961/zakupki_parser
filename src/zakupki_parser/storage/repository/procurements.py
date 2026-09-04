@@ -527,6 +527,36 @@ class ProcurementMixin(RepositoryMixin):
             await session.commit()
             return (cursor.rowcount or 0) > 0
 
+    async def get_requirements(self, procurement_id: int) -> dict[str, Any] | None:
+        """Требования к участнику (структура ``requirements_json``) или None.
+
+        R-эндпоинт просмотра «Требования к участнику»: читает поле БД как есть.
+        None — поле не извлекалось; ``{}`` — шаблоны не найдены нигде; иначе —
+        структура с заполненным ``text`` (и, после «Анализа документов», ``data``).
+        """
+        stmt = select(Procurement.requirements_json).where(Procurement.id == procurement_id)
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def save_requirements(self, procurement_id: int, structure: dict[str, Any]) -> bool:
+        """Сохраняет структуру требований к участнику (``requirements_json``).
+
+        Используется эндпоинтом просмотра (после детерминированного извлечения)
+        и analysis-воркером (после LLM-заполнения ``data``). Возвращает True, если
+        запись найдена и обновлена.
+        """
+        async with self._db.session() as session:
+            cursor = cast(
+                CursorResult[Any],
+                await session.execute(
+                    update(Procurement)
+                    .where(Procurement.id == procurement_id)
+                    .values(requirements_json=structure)
+                ),
+            )
+            await session.commit()
+            return (cursor.rowcount or 0) > 0
+
     async def _resolve_customer_id(
         self, session: AsyncSession, name: str | None, inn: str | None
     ) -> int | None:

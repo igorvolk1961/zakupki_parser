@@ -28,6 +28,9 @@ class AppState:
     def __init__(self, cfg: AppConfig, configs_dir: str) -> None:
         self.cfg = cfg
         self.configs_dir = configs_dir
+        # Порт API-сервиса (парсер является тем же процессом): используется при
+        # рестарте фоновых сервисов скоринга как URL парсера (для их env).
+        self.parser_port: int = 8000
         self.db: Database | None = None
         self.repository: ProcurementRepository | None = None
         # Управление парсером (запуск/остановка из web-интерфейса).

@@ -1236,6 +1236,40 @@ requirements:
     tests:
       - src/scoring_service/tests/test_auth.py
       - tests/integration/test_api.py
+  - id: FR-10.9
+    type: FR
+    title: Перезапуск фоновых сервисов скоринга из web (devops)
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/restart_services.py
+      - src/zakupki_parser/api/app/routes/config.py
+    tests:
+      - tests/unit/test_restart_services.py
+  - id: FR-10.10
+    type: FR
+    title: Требования к участнику по всем документам + LLM-заполнение data
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/scoring_common/scoring_common/requirements.py
+      - src/scoring_common/scoring_common/tables.py
+      - src/scoring_common/scoring_common/law_requirements.py
+      - src/scoring_common/scoring_common/parser_api.py
+      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/storage/repository/procurements.py
+      - src/analysis_service/analysis_service/pipeline/rag.py
+      - src/analysis_service/analysis_service/worker.py
+    tests:
+      - src/scoring_common/tests/test_requirements.py
+      - src/scoring_common/tests/test_tables.py
+      - src/scoring_common/tests/test_law_requirements.py
+      - src/analysis_service/tests/test_rag.py
+      - tests/integration/test_api.py
 
   # ===== Бизнес-правила =====
   - id: BR-01

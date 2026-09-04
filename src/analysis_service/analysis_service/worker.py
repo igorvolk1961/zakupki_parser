@@ -20,6 +20,7 @@ from analysis_service.pipeline.rag import RagAnalyzer
 from analysis_service.settings import Settings
 from scoring_common.parser_api import ParserApiClient
 from scoring_common.queue import StageQueue
+from scoring_common.requirements import extract_requirements
 from scoring_common.stage_worker import process_stage_job
 
 logger = logging.getLogger(__name__)
@@ -67,28 +68,6 @@ class AnalysisWorker:
             logger.warning("Не удалось получить вопросы клиента: %s", exc)
             return []
 
-    async def _resolve_profile_facts(self, profile_id: int) -> dict[str, Any]:
-        """Факты профиля для сопоставления с фактами ТЗ (Stage B).
-
-        Лицензии/подтверждённый опыт приходят из ответа ``/api/clients/active``
-        (тот же кэшируемый вызов, что и вопросы). При сбое — пустые факты:
-        нераспознанные/неподтверждённые барьеры маркируются жёстко, не молча
-        пропускаются.
-        """
-        try:
-            client = await self._parser.get_active_client(
-                internal_token=self._settings.parser_internal_token, profile_id=profile_id
-            )
-            facts = (client or {}).get("facts")
-            if isinstance(facts, dict):
-                return {
-                    "license_names": list(facts.get("license_names") or []),
-                    "experience_codes": list(facts.get("experience_codes") or []),
-                }
-        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-            logger.warning("Не удалось получить факты профиля: %s", exc)
-        return {"license_names": [], "experience_codes": []}
-
     async def _process_once(self) -> None:
         job = await self._queue.pop_job()
         if job is None:
@@ -103,13 +82,27 @@ class AnalysisWorker:
 
         async def compute(record: dict[str, Any], pid: int, pfd: int) -> dict[str, Any]:
             questions = await self._resolve_questions(pfd)
-            profile_facts = await self._resolve_profile_facts(pfd)
             report = await self._analyzer.analyze(
                 record,
                 questions,
-                profile_facts,
                 metadata={"procurement_id": pid, "profile_id": pfd},
             )
+            # Требования к участнику: извлечение по всем документам (если еще не
+            # извлечены) + LLM-заполнение ``data``; персист — per-procurement.
+            # Пустой результат ({}) тоже сохраняется — поле перестаёт быть NULL.
+            requirements = record.get("requirements_json")
+            if requirements is None:
+                requirements = await asyncio.to_thread(
+                    extract_requirements,
+                    record,
+                    self._settings.tz_download_timeout,
+                    self._settings.tz_verify_ssl,
+                )
+            try:
+                filled = await self._analyzer.fill_requirements_data(requirements or {})
+                await self._parser.post_requirements(pid, filled)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Не удалось заполнить/сохранить требования закупки %s: %s", pid, exc)
             result = {
                 "procurement_id": pid,
                 "profile_id": pfd,
