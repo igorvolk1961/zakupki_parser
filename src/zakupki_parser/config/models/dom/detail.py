@@ -28,6 +28,16 @@ class DomDetailConfig(BaseModel):
             "клиентом после загрузки оболочки)"
         ),
     )
+    region_on_demand_dom: bool = Field(
+        default=False,
+        description=(
+            "регион закупки отсутствует в API-деталях и берётся из DOM-страницы "
+            "ТОЛЬКО по явному региональному запросу профиля (target_regions/"
+            "max_region_distance_km): при получении скора, если регион ещё не известен, "
+            "открывается детальная (common) страница и извлекается переменная region "
+            "(напр. поле «Место поставки»). Иначе DOM-страница не открывается"
+        ),
+    )
     files: list[FileSpec] = Field(
         default_factory=list, description="элементы ссылок на скачиваемые файлы"
     )

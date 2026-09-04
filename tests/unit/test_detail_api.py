@@ -65,6 +65,8 @@ async def test_lot_online_details_uses_registry_id() -> None:
     )
     assert vars_["okpd2_code"] == "21.20.23.110"
     assert vars_["okpd2_name"] == "Реагенты"
+    # Регион в lotInfo отсутствует (gz, 2026-09-04) — ключ не ставится.
+    assert "region" not in vars_
     assert files == []
     assert inn is None
     calls = page.request.post.await_args_list
@@ -105,6 +107,10 @@ async def test_etpgpb_details_maps_included() -> None:
                 "registry_number": "ГП632202",
                 "stage": "accepting",
                 "amount": "81 733.47",
+                # Регион в attributes процедуры (проверено 2026-09-04 на живом API).
+                "region": "Омская область",
+                "regions": ["Омская область"],
+                "lot_regions": ["Омская область"],
             },
             "relationships": {
                 "company": {"data": {"id": "5621", "type": "company"}},
@@ -143,6 +149,7 @@ async def test_etpgpb_details_maps_included() -> None:
     assert vars_["customer"] == "АО АК ОЗНА"
     assert vars_["status"] == "Прием заявок на участие"
     assert vars_["nmck"] == 81733.47
+    assert vars_["region"] == "Омская область"
     assert inn == "0265004219"
     assert files == [{"name": "ТЗ.docx", "url": "https://etp.gpb.ru/file/get/1"}]
 
@@ -193,6 +200,8 @@ async def test_tender_223_details_maps_response() -> None:
             "title": "ПИР и СМР",
             "price": 643260.86,
             "stage": {"title": "Идет прием заявок", "group": "DEMANDS_STARTED"},
+            # Регион в commonInfo (проверено 2026-09-04 на живом API).
+            "customerOkato": "Москва, г",
         },
         "organization": {"inn": "5260200603", "title": "ПАО РОССЕТИ ЦЕНТР"},
         "customers": [{"inn": "5260200603", "title": "ПАО РОССЕТИ ЦЕНТР И ПРИВОЛЖЬЕ"}],
@@ -230,6 +239,7 @@ async def test_tender_223_details_maps_response() -> None:
     assert vars_["customer"] == "ПАО РОССЕТИ ЦЕНТР И ПРИВОЛЖЬЕ"
     assert vars_["status"] == "Идет прием заявок"
     assert vars_["nmck"] == 643260.86
+    assert vars_["region"] == "Москва, г"
     assert inn == "5260200603"
     assert files == [
         {

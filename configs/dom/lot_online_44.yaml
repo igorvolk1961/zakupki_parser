@@ -39,7 +39,15 @@ detail:
   # Детали — из открытого JSON-RPC API (двухшагово: резолв номера -> лоты с
   # позициями и кодами ОКПД2). Детальная страница не открывается.
   api_format: "lot_online"
-  variables: []
+  # Регион gz: в реестре и в lotInfo JSON-RPC его НЕТ (проверено 2026-09-04);
+  # «Место поставки» есть только на DOM-странице (common, поле-метка «Место поставки»).
+  # Открываем страницу ТОЛЬКО по явному региональному запросу профиля
+  # (target_regions/max_region_distance_km) — см. region_on_demand_dom и set_score.
+  region_on_demand_dom: true
+  # Селектор значения «Место поставки» на common-странице (проверено по SSR, 2026-09-04):
+  # <app-info><label …>Место поставки:</label>…<div class="…form-control-static…"><p>…</p>.
+  variables:
+    - { name: "region", selector: "xpath=//app-info[.//label[contains(.,'Место поставки')]]//div[contains(@class,'form-control-static')]/p", handler: "strip", default: null }
   files: []
 search:
   enabled: true

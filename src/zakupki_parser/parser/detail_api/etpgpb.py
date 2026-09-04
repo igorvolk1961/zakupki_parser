@@ -77,19 +77,19 @@ async def _etpgpb_details(
         "status": lot_attrs.get("name_status") or attrs.get("stage") or "",
         "nmck": _amount(attrs.get("amount")),
     }
-    # Регион — пробное извлечение (из attributes компании или карточки процедуры).
-    # TODO: verify — имя поля API не подтверждено на живом сайте; если регион не
-    # найден, ключ не ставится (значение detail_json останется без region).
-    region: str | None = None
-    for comp in by_type.get("company", []):
-        if company_id is not None and comp.get("id") != company_id:
-            continue
-        cattrs = comp.get("attributes") or {}
-        region = cattrs.get("region") or cattrs.get("regionName")
-        if region:
-            break
-    if not region:
-        region = attrs.get("region") or attrs.get("regionName")
+    # Регион — attributes процедуры (проверено 2026-09-04 на живом API):
+    # attrs.region («Омская область») / attrs.regions / attrs.lot_regions (списки,
+    # лот в нескольких регионах). Если поля пусты — ключ не ставится.
+    region_list = attrs.get("regions") or attrs.get("lot_regions") or []
+    if isinstance(region_list, str):
+        region_list = [region_list]
+    cleaned = [str(r).strip() for r in region_list if str(r).strip()]
+    if cleaned:
+        region: str | None = ", ".join(dict.fromkeys(cleaned))
+    elif isinstance(attrs.get("region"), str) and attrs["region"].strip():
+        region = attrs["region"].strip()
+    else:
+        region = None
     if region:
-        detail_vars["region"] = str(region)
+        detail_vars["region"] = region
     return detail_vars, files, inn

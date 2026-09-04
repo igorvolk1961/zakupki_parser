@@ -72,6 +72,9 @@ def _parse_lot_online_item(item: dict[str, Any]) -> dict[str, Any]:
         "law": law,
         "publication_date": _ru_dt(item.get("publicationDateTime")),
         "deadline": _ru_dt(item.get("requestEndGiveDateTime")),
+        # Регион в реестре gz отсутствует (проверено 2026-09-04) — ключ оставляем
+        # пустым, чтобы обработка региона шла по общему пути (см. parser.filtering).
+        "region": "",
     }
     # Детальная страница «Общая информация» (канонический URL записи).
     if number:
@@ -82,6 +85,23 @@ def _parse_lot_online_item(item: dict[str, Any]) -> dict[str, Any]:
     if internal_id:
         list_vars["_api"] = {"id": internal_id}
     return list_vars
+
+
+def _etpgpb_regions(attrs: dict[str, Any]) -> str:
+    """Регионы etpgpb из attributes (проверено 2026-09-04 на живом API).
+
+    Атрибут ``region`` — строка («Омская область»), ``regions``/``lot_regions`` —
+    списки (лот может находиться в нескольких регионах). Склеиваем список через
+    ", "; если списка нет — строка region.
+    """
+    regions = attrs.get("regions") or attrs.get("lot_regions") or []
+    if isinstance(regions, str):
+        regions = [regions]
+    cleaned = [str(r).strip() for r in regions if str(r).strip()]
+    if cleaned:
+        return ", ".join(dict.fromkeys(cleaned))
+    value = attrs.get("region")
+    return str(value).strip() if isinstance(value, str) else ""
 
 
 def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -113,6 +133,7 @@ def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
     list_vars["deadline"] = _iso_dt(attrs.get("end_registration"))
     list_vars["customer"] = attrs.get("company_name")
     list_vars["status"] = attrs.get("stage") or ""
+    list_vars["region"] = _etpgpb_regions(attrs)
     if "44" in kind:
         list_vars["law"] = "44-ФЗ"
     elif "223" in kind:
@@ -186,6 +207,9 @@ def _parse_tender_223_item(item: dict[str, Any]) -> dict[str, Any]:
         "purchase_type": item.get("purchaseMethod") or "",
         # Платформа 223-ФЗ по определению (как в DOM-карточке).
         "law": "223-ФЗ",
+        # Регион заказчика прямо в реестре indexer (проверено 2026-09-04 на живом
+        # API): customerOkato («Москва, г», «Свердловская, обл»), fallback regionOkato.
+        "region": str(item.get("customerOkato") or item.get("regionOkato") or ""),
         "publication_date": _dt_parts(item.get("publicationDate")),
         "deadline": _dt_parts(item.get("demandEndDate")),
     }

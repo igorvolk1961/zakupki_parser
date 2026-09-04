@@ -71,9 +71,10 @@ async def _lot_online_details(
     items = lot_info.get("items") or []
     code, name = _okpd_from_items(items)
     detail_vars: dict[str, Any] = {"okpd2_code": code, "okpd2_name": name}
-    # Регион — пробное извлечение из lotInfo (например lot_info.region).
-    # TODO: verify — имя поля API не подтверждено на живом сайте; если регион не
-    # найден, ключ не ставится.
+    # Регион gz: в реестре и lotInfo региона НЕТ (2026-09-04). «Место поставки»
+    # извлекается из DOM common-страницы по явному региональному запросу профиля
+    # (detail.region_on_demand_dom в lot_online_44.yaml + set_score). Ключ lot_info.region
+    # оставлен как страховка на случай появления поля в API.
     region = lot_info.get("region")
     if region:
         detail_vars["region"] = str(region)

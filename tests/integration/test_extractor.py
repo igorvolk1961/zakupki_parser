@@ -289,3 +289,56 @@ async def test_eis_223_extraction(app_config: AppConfig, page: Page) -> None:
     assert data.get("customer"), "Заказчик должен извлекаться (view223)"
     assert data.get("subject"), "Предмет 223-ФЗ должен извлекаться из body-value"
     assert data.get("deadline"), "Дедлайн (Окончание подачи) должен извлекаться"
+
+
+@pytest.mark.asyncio
+async def test_fabrikant_44_region_delivery_place(page: Page) -> None:
+    """fabrikant 44-ФЗ: регион — место поставки (таблица «Субъект/…/Место поставки»).
+
+    Структура взята из полного SSR-рендера детальной страницы (2026-09-04):
+    регион в начале значения «Место поставки» первой строки («обл. Челябинская, …»),
+    колонка «Субъект» при этом пуста.
+    """
+    await set_html(page, load_fixture("fabrikant_delivery_place.html"))
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["fabrikant"]
+    region_var = next(v for v in platform.detail.variables if v.name == "region")
+    data = await extract_from_scope(page.locator("body"), [region_var])
+    region = (data.get("region") or "").strip()
+    assert region, "Регион должен извлекаться из таблицы мест поставки"
+    assert "Челябинск" in region, f"Ожидался регион с «Челябинск», получено: {region!r}"
+
+
+@pytest.mark.asyncio
+async def test_gz_lot_online_region_dom_delivery_place(page: Page) -> None:
+    """gz (lot-online 44): регион из DOM по требованию — поле «Место поставки».
+
+    В API (реестр и lotInfo JSON-RPC) региона нет; «Место поставки» живёт на
+    common-странице (app-info: label «Место поставки» -> div.form-control-static > p).
+    Открывается только по явному региональному запросу профиля (region_on_demand_dom).
+    """
+    await set_html(page, load_fixture("gz_common_place.html"))
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["lot_online_44"]
+    assert platform.detail.region_on_demand_dom is True
+    data = await extract_detail_vars(page, platform)
+    region = (data.get("region") or "").strip()
+    assert region, "Регион должен извлекаться из «Место поставки»"
+    assert "Ярославль" in region, f"Ожидался регион с «Ярославль», получено: {region!r}"
+
+
+@pytest.mark.asyncio
+async def test_roseltorg_region_from_search_card(page: Page) -> None:
+    """roseltorg: регион заказчика из карточки выдачи (.search-results__region).
+
+    Место поставки на деталях roseltorg не показывается — регион заказчика
+    структурирован в карточке поиска: «NN. г. Москва» (код субъекта отрезается).
+    """
+    await set_html(page, load_fixture("roseltorg_card_region.html"))
+    cfg = load_config(REPO_ROOT / "configs")
+    platform = cfg.dom.platforms["roseltorg_223fz"]
+    region_var = next(v for v in platform.list_config.variables if v.name == "region")
+    data = await extract_from_scope(page.locator("body"), [region_var])
+    region = (data.get("region") or "").strip()
+    assert region, "Регион должен извлекаться из карточки выдачи"
+    assert region == "г. Москва", f"Ожидался «г. Москва», получено: {region!r}"

@@ -28,7 +28,7 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.browser.manager import BrowserManager
-from zakupki_parser.parser.detail import extract_details
+from zakupki_parser.parser.detail import extract_detail_vars, extract_details, open_detail
 from zakupki_parser.parser.filtering import region_match
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.storage.db import User
@@ -72,7 +72,7 @@ CSV_COLUMNS = [
 ]
 
 
-async def _fetch_details_for_score(state: Any, row: Any) -> None:
+async def _fetch_details_for_score(state: Any, row: Any, *, need_region: bool = False) -> None:
     """Досборка деталей площадки ПОСЛЕ получения результата скоринга (BR-08).
 
     Вызывается из обработчика ``POST /api/procurements/{id}/score`` ПЕРЕД записью
@@ -83,6 +83,12 @@ async def _fetch_details_for_score(state: Any, row: Any) -> None:
     персисте на уровне списка. Сбой деталей (напр. HTTP 402 от API mos.ru) НЕ
     роняет обработчик скоринга: карточка остаётся на уровне списка, результат
     скоринга всё равно записывается.
+
+    ``need_region`` — регион запрошен профилем (target_regions/расстояние): если
+    у площадки регион отсутствует в API-деталях, но доступен на DOM-странице
+    (``detail.region_on_demand_dom``, напр. gz lot-online 44-ФЗ — поле
+    «Место поставки»), открываем страницу и извлекаем регион. Иначе DOM-страница
+    не открывается (такие площадки в обычном потоке работают без браузера).
     """
     if state.repository is None:
         return
@@ -107,6 +113,31 @@ async def _fetch_details_for_score(state: Any, row: Any) -> None:
         # Не затираем значения уровня списка значением None (например, НМЦК,
         # если API не отдал поле) — как в основном пути парсера.
         record.update({k: v for k, v in detail_vars.items() if v is not None})
+        # Регион «по требованию»: у API-площадок (gz lot-online 44) региона в API нет,
+        # но профиль явно запросил регион (need_region) — открываем common-страницу
+        # (row.url) и забираем «Место поставки» из DOM (detail.region_on_demand_dom).
+        if (
+            need_region
+            and not (record.get("region") or (row.region or ""))
+            and d.region_on_demand_dom
+            and row.url
+        ):
+            try:
+                await open_detail(page, row.url, platform)
+                dom_region = (await extract_detail_vars(page, platform)).get("region")
+                if dom_region:
+                    record["region"] = str(dom_region)
+                    logger.info(
+                        "Закупка %s: регион из DOM-страницы по запросу профиля: %s",
+                        row.number,
+                        dom_region,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Закупка %s: не удалось извлечь регион из DOM-страницы: %s",
+                    row.number,
+                    exc,
+                )
         if files:
             record["files_json"] = files
         if api_inn and not record.get("inn"):
@@ -153,6 +184,19 @@ def _region_string_filter_enabled(profile: Any) -> bool:
     """
     return bool(profile is not None and profile.target_regions) and not bool(
         getattr(profile, "max_region_distance_km", None)
+    )
+
+
+def _region_explicitly_requested(profile: Any) -> bool:
+    """Профиль явно запросил регион (целевые регионы ИЛИ макс. расстояние, км).
+
+    Явный запрос включает досборку региона из DOM для площадок, где в API-деталях
+    региона нет (gz lot-online: поле «Место поставки» на common-странице) — см.
+    ``detail.region_on_demand_dom`` и ``_fetch_details_for_score``.
+    """
+    return bool(
+        profile is not None
+        and (profile.target_regions or getattr(profile, "max_region_distance_km", None) is not None)
     )
 
 
@@ -348,14 +392,18 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         # BR-08: детали площадки догружаются ПОСЛЕ получения результата скоринга,
         # НО ПЕРЕД записью результата в БД — единый интерфейс fetch_api_details
         # (лёгкий APIRequestContext, без DOM/браузера).
-        await _fetch_details_for_score(state, existing)
+        # need_region: профиль явно запросил регион (target_regions/расстояние) —
+        # если API-детали региона не дают, регион добирается из DOM (по требованию).
+        target_profile = await _repo().get_profile_by_id(body.profile_id)
+        await _fetch_details_for_score(
+            state, existing, need_region=_region_explicitly_requested(target_profile)
+        )
         # Регион мог стать известен только ПОСЛЕ досборки деталей (BR-08): повторная
         # клиентская фильтрация по региону (как ключевые слова R9). Если регион вне
         # целевых профиля — результат НЕ записывается, а оценка профиля удаляется
         # (профиль «не отобрал» закупку; recovery не будет ставить задание повторно).
         details_row = await _repo().get_by_id(procurement_id)
         region_value = _procurement_region(details_row)
-        target_profile = await _repo().get_profile_by_id(body.profile_id)
         if (
             target_profile is not None
             and _region_string_filter_enabled(target_profile)

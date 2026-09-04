@@ -39,6 +39,12 @@ list_config:
     - { name: "subject",          selector: "a.search-results__link--description", handler: "strip", default: "" }
     # law — «Коммерческие закупки и закупки по 223-ФЗ» -> 223-ФЗ.
     - { name: "law",              selector: "div.search-results__section p.search-results__tooltip", handler: "law", default: null }
+    # region — «Регион заказчика» в карточке выдачи (место поставки на деталях
+    # roseltorg не показывается): первый регион в div.search-results__region,
+    # код субъекта «NN. » отрезается regex («77. г. Москва» -> «г. Москва»).
+    # Проверено по SSR выдачи (2026-09-04). Мультирегиональные лоты («ещё N»)
+    # сохраняют только первый регион — полный список — TODO.
+    - { name: "region",           selector: "div.search-results__region p.search-results__tooltip", handler: "regex", handler_arg: "^\\d+\\.\\s*(.+)", default: "" }
     # customer — организатор (ссылка на страницу компании).
     - { name: "customer",         selector: "div.search-results__customer a[href*='/companies/']", handler: "strip", default: "" }
     # nmck — «2 201 656,36 ₽».
@@ -54,9 +60,12 @@ detail:
   # DOM. Извлекается из script[type='application/ld+json'].
   variables:
     - { name: "okpd2_code", selector: "script[type='application/ld+json']", handler: "regex", handler_arg: "\"name\": \"Код ОКПД\",\\s*\"value\": \"([^\"]+)\"", default: null }
-  # Регион: TODO — requires verify на живой детальной странице (видимого поля
-  # «Регион» в разметке нет; возможно, регион заказчика в JSON-LD/address.region).
-  # Не выдумываем непроверенный селектор.
+  # Регион: приоритет — место поставки, иначе регион/местонахождение заказчика.
+  # На деталях roseltorg «место поставки» не показывается (проверено 2026-09-04),
+  # JSON-LD seller.address содержит только addressCountry=RU. Регион заказчика
+  # извлекается на УРОВНЕ СПИСКА (div.search-results__region, «Регион заказчика»);
+  # адрес заказчика на деталях (Г.МОСКВА) — fallback не требуется.
+  # Полный список регионов мультирегиональных лотов («ещё N») — TODO.
   # Приложения к извещению — блок <div class="lot-docs" id="documents"> на детальной
   # странице: <a class="lot-docs__file" href="https://business.roseltorg.ru/api/v1/documents/...">.
   # Имя файла — из текста элемента (<span>), URL скачивания — из href. URL уже

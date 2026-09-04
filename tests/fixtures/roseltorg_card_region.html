@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="ru"><body>
+<!-- Мини-фикстура: карточка roseltorg /procedures/search (SSR, 2026-09-04).
+     Блок «Регион заказчика» — div.search-results__region > p.search-results__tooltip
+     (первый регион; у мультирегиональных — «ещё N»). Код субъекта «NN. » отрезается
+     regex-обработчиком переменной. Значения взяты из живых карточек. -->
+<div class="search-results" id="auction_search_results">
+  <div class="search-results__item autoload-post"
+       data-feature-favorite-lots="lot"
+       data-feature-favorite-lots-procedure-number="0373200015526000517"
+       data-feature-favorite-lots-lot-number="1">
+    <div class="search-results__info">
+      <div class="search-results__header">
+        <div class="search-results__section">
+          <p class="search-results__tooltip" title="Торговая секция">Государственные закупки (44-ФЗ)</p>
+        </div>
+      </div>
+      <div class="search-results__region">
+        <p class="search-results__tooltip" title="Регион заказчика">77. г. Москва</p>
+      </div>
+    </div>
+  </div>
+  <div class="search-results__item autoload-post"
+       data-feature-favorite-lots="lot"
+       data-feature-favorite-lots-procedure-number="32616345197"
+       data-feature-favorite-lots-lot-number="1">
+    <div class="search-results__info">
+      <div class="search-results__region">
+        <p class="search-results__tooltip" title="Регион заказчика">02. Республика Башкортостан</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

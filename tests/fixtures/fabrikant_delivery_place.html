@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru"><body>
+<!-- Мини-фикстура: фрагмент SSR-рендера детальной страницы 44-ФЗ
+     (44.fabrikant.ru/44/procedure/ezk21/…, 2026-09-04). Блок
+     «Место(-а) поставки товара…» — таблица data-slot с колонками
+     Страна|Субъект|Район|Город|Место поставки. Субъект в ячейках пуст,
+     регион — в начале значения «Место поставки» (обл. Челябинская). -->
+<h2 class="mb-6 text-xl">Место(-а) поставки товара, выполнения работы или указания услуги</h2>
+<div class="border-mystic-300 mt-5 rounded-lg border bg-white">
+  <table data-slot="table">
+    <thead data-slot="table-header">
+      <tr data-slot="table-row">
+        <th data-slot="table-head" scope="col">Страна</th>
+        <th data-slot="table-head" scope="col">Субъект</th>
+        <th data-slot="table-head" scope="col">Район</th>
+        <th data-slot="table-head" scope="col">Город</th>
+        <th data-slot="table-head" scope="col">Место поставки</th>
+      </tr>
+    </thead>
+    <tbody data-slot="table-body">
+      <tr data-slot="table-row">
+        <td data-slot="table-cell">РОССИЯ</td>
+        <td data-slot="table-cell"></td>
+        <td data-slot="table-cell"></td>
+        <td data-slot="table-cell"></td>
+        <td data-slot="table-cell">обл. Челябинская, г.о. Магнитогорский, г. Магнитогорск</td>
+      </tr>
+      <tr data-slot="table-row">
+        <td data-slot="table-cell">РОССИЯ</td>
+        <td data-slot="table-cell"></td>
+        <td data-slot="table-cell"></td>
+        <td data-slot="table-cell"></td>
+        <td data-slot="table-cell">обл. Челябинская, м.о. Верхнеуральский, г. Верхнеуральск</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+</body></html>

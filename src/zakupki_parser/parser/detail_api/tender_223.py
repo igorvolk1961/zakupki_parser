@@ -70,10 +70,9 @@ async def _tender_223_details(
         "status": (ci.get("stage") or {}).get("title") or "",
         "nmck": _amount(ci.get("price")),
     }
-    # Регион — пробное извлечение (commonInfo.region / payload.region).
-    # TODO: verify — имя поля API не подтверждено на живом сайте; если регион не
-    # найден, ключ не ставится.
-    region = ci.get("region") or payload.get("region")
+    # Регион — commonInfo.customerOkato («Москва, г»), fallback regionOkato
+    # (проверено 2026-09-04 на живом API /api-gateway/etp/procedure/{номер}/{лот}).
+    region = ci.get("customerOkato") or ci.get("regionOkato") or None
     if region:
         detail_vars["region"] = str(region)
     return detail_vars, files, inn

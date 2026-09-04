@@ -220,6 +220,9 @@ def test_parse_api_item_maps_attributes() -> None:
             "kind": "fz44",
             "custom_procedure_type_name": "Запрос котировок",
             "rebranding_truncated_path": "/procedures/etp/123-dveri/",
+            # Регион прямо в выдаче API списка (lot_regions, проверено 2026-09-04).
+            "region": "Омская область",
+            "lot_regions": ["Омская область", "Томская область"],
         },
     }
     v = parse_api_item(item)
@@ -232,6 +235,7 @@ def test_parse_api_item_maps_attributes() -> None:
     assert v["publication_date"] is not None and v["publication_date"].tzinfo is not None
     assert v["deadline"] is not None and v["deadline"].tzinfo is not None
     assert v["status"] == "accepting"
+    assert v["region"] == "Омская область, Томская область"
 
 
 def _item(number: str, title: str, published: str) -> dict[str, Any]:
@@ -544,6 +548,9 @@ def test_parse_api_item_tender_223() -> None:
         "organizationTitle": "ПАО РОСТЕЛЕКОМ",
         "status": "Идет прием заявок",
         "purchaseMethod": "Открытый запрос цен",
+        # Регион заказчика прямо в реестре indexer (проверено 2026-09-04).
+        "customerOkato": "Москва, г",
+        "regionOkato": "",
         "publicationDate": {"date": "2026-08-18", "time": "20:33:05", "timezone": "MCK"},
         "demandEndDate": {"date": "2026-08-24", "time": "09:00:00", "timezone": "MCK"},
     }
@@ -555,6 +562,7 @@ def test_parse_api_item_tender_223() -> None:
     assert v["status"] == "Идет прием заявок"
     assert v["purchase_type"] == "Открытый запрос цен"
     assert v["law"] == "223-ФЗ"
+    assert v["region"] == "Москва, г"
     assert v["publication_date"] is not None and v["publication_date"].tzinfo is not None
     assert v["deadline"] is not None and v["deadline"].tzinfo is not None
     assert v["_api"] == {"number": "32616302720", "lot": "1"}
