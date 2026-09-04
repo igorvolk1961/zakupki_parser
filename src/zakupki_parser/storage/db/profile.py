@@ -57,6 +57,12 @@ class Profile(Base):
     # на парсинг/пороги — пост-MVP, этапы 4/5).
     target_etp: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     target_laws: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    # Целевые регионы профиля (клиентская пост-фильтрация, как ключевые слова R9).
+    target_regions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    # Максимально допустимое расстояние от центра целевого региона, км. Проверяется
+    # ТОЛЬКО на этапе анализа (внешний сервис): при заданном расстоянии парсер НЕ
+    # отсекает закупку по строковому региону (решение требует гео-координат).
+    max_region_distance_km: Mapped[float | None] = mapped_column(Float)
     # Критерии поиска принадлежат ПРОФИЛЮ (не глобальному конфигу): коды ОКПД2
     # и диапазон НМЦК. Выбор по состоянию (active_only) — глобальный
     # config_service.yaml -> search_criteria.active_only. Используются парсером при обходе ЭТП.

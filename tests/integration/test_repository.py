@@ -141,6 +141,69 @@ async def test_update_details_enriches_existing(db: Database) -> None:
 
 
 @pytest.mark.asyncio
+async def test_upsert_region_and_list_filter(db: Database) -> None:
+    """Регион сохраняется в procurements.region и фильтрует list_procurements."""
+    repo = ProcurementRepository(db)
+    await repo.upsert(
+        {
+            "number": "RG-1",
+            "platform_id": "zakupki_mos",
+            "subject": "Москва",
+            "region": "г. Москва",
+        }
+    )
+    await repo.upsert(
+        {
+            "number": "RG-2",
+            "platform_id": "zakupki_mos",
+            "subject": "Питер",
+            "region": "г. Санкт-Петербург",
+        }
+    )
+
+    rows, total = await repo.list_procurements(region="Москва")
+    assert total == 1
+    assert [p.number for p in rows] == ["RG-1"]
+    assert rows[0].region == "г. Москва"
+
+    rows, total = await repo.list_procurements(region="Санкт-Петербург")
+    assert total == 1
+    assert rows[0].number == "RG-2"
+
+    rows, total = await repo.list_procurements(region="Новосибирск")
+    assert total == 0
+    assert rows == []
+
+    # Без фильтра по региону — обе записи.
+    rows, total = await repo.list_procurements()
+    assert total == 2
+
+
+@pytest.mark.asyncio
+async def test_update_details_sets_region(db: Database) -> None:
+    """update_details дозаполняет регион при досборке деталей (BR-08)."""
+    repo = ProcurementRepository(db)
+    await repo.upsert(
+        {
+            "number": "RG-3",
+            "platform_id": "zakupki_gov_44fz",
+            "subject": "Региональная закупка",
+        }
+    )
+    pid = await repo.find_id("RG-3", "zakupki_gov_44fz")
+    assert pid is not None
+
+    updated = await repo.update_details(
+        pid, {"subject": "Региональная закупка", "region": "Московская область"}
+    )
+    assert updated is True
+
+    row = await repo.get_by_id(pid)
+    assert row is not None
+    assert row.region == "Московская область"
+
+
+@pytest.mark.asyncio
 async def test_scoring_dedup_by_comp_hash(db: Database) -> None:
     """Дедупликация скоринга по содержанию компетенций (BR-07).
 

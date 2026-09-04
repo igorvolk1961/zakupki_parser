@@ -184,6 +184,7 @@ class ProcurementMixin(RepositoryMixin):
         platform_id: str | None = None,
         okpd2: str | None = None,
         customer: str | None = None,
+        region: str | None = None,
         active: bool | None = None,
         min_fit_score: float | None = None,
         scored: bool | None = None,
@@ -222,6 +223,8 @@ class ProcurementMixin(RepositoryMixin):
             conditions.append(Procurement.okpd2_codes.ilike(f"%{okpd2}%"))
         if customer:
             conditions.append(Customer.name.ilike(f"%{customer}%"))
+        if region:
+            conditions.append(Procurement.region.ilike(f"%{region}%"))
         if active is not None:
             now = now or datetime.now(UTC)
             if active:
@@ -373,6 +376,7 @@ class ProcurementMixin(RepositoryMixin):
             platform_id=platform_id,
             url=data.get("url"),
             law=data.get("law"),
+            region=data.get("region"),
             subject=data.get("subject"),
             nmck=data.get("nmck"),
             publication_date=data.get("publication_date"),
@@ -420,6 +424,7 @@ class ProcurementMixin(RepositoryMixin):
             if record is None:
                 return False
             record.subject = data.get("subject") or record.subject
+            record.region = data.get("region") or record.region
             record.nmck = data.get("nmck") if data.get("nmck") is not None else record.nmck
             record.okpd2_codes = data.get("okpd2_codes") or data.get("okpd2_code")
             record.kpgz_codes = data.get("kpgz_codes") or data.get("kpgz_code")

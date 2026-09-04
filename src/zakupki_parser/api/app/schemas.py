@@ -29,6 +29,7 @@ class ProcurementOut(BaseModel):
     procedure_type_id: int | None = None
     procedure_type: str | None = None
     law: str | None = None
+    region: str | None = None
     subject: str | None = None
     nmck: float | None = None
     publication_date: datetime | None = None
@@ -327,6 +328,8 @@ class ProfileIn(BaseModel):
     questions: list[dict[str, Any]] | None = None
     target_etp: list[str] | None = None
     target_laws: list[str] | None = None
+    target_regions: list[str] | None = None
+    max_region_distance_km: float | None = None
     min_fit_threshold: float | None = None
     okpd_codes: list[str] | None = None
     nmck_min: float | None = None
@@ -372,6 +375,8 @@ class ProfileOut(BaseModel):
     questions: list[dict[str, Any]]
     target_etp: list[str]
     target_laws: list[str]
+    target_regions: list[str] = Field(default_factory=list)
+    max_region_distance_km: float | None = None
     min_fit_threshold: float | None = None
     okpd_codes: list[str]
     nmck_min: float | None = None

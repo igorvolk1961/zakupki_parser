@@ -186,6 +186,8 @@ class Scheduler:
                 profile=p,
                 keywords=kw_map.get(p.id, {}).get("keywords", []),
                 exclusion_words=kw_map.get(p.id, {}).get("exclusion_words", []),
+                target_regions=p.target_regions or [],
+                max_region_distance_km=p.max_region_distance_km,
             )
             for p in profiles
         ]

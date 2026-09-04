@@ -170,6 +170,13 @@ _REQUIRED_FIELDS: tuple[FieldSpec, ...] = (
         config_keys=["execution_term"],
     ),
     FieldSpec(
+        key="region",
+        label="Регион",
+        tier=FieldTier.OPTIONAL,
+        column="region",
+        config_keys=["region"],
+    ),
+    FieldSpec(
         key="status",
         label="Статус/активность",
         tier=FieldTier.OPTIONAL,

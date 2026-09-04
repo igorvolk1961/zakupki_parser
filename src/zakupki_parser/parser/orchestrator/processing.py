@@ -21,6 +21,7 @@ from zakupki_parser.parser.filtering import (
     exclusions_present,
     keywords_match,
     matched_keywords,
+    region_match,
 )
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.orchestrator.state import OrchestratorState
@@ -91,6 +92,22 @@ class RecordProcessingMixin(OrchestratorState):
                     number,
                 )
                 return False, number, False
+            # Регион (клиентская пост-фильтрация, как R9) — ТОЛЬКО если регион уже
+            # есть на уровне списка: для площадок, где регион дособирается с деталями
+            # (BR-08), отброс до досборки деталей некорректен. При заданном
+            # max_region_distance_km строковый фильтр не применяется: решение по
+            # расстоянию принимается только на этапе анализа.
+            if (
+                first.target_regions
+                and not first.max_region_distance_km
+                and list_vars.get("region")
+                and not region_match(list_vars, first.target_regions)
+            ):
+                logger.info(
+                    "Закупка %s отброшена: регион вне целевых профиля",
+                    number,
+                )
+                return False, number, False
 
         # 3) детали ПЕРЕНЕСЕНЫ в обработчик POST /score (BR-08): детали площадки
         #    догружаются ПОСЛЕ получения результата скоринга, ПЕРЕД записью скора в БД.
@@ -141,6 +158,23 @@ class RecordProcessingMixin(OrchestratorState):
                 if exclusions_present(record, ctx.exclusion_words):
                     logger.info(
                         "Закупка %s отброшена: слова-исключения в описании",
+                        number,
+                    )
+                    continue
+                # Регион — клиентская пост-фильтрация (как ключевые слова R9), после
+                # сборки полной записи. Отбрасываем только если регион известен уже на
+                # уровне списка: неизвестный регион (досборка деталей BR-08) фильтром
+                # не отсекается, чтобы не терять закупки до досборки деталей. При
+                # заданном max_region_distance_km строковый фильтр не применяется
+                # (расстояние проверяется только на этапе анализа).
+                if (
+                    ctx.target_regions
+                    and not ctx.max_region_distance_km
+                    and record.get("region")
+                    and not region_match(record, ctx.target_regions)
+                ):
+                    logger.info(
+                        "Закупка %s отброшена: регион вне целевых профиля",
                         number,
                     )
                     continue

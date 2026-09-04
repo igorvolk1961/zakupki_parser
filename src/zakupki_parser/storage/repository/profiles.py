@@ -622,6 +622,10 @@ class ProfileMixin(RepositoryMixin):
                 profile.target_etp = list(data["target_etp"])
             if "target_laws" in data:
                 profile.target_laws = list(data["target_laws"])
+            if "target_regions" in data:
+                profile.target_regions = list(data["target_regions"])
+            if "max_region_distance_km" in data:
+                profile.max_region_distance_km = data["max_region_distance_km"]
             if "min_fit_threshold" in data:
                 profile.min_fit_threshold = data["min_fit_threshold"]
             if "okpd_codes" in data:

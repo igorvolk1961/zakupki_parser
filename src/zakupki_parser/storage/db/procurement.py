@@ -151,6 +151,7 @@ class Procurement(Base):
         BigInteger, ForeignKey("procedure_categories.id", ondelete="SET NULL")
     )
     law: Mapped[str | None] = mapped_column(String(16))
+    region: Mapped[str | None] = mapped_column(Text)
     subject: Mapped[str | None] = mapped_column(Text)
     nmck: Mapped[float | None] = mapped_column(Float)
     publication_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

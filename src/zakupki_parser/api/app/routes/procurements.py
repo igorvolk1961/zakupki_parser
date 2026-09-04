@@ -29,6 +29,7 @@ from zakupki_parser.api.app.schemas import (
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.browser.manager import BrowserManager
 from zakupki_parser.parser.detail import extract_details
+from zakupki_parser.parser.filtering import region_match
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.storage.db import User
 
@@ -50,6 +51,7 @@ CSV_COLUMNS = [
     "customer",
     "procedure_type",
     "law",
+    "region",
     "subject",
     "nmck",
     "publication_date",
@@ -130,6 +132,30 @@ def _is_analyst(user: User | None) -> bool:
     return bool(user is not None and "analyst" in (user.roles or []))
 
 
+def _procurement_region(row: Any) -> str:
+    """Регион закупки: колонка ``region`` или снимок ``detail_json`` (если колонка пуста)."""
+    if row is None:
+        return ""
+    value = row.region
+    if isinstance(value, str):
+        return value
+    detail = row.detail_json or {}
+    value = detail.get("region")
+    return value if isinstance(value, str) else ""
+
+
+def _region_string_filter_enabled(profile: Any) -> bool:
+    """Строковая пост-фильтрация по региону активна для профиля.
+
+    Активна, если заданы целевые регионы и НЕ задан ``max_region_distance_km``:
+    при заданном расстоянии решение принимается только на этапе анализа
+    (парсер строковый регион не проверяет).
+    """
+    return bool(profile is not None and profile.target_regions) and not bool(
+        getattr(profile, "max_region_distance_km", None)
+    )
+
+
 def build_procurements_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     state = ctx.state
@@ -150,6 +176,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         platform_id: str | None = None,
         okpd2: str | None = None,
         customer: str | None = None,
+        region: str | None = None,
         active: bool | None = None,
         min_fit_score: float | None = None,
         scored: bool | None = None,
@@ -166,6 +193,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             platform_id=platform_id,
             okpd2=okpd2,
             customer=customer,
+            region=region,
             active=active,
             min_fit_score=min_fit_score,
             scored=scored,
@@ -321,6 +349,31 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         # НО ПЕРЕД записью результата в БД — единый интерфейс fetch_api_details
         # (лёгкий APIRequestContext, без DOM/браузера).
         await _fetch_details_for_score(state, existing)
+        # Регион мог стать известен только ПОСЛЕ досборки деталей (BR-08): повторная
+        # клиентская фильтрация по региону (как ключевые слова R9). Если регион вне
+        # целевых профиля — результат НЕ записывается, а оценка профиля удаляется
+        # (профиль «не отобрал» закупку; recovery не будет ставить задание повторно).
+        details_row = await _repo().get_by_id(procurement_id)
+        region_value = _procurement_region(details_row)
+        target_profile = await _repo().get_profile_by_id(body.profile_id)
+        if (
+            target_profile is not None
+            and _region_string_filter_enabled(target_profile)
+            and region_value
+            and not region_match({"region": region_value}, target_profile.target_regions)
+        ):
+            await _repo().remove_evaluation(procurement_id, body.profile_id)
+            logger.info(
+                "Закупка %s: регион «%s» вне целевых профиля %s — результат скоринга не записан",
+                procurement_id,
+                region_value,
+                body.profile_id,
+            )
+            await _broadcast(state)
+            row = await _repo().get_by_id(procurement_id, profile_id=body.profile_id)
+            if row is None:  # pragma: no cover - проверено выше
+                raise HTTPException(status_code=404, detail="Закупка не найдена")
+            return _procurement_detail_out(row, include_costs=True)
         # Стоимость обработки закупки: скоринг (body.score_costs) и анализ
         # (rag_report['cost']). Аналитическую стоимость вынимаем из rag_report ДО
         # сохранения, чтобы внутренняя метрика (USD) не персистилась/не отдавалась
@@ -369,6 +422,23 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             try:
                 rep = await _repo().get_score(procurement_id, body.profile_id)
                 if rep is not None and rep.comp_hash:
+                    # Группа дедупликации (BR-07) может содержать профили с разными
+                    # target_regions: регион уже известен (досборка деталей выше) —
+                    # оценки профилей, чей регион вне целевых, удаляем, чтобы
+                    # распространение результата их не затронуло.
+                    if region_value:
+                        for member in await _repo().list_group_evaluations(
+                            procurement_id, rep.comp_hash
+                        ):
+                            if member.profile_id is None or member.profile_id == body.profile_id:
+                                continue
+                            member_profile = await _repo().get_profile_by_id(member.profile_id)
+                            if member_profile is None:
+                                continue
+                            if _region_string_filter_enabled(member_profile) and not region_match(
+                                {"region": region_value}, member_profile.target_regions
+                            ):
+                                await _repo().remove_evaluation(procurement_id, member.profile_id)
                     await _repo().apply_score_to_comp_hash_group(
                         procurement_id,
                         rep.comp_hash,

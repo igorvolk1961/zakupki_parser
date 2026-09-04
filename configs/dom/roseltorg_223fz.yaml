@@ -54,6 +54,9 @@ detail:
   # DOM. Извлекается из script[type='application/ld+json'].
   variables:
     - { name: "okpd2_code", selector: "script[type='application/ld+json']", handler: "regex", handler_arg: "\"name\": \"Код ОКПД\",\\s*\"value\": \"([^\"]+)\"", default: null }
+  # Регион: TODO — requires verify на живой детальной странице (видимого поля
+  # «Регион» в разметке нет; возможно, регион заказчика в JSON-LD/address.region).
+  # Не выдумываем непроверенный селектор.
   # Приложения к извещению — блок <div class="lot-docs" id="documents"> на детальной
   # странице: <a class="lot-docs__file" href="https://business.roseltorg.ru/api/v1/documents/...">.
   # Имя файла — из текста элемента (<span>), URL скачивания — из href. URL уже

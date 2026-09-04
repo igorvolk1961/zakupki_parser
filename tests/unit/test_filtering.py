@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from zakupki_parser.parser.filtering import exclusions_present, keywords_match
+from zakupki_parser.parser.filtering import (
+    exclusions_present,
+    keywords_match,
+    region_match,
+)
 
 
 def _record(subject: str) -> dict[str, str]:
@@ -94,3 +98,82 @@ def test_matched_keywords_empty_subject() -> None:
     from zakupki_parser.parser.filtering import matched_keywords
 
     assert matched_keywords({"number": "N", "subject": ""}, ["ИИ"]) == []
+
+
+def _region_record(region: str) -> dict[str, str]:
+    return {"number": "N-1", "region": region}
+
+
+def test_region_match_empty_targets() -> None:
+    # Пустой список целевых регионов — фильтра нет (как пустые ключевые слова).
+    assert region_match(_region_record("Москва"), [])
+    assert region_match({"number": "N", "region": ""}, [])
+
+
+def test_region_match_template_stem() -> None:
+    # Шаблон-стем как у ключевых слов: «московск*» ловит «Московская», но не «Москва».
+    assert region_match(_region_record("Московская область"), ["московск*"])
+    assert region_match(_region_record("город Московской области"), ["московск*"])
+    assert not region_match(_region_record("Москва"), ["московск*"])
+    assert not region_match(_region_record("Санкт-Петербург"), ["московск*"])
+    # Регистронезависимость шаблона.
+    assert region_match(_region_record("МОСКОВСКАЯ ОБЛАСТЬ"), ["Московск*"])
+
+
+def test_region_match_template_phrase() -> None:
+    # Фраза-шаблон из нескольких стемов: оба токена присутствуют в регионе.
+    assert region_match(_region_record("Московская область"), ["Московск* обл*"])
+    assert region_match(_region_record("Область московская"), ["Московск* обл*"])
+    assert not region_match(_region_record("Новосибирская область"), ["Московск* обл*"])
+    assert not region_match(_region_record("Московская губерния"), ["Московск* обл*"])
+
+
+def test_region_match_template_any_of_multiple() -> None:
+    # Множественные целевые регионы — достаточно совпадения хотя бы одного.
+    targets = ["Московск* обл*", "санкт-петербург"]
+    assert region_match(_region_record("Санкт-Петербург"), targets)
+    assert region_match(_region_record("Московская область"), targets)
+    assert not region_match(_region_record("Новосибирская область"), targets)
+
+
+def test_region_match_plain_and_template_mix() -> None:
+    # Литеральное значение и шаблон в одном списке.
+    targets = ["Казань", "московск* обл*"]
+    assert region_match(_region_record("Республика Татарстан, г. Казань"), targets)
+    assert region_match(_region_record("Московская область"), targets)
+    assert not region_match(_region_record("Екатеринбург"), targets)
+
+
+def test_region_match_exact_ignores_case() -> None:
+    assert region_match(_region_record("Москва"), ["москва"])
+    assert region_match(_region_record("  Москва  "), ["москва"])
+    assert region_match(_region_record("МОСКВА"), ["Москва"])
+
+
+def test_region_match_contains_either_direction() -> None:
+    # Целевой регион может быть как точным названием субъекта, так и его частью.
+    assert region_match(_region_record("Московская область"), ["область"])
+    assert region_match(_region_record("г. Санкт-Петербург"), ["санкт-петербург"])
+    assert region_match(_region_record("Область"), ["Московская область"])
+
+
+def test_region_match_no_match() -> None:
+    assert not region_match(_region_record("Москва"), ["Санкт-Петербург"])
+    assert not region_match(_region_record("Новосибирская область"), ["Москва"])
+
+
+def test_region_match_empty_record_region() -> None:
+    # Регион закупки неизвестен — целевым регионам не соответствует.
+    assert not region_match(_region_record(""), ["Москва"])
+    assert not region_match({"number": "N"}, ["Москва"])
+
+
+def test_region_match_prefers_record_region_over_detail() -> None:
+    record = {"number": "N", "region": "Москва", "detail_json": {"region": "Казань"}}
+    assert region_match(record, ["Москва"])
+    assert not region_match(record, ["Казань"])
+
+
+def test_region_match_falls_back_to_detail_json() -> None:
+    assert region_match({"number": "N", "detail_json": {"region": "Москва"}}, ["москва"])
+    assert not region_match({"number": "N", "detail_json": {"region": "Москва"}}, ["Казань"])

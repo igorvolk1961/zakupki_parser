@@ -40,6 +40,56 @@ COMP_JSON = json.dumps(
 )
 
 
+async def _add_region_procurement() -> None:
+    """Сохраняет закупку с регионом (для проверки region в API/фильтре)."""
+    db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+    await db.connect()
+    try:
+        repo = ProcurementRepository(db)
+        await repo.upsert(
+            {
+                "number": "RG-API-1",
+                "platform_id": "zakupki_mos",
+                "subject": "Закупка Москвы",
+                "region": "г. Москва",
+            }
+        )
+    finally:
+        await db.dispose()
+
+
+async def _add_region_score_procurement(number: str, region: str) -> int:
+    """Закупка с известным регионом на площадке вне конфига (досборка деталей no-op)."""
+    db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+    await db.connect()
+    try:
+        repo = ProcurementRepository(db)
+        await repo.upsert(
+            {
+                "number": number,
+                "platform_id": "no-region-platform",
+                "subject": "Закупка",
+                "region": region,
+            }
+        )
+        pid = await repo.find_id(number, "no-region-platform")
+        assert pid is not None
+        return pid
+    finally:
+        await db.dispose()
+
+
+async def _has_evaluation(procurement_id: int, profile_id: int) -> bool:
+    """Существует ли per-profile оценка пары (закупка, профиль)."""
+    db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+    await db.connect()
+    try:
+        repo = ProcurementRepository(db)
+        return await repo.get_score(procurement_id, profile_id) is not None
+    finally:
+        await db.dispose()
+
+
 @pytest.fixture(scope="module")
 def analyst_headers() -> dict[str, str]:
     """Bearer-токен пользователя с ролью analyst для конфиг/промпт-эндпоинтов."""
@@ -759,6 +809,82 @@ def test_procurements_filter_by_customer(
     body = resp.json()
     assert body["total"] >= 1
     assert any(item["id"] == inserted_id for item in body["items"])
+
+
+def test_procurement_region_out_and_filter(
+    api_client: tuple[TestClient, Path], inserted_id: int
+) -> None:
+    """Регион в карточке закупки и серверный фильтр списка по региону."""
+    client, _ = api_client
+    # inserted_id создан без региона (region=None в ответе).
+    detail = client.get(f"/api/procurements/{inserted_id}").json()
+    assert "region" in detail
+    assert detail["region"] is None
+
+    asyncio.run(_add_region_procurement())
+    resp = client.get("/api/procurements", params={"region": "Москва"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] >= 1
+    hit = next(item for item in body["items"] if item["region"] == "г. Москва")
+    assert hit["number"] == "RG-API-1"
+    assert hit["region"] == "г. Москва"
+
+
+def test_set_score_region_mismatch_not_written(api_client: tuple[TestClient, Path]) -> None:
+    """Регион вне целевых профиля (стал известен после досборки) — скор не пишется.
+
+    Повторная клиентская фильтрация в POST /score (BR-08): результат отклоняется,
+    оценка профиля удаляется — профиль «не отобрал» закупку.
+    """
+    client, _ = api_client
+    pid = asyncio.run(_add_region_score_procurement("RG-SCORE-1", "Санкт-Петербург"))
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "region-check",
+            "competencies": COMP_JSON,
+            "target_regions": ["Москва"],
+        },
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    resp = client.post(
+        f"/api/procurements/{pid}/score",
+        json={"profile_id": profile_id, "score": 42.0, "fit_score": 0.9, "score_method": "fit"},
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["score"] is None
+    assert body["fit_score"] is None
+    assert asyncio.run(_has_evaluation(pid, profile_id)) is False
+
+
+def test_set_score_region_match_written(api_client: tuple[TestClient, Path]) -> None:
+    """Регион совпал с целевым — результат скоринга записывается как обычно."""
+    client, _ = api_client
+    pid = asyncio.run(_add_region_score_procurement("RG-SCORE-2", "г. Москва"))
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "region-match",
+            "competencies": COMP_JSON,
+            "target_regions": ["Москва"],
+        },
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    resp = client.post(
+        f"/api/procurements/{pid}/score",
+        json={"profile_id": profile_id, "score": 77.0, "fit_score": 0.88, "score_method": "fit"},
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["fit_score"] == 0.88
+    assert asyncio.run(_has_evaluation(pid, profile_id)) is True
 
 
 def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted_id: int) -> None:

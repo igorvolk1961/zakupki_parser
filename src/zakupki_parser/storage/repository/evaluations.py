@@ -150,6 +150,44 @@ class EvaluationMixin(RepositoryMixin):
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
 
+    async def remove_evaluation(self, procurement_id: int, profile_id: int) -> bool:
+        """Удаляет per-profile оценку пары (закупка, профиль).
+
+        Используется при повторной фильтрации по региону ПОСЛЕ досборки деталей
+        (BR-08): профиль «не отобрал» закупку — удаление matched_keywords/очереди
+        убирает её и из recovery (повторно задание не ставится). Возвращает True,
+        если строка существовала и удалена.
+        """
+        async with self._db.session() as session:
+            evaluation = (
+                await session.execute(
+                    select(ProcurementEvaluation).where(
+                        ProcurementEvaluation.procurement_id == procurement_id,
+                        ProcurementEvaluation.profile_id == profile_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if evaluation is None:
+                return False
+            await session.delete(evaluation)
+            await session.commit()
+            return True
+
+    async def list_group_evaluations(
+        self, procurement_id: int, comp_hash: str
+    ) -> list[ProcurementEvaluation]:
+        """Все оценки закупки с заданным ``comp_hash`` (группа дедупликации BR-07)."""
+        stmt = (
+            select(ProcurementEvaluation)
+            .where(
+                ProcurementEvaluation.procurement_id == procurement_id,
+                ProcurementEvaluation.comp_hash == comp_hash,
+            )
+            .order_by(ProcurementEvaluation.id.asc())
+        )
+        async with self._db.session() as session:
+            return list((await session.execute(stmt)).scalars().all())
+
     async def list_costed_evaluations(
         self, limit: int | None = None
     ) -> list[tuple[Any, str, str | None, str]]:

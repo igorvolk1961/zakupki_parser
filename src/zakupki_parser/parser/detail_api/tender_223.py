@@ -70,4 +70,10 @@ async def _tender_223_details(
         "status": (ci.get("stage") or {}).get("title") or "",
         "nmck": _amount(ci.get("price")),
     }
+    # Регион — пробное извлечение (commonInfo.region / payload.region).
+    # TODO: verify — имя поля API не подтверждено на живом сайте; если регион не
+    # найден, ключ не ставится.
+    region = ci.get("region") or payload.get("region")
+    if region:
+        detail_vars["region"] = str(region)
     return detail_vars, files, inn

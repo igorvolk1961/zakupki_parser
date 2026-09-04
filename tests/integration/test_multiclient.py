@@ -134,6 +134,57 @@ def test_clients_crud(mc_client: TestClient) -> None:
     assert listed.json()["total"] >= 2
 
 
+def test_profile_target_regions_roundtrip(mc_client: TestClient) -> None:
+    """Целевые регионы профиля + макс. расстояние: CRUD + JSON-экспорт/импорт без потерь."""
+    client = mc_client
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "region-client",
+            "competencies": COMP_JSON,
+            "target_regions": ["Московск* обл*", "Санкт-Петербург"],
+            "max_region_distance_km": 100.0,
+        },
+    )
+    assert created.status_code == 200
+    body = created.json()
+    assert body["target_regions"] == ["Московск* обл*", "Санкт-Петербург"]
+    assert body["max_region_distance_km"] == 100.0
+    profile_id = body["id"]
+
+    got = client.get(f"/api/clients/{profile_id}")
+    assert got.status_code == 200
+    assert got.json()["target_regions"] == ["Московск* обл*", "Санкт-Петербург"]
+    assert got.json()["max_region_distance_km"] == 100.0
+
+    exported = client.get(f"/api/clients/{profile_id}/export")
+    assert exported.status_code == 200
+    content = json.loads(exported.json()["profile_content"])
+    assert content["profile"]["target_regions"] == ["Московск* обл*", "Санкт-Петербург"]
+    assert content["profile"]["max_region_distance_km"] == 100.0
+
+    imported = client.post(
+        "/api/clients/import", json={"content": exported.json()["profile_content"]}
+    )
+    assert imported.status_code == 200
+    assert imported.json()["target_regions"] == ["Московск* обл*", "Санкт-Петербург"]
+    assert imported.json()["max_region_distance_km"] == 100.0
+
+    # Профиль без target_regions (PUT без поля) сохраняет регионы непустыми.
+    updated = client.put(
+        f"/api/clients/{profile_id}",
+        json={
+            "name": "region-client",
+            "competencies": COMP_JSON,
+            "target_regions": [],
+            "max_region_distance_km": None,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["target_regions"] == []
+    assert updated.json()["max_region_distance_km"] is None
+
+
 def test_profile_export_import_roundtrip(mc_client: TestClient) -> None:
     """Экспорт профиля единым JSON-файлом и повторная загрузка (round-trip).
 

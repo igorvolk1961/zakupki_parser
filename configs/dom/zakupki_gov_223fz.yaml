@@ -32,7 +32,9 @@ list_config:
 detail:
   # ОКПД2 223-ФЗ — на доп. странице лотов (notice223/lot-list.html). На основной
   # странице 44-селекторы не работают, поэтому поля 44-ФЗ здесь не задаём.
-  variables: []
+  # Регион извлекается на общей карточке common-info.html (как на 44-ФЗ).
+  variables:
+    - { name: "region", selector: "xpath=//section[contains(@class,'blockInfo__section')][.//span[contains(@class,'section__title') and normalize-space(.)='Регион']]//span[contains(@class,'section__info')]", handler: "strip", default: null }
   additional_pages:
     - link_selector: "a[href*='lot-list.html']"
       variables:

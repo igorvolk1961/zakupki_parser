@@ -76,6 +76,8 @@ def test_parse_roundtrip_json() -> None:
         "min_fit_threshold": 1.5,
         "target_etp": [],
         "target_laws": [],
+        "target_regions": ["Москва", "Московская область"],
+        "max_region_distance_km": 100.0,
         "questions": [{"id": "q1", "text": "Нужна лицензия?"}],
     }
     seed = parse_profile_json(serialize_profile_json(profile))
@@ -92,6 +94,10 @@ def test_parse_roundtrip_json() -> None:
     assert seed["okpd_codes"] == ["62"]
     assert seed["nmck_min"] == 100000
     assert seed["questions"] == [{"id": "q1", "text": "Нужна лицензия?"}]
+    assert seed["target_etp"] == []
+    assert seed["target_laws"] == []
+    assert seed["target_regions"] == ["Москва", "Московская область"]
+    assert seed["max_region_distance_km"] == 100.0
 
 
 def test_parse_structured_competencies_stored_compact() -> None:
@@ -175,4 +181,54 @@ def test_parse_rejects_invalid_competencies_schema() -> None:
     """JSON не схемы Profile (например, со строковым competencies) отклоняется."""
     payload = json.dumps({"profile": {"name": "x"}, "competencies": {"competencies": "not-list"}})
     with pytest.raises(CompetenciesError):
+        parse_profile_json(payload)
+
+
+def test_parse_target_regions_defaults_to_empty() -> None:
+    """Целевые регионы не заданы — пустой список (как target_laws)."""
+    seed = parse_profile_json(
+        json.dumps({"profile": {"name": "x"}, "competencies": {"positioning": "П"}})
+    )
+    assert seed["target_regions"] == []
+    assert seed["max_region_distance_km"] is None
+    # Отсутствующее поле сериализуется пустым списком.
+    payload = json.loads(serialize_profile_json({"name": "x", "competencies": "{}"}))
+    assert payload["profile"]["target_regions"] == []
+    assert payload["profile"]["max_region_distance_km"] is None
+
+
+def test_parse_target_regions_distance_coerced() -> None:
+    """max_region_distance_km приводится к float (как другие числовые поля)."""
+    seed = parse_profile_json(
+        json.dumps(
+            {
+                "profile": {
+                    "name": "x",
+                    "target_regions": ["Московск* обл*"],
+                    "max_region_distance_km": "120",
+                },
+                "competencies": {"positioning": "П"},
+            }
+        )
+    )
+    assert seed["target_regions"] == ["Московск* обл*"]
+    assert seed["max_region_distance_km"] == 120.0
+
+
+def test_parse_target_regions_coerces_list() -> None:
+    seed = parse_profile_json(
+        json.dumps(
+            {
+                "profile": {"name": "x", "target_regions": ["Москва", "Санкт-Петербург"]},
+                "competencies": {"positioning": "П"},
+            }
+        )
+    )
+    assert seed["target_regions"] == ["Москва", "Санкт-Петербург"]
+
+
+def test_parse_rejects_string_target_regions() -> None:
+    """Строка в списковом поле не разбивается на символы (как okpd_codes)."""
+    payload = json.dumps({"profile": {"name": "x", "target_regions": "Москва"}})
+    with pytest.raises(ValueError):
         parse_profile_json(payload)

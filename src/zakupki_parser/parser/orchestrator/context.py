@@ -22,6 +22,12 @@ class ProfileRunContext:
     profile: Profile
     keywords: list[str] = field(default_factory=list)
     exclusion_words: list[str] = field(default_factory=list)
+    # Целевые регионы профиля: клиентская пост-фильтрация (как ключевые слова R9),
+    # в серверный запрос/дедупликацию обходов не входят.
+    target_regions: list[str] = field(default_factory=list)
+    # Макс. расстояние от центра региона (км): проверяется ТОЛЬКО на этапе анализа.
+    # При заданном значении парсер НЕ отсекает закупку по строковому региону.
+    max_region_distance_km: float | None = None
 
 
 @dataclass

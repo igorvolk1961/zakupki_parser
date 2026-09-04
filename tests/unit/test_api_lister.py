@@ -790,3 +790,115 @@ async def test_crawl_api_skips_record_without_number(app_config: AppConfig) -> N
             retry_cfg=RetryConfig(),
         )
     assert recorder.persisted == []
+
+
+def _region_ctx(regions: list[str], distance_km: float | None = None) -> ProfileRunContext:
+    """Профиль с целевыми регионами (клиентская пост-фильтрация, как R9)."""
+    return ProfileRunContext(
+        profile=cast(Profile, _FakeProfile()),
+        keywords=[],
+        exclusion_words=[],
+        target_regions=regions,
+        max_region_distance_km=distance_km,
+    )
+
+
+def _make_region_recorder(app_config: AppConfig) -> _PersistRecorder:
+    """Recorder с реальным _process_list_record на mos.ru (регион на уровне списка)."""
+    cfg = app_config.model_copy(deep=True)
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=None,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    return recorder
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_region_single_mismatch_rejected(app_config: AppConfig) -> None:
+    """Одиночный профиль: регион на уровне списка вне целевых — запись отбрасывается."""
+    recorder = _make_region_recorder(app_config)
+    recorder._profile_ctxs = [_region_ctx(["Санкт-Петербург"])]  # noqa: SLF001
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "N1", "subject": "Закупка", "region": "Москва"},
+        detail_url="https://zakupki.mos.ru/need/1",
+        number="N1",
+    )
+    assert (known, number, saved) == (False, "N1", False)
+    assert recorder.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_region_single_match_persists(app_config: AppConfig) -> None:
+    """Одиночный профиль: регион совпадает с целевым (без учёта регистра) — запись идёт."""
+    recorder = _make_region_recorder(app_config)
+    recorder._profile_ctxs = [_region_ctx(["москва"])]  # noqa: SLF001
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "N2", "subject": "Закупка", "region": "Москва"},
+        detail_url="https://zakupki.mos.ru/need/2",
+        number="N2",
+    )
+    assert (known, number, saved) == (False, "N2", True)
+    assert len(recorder.persisted) == 1
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_region_per_profile(app_config: AppConfig) -> None:
+    """Мультипрофильно: регион вне целевых отсекает СВОЙ профиль, остальные сохраняются."""
+    recorder = _make_region_recorder(app_config)
+    recorder._profile_ctxs = [  # noqa: SLF001
+        _region_ctx(["Санкт-Петербург"]),
+        _region_ctx(["Москва"]),
+    ]
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "N3", "subject": "Закупка", "region": "Москва"},
+        detail_url="https://zakupki.mos.ru/need/3",
+        number="N3",
+    )
+    assert (known, number, saved) == (False, "N3", True)
+    assert len(recorder.persisted) == 1
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_region_unknown_not_rejected(app_config: AppConfig) -> None:
+    """Регион неизвестен на уровне списка (досборка деталей BR-08) — не отбрасываем."""
+    recorder = _make_region_recorder(app_config)
+    recorder._profile_ctxs = [_region_ctx(["Москва"])]  # noqa: SLF001
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "N4", "subject": "Закупка"},
+        detail_url="https://zakupki.mos.ru/need/4",
+        number="N4",
+    )
+    assert (known, number, saved) == (False, "N4", True)
+    assert len(recorder.persisted) == 1
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_region_distance_disables_string_filter(
+    app_config: AppConfig,
+) -> None:
+    """Задан max_region_distance_km — строковый фильтр по региону в парсере выключен.
+
+    Решение по расстоянию принимается только на этапе анализа, поэтому закупка с
+    регионом вне строковых целевых НЕ отбрасывается на этапе списка.
+    """
+    recorder = _make_region_recorder(app_config)
+    recorder._profile_ctxs = [_region_ctx(["Москва"], distance_km=50.0)]  # noqa: SLF001
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "N5", "subject": "Закупка", "region": "Калужская область"},
+        detail_url="https://zakupki.mos.ru/need/5",
+        number="N5",
+    )
+    assert (known, number, saved) == (False, "N5", True)
+    assert len(recorder.persisted) == 1

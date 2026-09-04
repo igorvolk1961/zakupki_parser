@@ -141,6 +141,7 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
             row.procedure_type_rel.name if row.procedure_type_rel is not None else None
         ),
         "law": row.law,
+        "region": row.region,
         "subject": row.subject,
         "nmck": row.nmck,
         "publication_date": row.publication_date,

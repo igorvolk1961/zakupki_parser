@@ -77,4 +77,19 @@ async def _etpgpb_details(
         "status": lot_attrs.get("name_status") or attrs.get("stage") or "",
         "nmck": _amount(attrs.get("amount")),
     }
+    # Регион — пробное извлечение (из attributes компании или карточки процедуры).
+    # TODO: verify — имя поля API не подтверждено на живом сайте; если регион не
+    # найден, ключ не ставится (значение detail_json останется без region).
+    region: str | None = None
+    for comp in by_type.get("company", []):
+        if company_id is not None and comp.get("id") != company_id:
+            continue
+        cattrs = comp.get("attributes") or {}
+        region = cattrs.get("region") or cattrs.get("regionName")
+        if region:
+            break
+    if not region:
+        region = attrs.get("region") or attrs.get("regionName")
+    if region:
+        detail_vars["region"] = str(region)
     return detail_vars, files, inn

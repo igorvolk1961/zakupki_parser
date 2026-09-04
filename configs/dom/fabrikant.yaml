@@ -63,6 +63,9 @@ detail:
     - { name: "inn",              selector: "xpath=//*[@data-slot='field-label'][contains(.,'Наименование организации')]/following-sibling::div[@data-slot='field-text']", handler: "regex", handler_arg: "ИНН\\s*(\\d{10,12})", default: null }
     # status — бейдж в шапке «Этапы процедуры» (текущий этап).
     - { name: "status",           selector: "h2:text-is('Этапы процедуры') ~ span[data-slot='badge']", handler: "strip", default: "" }
+  # Регион: TODO — requires verify на живой детальной странице (вероятно, поле
+  # data-slot='field-label' с текстом «Регион», но раскладка 44-ФЗ/коммерческих
+  # отличается). Не выдумываем непроверенный селектор.
   # Коммерческие процедуры: файлы НЕ на детальной странице, а на вкладке «Документация»
   # (/v2/trades/procedure/documentation/<id>). Переход по ссылке вкладки (она есть на
   # детальной странице), после чего detail_files() извлечёт файлы уже с неё.

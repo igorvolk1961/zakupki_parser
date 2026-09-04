@@ -70,4 +70,11 @@ async def _lot_online_details(
         lot_info = (entities[0].get("procedure") or {}).get("lotInfo") or {}
     items = lot_info.get("items") or []
     code, name = _okpd_from_items(items)
-    return {"okpd2_code": code, "okpd2_name": name}, [], None
+    detail_vars: dict[str, Any] = {"okpd2_code": code, "okpd2_name": name}
+    # Регион — пробное извлечение из lotInfo (например lot_info.region).
+    # TODO: verify — имя поля API не подтверждено на живом сайте; если регион не
+    # найден, ключ не ставится.
+    region = lot_info.get("region")
+    if region:
+        detail_vars["region"] = str(region)
+    return detail_vars, [], None

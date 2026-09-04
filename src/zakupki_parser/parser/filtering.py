@@ -125,3 +125,54 @@ def exclusions_present(record: dict[str, Any], exclusion_words: list[str]) -> bo
     if not subject:
         return False
     return any(_expression_match(subject, word) for word in exclusion_words)
+
+
+def _region_of(record: dict[str, Any]) -> str:
+    """Регион записи: верхнеуровневый ``region`` или из ``detail_json``."""
+    value = record.get("region")
+    if isinstance(value, str):
+        return value
+    detail = record.get("detail_json") or {}
+    value = detail.get("region")
+    return value if isinstance(value, str) else ""
+
+
+def _is_region_template(expr: str) -> bool:
+    """Целевой регион — шаблон в синтаксисе ключевых слов (R9).
+
+    Шаблоном считается стем-токен (``слов*``) или проксимити-выражение
+    (``(фраза)~N``). Простые строки без операторов остаются литеральными.
+    """
+    if _PROXIMITY_RE.match(expr):
+        return True
+    return any(token.endswith("*") for token in expr.split())
+
+
+def region_match(record: dict[str, Any], regions: list[str]) -> bool:
+    """True, если регион закупки соответствует хотя бы одному целевому региону.
+
+    Клиентская пост-фильтрация профиля: пустой список ``regions`` — фильтра нет.
+    Каждый целевой регион сравнивается регистронезависимо с нормализованным
+    (strip) значением региона закупки. Записи, содержащие шаблон синтаксиса
+    ключевых слов (``московск*``, ``московск* обл*``, ``(фраза)~N``), разбираются
+    как выражения R9 (стем-префиксы/фразы/проксимити). Простые записи без
+    шаблона — литеральные: равенство либо взаимное вхождение подстроки
+    (целевой регион может быть частью названия: «область» <-> «Московская область»).
+    """
+    if not regions:
+        return True
+    value = _region_of(record).strip().lower()
+    if not value:
+        return False
+    for raw in regions:
+        expr = str(raw).strip()
+        if not expr:
+            continue
+        if _is_region_template(expr):
+            if _expression_match(value, expr):
+                return True
+            continue
+        norm = expr.lower()
+        if value == norm or value in norm or norm in value:
+            return True
+    return False
