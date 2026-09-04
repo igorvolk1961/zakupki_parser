@@ -25,7 +25,6 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import AppState
 from zakupki_parser.auth import (
-    ALL_ROLES,
     ROLE_ADMIN,
     ROLE_ANALYST,
     ROLE_DEVOPS,
@@ -244,7 +243,7 @@ def build_context(state: AppState) -> ApiContext:
             return
         if await _repo().count_users() > 0:
             return
-        await _repo().create_user(username, hash_password(password), list(ALL_ROLES))
+        await _repo().create_user(username, hash_password(password), [ROLE_ADMIN])
         logger.info("Создан начальный администратор %s (из env)", username)
 
     ctx._repo = _repo
