@@ -96,7 +96,7 @@ src/scoring_service/           # стадия Fit каскада: LLM-скори
 src/scoring_transport/         # gateway скоринга: ingest (POST /api/scoring/jobs), Redis-очереди, возврат результата
 src/pwin_service/              # стадия P(win) каскада: вероятность победы (Redis-воркер)
 src/margin_service/            # стадия Margin каскада: маржа (НМЦК × margin_rate, Redis-воркер)
-src/analysis_service/          # on-demand RAG-анализ ТЗ (стоп-условия, маркеры 🔴/🟡/🟢)
+src/analysis_service/          # on-demand анализ документов: требования к участнику (LLM data) + вопросы профиля
 src/scoring_common/            # общий код стадий: очередь, клиент API парсера, формула P(win)
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
@@ -170,9 +170,11 @@ uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 - **Промпты / Справочники** (роль `analyst`) — редактор промптов сервисов и
   справочные таблицы (типы лицензий, типы подтверждения опыта).
 - **Сервисы** (роль `devops`) — под-вкладки на каждый фоновый сервис (Скоринг,
-  Анализ ТЗ, P(win), Margin): форма по схеме (сгруппированная по смыслу) +
+  Анализ документов, P(win), Margin): форма по схеме (сгруппированная по смыслу) +
   «Текстовый режим» для `src/<service>/config.yaml`. Секреты `.env` редактируются
   в модальном окне «Секреты (.env)» и в `config.yaml`/форму не попадают.
+  Кнопки «⟳ Перезагрузить» у сервисов Скоринг и Анализ документов перезапускают
+  соответствующий фоновый сервис (как `scripts/run_all.sh`).
 - **Конфигурация / Управление Логи / Логи / Парсер** (роль `devops`) — форма для
   `config_ops.yaml` и `config_log.yaml` (+ текстовый режим YAML), просмотр хвоста
   файла лога (поиск, фильтр по уровню «ошибки/предупреждения» и по дате,
@@ -334,10 +336,11 @@ docker compose -f docker/docker-compose.yml up --build
 ```
 Запустит единый стек одной командой: PostgreSQL + Liquibase-миграции + Redis +
 `scoring_service` (воркер стадии Fit) + `scoring_transport` + `pwin_service` +
-`margin_service` + `analysis_service` (RAG-анализ ТЗ) + `parser` (периодический обход) +
+`margin_service` + `analysis_service` (анализ документов: требования к участнику + вопросы профиля) +
+`parser` (периодический обход) +
 `api` (FastAPI на `http://localhost:8000/`). Сервисы связаны по имени (api ↔
 `scoring-transport` ↔ redis), поэтому конвейер каскада скоринга (Fit → P(win) →
-Margin), возврат результата в `POST /score` и RAG-анализ работают из коробки.
+Margin), возврат результата в `POST /score` и анализ документов работают из коробки.
 В штатный compose-стек также входит **LangFuse** (профиль `langfuse`) — он нужен для
 трассировки LLM-вызовов `scoring_service` и `analysis_service` (поднимается целиком:
 `langfuse-db`, `clickhouse`, `minio`, `langfuse-web`, `langfuse-worker`). UI — по

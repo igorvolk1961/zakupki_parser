@@ -483,6 +483,153 @@ def test_procurement_tz_not_found(api_client: tuple[TestClient, Path]) -> None:
     assert body["text"] is None
 
 
+def test_procurement_requirements_extract_and_persist(
+    api_client: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /requirements извлекает требования из документа и персистит в БД.
+
+    Подменяется только извлечение текста (extract_requirements->extract_text),
+    чтобы не ходить в сеть. Повторный запрос читает уже сохранённую структуру.
+    """
+    from scoring_common.tz.files import FileRef
+
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "REQ-1",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Закупка с требованиями",
+                    "files_json": [
+                        {"name": "Требования к участникам.docx", "url": "http://x/req.docx"},
+                    ],
+                }
+            )
+            rows, _ = await repo.list_procurements(number="REQ-1")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    req_id = asyncio.run(_seed())
+
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+        return "# Требования к участнику\n\nТребуется лицензия МЧС на монтаж."
+
+    monkeypatch.setattr("scoring_common.requirements.extract_text", fake_extract)
+
+    body = client.get(f"/api/procurements/{req_id}/requirements").json()
+    assert body["found"] is True
+    assert "licenses" in body["requirements"]
+    assert body["requirements"]["licenses"][0]["text"]
+    assert body["requirements"]["licenses"][0]["data"] is None
+    assert body["requirements"]["licenses"][0]["file_name"] == "Требования к участникам.docx"
+
+    # Структура сохранена в БД: повторный запрос не извлекает заново.
+    again = client.get(f"/api/procurements/{req_id}/requirements").json()
+    assert again["requirements"] == body["requirements"]
+
+    # detail-ответ несёт requirements_json (нужен analysis-воркеру).
+    detail = client.get(f"/api/procurements/{req_id}").json()
+    assert detail["requirements_json"] == body["requirements"]
+
+
+def test_procurement_requirements_empty_object(
+    api_client: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Шаблоны не найдены нигде → в БД сохраняется пустой {} и found=False."""
+    from scoring_common.tz.files import FileRef
+
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "REQ-NONE",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Без требований",
+                    "files_json": [{"name": "смета.xlsx", "url": "http://x/smeta.xlsx"}],
+                }
+            )
+            rows, _ = await repo.list_procurements(number="REQ-NONE")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    req_id = asyncio.run(_seed())
+
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+        return "Описание предмета закупки и условия оплаты."
+
+    monkeypatch.setattr("scoring_common.requirements.extract_text", fake_extract)
+
+    body = client.get(f"/api/procurements/{req_id}/requirements").json()
+    assert body["found"] is False
+    assert body["requirements"] == {}
+
+    # Поле в БД — пустой объект (не NULL): повторный запрос не извлекает заново.
+    again = client.get(f"/api/procurements/{req_id}/requirements").json()
+    assert again["requirements"] == {}
+
+
+def test_procurement_requirements_post_internal(api_client: tuple[TestClient, Path]) -> None:
+    """POST /requirements (внутренний) сохраняет структуру; GET её отдаёт."""
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "REQ-POST",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Внутренний персист",
+                    "files_json": [],
+                }
+            )
+            rows, _ = await repo.list_procurements(number="REQ-POST")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    req_id = asyncio.run(_seed())
+    structure = {
+        "licenses": [{"text": "Требуется лицензия МЧС.", "data": {"required": True}}],
+        "other": [{"text": "Состав заявки.", "data": {"type": "состав заявки"}}],
+    }
+    resp = client.post(
+        f"/api/procurements/{req_id}/requirements",
+        json={"structure": structure},
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["requirements"] == structure
+
+    got = client.get(f"/api/procurements/{req_id}/requirements").json()
+    assert got["found"] is True
+    assert got["requirements"] == structure
+
+
+def test_procurement_requirements_post_404(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.post(
+        "/api/procurements/999999/requirements",
+        json={"structure": {}},
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 404
+
+
 def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     body = client.get("/api/config/threshold").json()

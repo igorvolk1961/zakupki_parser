@@ -164,3 +164,42 @@ class ParserApiClient:
                 await asyncio.sleep(retry_backoff * (attempt + 1))
         assert last_exc is not None
         raise last_exc
+
+    async def post_requirements(
+        self,
+        procurement_id: int,
+        structure: dict[str, Any],
+        retry_max: int = 3,
+        retry_backoff: float = 2.0,
+        internal_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Сохранить структуру требований к участнику в парсере (per-procurement).
+
+        Внутренний эндпоинт парсера (``POST /api/procurements/{id}/requirements``)
+        доступен только конвейеру (``X-Internal-Token``). Используется analysis-воркером
+        после LLM-заполнения ``data``. Не зависит от профиля (требования — свойство
+        закупки, поэтому ``profile_id`` не передаётся).
+        """
+        url = f"{self._base}/api/procurements/{procurement_id}/requirements"
+        payload = {"structure": structure}
+        headers = self._headers(internal_token)
+        last_exc: Exception | None = None
+        for attempt in range(retry_max):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                    resp.raise_for_status()
+                    data: dict[str, Any] = resp.json()
+                    return data
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                logger.warning(
+                    "POST /requirements для %s не удался (попытка %d/%d): %s",
+                    procurement_id,
+                    attempt + 1,
+                    retry_max,
+                    exc,
+                )
+                await asyncio.sleep(retry_backoff * (attempt + 1))
+        assert last_exc is not None
+        raise last_exc

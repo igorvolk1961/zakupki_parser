@@ -17,6 +17,8 @@ erDiagram
     PROFILE_LICENSES ||--o{ LICENSE_TYPES : "классифицируется (тип)"
     PROFILES ||--o{ PROCUREMENT_EVALUATIONS : "оценивает"
     PROCUREMENTS ||--o{ PROCUREMENT_EVALUATIONS : "оценивается в"
+    PROFILES ||--o{ PROCUREMENT_WORK_ITEMS : "ведёт в работе"
+    PROCUREMENTS ||--o{ PROCUREMENT_WORK_ITEMS : "принята в работу"
     CUSTOMERS ||--o{ PROCUREMENTS : "участвует в"
     PROCEDURE_TYPES ||--o{ PROCUREMENTS : "классифицирует"
     PROCEDURE_TYPE_MAPPINGS ||--o{ PROCEDURE_TYPES : "резолвится в"
@@ -170,6 +172,24 @@ erDiagram
         string status
         string rejection_reason
     }
+
+    PROCUREMENT_WORK_ITEMS {
+        int id PK
+        int profile_id FK
+        int procurement_id FK "nullable, ON DELETE SET NULL"
+        string source "search|url"
+        string status
+        string notes
+        datetime accepted_at
+        string number "снимок"
+        string platform_id "снимок"
+        string url "снимок"
+        string subject "снимок"
+        float nmck "снимок"
+        datetime deadline "снимок"
+        string law "снимок"
+        string customer_name "снимок"
+    }
 ```
 
 ### Ключевые решения фактической модели
@@ -181,6 +201,12 @@ erDiagram
   атрибуты подкладываются репозиторием при выдаче под активный профиль).
 - **Таблица KEYWORDS** — канонический источник слов профиля (`keyword`/`exclusion`);
   JSONB-массивов слов в профиле нет (миграция 1.30).
+- **Решения по карточке (Эпик 5, этап 7)**: отбраковка — `procurement_evaluations.status`
+  (`new`/`rejected`, колонка зарезервирована с этапа 1) + `rejection_reason`;
+  отклонённые скрываются из выдачи. «В работу» — таблица `procurement_work_items`
+  на уровне профиля (`profile_id`, BR-07): `procurement_id` — FK `ON DELETE SET NULL`,
+  ключевые поля карточки хранятся снимком в записи (BR-08) — запись переживает
+  удаление закупки из общей базы (например, очистку БД девопсом).
 - **Критерии поиска в профиле** (миграция 1.33): `okpd_codes`, `nmck_min/max`
   принадлежат профилю, а не глобальному конфигу. Выбор по состоянию
   (`active_only`) — глобальный (`config_service.yaml -> search_criteria.active_only`);

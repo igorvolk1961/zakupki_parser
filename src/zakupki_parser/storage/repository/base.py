@@ -39,6 +39,9 @@ def _profile_score_subquery(profile_id: int) -> Any:
             ProcurementEvaluation.procurement_id.label("procurement_id"),
             ProcurementEvaluation.fit_score.label("fit_score"),
             ProcurementEvaluation.score_method.label("score_method"),
+            # Статус решения профиля (Эпик 5): 'new'/'rejected' — для скрытия
+            # отклонённых из выдачи (list_procurements, include_rejected=False).
+            ProcurementEvaluation.status.label("status"),
         )
         .where(ProcurementEvaluation.profile_id == profile_id)
         .subquery()

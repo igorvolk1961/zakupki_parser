@@ -135,10 +135,13 @@ requirements:
     title: Скрытие отклонённых
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: planned
+    status: implemented
     adr: "-"
-    code: []
-    tests: []
+    code:
+      - src/zakupki_parser/storage/repository/procurements.py#list_procurements
+      - src/zakupki_parser/storage/repository/base.py#_profile_score_subquery
+    tests:
+      - tests/integration/test_decisions_work.py
 
   - id: US-3.1
     type: US
@@ -248,28 +251,77 @@ requirements:
     title: «В работу»/«Отклонить»
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: planned
+    status: implemented
     adr: "-"
-    code: []
-    tests: []
+    code:
+      - src/zakupki_parser/storage/db/evaluation.py
+      - src/zakupki_parser/storage/db/work.py
+      - src/zakupki_parser/storage/repository/evaluations.py#reject
+      - src/zakupki_parser/api/app/routes/procurements.py
+    tests:
+      - tests/integration/test_decisions_work.py
   - id: US-5.2
     type: US
     title: Причина отклонения
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: planned
+    status: implemented
     adr: "-"
-    code: []
-    tests: []
+    code:
+      - src/zakupki_parser/storage/repository/evaluations.py#reject
+      - src/zakupki_parser/api/app/routes/procurements.py#reject_procurement
+    tests:
+      - tests/integration/test_decisions_work.py
   - id: US-5.3
     type: US
     title: Предложение обновить профиль
     stakeholder: Тендеролог (user)
-    stage: "7"
+    stage: "пост-MVP"
     status: planned
     adr: "-"
     code: []
     tests: []
+  - id: US-5.4
+    type: US
+    title: Принять «в работу» из результатов поиска
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/work.py
+      - src/zakupki_parser/storage/repository/work.py#accept_into_work
+      - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work
+    tests:
+      - tests/integration/test_decisions_work.py
+  - id: US-5.5
+    type: US
+    title: Принять «в работу» по URL
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/work.py#accept_into_work_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work_by_url
+    tests:
+      - tests/integration/test_decisions_work.py
+  - id: US-5.6
+    type: US
+    title: Раздел «В работе» и снятие с работы
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/work.py
+      - src/zakupki_parser/storage/repository/work.py#list_work_items
+      - src/zakupki_parser/storage/repository/work.py#remove_from_work
+      - src/zakupki_parser/storage/repository/work.py#remove_work_item
+      - src/zakupki_parser/api/app/routes/procurements.py
+    tests:
+      - tests/integration/test_decisions_work.py
+      - tests/unit/test_decisions_schemas.py
 
   - id: US-6.1
     type: US
@@ -817,22 +869,98 @@ requirements:
 
   - id: FR-5.1
     type: FR
-    title: (Целевое) Статус «В работу»/«Отклонить»
+    title: Статус «В работу»/«Отклонить» и скрытие отклонённых
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: planned
+    status: implemented
     adr: "-"
-    code: []
-    tests: []
+    code:
+      - src/zakupki_parser/storage/repository/evaluations.py#reject
+      - src/zakupki_parser/storage/db/work.py
+      - src/zakupki_parser/storage/repository/work.py#accept_into_work
+      - src/zakupki_parser/storage/repository/procurements.py#list_procurements
+      - src/zakupki_parser/api/app/routes/procurements.py#reject_procurement
+    tests:
+      - tests/unit/test_decisions_schemas.py
+      - tests/integration/test_decisions_work.py
   - id: FR-5.2
     type: FR
-    title: (Целевое) Предложение добавить слово/правило
+    title: (Отложено) Предложение добавить слово/правило
     stakeholder: Тендеролог (user)
-    stage: "7"
+    stage: "пост-MVP"
     status: planned
     adr: "-"
     code: []
     tests: []
+  - id: FR-5.3
+    type: FR
+    title: Явные действия при отклонении (убрать слова/добавить исключение)
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/evaluations.py#reject
+      - src/zakupki_parser/api/app/routes/procurements.py#reject_procurement
+    tests:
+      - tests/integration/test_decisions_work.py
+  - id: FR-5.4
+    type: FR
+    title: Принять «в работу» из результатов поиска (per-profile, in_work в выдаче)
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/work.py
+      - src/zakupki_parser/storage/repository/work.py#accept_into_work
+      - src/zakupki_parser/storage/repository/procurements.py#list_procurements
+      - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work
+    tests:
+      - tests/integration/test_decisions_work.py
+  - id: FR-5.5
+    type: FR
+    title: Принять «в работу» по URL ЭТП (резолв или запись-снимок)
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/work.py#accept_into_work_by_url
+      - src/zakupki_parser/storage/repository/work.py#find_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work_by_url
+    tests:
+      - tests/integration/test_decisions_work.py
+  - id: FR-5.6
+    type: FR
+    title: Раздел «В работе» (единый список) и снятие с работы
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/work.py
+      - src/zakupki_parser/storage/repository/work.py#list_work_items
+      - src/zakupki_parser/storage/repository/work.py#remove_from_work
+      - src/zakupki_parser/storage/repository/work.py#remove_work_item
+      - src/zakupki_parser/api/app/routes/procurements.py
+    tests:
+      - tests/integration/test_decisions_work.py
+      - tests/unit/test_decisions_schemas.py
+  - id: FR-5.7
+    type: FR
+    title: Очистка БД с запросом про удаление «в работе» (BR-08)
+    stakeholder: DevOps
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/procurements.py#clear_all
+      - src/zakupki_parser/api/app/routes/admin.py#clear_db
+      - src/zakupki_parser/api/app/schemas.py
+    tests:
+      - tests/integration/test_decisions_work.py
+      - tests/unit/test_decisions_schemas.py
 
   - id: FR-6.1
     type: FR
@@ -1107,6 +1235,40 @@ requirements:
       - src/zakupki_parser/api/app/state.py
     tests:
       - src/scoring_service/tests/test_auth.py
+      - tests/integration/test_api.py
+  - id: FR-10.9
+    type: FR
+    title: Перезапуск фоновых сервисов скоринга из web (devops)
+    stakeholder: DevOps / SRE
+    stage: "0"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/restart_services.py
+      - src/zakupki_parser/api/app/routes/config.py
+    tests:
+      - tests/unit/test_restart_services.py
+  - id: FR-10.10
+    type: FR
+    title: Требования к участнику по всем документам + LLM-заполнение data
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/scoring_common/scoring_common/requirements.py
+      - src/scoring_common/scoring_common/tables.py
+      - src/scoring_common/scoring_common/law_requirements.py
+      - src/scoring_common/scoring_common/parser_api.py
+      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/storage/repository/procurements.py
+      - src/analysis_service/analysis_service/pipeline/rag.py
+      - src/analysis_service/analysis_service/worker.py
+    tests:
+      - src/scoring_common/tests/test_requirements.py
+      - src/scoring_common/tests/test_tables.py
+      - src/scoring_common/tests/test_law_requirements.py
+      - src/analysis_service/tests/test_rag.py
       - tests/integration/test_api.py
 
   # ===== Бизнес-правила =====

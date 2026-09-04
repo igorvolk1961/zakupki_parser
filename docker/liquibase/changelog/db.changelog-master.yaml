@@ -101,3 +101,7 @@ databaseChangeLog:
       file: db.changelog-1.50.yaml
   - include:
       file: db.changelog-1.51.yaml
+  - include:
+      file: db.changelog-1.52.yaml
+  - include:
+      file: db.changelog-1.53.yaml

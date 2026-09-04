@@ -43,8 +43,9 @@ _STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 __all__ = ["create_app", "_meets_stage_notify_threshold"]
 
 
-def create_app(configs_dir: str = "configs") -> FastAPI:
+def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
     state = _create_state(configs_dir)
+    state.parser_port = port
     ctx = build_context(state)
 
     @asynccontextmanager

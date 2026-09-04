@@ -23,7 +23,7 @@
 | US-2.2 | Оценка Fit | BR-02 | NFR-COST-1/3 | PROCUREMENT_EVALUATION | Парсинг/скоринг; TO-BE шаг 3 | 3 | ✅ |
 | US-2.3 | Сортировка по Fit | BR-02 | NFR-PERF-1 | PROCUREMENT_EVALUATION | — | 3 | ✅ |
 | US-2.4 | Фильтр до списка | BR-02 | NFR-PERF-1 | KEYWORD, PROCUREMENT | Парсинг/скоринг; TO-BE шаг 2 | 3 | ✅ |
-| US-2.5 | Скрытие отклонённых | BR-01 | — | PROCUREMENT_EVALUATION | Жизненный цикл (архив) | 7 | ❌ |
+| US-2.5 | Скрытие отклонённых | BR-01 | — | PROCUREMENT_EVALUATION | Жизненный цикл (архив) | 7 | ✅ |
 | US-3.1 | Оповещение о высокорелевантных | BR-02 | NFR-OBS-1 | PROCUREMENT_EVALUATION | Парсинг/скоринг; TO-BE шаг 4 | 8 | 🟡 |
 | US-3.2 | Базовые поля карточки | — | NFR-PERF-1 | PROCUREMENT, CUSTOMER | TO-BE шаг 4 | 3 | ✅ |
 | US-3.3 | Экспорт XLSX | BR-02 | NFR-SEC-4 | PROCUREMENT, PROCUREMENT_EVALUATION | TO-BE шаг 9 | 8 | 🟡 CSV |
@@ -32,9 +32,12 @@
 | US-4.3 | Реестр Минпромторга | BR-04 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | Анализ ТЗ | 5 | ✅ |
 | US-4.4 | Проверка лицензий | — | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | Анализ ТЗ | 5 | ✅ |
 | US-4.5 | Маркеры в карточке | BR-03, BR-04 | — | PROCUREMENT_EVALUATION (rag_report) | Анализ ТЗ; TO-BE шаг 6 | 5 | ✅ |
-| US-5.1 | «В работу»/«Отклонить» | — | — | PROCUREMENT_EVALUATION (status) | Жизненный цикл; TO-BE шаг 7 | 7 | ❌ |
-| US-5.2 | Причина отклонения | — | — | PROCUREMENT_EVALUATION (rejection_reason) | TO-BE шаг 8 | 7 | ❌ |
-| US-5.3 | Предложение обновить профиль | BR-02 | — | PROFILE, KEYWORD | TO-BE шаг 8 | 7 | ❌ |
+| US-5.1 | «В работу»/«Отклонить» | — | — | PROCUREMENT_EVALUATION (status), PROCUREMENT_WORK_ITEM | Жизненный цикл; TO-BE шаг 7 | 7 | ✅ |
+| US-5.2 | Причина отклонения | — | — | PROCUREMENT_EVALUATION (rejection_reason) | TO-BE шаг 8 | 7 | ✅ |
+| US-5.3 | Предложение обновить профиль | BR-02 | — | PROFILE, KEYWORD | TO-BE шаг 8 | пост-MVP | ❌ (отложено) |
+| US-5.4 | Принять «в работу» из результатов | BR-07 | — | PROCUREMENT_WORK_ITEM | Жизненный цикл; TO-BE шаг 7 | 7 | ✅ |
+| US-5.5 | Принять «в работу» по URL | BR-08 | — | PROCUREMENT_WORK_ITEM | Жизненный цикл; TO-BE шаг 7 | 7 | ✅ |
+| US-5.6 | Раздел «В работе» и снятие | BR-07, BR-08 | — | PROCUREMENT_WORK_ITEM | Жизненный цикл; TO-BE шаг 7 | 7 | ✅ |
 | US-6.1 | Сводка «В работу» в XLSX | BR-02 | NFR-SEC-4 | PROCUREMENT_EVALUATION | TO-BE шаг 9 | 8 | ❌ |
 | US-6.2 | Маркеры в сводке | BR-03, BR-04 | NFR-SEC-4 | PROCUREMENT_EVALUATION | TO-BE шаг 9 | 8 | ❌ |
 | US-7.1 | Самостоятельная регистрация | BR-07 | NFR-SEC-2 | USER | — | 1, 6 | ✅ |
@@ -64,7 +67,8 @@
 | BR-04 | Реестр Минпромторга («не установлено») | US-4.3, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
 | BR-05 | Жизненный цикл аккаунта | US-7.2–7.5 | — | USER, SUBSCRIPTION (цель) | 6 | ❌ |
 | BR-06 | Обработка ошибок (DLQ) | US-8.3 | NFR-REL-2, NFR-FT-1/3/4 | PROCUREMENT | 4, 10 | 🟡 |
-| BR-07 | Изоляция данных | US-7.8, US-7.9 | NFR-SEC-1 | PROFILE, PROCUREMENT_EVALUATION, SUBSCRIPTION, AUDIT_LOG | 1 | ✅ |
+| BR-07 | Изоляция данных | US-7.8, US-7.9, US-5.4–5.6 | NFR-SEC-1 | PROFILE, PROCUREMENT_EVALUATION, PROCUREMENT_WORK_ITEM, SUBSCRIPTION, AUDIT_LOG | 1 | ✅ |
+| BR-08 | Сохранность решений «в работе» | US-5.4–5.6 | NFR-SEC-1 | PROCUREMENT_WORK_ITEM | 7 | ✅ |
 
 ## 3. NFR → этап/статус (сводно)
 
@@ -102,7 +106,7 @@
 | Парсинг/скоринг | 2 | FR-2.1–2.7 | ✅ |
 | Доставка/экспорт | 3, 6 | FR-3.1–3.4 | 🟡 |
 | Анализ ТЗ | 4 | FR-4.1–4.3 | 🟡 |
-| Решения | 5 | FR-5.1–5.2 | ❌ |
+| Решения | 5 | FR-5.1–5.7 | ✅ (FR-5.2 — отложен) |
 | Доступ/аккаунты | 7 | FR-6.1–6.4 | 🟡 |
 | Наблюдаемость | 8 | FR-7.1–7.3 | 🟡 |
 | Compliance | 9 | FR-8.1–8.4 | ❌ |

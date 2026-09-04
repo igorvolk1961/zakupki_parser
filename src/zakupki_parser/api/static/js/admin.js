@@ -7,6 +7,7 @@ import { api, apiJSON, authToken } from "./api.js";
 import { canAccessBase } from "./roles.js";
 import { loadProc, renderProc } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
+import { loadWork } from "./work.js";
 
 let parserTimer = null;
 let prevRunning = false;
@@ -86,13 +87,14 @@ async function dbClearRequest(url, body) {
   if (canAccessBase()) {
     await loadProc();
     await loadCustomers();
+    await loadWork();
   }
   const d = res.deleted;
   const cnt =
     typeof d === "number"
       ? d
       : d && typeof d === "object"
-        ? `закупок ${d.procurements ?? 0}, заказчиков ${d.customers ?? 0}`
+        ? `закупок ${d.procurements ?? 0}, заказчиков ${d.customers ?? 0}${d.work_items ? `, «в работе» ${d.work_items}` : ""}`
         : "";
   $("#parser-status").textContent = "БД очищена" + (cnt !== "" ? ` (удалено: ${cnt})` : "");
 }
@@ -156,8 +158,12 @@ $("#db-modal-bg").addEventListener("click", (e) => {
 $("#db-clear-cancel").addEventListener("click", closeDbModal);
 $("#db-clear-confirm").addEventListener("click", () => {
   const mode = document.querySelector('input[name="db-clear-mode"]:checked').value;
-  if (mode === "all") dbClearRequest("/api/db/clear");
-  else if (mode === "inactive") dbClearRequest("/api/db/clear-inactive");
+  if (mode === "all") {
+    // По умолчанию закупки «в работе» сохраняются; удаление — только по явному
+    // запросу (чекбокс в модалке), иначе clear_all вернёт их с procurement_id=NULL.
+    const includeWork = $("#db-clear-work").checked;
+    dbClearRequest("/api/db/clear", includeWork ? { include_work_items: true } : null);
+  } else if (mode === "inactive") dbClearRequest("/api/db/clear-inactive");
   else dbClearRequest("/api/db/clear-irrelevant", { min_fit_score: parseFloat($("#db-min-fit").value) });
 });
 $("#db-fit-up").addEventListener("click", () => stepDbFit(0.1));

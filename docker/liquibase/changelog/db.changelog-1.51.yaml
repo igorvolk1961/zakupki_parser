@@ -2,14 +2,8 @@ databaseChangeLog:
 - changeSet:
     id: 52
     author: zakupki-parser
-    comment: 'Регион закупки и целевые регионы профиля: procurements.region (TEXT, nullable — извлекается по площадкам на уровне списка/деталей), profiles.target_regions (JSONB NOT NULL, клиентская пост-фильтрация профиля, как ключевые слова R9) и profiles.max_region_distance_km (NUMERIC nullable — макс. расстояние от центра региона в км, проверяется только на этапе анализа)'
+    comment: 'требования к участнику (поиск по всем документам, не только ТЗ): JSONB-колонка procurements.requirements_json — структура {licenses, experience, minprom, other}, каждое {text, data}; NULL — не извлекалось, {} — шаблоны не найдены'
     changes:
     - sql:
         splitStatements: false
-        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS region TEXT;
-    - sql:
-        splitStatements: false
-        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS target_regions JSONB NOT NULL DEFAULT '[]'::jsonb;
-    - sql:
-        splitStatements: false
-        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS max_region_distance_km NUMERIC;
+        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS requirements_json JSONB;

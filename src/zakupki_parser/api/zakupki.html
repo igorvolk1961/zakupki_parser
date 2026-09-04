@@ -42,10 +42,12 @@
   <div class="tabs tabs-bar">
     <div class="tabs-group" id="tabs-base">
       <button class="active" id="tab-proc">Закупки <span class="tab-count" id="cnt-proc"></span></button>
+      <button id="tab-work">В работе <span class="tab-count" id="cnt-work"></span></button>
       <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
       <button id="tab-profiles">Профили</button>
     </div>
     <div class="tabs-group" id="tabs-roles">
+      <button id="tab-parser">Парсер</button>
       <button id="tab-users">Пользователи</button>
       <button id="tab-metrics">Метрики</button>
       <button id="tab-monitor">Параметры мониторинга</button>
@@ -55,7 +57,6 @@
       <button id="tab-cfgops">Конфигурация</button>
       <button id="tab-logcfg">Управление логами</button>
       <button id="tab-logs">Логи</button>
-      <button id="tab-parser">Парсер</button>
     </div>
   </div>
 
@@ -93,7 +94,7 @@
         </label>
         <div class="proc-table">
           <div class="toolbar" style="margin-bottom:8px;">
-            <button class="primary" id="batch-analyze" disabled>Анализировать ТЗ</button>
+            <button class="primary" id="batch-analyze" disabled>Анализировать документы</button>
             <button class="ghost" id="batch-pwin-margin" disabled>Оценить P(win)/Margin</button>
             <button class="ghost" id="db-export" title="Скачать CSV активных релевантных закупок (браузер предложит выбрать папку)">Выгрузить CSV</button>
             <span id="sel-count" class="muted"></span>
@@ -123,9 +124,40 @@
     <div class="table-wrap" id="customers"></div>
   </div>
 
+  <div id="view-work" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Закупки «в работе»</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <label title="URL закупки на ЭТП (не из результатов поиска)" style="display:flex;align-items:center;gap:6px;flex:1;white-space:nowrap;">URL закупки на ЭТП
+          <input type="text" id="work-url" placeholder="https://…" spellcheck="false" style="flex:1;" title="URL закупки на платформе ЭТП. Если закупка уже сохранена парсером — она появится в списке «в работе»; иначе создаётся запись-снимок по URL">
+        </label>
+        <button class="primary" id="work-by-url">Принять в работу по URL</button>
+        <button class="ghost" id="work-refresh" title="Обновить список">Обновить</button>
+        <span id="work-status" class="muted"></span>
+      </div>
+    </div>
+    <div class="proc-table">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>НМЦК</th><th>Срок подачи</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="work-rows"></tbody>
+      </table>
+      <div class="empty" id="work-empty" style="display:none;">Нет закупок «в работе».<br><span class="muted" style="font-size:12px">Примите закупку из результатов поиска (кнопка «В работу» в карточке) или по URL выше.</span></div>
+    </div>
+    <div class="proc-table" id="work-orphans-wrap" style="display:none;">
+      <div class="panel-title" style="padding:10px 2px 4px;">По URL — закупка ещё не в базе парсера</div>
+      <table>
+        <thead><tr><th>URL</th><th>Принято</th><th>Действия</th></tr></thead>
+        <tbody id="work-orphans"></tbody>
+      </table>
+      <p class="muted" style="font-size:12px; padding:4px 2px;">Записи-снимки по URL, для которых парсер ещё не сохранил закупку (или закупка удалена при очистке БД). Полная карточка появится автоматически, когда закупка будет в базе.</p>
+    </div>
+  </div>
+
   <div id="view-metrics" style="display:none;">
     <div class="metrics-view" id="metrics-content">
-      <div class="empty">Журнал метрик обработки.<br><span class="muted" style="font-size:12px">Данные появятся после скоринга и анализа ТЗ.</span></div>
+      <div class="empty">Журнал метрик обработки.<br><span class="muted" style="font-size:12px">Данные появятся после скоринга и анализа документов.</span></div>
     </div>
   </div>
 
@@ -148,7 +180,7 @@
       <div class="panel-title">Промпты сервисов</div>
       <div class="toolbar" style="margin-bottom:0;">
         <label title="Сервис, чьи промпты редактируются">Сервис:
-          <select id="prompt-service" title="scoring_service — скоринг, analysis_service — анализ ТЗ">
+          <select id="prompt-service" title="scoring_service — скоринг, analysis_service — анализ документов">
             <option value="prompts">scoring_service</option>
             <option value="analysis-prompts">analysis_service</option>
           </select>
@@ -373,7 +405,7 @@
   <div id="view-services" style="display:none;">
     <div class="tabs tabs-bar services-tabs" style="margin-bottom:10px;">
       <button class="active" id="svc-tab-scoring" title="config.yaml сервиса скоринга">Скоринг</button>
-      <button id="svc-tab-analysis" title="config.yaml сервиса анализа ТЗ">Анализ ТЗ</button>
+      <button id="svc-tab-analysis" title="config.yaml сервиса анализа документов">Анализ документов</button>
       <button id="svc-tab-pwin" title="config.yaml сервиса P(win)">P(win)</button>
       <button id="svc-tab-margin" title="config.yaml сервиса Margin">Margin</button>
     </div>
@@ -385,6 +417,7 @@
           <button id="svc-scoring-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
           <button id="svc-scoring-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
           <button id="svc-scoring-reload">Отменить изменения</button>
+          <button class="ghost" id="svc-scoring-restart" title="Перезапустить сервер scoring_service">⟳ Перезагрузить</button>
           <span id="svc-scoring-status" class="muted"></span>
         </div>
       </div>
@@ -393,12 +426,13 @@
     </div>
     <div id="svc-pane-analysis" style="display:none;">
       <div class="panel">
-        <div class="panel-title" title="src/analysis_service/config.yaml">Анализ ТЗ (analysis_service)</div>
+        <div class="panel-title" title="src/analysis_service/config.yaml">Анализ документов (analysis_service)</div>
         <div class="toolbar" style="margin-bottom:0;">
           <button class="primary" id="svc-analysis-save" title="Сохранить конфигурацию analysis_service. Изменения применяются при следующем старте сервиса.">Сохранить</button>
           <button id="svc-analysis-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
           <button id="svc-analysis-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
           <button id="svc-analysis-reload">Отменить изменения</button>
+          <button class="ghost" id="svc-analysis-restart" title="Перезапустить сервер analysis_service">⟳ Перезагрузить</button>
           <span id="svc-analysis-status" class="muted"></span>
         </div>
       </div>
@@ -496,7 +530,8 @@
         <button class="primary" id="parser-save" title="Сохранить конфигурацию парсера. Изменения применяются при следующем старте сервиса.">Сохранить</button>
         <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
         <button id="parser-reload">Отменить изменения</button>
-        <span id="parser-status" class="muted"></span>
+        <button class="ghost" id="parser-restart" title="Перезапустить парсер (остановить и запустить заново)">⟳ Перезагрузить</button>
+        <span id="parser-restart-status" class="muted"></span>
       </div>
     </div>
     <div id="parser-form"></div>
@@ -525,6 +560,9 @@
         </span>
       </label>
     </div>
+    <label id="db-clear-work-wrap" style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:10px;" title="По умолчанию закупки «в работе» сохраняются (procurement_id обнуляется, карточка остаётся из снимка) даже после удаления результатов поиска">
+      <input type="checkbox" id="db-clear-work"> Удалить также закупки, принятые «в работу»
+    </label>
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="db-clear-cancel">Отменить</button>
       <button class="danger" id="db-clear-confirm">Удалить</button>

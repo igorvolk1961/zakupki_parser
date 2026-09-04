@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from scoring_common.requirements import extract_requirements
 from scoring_common.tz import resolve_tz_content_cached
 from zakupki_parser.api.app.converters import (
     _meets_stage_notify_threshold,
@@ -20,11 +21,18 @@ from zakupki_parser.api.app.converters import (
 )
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
+    AcceptWorkByUrlIn,
+    AcceptWorkIn,
     ExportIn,
     ProcurementDetailOut,
     ProcurementIdsIn,
     ProcurementListOut,
+    RejectIn,
+    RequirementsIn,
+    RequirementsOut,
     ScoreUpdate,
+    WorkItemOut,
+    WorkItemsListOut,
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.browser.manager import BrowserManager
@@ -41,6 +49,12 @@ logger = logging.getLogger(__name__)
 # чтобы всплеск запросов не исчерпал общий thread-pool приложения.
 _TZ_EXTRACT_CONCURRENCY = 4
 _tz_extract_semaphore = asyncio.Semaphore(_TZ_EXTRACT_CONCURRENCY)
+
+# Лимит одновременных извлечений требований к участнику: просмотр скачивает и
+# конвертирует КАЖДЫЙ документ карточки (потенциально архив + десятки записей) в
+# потоках asyncio — всплеск запросов не должен исчерпать общий thread-pool.
+_REQ_EXTRACT_CONCURRENCY = 2
+_req_extract_semaphore = asyncio.Semaphore(_REQ_EXTRACT_CONCURRENCY)
 
 # Плоские колонки для CSV-выгрузки (без detail_json/files_json).
 CSV_COLUMNS = [
@@ -224,6 +238,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         active: bool | None = None,
         min_fit_score: float | None = None,
         scored: bool | None = None,
+        include_rejected: bool | None = None,
+        in_work: bool | None = None,
         sort: str | None = Query(default=None),
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
@@ -241,6 +257,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             active=active,
             min_fit_score=min_fit_score,
             scored=scored,
+            include_rejected=bool(include_rejected),
+            in_work=in_work,
             sort=sort,
             limit=limit,
             offset=offset,
@@ -295,6 +313,134 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 "Content-Disposition": 'attachment; filename="procurements.csv"',
             },
         )
+
+    @router.post(
+        "/api/procurements/{procurement_id}/reject",
+        response_model=ProcurementDetailOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def reject_procurement(
+        procurement_id: int,
+        body: RejectIn,
+        user: User | None = Depends(require_base),
+    ) -> ProcurementDetailOut:
+        """Отбраковывает закупку активным профилем (Эпик 5, US-5.1/5.2).
+
+        Закупка помечается ``status='rejected'`` (+ причина) и скрывается из
+        выдачи (если не включён показ отклонённых). Опционально убирает из
+        профиля ключевые слова, по которым закупка отобрана, и/или добавляет
+        слово-исключение (явное действие пользователя).
+        """
+        _, profile = await _active_context(user)
+        assert profile is not None
+        existing = await _repo().get_by_id(procurement_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        await _repo().reject(
+            procurement_id,
+            profile.id,
+            rejection_reason=body.rejection_reason,
+            remove_matched_keywords=body.remove_matched_keywords,
+            exclusion_word=body.exclusion_word,
+        )
+        await _broadcast(state)
+        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
+        if row is None:  # pragma: no cover - проверено выше
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return _procurement_detail_out(row, include_costs=_is_analyst(user))
+
+    @router.get(
+        "/api/procurements/work",
+        response_model=WorkItemsListOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def list_work_items(
+        user: User | None = Depends(require_base),
+    ) -> WorkItemsListOut:
+        """Закупки «в работе» активного профиля (вкладка «В работе»)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        items = await _repo().list_work_items(profile.id)
+        return WorkItemsListOut(
+            total=len(items),
+            items=[WorkItemOut.model_validate(item) for item in items],
+        )
+
+    @router.post(
+        "/api/procurements/{procurement_id}/work",
+        response_model=WorkItemOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def accept_into_work(
+        procurement_id: int,
+        body: AcceptWorkIn | None = None,
+        user: User | None = Depends(require_base),
+    ) -> WorkItemOut:
+        """Принимает закупку «в работу» из результатов поиска (US-5.4)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        notes = body.notes if body is not None else None
+        item = await _repo().accept_into_work(
+            procurement_id, profile.id, source="search", notes=notes
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        await _broadcast(state)
+        return WorkItemOut.model_validate(item)
+
+    @router.post(
+        "/api/procurements/work/by-url",
+        response_model=WorkItemOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def accept_into_work_by_url(
+        body: AcceptWorkByUrlIn,
+        user: User | None = Depends(require_base),
+    ) -> WorkItemOut:
+        """Принимает закупку «в работу» по URL на ЭТП (не из результатов поиска).
+
+        Если закупка с таким URL есть в ``procurements`` — привязывается к ней;
+        иначе создаётся запись-снимок (``procurement_id=NULL``), которая останется
+        в «в работе», даже когда соответствующий результат поиска появится и будет
+        удалён (FK SET NULL + снимок).
+        """
+        _, profile = await _active_context(user)
+        assert profile is not None
+        item = await _repo().accept_into_work_by_url(body.url, profile.id, notes=body.notes)
+        await _broadcast(state)
+        return WorkItemOut.model_validate(item)
+
+    @router.delete(
+        "/api/procurements/work/{work_item_id}",
+        status_code=204,
+        dependencies=[Depends(require_base)],
+    )
+    async def remove_work_item(
+        work_item_id: int, user: User | None = Depends(require_base)
+    ) -> None:
+        """Удаляет запись «в работе» по её id (в т.ч. запись-снимок по URL)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        removed = await _repo().remove_work_item(profile.id, work_item_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Запись не найдена")
+        await _broadcast(state)
+
+    @router.delete(
+        "/api/procurements/{procurement_id}/work",
+        status_code=204,
+        dependencies=[Depends(require_base)],
+    )
+    async def remove_from_work(
+        procurement_id: int, user: User | None = Depends(require_base)
+    ) -> None:
+        """Снимает закупку с «в работе» (удаляется только запись, не закупка)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        removed = await _repo().remove_from_work(profile.id, procurement_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Закупка не в работе")
+        await _broadcast(state)
 
     @router.get(
         "/api/procurements/{procurement_id}",
@@ -354,6 +500,61 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             "from_archive": "#" in ref.url,
             "text": text,
         }
+
+    async def _resolve_requirements(row: Any) -> dict[str, Any]:
+        """Детерминированное извлечение требований + сохранение в БД (per-procurement).
+
+        Тяжёлые блокирующие операции (скачивание/конвертация всех документов карточки)
+        выполняются в потоке под семафором ``_req_extract_semaphore``. Возвращает
+        структуру (``{}`` — требования не найдены).
+        """
+        record = {"files_json": row.files_json or []}
+        async with _req_extract_semaphore:
+            structure = await asyncio.to_thread(extract_requirements, record, 30.0)
+        await _repo().save_requirements(row.id, structure)
+        return structure
+
+    @router.get(
+        "/api/procurements/{procurement_id}/requirements",
+        response_model=RequirementsOut,
+        dependencies=[Depends(require_user_or_internal)],
+    )
+    async def get_procurement_requirements(
+        procurement_id: int, user: User | None = Depends(require_user_or_internal)
+    ) -> RequirementsOut:
+        """Структура «Требования к участнику» для просмотра в карточке.
+
+        Читает новое поле ``procurements.requirements_json``; если оно не заполнено
+        (NULL) — выполняет детерминированное извлечение требований по всем документам
+        карточки (``scoring_common.requirements``) и сохраняет результат в БД.
+        """
+        _, profile = await _active_context(user)
+        row = await _repo().get_by_id(
+            procurement_id, profile_id=profile.id if profile is not None else None
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        structure = row.requirements_json
+        if structure is None:
+            structure = await _resolve_requirements(row)
+        return RequirementsOut(found=bool(structure), requirements=structure or {})
+
+    @router.post(
+        "/api/procurements/{procurement_id}/requirements",
+        response_model=RequirementsOut,
+        dependencies=[Depends(require_internal)],
+    )
+    async def set_procurement_requirements(
+        procurement_id: int, body: RequirementsIn
+    ) -> RequirementsOut:
+        """Сохранить структуру требований к участнику (analysis-воркер).
+
+        Внутренний эндпоинт: воркер-анализ возвращает заполненные ``data`` после
+        LLM-обработки. Пишет в ``procurements.requirements_json`` (per-procurement).
+        """
+        if await _repo().save_requirements(procurement_id, body.structure) is False:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return RequirementsOut(found=bool(body.structure), requirements=body.structure)
 
     @router.post(
         "/api/procurements/{procurement_id}/score",
@@ -532,10 +733,11 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     async def analyze_procurements(
         body: ProcurementIdsIn, user: User | None = Depends(require_base)
     ) -> dict[str, Any]:
-        """Обработать выбранные закупки: авто-Fit (если нет) + RAG-анализ ТЗ.
+        """Обработать выбранные закупки: авто-Fit (если нет) + анализ документов.
 
         Внутренние стадии скрыты от заказчика: для каждой закупки ставится
-        задание fit (если per-profile fit ещё не посчитан) и затем analysis.
+        задание fit (если per-profile fit ещё не посчитан) и затем analysis —
+        заполнение ``data`` требований к участнику + персональные вопросы профиля.
         Ручная корректировка оценок — вне MVP (Эпик 5, пост-MVP).
         """
         if state.score_transport is None:

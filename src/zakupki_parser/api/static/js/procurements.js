@@ -22,8 +22,8 @@ const PROC_PAGE_SIZE = 100;
 let procPage = 1;
 let procTotal = 0;
 
-// Состояние анализа ТЗ: id закупок, для которых сейчас выполняется анализ.
-// Кнопка «Анализ ТЗ» блокируется до получения результата (см. pollProc).
+// Состояние анализа документов: id закупок, для которых сейчас выполняется анализ.
+// Кнопка «Анализ документов» блокируется до получения результата (см. pollProc).
 const analyzingIds = new Set();
 // id открытой карточки (модалки) и сигнатура её rag_report для автообновления.
 let openDetailId = null;
@@ -62,7 +62,7 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}"${rg}>
     <td><input type="checkbox" class="row-sel" data-id="${row.id}" ${selected.has(row.id) ? "checked" : ""}></td>
     <td class="id">${row.id}</td>
-    <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
+    <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}${row.in_work ? ' <span class="pill active">в работе</span>' : ""}</div></td>
     <td><span class="pill">${escapeHtml(row.platform_id)}</span></td>
     <td><span class="pill score">${fitCell(row)}</span>${methodLabel ? `<span class="muted" style="font-size:11px"> ${escapeHtml(methodLabel)}</span>` : ""}</td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
@@ -234,9 +234,14 @@ function renderModal(row) {
     <h2>${escapeHtml(row.number)}</h2>
     <div class="tabs card-tabs">${tabs.join("")}</div>
     ${panels.join("")}
-    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end; flex-wrap:wrap; gap:6px;">
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
-      <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id})">${isAnalyzing ? "Анализ…" : "Анализ ТЗ"}</button>
+      ${row.in_work
+        ? `<button class="ghost" onclick="removeWorkByProc(${row.id})">Снять с работы</button>`
+        : `<button class="primary" onclick="acceptWork(${row.id})">В работу</button>
+           <button class="danger" onclick="openReject(${row.id})" title="Пометить как отклонённую и скрыть из выдачи">Отбраковать</button>`}
+      <button class="ghost" onclick="viewRequirements(${row.id})">Требования к участнику</button>
+      <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id})">${isAnalyzing ? "Анализ…" : "Анализ документов"}</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
       ${row.langfuse_trace_url && analyst ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
       ${row.rag_report && row.rag_report.trace_url && analyst ? `<button class="ghost" onclick="viewTraceUrl('${escapeHtml(row.rag_report.trace_url)}')">Анализ</button>` : ""}
@@ -272,7 +277,7 @@ function cardScoringPanel(row, f) {
     ? { manual: "ручная", reject: "отклонена", fit: "fit", sim: "sim", pwin: "pwin", margin: "margin" }[row.score_method] || row.score_method
     : "—";
   const analyst = hasRole("analyst");
-  // Два отдельных трейса: скоринг (langfuse_trace_url) и анализ ТЗ (rag_report.trace_url).
+  // Два отдельных трейса: скоринг (langfuse_trace_url) и анализ документов (rag_report.trace_url).
   const traceLink = (url) =>
     `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">открыть трейс</a>`;
   const scoreTrace = row.langfuse_trace_url && analyst ? traceLink(row.langfuse_trace_url) : "—";
@@ -285,7 +290,7 @@ function cardScoringPanel(row, f) {
     ${f("Margin", row.margin ?? "—")}
     ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
     ${f("Трейс скоринга", scoreTrace)}
-    ${f("Трейс анализа ТЗ", analysisTrace)}
+    ${f("Трейс анализа документов", analysisTrace)}
   </table>
   ${ragReportHtml(row.rag_report)}`;
 }
@@ -296,11 +301,11 @@ function cardMetricsPanel(row) {
   const scoringM = row.costs?.scoring;
   const analysisM = row.costs?.analysis;
   if (!scoringM && !analysisM) {
-    return `<div class="empty" style="padding:20px 0;">Метрики обработки не собраны.<br><span class="muted" style="font-size:12px">Запустите скоринг и анализ ТЗ закупки.</span></div>`;
+    return `<div class="empty" style="padding:20px 0;">Метрики обработки не собраны.<br><span class="muted" style="font-size:12px">Запустите скоринг и анализ документов закупки.</span></div>`;
   }
   const blocks = [];
   if (scoringM) blocks.push(metricsBlock("Скоринг (fit/judge/refine)", scoringM));
-  if (analysisM) blocks.push(metricsBlock("Анализ ТЗ (стоп-условия)", analysisM));
+  if (analysisM) blocks.push(metricsBlock("Анализ документов", analysisM));
   const totals = metricsTotals(scoringM, analysisM);
   const costLine = cardCostLine(row);
   return `${costLine}${totals}${blocks.join("")}`;
@@ -428,8 +433,8 @@ function setCardTab(tab) {
 }
 
 // Автообновление открытой карточки при изменении данных БД (WS): подтягивает
-// результат анализа ТЗ (rag_report) из базы и перерисовывает модалку — кнопка
-// «Анализ ТЗ» при этом восстанавливается из состояния «Анализ…».
+// результат анализа документов (rag_report) из базы и перерисовывает модалку — кнопка
+// «Анализ документов» при этом восстанавливается из состояния «Анализ…».
 async function refreshOpenDetail() {
   if (openDetailId === null) return;
   try {
@@ -493,12 +498,55 @@ async function closeTz(id) {
   await openDetail(id);
 }
 
-// RAG-отчёт анализа стоп-условий (обязательные проверки + вопросы клиента).
+// Просмотр json-структуры «Требования к участнику» (поиск по всем документам).
+// Поле БД читается как есть; если не заполнено — выполняется детерминированное
+// извлечение и сохранение (эндпоинт GET /requirements). Закрытие возвращает к карточке.
+async function viewRequirements(id) {
+  $("#modal").innerHTML = `
+    <span class="close" onclick="closeTz(${id})">×</span>
+    <h2>Требования к участнику #${id}</h2>
+    <p class="muted">Извлекаю структуру…</p>`;
+  $("#modal-bg").classList.add("open");
+  try {
+    const r = await api("procurements/" + id + "/requirements");
+    const req = r.requirements || {};
+    if (!Object.keys(req).length) {
+      $("#modal").innerHTML = `
+        <span class="close" onclick="closeTz(${id})">×</span>
+        <h2>Требования к участнику #${id}</h2>
+        <p class="muted">Разделы «требования к участнику / к исполнителю / к составу заявки»
+        не найдены ни в одном документе карточки.</p>
+        <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+          <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+        </div>`;
+      return;
+    }
+    const json = JSON.stringify(req, null, 2);
+    $("#modal").innerHTML = `
+      <span class="close" onclick="closeTz(${id})">×</span>
+      <h2>Требования к участнику #${id}</h2>
+      <p class="muted" style="margin-top:0;">json-структура поля «Требования к участнику»</p>
+      <pre class="tz-view" style="white-space:pre-wrap; overflow:auto; max-height:72vh;">${escapeHtml(json)}</pre>
+      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+      </div>`;
+  } catch (err) {
+    $("#modal").innerHTML = `
+      <span class="close" onclick="closeTz(${id})">×</span>
+      <h2>Требования к участнику #${id}</h2>
+      <p class="muted">Ошибка загрузки: ${escapeHtml(String(err))}</p>
+      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+      </div>`;
+  }
+}
+
+// RAG-отчёт анализа по вопросам клиента (персонализированные вопросы профиля).
 function ragReportHtml(report) {
   if (!report) {
-    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
-      <p class="muted">Анализ не выполнялся. Нажмите «Анализ ТЗ», чтобы получить
-      вердикты по стоп-условиям и вопросам профиля.</p>`;
+    return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
+      <p class="muted">Анализ не выполнялся. Нажмите «Анализ документов», чтобы получить
+      вердикты по вопросам профиля.</p>`;
   }
   const verdictBadge = (q) => {
     const v = q.verdict;
@@ -521,7 +569,7 @@ function ragReportHtml(report) {
     const reason = report.tz_file
       ? `Файл найден (${escapeHtml(report.tz_file)}), но текст извлечь не удалось.`
       : "Файл ТЗ не найден среди файлов карточки (и внутри архивов).";
-    return `<h3 style="margin:16px 0 4px;">Анализ ТЗ</h3><p class="muted">${reason}</p>`;
+    return `<h3 style="margin:16px 0 4px;">Анализ документов</h3><p class="muted">${reason}</p>`;
   }
   let banner = "";
   if (report.status === "deferred") {
@@ -542,10 +590,10 @@ function ragReportHtml(report) {
     </div>`
     )
     .join("");
-  return `<h3 style="margin:16px 0 4px;">Анализ ТЗ (стоп-условия)</h3>
+  return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
     ${banner}
-    ${items || '<p class="muted">Вопросов к ТЗ пока нет.</p>'}`;
+    ${items || '<p class="muted">Вопросов к документам пока нет.</p>'}`;
 }
 
 async function loadPlatforms() {
@@ -600,18 +648,18 @@ function viewTraceUrl(url) {
   window.open(url, "_blank", "noopener");
 }
 
-// Переключить кнопку «Анализ ТЗ» в состояние «выполняется»/«готово».
+// Переключить кнопку «Анализ документов» в состояние «выполняется»/«готово».
 function setAnalyzeBtn(id, analyzing) {
   const btn = document.getElementById("analyze-btn-" + id);
   if (!btn) return;
   btn.disabled = analyzing;
-  btn.textContent = analyzing ? "Анализ…" : "Анализ ТЗ";
+  btn.textContent = analyzing ? "Анализ…" : "Анализ документов";
 }
 
 async function analyzeProc(id) {
   analyzingIds.add(id);
   setAnalyzeBtn(id, true);
-  $("#parser-status").textContent = `Закупка #${id}: анализ ТЗ поставлен в очередь…`;
+  $("#parser-status").textContent = `Закупка #${id}: анализ документов поставлен в очередь…`;
   let ok = false;
   try {
     const r = await apiJSON("/api/procurements/analyze", {
@@ -621,10 +669,10 @@ async function analyzeProc(id) {
     });
     ok = r.ok;
     $("#parser-status").textContent = ok
-      ? `Закупка #${id}: анализ ТЗ запущен, жду результат…`
-      : "не удалось поставить анализ ТЗ (транспорт не настроен?)";
+      ? `Закупка #${id}: анализ документов запущен, жду результат…`
+      : "не удалось поставить анализ документов (транспорт не настроен?)";
   } catch (err) {
-    $("#parser-status").textContent = "не удалось запустить анализ ТЗ: " + (err.message || err);
+    $("#parser-status").textContent = "не удалось запустить анализ документов: " + (err.message || err);
   }
   if (!ok) {
     analyzingIds.delete(id);
@@ -656,6 +704,103 @@ async function pwinProc(id) {
   }
 }
 
+// --- «В работу» / «Отбраковать» (Эпик 5, US-5.1/5.2, US-5.4) ---------------
+
+async function acceptWork(id) {
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/work", { method: "POST" });
+    if (!r.ok) {
+      $("#parser-status").textContent = "не удалось принять «в работу»";
+      return;
+    }
+    $("#parser-status").textContent = `Закупка #${id} принята «в работу»`;
+    await loadProc();
+    await openDetail(id);
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось принять «в работу»: " + (err.message || err);
+  }
+}
+
+async function removeWorkByProc(id) {
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/work", { method: "DELETE" });
+    if (!r.ok) {
+      $("#parser-status").textContent = "не удалось снять с работы";
+      return;
+    }
+    $("#parser-status").textContent = `Закупка #${id} снята с «в работе»`;
+    await loadProc();
+    await openDetail(id);
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось снять с работы: " + (err.message || err);
+  }
+}
+
+// Модалка «Отбраковать»: причина + опции «убрать ключевые слова» / «добавить
+// слово-исключение». Предложение слов (US-5.3) отложено — действия только явные.
+async function openReject(id) {
+  $("#modal").innerHTML = `
+    <span class="close" onclick="closeReject(${id})">×</span>
+    <h2>Отбраковать закупку #${id}</h2>
+    <p class="muted" style="margin-top:0;">Закупка будет помечена как отклонённая и скрыта из будущих выдач (показ отклонённых можно включить фильтром).</p>
+    <label style="display:block; margin:10px 0;">Причина отклонения (необязательно)
+      <textarea id="reject-reason" rows="2" spellcheck="false" placeholder="например, не наш профиль, слишком низкая НМЦК…" style="width:100%;"></textarea>
+    </label>
+    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;" title="Удалить из профиля ключевые слова, по которым эта закупка была отобрана (matched_keywords)">
+      <input type="checkbox" id="reject-remove-matched"> Убрать из профиля ключевые слова, по которым отобрана закупка
+    </label>
+    <label style="display:block; margin:10px 0;">Добавить слово-исключение в профиль (необязательно)
+      <input type="text" id="reject-excl" placeholder="фраза или слово" spellcheck="false" style="width:100%;">
+    </label>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" onclick="closeReject(${id})">Отмена</button>
+      <button class="danger" id="reject-confirm" onclick="doReject(${id})">Отбраковать</button>
+      <span id="reject-status" class="muted"></span>
+    </div>`;
+  $("#modal-bg").classList.add("open");
+}
+
+async function closeReject(id) {
+  closeModal();
+  await openDetail(id);
+}
+
+async function doReject(id) {
+  const reason = ($("#reject-reason").value || "").trim() || null;
+  const removeMatched = $("#reject-remove-matched").checked;
+  const exclusion = ($("#reject-excl").value || "").trim() || null;
+  const btn = $("#reject-confirm");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rejection_reason: reason,
+        remove_matched_keywords: removeMatched,
+        exclusion_word: exclusion,
+      }),
+    });
+    if (!r.ok) {
+      if ($("#reject-status")) {
+        $("#reject-status").textContent = "не удалось отбраковать";
+        $("#reject-status").style.color = "#dc2626";
+      }
+      if (btn) btn.disabled = false;
+      return;
+    }
+    $("#parser-status").textContent = `Закупка #${id} отклонена`;
+    await loadProc();
+    closeModal();
+  } catch (err) {
+    if ($("#reject-status")) {
+      $("#reject-status").textContent = "ошибка: " + (err.message || err);
+      $("#reject-status").style.color = "#dc2626";
+    }
+    if (btn) btn.disabled = false;
+  }
+}
+
 function updateSelUi() {
   const n = selected.size;
   $("#batch-analyze").disabled = !n;
@@ -674,11 +819,17 @@ export {
   analyzeProc,
   pwinProc,
   viewTz,
+  viewRequirements,
   closeTz,
   viewTrace,
   viewTraceUrl,
   setCardTab,
   loadPlatforms,
+  acceptWork,
+  removeWorkByProc,
+  openReject,
+  closeReject,
+  doReject,
 };
 
 $("#proc-rows").addEventListener("click", (e) => {
@@ -723,7 +874,7 @@ $("#sel-all").addEventListener("change", (e) => {
 });
 $("#batch-analyze").addEventListener("click", async () => {
   const ids = [...selected];
-  $("#parser-status").textContent = `Ставлю RAG-анализ для ${ids.length} закупок…`;
+  $("#parser-status").textContent = `Ставлю анализ документов для ${ids.length} закупок…`;
   try {
     const r = await apiJSON("/api/procurements/analyze", {
       method: "POST",
@@ -731,7 +882,7 @@ $("#batch-analyze").addEventListener("click", async () => {
       body: JSON.stringify({ procurement_ids: ids }),
     });
     $("#parser-status").textContent = r.ok
-      ? `Поставлен RAG-анализ для ${ids.length} закупок…`
+      ? `Поставлен анализ документов для ${ids.length} закупок…`
       : "не удалось поставить анализ (транспорт не настроен?)";
   } catch (err) {
     $("#parser-status").textContent = "не удалось поставить анализ: " + (err.message || err);
