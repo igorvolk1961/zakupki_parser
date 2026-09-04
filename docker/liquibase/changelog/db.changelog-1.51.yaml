@@ -1,0 +1,31 @@
+databaseChangeLog:
+- changeSet:
+    id: 52
+    author: zakupki-parser
+    comment: 'procurement_work_items: закупки, принятые тендерологом «в работу» (Эпик 5, US-5.4–5.6). Признак на уровне профиля (profile_id, BR-07); procurement_id ON DELETE SET NULL + снимок ключевых полей — запись переживает удаление закупки из общей базы (например, очистку БД devops). source: search|url (принята из результатов поиска / по URL)'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          CREATE TABLE procurement_work_items (
+              id BIGSERIAL PRIMARY KEY,
+              profile_id BIGINT NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+              procurement_id BIGINT REFERENCES procurements(id) ON DELETE SET NULL,
+              source VARCHAR(16) NOT NULL DEFAULT 'search',
+              status VARCHAR(16) NOT NULL DEFAULT 'in_work',
+              notes TEXT,
+              accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              number VARCHAR(64),
+              platform_id VARCHAR(128),
+              url VARCHAR(1024),
+              subject TEXT,
+              nmck DOUBLE PRECISION,
+              deadline TIMESTAMPTZ,
+              law VARCHAR(16),
+              customer_name TEXT,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              CONSTRAINT uq_work_items_profile_proc UNIQUE (profile_id, procurement_id)
+          );
+          CREATE INDEX ix_work_items_profile_id ON procurement_work_items (profile_id);
+          CREATE INDEX ix_work_items_procurement_id ON procurement_work_items (procurement_id);

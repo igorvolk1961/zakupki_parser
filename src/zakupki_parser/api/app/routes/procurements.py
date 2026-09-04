@@ -20,11 +20,16 @@ from zakupki_parser.api.app.converters import (
 )
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
+    AcceptWorkByUrlIn,
+    AcceptWorkIn,
     ExportIn,
     ProcurementDetailOut,
     ProcurementIdsIn,
     ProcurementListOut,
+    RejectIn,
     ScoreUpdate,
+    WorkItemOut,
+    WorkItemsListOut,
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.browser.manager import BrowserManager
@@ -153,6 +158,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         active: bool | None = None,
         min_fit_score: float | None = None,
         scored: bool | None = None,
+        include_rejected: bool | None = None,
+        in_work: bool | None = None,
         sort: str | None = Query(default=None),
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
@@ -169,6 +176,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             active=active,
             min_fit_score=min_fit_score,
             scored=scored,
+            include_rejected=bool(include_rejected),
+            in_work=in_work,
             sort=sort,
             limit=limit,
             offset=offset,
@@ -223,6 +232,134 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 "Content-Disposition": 'attachment; filename="procurements.csv"',
             },
         )
+
+    @router.post(
+        "/api/procurements/{procurement_id}/reject",
+        response_model=ProcurementDetailOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def reject_procurement(
+        procurement_id: int,
+        body: RejectIn,
+        user: User | None = Depends(require_base),
+    ) -> ProcurementDetailOut:
+        """Отбраковывает закупку активным профилем (Эпик 5, US-5.1/5.2).
+
+        Закупка помечается ``status='rejected'`` (+ причина) и скрывается из
+        выдачи (если не включён показ отклонённых). Опционально убирает из
+        профиля ключевые слова, по которым закупка отобрана, и/или добавляет
+        слово-исключение (явное действие пользователя).
+        """
+        _, profile = await _active_context(user)
+        assert profile is not None
+        existing = await _repo().get_by_id(procurement_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        await _repo().reject(
+            procurement_id,
+            profile.id,
+            rejection_reason=body.rejection_reason,
+            remove_matched_keywords=body.remove_matched_keywords,
+            exclusion_word=body.exclusion_word,
+        )
+        await _broadcast(state)
+        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
+        if row is None:  # pragma: no cover - проверено выше
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return _procurement_detail_out(row, include_costs=_is_analyst(user))
+
+    @router.get(
+        "/api/procurements/work",
+        response_model=WorkItemsListOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def list_work_items(
+        user: User | None = Depends(require_base),
+    ) -> WorkItemsListOut:
+        """Закупки «в работе» активного профиля (вкладка «В работе»)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        items = await _repo().list_work_items(profile.id)
+        return WorkItemsListOut(
+            total=len(items),
+            items=[WorkItemOut.model_validate(item) for item in items],
+        )
+
+    @router.post(
+        "/api/procurements/{procurement_id}/work",
+        response_model=WorkItemOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def accept_into_work(
+        procurement_id: int,
+        body: AcceptWorkIn | None = None,
+        user: User | None = Depends(require_base),
+    ) -> WorkItemOut:
+        """Принимает закупку «в работу» из результатов поиска (US-5.4)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        notes = body.notes if body is not None else None
+        item = await _repo().accept_into_work(
+            procurement_id, profile.id, source="search", notes=notes
+        )
+        if item is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        await _broadcast(state)
+        return WorkItemOut.model_validate(item)
+
+    @router.post(
+        "/api/procurements/work/by-url",
+        response_model=WorkItemOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def accept_into_work_by_url(
+        body: AcceptWorkByUrlIn,
+        user: User | None = Depends(require_base),
+    ) -> WorkItemOut:
+        """Принимает закупку «в работу» по URL на ЭТП (не из результатов поиска).
+
+        Если закупка с таким URL есть в ``procurements`` — привязывается к ней;
+        иначе создаётся запись-снимок (``procurement_id=NULL``), которая останется
+        в «в работе», даже когда соответствующий результат поиска появится и будет
+        удалён (FK SET NULL + снимок).
+        """
+        _, profile = await _active_context(user)
+        assert profile is not None
+        item = await _repo().accept_into_work_by_url(body.url, profile.id, notes=body.notes)
+        await _broadcast(state)
+        return WorkItemOut.model_validate(item)
+
+    @router.delete(
+        "/api/procurements/work/{work_item_id}",
+        status_code=204,
+        dependencies=[Depends(require_base)],
+    )
+    async def remove_work_item(
+        work_item_id: int, user: User | None = Depends(require_base)
+    ) -> None:
+        """Удаляет запись «в работе» по её id (в т.ч. запись-снимок по URL)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        removed = await _repo().remove_work_item(profile.id, work_item_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Запись не найдена")
+        await _broadcast(state)
+
+    @router.delete(
+        "/api/procurements/{procurement_id}/work",
+        status_code=204,
+        dependencies=[Depends(require_base)],
+    )
+    async def remove_from_work(
+        procurement_id: int, user: User | None = Depends(require_base)
+    ) -> None:
+        """Снимает закупку с «в работе» (удаляется только запись, не закупка)."""
+        _, profile = await _active_context(user)
+        assert profile is not None
+        removed = await _repo().remove_from_work(profile.id, procurement_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Закупка не в работе")
+        await _broadcast(state)
 
     @router.get(
         "/api/procurements/{procurement_id}",

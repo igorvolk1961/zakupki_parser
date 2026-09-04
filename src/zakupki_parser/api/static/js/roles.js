@@ -3,10 +3,10 @@
 // Ролевая модель web-интерфейса: наборы вкладок по ролям.
 // Видимые вкладки пользователя — объединение наборов его ролей; при выключенной
 // авторизации (state.authUser == null, dev-режим) видны все вкладки.
-// Базовые вкладки (Закупки/Заказчики/Профили) — слева, ролевые — справа.
+// Базовые вкладки (Закупки/В работе/Заказчики/Профили) — слева, ролевые — справа.
 import { state } from "./store.js";
 
-export const TAB_BASE = ["proc", "cust", "profiles"];
+export const TAB_BASE = ["proc", "work", "cust", "profiles"];
 export const TAB_METRICS = "metrics";
 export const TAB_USERS = "users";
 export const TAB_MONITOR = "monitor";
@@ -27,6 +27,7 @@ export const TAB_SETS = {
 
 export const ALL_TABS = [
   "proc",
+  "work",
   "cust",
   "profiles",
   TAB_METRICS,

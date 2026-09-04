@@ -42,6 +42,7 @@
   <div class="tabs tabs-bar">
     <div class="tabs-group" id="tabs-base">
       <button class="active" id="tab-proc">Закупки <span class="tab-count" id="cnt-proc"></span></button>
+      <button id="tab-work">В работе <span class="tab-count" id="cnt-work"></span></button>
       <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
       <button id="tab-profiles">Профили</button>
     </div>
@@ -121,6 +122,37 @@
 
   <div id="view-cust" style="display:none;">
     <div class="table-wrap" id="customers"></div>
+  </div>
+
+  <div id="view-work" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Закупки «в работе»</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <label title="URL закупки на ЭТП (не из результатов поиска)" style="display:flex;align-items:center;gap:6px;flex:1;white-space:nowrap;">URL закупки на ЭТП
+          <input type="text" id="work-url" placeholder="https://…" spellcheck="false" style="flex:1;" title="URL закупки на платформе ЭТП. Если закупка уже сохранена парсером — она появится в списке «в работе»; иначе создаётся запись-снимок по URL">
+        </label>
+        <button class="primary" id="work-by-url">Принять в работу по URL</button>
+        <button class="ghost" id="work-refresh" title="Обновить список">Обновить</button>
+        <span id="work-status" class="muted"></span>
+      </div>
+    </div>
+    <div class="proc-table">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>НМЦК</th><th>Срок подачи</th><th>Действия</th>
+        </tr></thead>
+        <tbody id="work-rows"></tbody>
+      </table>
+      <div class="empty" id="work-empty" style="display:none;">Нет закупок «в работе».<br><span class="muted" style="font-size:12px">Примите закупку из результатов поиска (кнопка «В работу» в карточке) или по URL выше.</span></div>
+    </div>
+    <div class="proc-table" id="work-orphans-wrap" style="display:none;">
+      <div class="panel-title" style="padding:10px 2px 4px;">По URL — закупка ещё не в базе парсера</div>
+      <table>
+        <thead><tr><th>URL</th><th>Принято</th><th>Действия</th></tr></thead>
+        <tbody id="work-orphans"></tbody>
+      </table>
+      <p class="muted" style="font-size:12px; padding:4px 2px;">Записи-снимки по URL, для которых парсер ещё не сохранил закупку (или закупка удалена при очистке БД). Полная карточка появится автоматически, когда закупка будет в базе.</p>
+    </div>
   </div>
 
   <div id="view-metrics" style="display:none;">
@@ -525,6 +557,9 @@
         </span>
       </label>
     </div>
+    <label id="db-clear-work-wrap" style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:10px;" title="По умолчанию закупки «в работе» сохраняются (procurement_id обнуляется, карточка остаётся из снимка) даже после удаления результатов поиска">
+      <input type="checkbox" id="db-clear-work"> Удалить также закупки, принятые «в работу»
+    </label>
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
       <button class="ghost" id="db-clear-cancel">Отменить</button>
       <button class="danger" id="db-clear-confirm">Удалить</button>

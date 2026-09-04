@@ -62,7 +62,7 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}"${rg}>
     <td><input type="checkbox" class="row-sel" data-id="${row.id}" ${selected.has(row.id) ? "checked" : ""}></td>
     <td class="id">${row.id}</td>
-    <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}</div></td>
+    <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}${row.in_work ? ' <span class="pill active">в работе</span>' : ""}</div></td>
     <td><span class="pill">${escapeHtml(row.platform_id)}</span></td>
     <td><span class="pill score">${fitCell(row)}</span>${methodLabel ? `<span class="muted" style="font-size:11px"> ${escapeHtml(methodLabel)}</span>` : ""}</td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
@@ -234,8 +234,12 @@ function renderModal(row) {
     <h2>${escapeHtml(row.number)}</h2>
     <div class="tabs card-tabs">${tabs.join("")}</div>
     ${panels.join("")}
-    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end; flex-wrap:wrap; gap:6px;">
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
+      ${row.in_work
+        ? `<button class="ghost" onclick="removeWorkByProc(${row.id})">Снять с работы</button>`
+        : `<button class="primary" onclick="acceptWork(${row.id})">В работу</button>
+           <button class="danger" onclick="openReject(${row.id})" title="Пометить как отклонённую и скрыть из выдачи">Отбраковать</button>`}
       <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id})">${isAnalyzing ? "Анализ…" : "Анализ ТЗ"}</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
       ${row.langfuse_trace_url && analyst ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
@@ -656,6 +660,103 @@ async function pwinProc(id) {
   }
 }
 
+// --- «В работу» / «Отбраковать» (Эпик 5, US-5.1/5.2, US-5.4) ---------------
+
+async function acceptWork(id) {
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/work", { method: "POST" });
+    if (!r.ok) {
+      $("#parser-status").textContent = "не удалось принять «в работу»";
+      return;
+    }
+    $("#parser-status").textContent = `Закупка #${id} принята «в работу»`;
+    await loadProc();
+    await openDetail(id);
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось принять «в работу»: " + (err.message || err);
+  }
+}
+
+async function removeWorkByProc(id) {
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/work", { method: "DELETE" });
+    if (!r.ok) {
+      $("#parser-status").textContent = "не удалось снять с работы";
+      return;
+    }
+    $("#parser-status").textContent = `Закупка #${id} снята с «в работе»`;
+    await loadProc();
+    await openDetail(id);
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось снять с работы: " + (err.message || err);
+  }
+}
+
+// Модалка «Отбраковать»: причина + опции «убрать ключевые слова» / «добавить
+// слово-исключение». Предложение слов (US-5.3) отложено — действия только явные.
+async function openReject(id) {
+  $("#modal").innerHTML = `
+    <span class="close" onclick="closeReject(${id})">×</span>
+    <h2>Отбраковать закупку #${id}</h2>
+    <p class="muted" style="margin-top:0;">Закупка будет помечена как отклонённая и скрыта из будущих выдач (показ отклонённых можно включить фильтром).</p>
+    <label style="display:block; margin:10px 0;">Причина отклонения (необязательно)
+      <textarea id="reject-reason" rows="2" spellcheck="false" placeholder="например, не наш профиль, слишком низкая НМЦК…" style="width:100%;"></textarea>
+    </label>
+    <label style="display:flex; align-items:center; gap:8px; cursor:pointer;" title="Удалить из профиля ключевые слова, по которым эта закупка была отобрана (matched_keywords)">
+      <input type="checkbox" id="reject-remove-matched"> Убрать из профиля ключевые слова, по которым отобрана закупка
+    </label>
+    <label style="display:block; margin:10px 0;">Добавить слово-исключение в профиль (необязательно)
+      <input type="text" id="reject-excl" placeholder="фраза или слово" spellcheck="false" style="width:100%;">
+    </label>
+    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" onclick="closeReject(${id})">Отмена</button>
+      <button class="danger" id="reject-confirm" onclick="doReject(${id})">Отбраковать</button>
+      <span id="reject-status" class="muted"></span>
+    </div>`;
+  $("#modal-bg").classList.add("open");
+}
+
+async function closeReject(id) {
+  closeModal();
+  await openDetail(id);
+}
+
+async function doReject(id) {
+  const reason = ($("#reject-reason").value || "").trim() || null;
+  const removeMatched = $("#reject-remove-matched").checked;
+  const exclusion = ($("#reject-excl").value || "").trim() || null;
+  const btn = $("#reject-confirm");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rejection_reason: reason,
+        remove_matched_keywords: removeMatched,
+        exclusion_word: exclusion,
+      }),
+    });
+    if (!r.ok) {
+      if ($("#reject-status")) {
+        $("#reject-status").textContent = "не удалось отбраковать";
+        $("#reject-status").style.color = "#dc2626";
+      }
+      if (btn) btn.disabled = false;
+      return;
+    }
+    $("#parser-status").textContent = `Закупка #${id} отклонена`;
+    await loadProc();
+    closeModal();
+  } catch (err) {
+    if ($("#reject-status")) {
+      $("#reject-status").textContent = "ошибка: " + (err.message || err);
+      $("#reject-status").style.color = "#dc2626";
+    }
+    if (btn) btn.disabled = false;
+  }
+}
+
 function updateSelUi() {
   const n = selected.size;
   $("#batch-analyze").disabled = !n;
@@ -679,6 +780,11 @@ export {
   viewTraceUrl,
   setCardTab,
   loadPlatforms,
+  acceptWork,
+  removeWorkByProc,
+  openReject,
+  closeReject,
+  doReject,
 };
 
 $("#proc-rows").addEventListener("click", (e) => {

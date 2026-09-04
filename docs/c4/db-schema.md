@@ -122,8 +122,28 @@ erDiagram
         jsonb matched_keywords "слова профиля, по которым закупка прошла фильтрацию (R9)"
         timestamptz scoring_queued_at "метка постановки задания в очередь"
         text comp_hash "хэш канонического содержания компетенций (дедуп BR-07)"
-        varchar(32) status "зарезервирована под Эпик 5 (пост-MVP)"
-        text rejection_reason "зарезервирована под Эпик 5 (пост-MVP)"
+        varchar(32) status "new|rejected (решение профиля, Эпик 5)"
+        text rejection_reason "причина отклонения (Эпик 5)"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    PROCUREMENT_WORK_ITEMS {
+        bigint id PK "автоинкремент"
+        bigint profile_id FK "владелец (profiles.id, CASCADE, BR-07)"
+        bigint procurement_id FK "закупка (procurements.id, SET NULL); NULL — запись-снимок/закупка удалена"
+        varchar(16) source "search|url — принята из поиска / по URL ЭТП"
+        varchar(16) status "in_work (задел: done|cancelled)"
+        text notes "заметка тендеролога"
+        timestamptz accepted_at "момент принятия «в работу»"
+        varchar(64) number "снимок карточки"
+        varchar(128) platform_id "снимок карточки"
+        varchar(1024) url "снимок карточки"
+        text subject "снимок карточки"
+        double nmck "снимок карточки"
+        timestamptz deadline "снимок карточки"
+        varchar(16) law "снимок карточки"
+        text customer_name "снимок карточки"
         timestamptz created_at "server_default now()"
         timestamptz updated_at "server_default now(), onupdate"
     }
@@ -141,6 +161,8 @@ erDiagram
     PROFILES ||--o{ KEYWORDS : "profile_id (FK, CASCADE)"
     PROCUREMENTS ||--o{ PROCUREMENT_EVALUATIONS : "procurement_id (FK, CASCADE)"
     PROFILES ||--o{ PROCUREMENT_EVALUATIONS : "profile_id (FK, CASCADE)"
+    PROCUREMENTS ||--o{ PROCUREMENT_WORK_ITEMS : "procurement_id (FK, SET NULL)"
+    PROFILES ||--o{ PROCUREMENT_WORK_ITEMS : "profile_id (FK, CASCADE)"
 
     LICENSE_TYPES {
         bigint id PK "автоинкремент"
@@ -248,6 +270,13 @@ erDiagram
   (`list_config.active_statuses`). Текущая дата (срок актуальности `deadline`) при
   записи не учитывается — она применяется на стороне клиента (фильтр `active`
   в `list_procurements`, эффективная активность в API-ответах).
+- **Решения по карточке (Эпик 5, миграция 1.51)**: отбраковка — `procurement_evaluations.status`
+  (`new`/`rejected`) + `rejection_reason` (колонки существовали с этапа 1);
+  `list_procurements` скрывает отклонённые (per-profile), `include_rejected=true`
+  возвращает их. «В работу» — `procurement_work_items`: признак на уровне профиля
+  (`profile_id`, BR-07), в выдаче — динамический атрибут `in_work`. Снимок ключевых
+  полей + FK `procurement_id ON DELETE SET NULL` (BR-08): при очистке БД без
+  `include_work_items` записи «в работе» сохраняются и отдаются из снимка.
 - `detail_json` хранит весь набор извлечённых переменных карточки для аналитики.
 
 ## Ключевые SQL-запросы

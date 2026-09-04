@@ -18,8 +18,20 @@ import {
   closeTz,
   viewTrace,
   setCardTab,
+  acceptWork,
+  removeWorkByProc,
+  openReject,
+  closeReject,
+  doReject,
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
+import {
+  loadWork,
+  addWorkByUrl,
+  removeWorkItem,
+  removeFromWork,
+  openWorkCard,
+} from "./work.js";
 import { loadMetrics } from "./metrics.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
@@ -46,6 +58,7 @@ import { ALL_TABS, canAccessBase, switchTo, updateRolesUI } from "./roles.js";
 // предупреждаем: «Отмена» — confirmDialog ниже, закрытие страницы — beforeunload.
 const TAB_LOADERS = {
   proc: null,
+  work: loadWork,
   cust: loadCustomers,
   profiles: loadProfiles,
   metrics: loadMetrics,
@@ -121,6 +134,15 @@ window.viewTz = viewTz;
 window.closeTz = closeTz;
 window.viewTrace = viewTrace;
 window.setCardTab = setCardTab;
+window.acceptWork = acceptWork;
+window.removeWorkByProc = removeWorkByProc;
+window.openReject = openReject;
+window.closeReject = closeReject;
+window.doReject = doReject;
+window.addWorkByUrl = addWorkByUrl;
+window.removeWorkItem = removeWorkItem;
+window.removeFromWork = removeFromWork;
+window.openWorkCard = openWorkCard;
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
@@ -165,6 +187,7 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
       await loadProc();
       await loadCustomers();
       await loadActiveClient();
+      await loadWork();
     } catch (err) {
       $("#proc-rows").innerHTML = `<tr><td colspan="4" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
     }

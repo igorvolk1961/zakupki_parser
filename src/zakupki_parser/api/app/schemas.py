@@ -53,6 +53,8 @@ class ProcurementOut(BaseModel):
     # Стоимость обработки закупки (USD) по этапам: {"scoring": {"usd": ...},
     # "analysis": {"usd": ...}}. Отдаётся только роли analyst (см. converters).
     costs: dict[str, Any] | None = None
+    # Закупка принята «в работу» активным профилем (Эпик 5, US-5.4–5.6).
+    in_work: bool = False
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
@@ -67,6 +69,76 @@ class ProcurementDetailOut(ProcurementOut):
 class ProcurementListOut(BaseModel):
     total: int
     items: list[ProcurementOut]
+
+
+class WorkItemOut(BaseModel):
+    """Запись «в работе» профиля (закупка, принятая тендерологом).
+
+    ``procurement_id`` NULL — закупка удалена из общей базы либо ещё не сохранена
+    парсером (принята по URL): карточка отдаётся из снимка полей в записи.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    procurement_id: int | None = None
+    source: str
+    status: str
+    notes: str | None = None
+    accepted_at: datetime
+    # Снимок карточки закупки на момент принятия (resilience к удалению закупки).
+    number: str | None = None
+    platform_id: str | None = None
+    url: str | None = None
+    subject: str | None = None
+    nmck: float | None = None
+    deadline: datetime | None = None
+    law: str | None = None
+    customer_name: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkItemsListOut(BaseModel):
+    total: int
+    items: list[WorkItemOut]
+
+
+class RejectIn(BaseModel):
+    """Отбраковка закупки профилем (Эпик 5, US-5.1/5.2).
+
+    ``remove_matched_keywords`` — убрать из профиля ключевые фразы, по которым
+    закупка была отобрана (matched_keywords). ``exclusion_word`` — добавить
+    слово-исключение в профиль (явное действие пользователя; предложение
+    «без автоприменения», US-5.3, отложено).
+    """
+
+    rejection_reason: str | None = None
+    remove_matched_keywords: bool = False
+    exclusion_word: str | None = Field(default=None, max_length=256)
+
+
+class AcceptWorkIn(BaseModel):
+    """Принятие закупки «в работу»: необязательная заметка."""
+
+    notes: str | None = None
+
+
+class AcceptWorkByUrlIn(BaseModel):
+    """Принятие «в работу» по URL закупки на ЭТП (не из результатов поиска)."""
+
+    url: str = Field(min_length=1, max_length=1024)
+    notes: str | None = None
+
+
+class ClearDbIn(BaseModel):
+    """Очистка БД (devops): удалять ли закупки, принятые «в работу».
+
+    По умолчанию False — записи «в работе» сохраняются (procurement_id обнуляется,
+    карточка читается из снимка), даже если результаты поиска удалены.
+    """
+
+    include_work_items: bool = False
 
 
 class CustomerOut(BaseModel):

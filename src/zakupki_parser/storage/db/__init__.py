@@ -28,6 +28,7 @@ from zakupki_parser.storage.db.profile import (
     ProfileLicense,
 )
 from zakupki_parser.storage.db.user import User
+from zakupki_parser.storage.db.work import ProcurementWorkItem
 
 __all__ = [
     "Base",
@@ -42,6 +43,7 @@ __all__ = [
     "ProcedureTypeMapping",
     "Procurement",
     "ProcurementEvaluation",
+    "ProcurementWorkItem",
     "Profile",
     "ProfileExperience",
     "ProfileLicense",

@@ -193,6 +193,10 @@ class Procurement(Base):
     langfuse_trace_url: str | None = None
     rag_report: dict[str, Any] | None = None
     costs: dict[str, Any] | None = None
+    # Признак «закупка принята в работу» под активный профиль (Эпик 5): не колонка,
+    # подкладывается репозиторием при выдаче (см. WorkMixin._apply_work_flag) из
+    # таблицы procurement_work_items (ключ (profile_id, procurement_id)).
+    in_work: bool = False
 
     customer_rel: Mapped[Customer | None] = relationship(back_populates="procurements")
     procedure_type_rel: Mapped[ProcedureType | None] = relationship(back_populates="procurements")

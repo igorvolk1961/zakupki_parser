@@ -22,6 +22,7 @@ from zakupki_parser.storage.db import (
     ProcedureTypeMapping,
     Procurement,
     ProcurementEvaluation,
+    ProcurementWorkItem,
 )
 from zakupki_parser.storage.repository.base import (
     RepositoryMixin,
@@ -175,6 +176,7 @@ class ProcurementMixin(RepositoryMixin):
             row = result.scalar_one_or_none()
         if row is not None and profile_id is not None:
             _apply_profile_score(row, row.evaluations, profile_id)
+            await self.mark_in_work([row], profile_id)
         return row
 
     async def list_procurements(
@@ -187,6 +189,8 @@ class ProcurementMixin(RepositoryMixin):
         active: bool | None = None,
         min_fit_score: float | None = None,
         scored: bool | None = None,
+        include_rejected: bool = False,
+        in_work: bool | None = None,
         sort: str | None = None,
         limit: int = 20,
         offset: int = 0,
@@ -206,6 +210,14 @@ class ProcurementMixin(RepositoryMixin):
 
         ``profile_id`` — скоуп профиля (BR-07): фильтр/сортировка по fit_score и
         score_method применяются к per-profile ``procurement_evaluations``.
+
+        ``include_rejected`` — показывать ли отклонённые профилем закупки (Эпик 5):
+        по умолчанию False — отклонённые (``status='rejected'``) скрываются.
+
+        ``in_work`` — ограничить выдачу закупками, принятыми «в работу» профилем
+        (единый механизм вкладок «Закупки»/«В работе»: тот же список и те же
+        карточки, см. ``procurement_work_items``). Строки результата помечаются
+        динамическим атрибутом ``in_work``.
         """
         conditions: list[ColumnElement[bool]] = []
         # Per-profile подзапрос скоринга активного профиля: фильтр/сортировка по
@@ -214,6 +226,21 @@ class ProcurementMixin(RepositoryMixin):
         score_sub = None
         if profile_id is not None:
             score_sub = _profile_score_subquery(profile_id)
+        if score_sub is not None and not include_rejected:
+            # Отклонённые профилем скрываются из выдачи (US-2.5/FR-5.1); закупки
+            # без per-profile оценки (нет строки в evaluations) не отклонялись.
+            conditions.append(
+                or_(
+                    score_sub.c.status.is_(None),
+                    score_sub.c.status != "rejected",
+                )
+            )
+        if in_work is True and profile_id is not None:
+            work_sub = select(ProcurementWorkItem.procurement_id).where(
+                ProcurementWorkItem.profile_id == profile_id,
+                ProcurementWorkItem.procurement_id.is_not(None),
+            )
+            conditions.append(Procurement.id.in_(work_sub))
         if number:
             conditions.append(Procurement.number.ilike(f"%{number}%"))
         if platform_id:
@@ -294,6 +321,7 @@ class ProcurementMixin(RepositoryMixin):
         if profile_id is not None:
             for row in rows:
                 _apply_profile_score(row, row.evaluations, profile_id)
+            await self.mark_in_work(rows, profile_id)
         return rows, total
 
     async def find_id(self, number: str, platform_id: str) -> int | None:
@@ -711,16 +739,55 @@ class ProcurementMixin(RepositoryMixin):
             for r in rows
         ]
 
-    async def clear_all(self) -> dict[str, int]:
-        """Полностью очищает БД (закупки и заказчики). Возвращает число удалённых."""
+    async def clear_all(self, include_work_items: bool = False) -> dict[str, int]:
+        """Полностью очищает БД (закупки и заказчики). Возвращает число удалённых.
+
+        Закупки, принятые «в работу» (``procurement_work_items``), по умолчанию
+        СОХРАНЯЮТСЯ: их ``procurement_id`` обнуляется (FK ON DELETE SET NULL),
+        карточка отдаётся из снимка в записи. Полное удаление «в работе» —
+        только по явному запросу (``include_work_items=True``, devops в UI).
+        """
         async with self._db.session() as session:
             procs = (await session.execute(select(func.count(Procurement.id)))).scalar_one()
             await session.execute(delete(Procurement))
+            work_items = 0
+            if include_work_items:
+                work_items = (
+                    await session.execute(select(func.count(ProcurementWorkItem.id)))
+                ).scalar_one()
+                await session.execute(delete(ProcurementWorkItem))
             cust = (await session.execute(select(func.count(Customer.id)))).scalar_one()
             await session.execute(delete(Customer))
             await session.commit()
-        logger.info("БД очищена: %s закупок, %s заказчиков", procs, cust)
-        return {"procurements": int(procs), "customers": int(cust)}
+        logger.info(
+            "БД очищена: %s закупок, %s заказчиков, %s записей «в работе»",
+            procs,
+            cust,
+            work_items,
+        )
+        return {"procurements": int(procs), "customers": int(cust), "work_items": int(work_items)}
+
+    async def _in_work_ids(self, profile_id: int) -> set[int]:
+        """id закупок профиля, принятых «в работу» (procurement_id не NULL)."""
+        stmt = select(ProcurementWorkItem.procurement_id).where(
+            ProcurementWorkItem.profile_id == profile_id,
+            ProcurementWorkItem.procurement_id.is_not(None),
+        )
+        async with self._db.session() as session:
+            return {int(r[0]) for r in (await session.execute(stmt)).all() if r[0] is not None}
+
+    async def mark_in_work(self, rows: list[Procurement], profile_id: int) -> None:
+        """Помечает строки списка закупок признаком «в работе» (динамический атрибут).
+
+        Признак «в работе» — per-profile (BR-07): подкладывается в выдачу из
+        ``procurement_work_items`` по (profile_id, procurement_id).
+        """
+        if not rows:
+            return
+        ids = await self._in_work_ids(profile_id)
+        for row in rows:
+            if row.id in ids:
+                row.in_work = True
 
     async def delete_inactive(self, now: datetime | None = None) -> int:
         """Удаляет неактивные закупки (is_active=false или истёкший срок актуальности).

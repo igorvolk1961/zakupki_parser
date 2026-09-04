@@ -7,6 +7,7 @@ import { showLogin } from "./auth.js";
 import { canAccessBase } from "./roles.js";
 import { pollProc } from "./procurements.js";
 import { pollCustomers } from "./customers.js";
+import { pollWork } from "./work.js";
 
 export const TOKEN_KEY = "zp_token";
 
@@ -73,6 +74,7 @@ export function scheduleRefresh() {
     if (canAccessBase()) {
       pollProc();
       pollCustomers();
+      pollWork();
     }
   }, 500);
 }

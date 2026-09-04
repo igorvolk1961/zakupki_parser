@@ -14,6 +14,7 @@ from zakupki_parser.storage.repository.evaluations import EvaluationMixin
 from zakupki_parser.storage.repository.procurements import ProcurementMixin
 from zakupki_parser.storage.repository.profiles import ProfileMixin
 from zakupki_parser.storage.repository.users import UserMixin
+from zakupki_parser.storage.repository.work import WorkMixin
 
 
 class ProcurementRepository(
@@ -22,6 +23,7 @@ class ProcurementRepository(
     UserMixin,
     ProfileMixin,
     EvaluationMixin,
+    WorkMixin,
 ):
     """Операции с таблицей ``procurements`` (и смежными доменами).
 

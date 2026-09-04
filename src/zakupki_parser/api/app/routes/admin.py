@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import text as sql_text
 
 from zakupki_parser.api.app.deps import ApiContext
-from zakupki_parser.api.app.schemas import ClearIrrelevantIn, HealthOut
+from zakupki_parser.api.app.schemas import ClearDbIn, ClearIrrelevantIn, HealthOut
 from zakupki_parser.api.app.state import _broadcast, _run_parser
 from zakupki_parser.auth import decode_token
 from zakupki_parser.storage.db import User
@@ -133,12 +133,19 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         return {"status": "stopping"}
 
     @router.post("/api/db/clear", include_in_schema=False, dependencies=[Depends(require_devops)])
-    async def clear_db() -> dict[str, Any]:
-        """Очищает БД (закупки и заказчики). Доступно только при остановленном парсере."""
+    async def clear_db(body: ClearDbIn | None = None) -> dict[str, Any]:
+        """Очищает БД (закупки и заказчики). Доступно только при остановленном парсере.
+
+        Закупки, принятые «в работу» (``procurement_work_items``), по умолчанию
+        сохраняются (``procurement_id`` обнуляется, карточка — из снимка). Полное
+        удаление «в работе» — только при явном ``include_work_items=true``
+        (запрашивается в web-интерфейсе).
+        """
         if state.parser_task is not None and not state.parser_task.done():
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
-        deleted = await _repo().clear_all()
-        logger.info("БД очищена из web-интерфейса: %s", deleted)
+        include_work_items = bool(body.include_work_items) if body is not None else False
+        deleted = await _repo().clear_all(include_work_items=include_work_items)
+        logger.info("БД очищена из web-интерфейса: %s (в работе: %s)", deleted, include_work_items)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 

@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from zakupki_parser.storage.db import Procurement, ProcurementEvaluation
+from zakupki_parser.storage.db import Keyword, Procurement, ProcurementEvaluation
 from zakupki_parser.storage.repository.base import RepositoryMixin, _round_score
 
 logger = logging.getLogger(__name__)
@@ -149,6 +150,65 @@ class EvaluationMixin(RepositoryMixin):
         )
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def get_matched_keywords(self, procurement_id: int, profile_id: int) -> list[str]:
+        """Слова, по которым закупка отобрана профилем (FR-2.3/R9)."""
+        evaluation = await self.get_score(procurement_id, profile_id)
+        if evaluation is None or not evaluation.matched_keywords:
+            return []
+        return [str(w) for w in evaluation.matched_keywords if isinstance(w, str)]
+
+    async def reject(
+        self,
+        procurement_id: int,
+        profile_id: int,
+        *,
+        rejection_reason: str | None = None,
+        remove_matched_keywords: bool = False,
+        exclusion_word: str | None = None,
+    ) -> ProcurementEvaluation:
+        """Отбраковывает закупку профилем (Эпик 5, US-5.1/5.2).
+
+        Помечает пару (закупка, профиль) как ``rejected`` с причиной (колонки
+        ``status``/``rejection_reason`` зарезервированы под Эпик 5) и опционально:
+        - ``remove_matched_keywords`` — удаляет из профиля позитивные слова, по
+          которым закупка была отобрана (``matched_keywords``);
+        - ``exclusion_word`` — добавляет слово-исключение профиля (явное действие
+          пользователя; US-5.3 «предложение» отложен).
+        """
+        async with self._db.session() as session:
+            evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
+            evaluation.status = "rejected"
+            evaluation.rejection_reason = rejection_reason
+            if remove_matched_keywords:
+                matched = [
+                    str(w) for w in (evaluation.matched_keywords or []) if isinstance(w, str)
+                ]
+                if matched:
+                    await session.execute(
+                        delete(Keyword).where(
+                            Keyword.profile_id == profile_id,
+                            Keyword.type == "keyword",
+                            Keyword.word.in_(matched),
+                        )
+                    )
+            if exclusion_word:
+                stmt = pg_insert(Keyword).values(
+                    profile_id=profile_id, word=exclusion_word, type="exclusion"
+                )
+                await session.execute(
+                    stmt.on_conflict_do_nothing(index_elements=["profile_id", "word", "type"])
+                )
+            await session.commit()
+            logger.info(
+                "Закупка %s отклонена профилем %s (reason=%r, remove_matched=%s, exclusion=%r)",
+                procurement_id,
+                profile_id,
+                rejection_reason,
+                remove_matched_keywords,
+                exclusion_word,
+            )
+            return evaluation
 
     async def list_costed_evaluations(
         self, limit: int | None = None
