@@ -178,6 +178,12 @@ class Procurement(Base):
     detail_api: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Метка успешной досборки деталей площадки (BR-08): NULL — досборка не выполнена.
     details_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Геокодированные координаты места поставки (широта/долгота, WGS84). Заполняются
+    # модулем геопозиционирования при проверке «не дальше N км от центра региона»
+    # и сохраняются, чтобы не запрашивать сервис геокодирования повторно для той же
+    # закупки. Оба значения NULL — координаты ещё не определены.
+    delivery_lat: Mapped[float | None] = mapped_column(Float)
+    delivery_lon: Mapped[float | None] = mapped_column(Float)
     # Номер итерации цикла планировщика, в которой закупка поставлена в очередь
     # скоринга (батч для журнала метрик «Метрики»). NULL — метрика не записана
     # (старые данные / постановка вне цикла парсера).

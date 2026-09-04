@@ -470,6 +470,25 @@ class ProcurementMixin(RepositoryMixin):
         logger.info("Обновлена карточка закупки id=%s (детали дособраны)", procurement_id)
         return True
 
+    async def update_delivery_geo(self, procurement_id: int, lat: float, lon: float) -> bool:
+        """Сохраняет геокодированные координаты места поставки закупки.
+
+        Заполняется модулем геопозиционирования при первой проверке расстояния и
+        позволяет впредь не запрашивать сервис геокодирования для той же закупки
+        (кэш в БД). Возвращает True, если запись найдена и обновлена.
+        """
+        async with self._db.session() as session:
+            cursor = cast(
+                CursorResult[Any],
+                await session.execute(
+                    update(Procurement)
+                    .where(Procurement.id == procurement_id)
+                    .values(delivery_lat=lat, delivery_lon=lon)
+                ),
+            )
+            await session.commit()
+            return (cursor.rowcount or 0) > 0
+
     async def find_scored_without_details(
         self, platform_id: str, limit: int | None = None
     ) -> list[dict[str, Any]]:

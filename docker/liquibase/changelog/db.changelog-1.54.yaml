@@ -1,0 +1,12 @@
+databaseChangeLog:
+- changeSet:
+    id: 55
+    author: zakupki-parser
+    comment: 'Геокодированные координаты места поставки закупки (procurements.delivery_lat / delivery_lon, NUMERIC nullable): сохраняются модулем геопозиционирования, чтобы не запрашивать сервис геокодирования повторно для той же закупки'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS delivery_lat NUMERIC;
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE procurements ADD COLUMN IF NOT EXISTS delivery_lon NUMERIC;

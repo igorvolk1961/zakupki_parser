@@ -36,6 +36,12 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.browser.manager import BrowserManager
+from zakupki_parser.geo.region_filter import (
+    geo_centers,
+    geo_filter_ready,
+    region_too_far,
+    stored_delivery_point,
+)
 from zakupki_parser.parser.detail import extract_detail_vars, extract_details, open_detail
 from zakupki_parser.parser.filtering import region_match
 from zakupki_parser.parser.json_utils import json_safe
@@ -623,6 +629,56 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             if row is None:  # pragma: no cover - проверено выше
                 raise HTTPException(status_code=404, detail="Закупка не найдена")
             return _procurement_detail_out(row, include_costs=True)
+        # Гео-фильтр (модуль геопозиционирования): используется только если профиль
+        # задал max_region_distance_km + target_regions, в конфигурации описан доступ
+        # к геокодеру И координаты центров целевых регионов определены. Если гео-решение
+        # принять нельзя (нет адреса/центра/геокодера) — fail-open, закупка не теряется.
+        # При заданном расстоянии строковый фильтр по региону отключён (см. выше).
+        geo = state.geocoder
+        geo_cfg = state.cfg.ops.geocoding
+        if (
+            geo is not None
+            and target_profile is not None
+            and geo_filter_ready(geo_cfg, target_profile)
+            and details_row is not None
+            and region_value
+        ):
+            max_km = target_profile.max_region_distance_km
+            if max_km is not None:
+                centers = await geo_centers(list(target_profile.target_regions), geo)
+                if centers:
+                    # Координаты места поставки — из БД, если уже геокодированы для
+                    # этой закупки (не запрашиваем сервис повторно); иначе геокодируем
+                    # и сохраняем в БД как локальный кэш.
+                    delivery_point = stored_delivery_point(
+                        details_row.delivery_lat, details_row.delivery_lon
+                    )
+                    if delivery_point is None:
+                        delivery_point = await geo.geocode(
+                            region_value, min_quality=geo_cfg.min_result_quality
+                        )
+                        if delivery_point is not None:
+                            await _repo().update_delivery_geo(
+                                procurement_id, delivery_point.lat, delivery_point.lon
+                            )
+                    if delivery_point is not None:
+                        too_far = region_too_far(delivery_point, centers, float(max_km))
+                        if too_far:
+                            await _repo().remove_evaluation(procurement_id, body.profile_id)
+                            logger.info(
+                                "Закупка %s: место поставки «%s» дальше %s км от центра "
+                                "целевого региона профиля %s — результат скоринга не записан",
+                                procurement_id,
+                                region_value,
+                                max_km,
+                                body.profile_id,
+                            )
+                            await _broadcast(state)
+                            row = await _repo().get_by_id(
+                                procurement_id, profile_id=body.profile_id
+                            )
+                            assert row is not None  # проверено выше
+                            return _procurement_detail_out(row, include_costs=True)
         # Стоимость обработки закупки: скоринг (body.score_costs) и анализ
         # (rag_report['cost']). Аналитическую стоимость вынимаем из rag_report ДО
         # сохранения, чтобы внутренняя метрика (USD) не персистилась/не отдавалась

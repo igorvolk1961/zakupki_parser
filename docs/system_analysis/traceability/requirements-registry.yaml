@@ -1270,6 +1270,29 @@ requirements:
       - src/scoring_common/tests/test_law_requirements.py
       - src/analysis_service/tests/test_rag.py
       - tests/integration/test_api.py
+  - id: FR-10.11
+    type: FR
+    title: Геопозиционирование — фильтр «место поставки не дальше N км от центра региона»
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/geo/centers.py
+      - src/zakupki_parser/geo/distance.py
+      - src/zakupki_parser/geo/geocoder.py
+      - src/zakupki_parser/geo/region_filter.py
+      - src/zakupki_parser/config/models/ops/geocoding.py
+      - src/zakupki_parser/config/models/ops/runtime.py
+      - src/zakupki_parser/storage/db/procurement.py
+      - src/zakupki_parser/storage/repository/procurements.py
+      - src/zakupki_parser/api/app/state.py
+      - src/zakupki_parser/api/app/routes/procurements.py
+    tests:
+      - tests/unit/test_geo_config.py
+      - tests/unit/test_geo_distance.py
+      - tests/unit/test_geo_geocoder.py
+      - tests/unit/test_geo_region_filter.py
 
   # ===== Бизнес-правила =====
   - id: BR-01

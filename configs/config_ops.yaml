@@ -7,6 +7,22 @@ timeout_seconds: 3600
 # (в YAML не хранятся). Пока — вход по логину/паролю, позже — OAuth2 через Сбер ID.
 auth:
   token_ttl_seconds: 43200
+# Сервис геокодирования (модуль геопозиционирования). Используется ТОЛЬКО если
+# профиль задал target_regions + max_region_distance_km (место поставки не дальше
+# N км от центра целевых регионов). API-ключ — из env ZAKUPKI_GEO_API_KEY (в YAML
+# не хранится). Модуль активен, если enabled+base_url; при ошибке геокодирования
+# решение откладывается (fail-open), закупки по гео не отбрасываются вслепую.
+geocoding:
+  enabled: true
+  provider: dadata            # dadata | nominatim (бесплатный фолбэк, покрытие хуже)
+  min_result_quality: 1       # qc_geo <= 1 — адрес до дома (0 точные, 2 улица, 4 город)
+  timeout_seconds: 10.0
+  max_retries: 2
+  retry_backoff_seconds: 2.0
+  rate_limit_per_second: 1.0  # вежливый режим (политика Nominatim <= 1 req/сек)
+  user_agent: "zakupki-parser/0.5"
+  # base_url для DaData «Подсказки»; для nominatim — https://nominatim.openstreetmap.org
+  base_url: "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address"
 db:
   dsn: postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki
   enabled: true

@@ -16,6 +16,7 @@ from fastapi import WebSocket
 
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
+from zakupki_parser.geo.geocoder import Geocoder, build_geocoder
 from zakupki_parser.notify import Notifier
 from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.db import Database
@@ -51,6 +52,9 @@ class AppState:
         self.notify_min_fit_score: float = 0.0
         # Транспорт каскада скоринга: постановка задач следующих стадий (P(win)/Margin).
         self.score_transport: ScoringTransportClient | None = None
+        # Геокодер (модуль геопозиционирования): None — доступ к сервису не описан
+        # в конфигурации (config_ops.yaml -> geocoding), гео-фильтр не активируется.
+        self.geocoder: Geocoder | None = None
 
 
 async def _broadcast(state: AppState, message: str = "data-changed") -> None:
@@ -124,4 +128,5 @@ def _create_state(configs_dir: str) -> AppState:
         state.score_transport = ScoringTransportClient(
             cfg.score.scoring_transport_url, auth_token=cfg.ops.auth.internal_token
         )
+    state.geocoder = build_geocoder(cfg.ops.geocoding)
     return state
