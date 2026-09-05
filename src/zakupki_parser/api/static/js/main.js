@@ -178,6 +178,10 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
 (async function init() {
   updateControls();
   updateRolesUI();
+  // Версия приложения на экране входа — из шапки (единый источник).
+  const authVersion = $("#auth-version");
+  const appVersion = $("#app-version");
+  if (authVersion && appVersion) authVersion.textContent = appVersion.textContent;
   // Состояние переключателя «Только релевантные» и числового поля порога.
   $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
   updateMinFit();

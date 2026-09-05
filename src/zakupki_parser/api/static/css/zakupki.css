@@ -4,12 +4,14 @@
     --text: #1f2937; --muted: #6b7280; --accent: #0284c7; --good: #16a34a; --warn: #d97706;
     --on-accent: #ffffff; --sel-bg: #dbeafe;
     --pill-score-bg: #e0f2fe; --pill-score-border: #bae6fd; --pill-score-text: #075985;
+    --brand-amber: #D98E1B;
   }
   html[data-theme="dark"] {
     --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
     --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --good: #4ade80; --warn: #fbbf24;
     --on-accent: #06283a; --sel-bg: #0c4a6e;
     --pill-score-bg: #082f49; --pill-score-border: #0c4a6e; --pill-score-text: #38bdf8;
+    --brand-amber: #F2A93B;
   }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -304,4 +306,131 @@
   .opt-note { margin-left:6px; font-size:12px; color: var(--accent); white-space:nowrap; }
   .ua-trial { font-size:13px; }
   .btn-mini { padding:4px 8px; font-size:12px; }
+
+  /* ================= Бренд TenderSearch (сыч) ================= */
+  header .brand-lockup { display:flex; align-items:center; gap:11px; }
+  .brand-mark { width:34px; height:34px; flex:0 0 auto; display:block; border-radius:9px;
+    box-shadow: 0 2px 10px rgba(11,30,56,.22); }
+  .brand-text { display:flex; flex-direction:column; gap:1px; min-width:0; }
+  .brand-title { font-size:18px; line-height:1.15; margin:0; letter-spacing:-.01em;
+    font-weight:800; color: var(--text); }
+  .brand-s { color: var(--brand-amber); }
+  .brand-sub { font-size:12px; color: var(--muted); }
+  .brand-sub .sub { color: inherit; }
+
+  /* ---------- Экран входа (главная форма, полноэкранный) ---------- */
+  #login-modal-bg {
+    /* Переменные гейта: фирменный «полночный» градиент (обе темы одинаковые). */
+    --gw-night: #0A1C38;
+    --gw-ink: #EAF1FB;
+    --gw-muted: rgba(214,228,246,.72);
+    --gw-owl: #1E4368;
+    --gw-owl-face: #2C5a8f;
+    --gw-amber: #F5B23E;
+    --gw-amber-deep: #E09A24;
+    --gw-sky: #63bdf2;
+    padding: 0;
+    align-items: stretch;
+    justify-content: center;
+    background:
+      radial-gradient(52rem 40rem at 88% -12%, rgba(242,169,59,.16), transparent 60%),
+      radial-gradient(46rem 40rem at -12% 112%, rgba(99,189,242,.14), transparent 55%),
+      radial-gradient(70rem 60rem at 60% 130%, rgba(42,101,166,.25), transparent 60%),
+      linear-gradient(155deg, #071530 0%, #0B2143 48%, #123059 100%);
+  }
+  .auth-shell {
+    width: 100%;
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(28px, 6vh, 64px) clamp(16px, 4vw, 52px);
+    box-sizing: border-box;
+  }
+  .auth-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+    gap: clamp(28px, 5vw, 90px);
+    align-items: center;
+    width: min(1240px, 100%);
+  }
+  .auth-hero { color: var(--gw-ink); min-width: 0; }
+  .auth-brand { display:flex; align-items:center; gap:18px; margin-bottom:26px; }
+  .brand-hero-owl { width: clamp(96px, 14vw, 150px); height:auto; flex:0 0 auto; }
+  .radar-ring { transform-box: view-box; transform-origin: 56px 62px;
+    animation: radar-spin 26s linear infinite; }
+  @keyframes radar-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) {
+    .radar-ring { animation: none; }
+  }
+  .auth-brand-name { font-size: clamp(28px, 3.4vw, 40px); margin: 0 0 2px;
+    font-weight: 800; letter-spacing: -.02em; color: var(--gw-ink); }
+  .auth-brand-name .brand-s { color: var(--gw-amber); }
+  .auth-brand-slogan { margin: 0; color: var(--gw-muted); font-size: 13.5px;
+    letter-spacing: .02em; }
+  .auth-lead { font-size: clamp(22px, 2.6vw, 30px); line-height: 1.25; margin: 0 0 12px;
+    font-weight: 700; letter-spacing: -.01em; }
+  .auth-sub { margin: 0 0 18px; color: var(--gw-muted); font-size: 15px; line-height: 1.55;
+    max-width: 56ch; }
+  .auth-feats { list-style: none; margin: 0 0 22px; padding: 0; display: grid; gap: 9px; }
+  .auth-feats li { position: relative; padding-left: 20px; font-size: 14px; line-height: 1.4;
+    color: rgba(234,241,251,.92); }
+  .auth-feats li::before { content: ""; position: absolute; left: 0; top: .55em;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--gw-amber);
+    box-shadow: 0 0 0 3px rgba(242,169,59,.18); }
+  .auth-legend { margin: 0; font-size: 13px; color: var(--gw-muted);
+    border-left: 2px solid rgba(242,169,59,.5); padding: 2px 0 2px 12px; max-width: 62ch; }
+  .auth-legend b { color: var(--gw-ink); font-weight: 600; }
+
+  /* Карточка входа */
+  #login-modal { width: 100%; max-width: 100%; padding: 26px 26px 20px; border-radius: 18px;
+    box-shadow: 0 24px 60px -18px rgba(2,10,26,.55), 0 6px 18px -8px rgba(2,10,26,.35);
+    background: var(--panel); }
+  .login-card-head { margin-bottom: 18px; }
+  .login-card-head h2 { margin: 0 0 2px; font-size: 22px; }
+  .login-sub { margin: 0; font-size: 13px; color: var(--muted); }
+  #login-modal .field label { font-weight: 600; }
+  #login-modal .field input { width: 100%; background: var(--panel2); border-color: var(--line);
+    padding: 11px 12px; border-radius: 10px; font-size: 14px; }
+  #login-modal .field input:focus { border-color: var(--brand-amber);
+    box-shadow: 0 0 0 3px rgba(242,169,59,.16); }
+  #login-modal button.login-btn { width: 100%; padding: 12px 16px; font-size: 15px;
+    border-radius: 10px; background: var(--gw-owl); border-color: var(--gw-owl); color: #fff; }
+  html[data-theme="dark"] #login-modal button.login-btn { background: var(--brand-amber);
+    border-color: var(--brand-amber); color: #14181F; }
+  #login-modal button.login-btn:hover { filter: brightness(1.08); }
+  #login-modal button.login-btn:disabled { opacity: .6; }
+  .login-foot { margin-top: 16px; }
+  .login-foot .switch { margin-top: 2px; }
+  .login-foot .switch button { font-weight: 600; }
+  .login-sec { margin: 12px 0 0; font-size: 12px; line-height: 1.45; text-align: center; }
+  .auth-foot { width: min(1240px, 100%); margin-top: 34px; display: flex; align-items: center;
+    justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    font-size: 12.5px; color: var(--gw-muted); }
+  .auth-online { display: inline-flex; align-items: center; gap: 7px; }
+  .auth-online .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ADE80;
+    box-shadow: 0 0 0 3px rgba(74,222,128,.18); }
+  .auth-meta { letter-spacing: .01em; }
+
+  /* Адаптивность гейта */
+  @media (max-width: 980px) {
+    .auth-main { grid-template-columns: 1fr; gap: 26px; max-width: 440px; }
+    .auth-hero { text-align: left; }
+    .auth-brand { margin-bottom: 16px; }
+    .auth-feats { margin-bottom: 0; }
+    .auth-legend { margin-top: 16px; }
+    .auth-foot { justify-content: center; text-align: center; margin-top: 26px; }
+  }
+  /* На невысоких окнах контент выравнивается сверху и прокручивается целиком,
+     чтобы верх гейта не обрезался при центрировании. */
+  @media (max-height: 820px) {
+    .auth-shell { justify-content: flex-start; }
+  }
+  @media (max-width: 520px) {
+    .auth-feats { display: none; }
+    .auth-sub { font-size: 14px; }
+    #login-modal { padding: 22px 18px 16px; }
+  }
+  body:has(#login-modal-bg.open) { overflow: hidden; }
 

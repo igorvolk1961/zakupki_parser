@@ -49,7 +49,9 @@ function showLogin() {
   loginMode = "login";
   $("#login-title").textContent = "Вход";
   $("#login-switch").textContent = "Зарегистрироваться";
-  $("#login-submit").textContent = "Войти";
+  $("#login-submit").textContent = "Вход";
+  const sub = $("#login-modal .login-sub");
+  if (sub) sub.textContent = "Рабочее пространство тендеролога";
   $("#login-error").textContent = "";
   $("#login-password").type = "password";
   $("#login-password").autocomplete = "new-password";
@@ -196,7 +198,11 @@ $("#login-switch").addEventListener("click", () => {
   loginMode = loginMode === "login" ? "register" : "login";
   $("#login-title").textContent = loginMode === "register" ? "Регистрация" : "Вход";
   $("#login-switch").textContent = loginMode === "register" ? "Войти" : "Зарегистрироваться";
-  $("#login-submit").textContent = loginMode === "register" ? "Создать аккаунт" : "Войти";
+  $("#login-submit").textContent = loginMode === "register" ? "Создать аккаунт" : "Вход";
+  const sub = $("#login-modal .login-sub");
+  if (sub) sub.textContent = loginMode === "register"
+    ? "Создайте аккаунт — роли назначает администратор"
+    : "Рабочее пространство тендеролога";
   $("#login-password").type = "password";
   $("#login-password").autocomplete = "new-password";
   $("#login-confirm-field").style.display = loginMode === "register" ? "" : "none";
