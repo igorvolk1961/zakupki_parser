@@ -351,6 +351,14 @@ def render_stop_failure(remaining: list[int]) -> str:
     pids = list(dict.fromkeys(remaining))
     if not pids:
         return ""
+    if _on_windows():
+        # Анализ по UID/cgroup (docker, чужой пользователь) работает только на Linux:
+        # taskkill-путь на Windows не различает такие случаи.
+        return (
+            "Не удалось остановить: процессы "
+            + ", ".join(map(str, pids))
+            + " не завершились — попробуйте `zp stop --force`."
+        )
     docker = [p for p in pids if _in_docker(p)]
     foreign = [p for p in pids if p not in docker and _pid_uid(p) not in (None, os.getuid())]
     stuck = [p for p in pids if p not in docker and p not in foreign]
