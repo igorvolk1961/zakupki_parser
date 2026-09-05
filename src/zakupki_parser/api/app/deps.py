@@ -34,6 +34,7 @@ from zakupki_parser.auth import (
 )
 from zakupki_parser.storage.db import Profile, User
 from zakupki_parser.storage.repository import ProcurementRepository
+from zakupki_parser.storage.repository.accounts import EffectiveOptions, effective_options
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ class ApiContext:
     _active_context: Callable[[User | None], Awaitable[tuple[User | None, Profile | None]]]
     _profile_out: Callable[..., Awaitable[ProfileOut]]
     _owned_profile: Callable[[User | None, int], Awaitable[Profile]]
+    _effective_options: Callable[[User], Awaitable[Any]]
     _license_types_map: Callable[[], Awaitable[dict[int, LicenseTypeOut]]]
     _confirmation_types_map: Callable[[], Awaitable[dict[int, ConfirmationTypeOut]]]
     _validate_profile_entries: Callable[[ProfileIn], Awaitable[None]]
@@ -113,6 +115,11 @@ def build_context(state: AppState) -> ApiContext:
         if include_facts:
             data["facts"] = ProfileFactsOut(**await _repo().get_profile_facts(profile.id))
         return ProfileOut(**data)
+
+    async def _effective_options(user: User) -> EffectiveOptions:
+        """Эффективный доступ пользователя к платным опциям (аккаунт + триал)."""
+        accounts = await _repo().list_accounts(user.id)
+        return effective_options(accounts, user.trial_end_at)
 
     async def _owned_profile(user: User | None, client_id: int) -> Profile:
         """Профиль пользователя или 404 (tenant-скоуп BR-07).
@@ -243,13 +250,15 @@ def build_context(state: AppState) -> ApiContext:
             return
         if await _repo().count_users() > 0:
             return
-        await _repo().create_user(username, hash_password(password), [ROLE_ADMIN])
+        admin = await _repo().create_user(username, hash_password(password), [ROLE_ADMIN])
+        await _repo().ensure_default_account(admin.id, paid_default=True)
         logger.info("Создан начальный администратор %s (из env)", username)
 
     ctx._repo = _repo
     ctx._active_context = _active_context
     ctx._profile_out = _profile_out
     ctx._owned_profile = _owned_profile
+    ctx._effective_options = _effective_options
     ctx._license_types_map = _license_types_map
     ctx._confirmation_types_map = _confirmation_types_map
     ctx._validate_profile_entries = _validate_profile_entries

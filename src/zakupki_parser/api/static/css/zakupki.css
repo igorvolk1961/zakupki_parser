@@ -81,6 +81,8 @@
   .pill.score { background: var(--pill-score-bg); border-color: var(--pill-score-border); color: var(--pill-score-text); font-weight:700;}
   .pill.active { background: #dcfce7; border-color: #bbf7d0; color: #166534; font-weight:600;}
   .pill.inactive { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
+  .pill.trial { background:#dcfce7; border-color:#bbf7d0; color:#166534; font-weight:600; }
+  html[data-theme="dark"] .pill.trial { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .pill.inactive { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
   .client-switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
@@ -282,3 +284,24 @@
   .status-pill.blocked { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
   html[data-theme="dark"] .status-pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .status-pill.blocked { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
+  /* Личный кабинет: триал, аккаунты и опции. */
+  #profile-save-status.error { color:#dc2626; font-weight:600; }
+  html[data-theme="dark"] #profile-save-status.error { color:#f87171; }
+  .acct-banner { padding:10px 12px; border-radius:8px; margin-bottom:10px; font-size:13px; }
+  .acct-banner.trial { background:#dcfce7; border:1px solid #bbf7d0; color:#14532d; }
+  .acct-banner.off { background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  html[data-theme="dark"] .acct-banner.trial { background:#052e16; border-color:#14532d; color:#86efac; }
+  .acct-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; border:1px solid var(--line);
+    border-radius:8px; padding:6px 10px; margin-bottom:6px; background:var(--panel); }
+  .acct-row.active { border-color: var(--good); }
+  .acct-row .acct-name { font-weight:600; }
+  .acct-row .btn-mini { padding:3px 8px; font-size:12px; }
+  .opt-row { display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border:1px solid var(--line);
+    border-radius:8px; margin-bottom:6px; background:var(--panel); font-size:13px; }
+  .opt-row.opt-free { background:var(--panel2); }
+  .opt-row .opt-check { min-width:22px; }
+  .opt-row input[type="checkbox"] { width:17px; height:17px; accent-color: var(--good); }
+  .opt-note { margin-left:6px; font-size:12px; color: var(--accent); white-space:nowrap; }
+  .ua-trial { font-size:13px; }
+  .btn-mini { padding:4px 8px; font-size:12px; }
+

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from zakupki_parser.storage.repository.accounts import AccountMixin
 from zakupki_parser.storage.repository.base import _round_score, effective_is_active
 from zakupki_parser.storage.repository.customers import CustomerMixin
 from zakupki_parser.storage.repository.evaluations import EvaluationMixin
@@ -22,6 +23,7 @@ class ProcurementRepository(
     CustomerMixin,
     UserMixin,
     ProfileMixin,
+    AccountMixin,
     EvaluationMixin,
     WorkMixin,
 ):

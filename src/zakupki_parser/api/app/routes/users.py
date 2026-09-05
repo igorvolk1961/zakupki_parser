@@ -14,20 +14,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
+    AccountIn,
+    AccountOut,
+    AccountUpdateIn,
+    UserAccountsOut,
     UserIn,
     UserOut,
     UserRolesIn,
     UsersListOut,
     UserStatusIn,
+    UserTrialIn,
 )
 from zakupki_parser.auth import ROLE_ADMIN, ROLE_USER, hash_password
 from zakupki_parser.storage.db import User
+from zakupki_parser.storage.repository.accounts import in_trial_now
 
 logger = logging.getLogger(__name__)
 
@@ -55,18 +63,22 @@ def build_users_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
         password_hash = await asyncio.to_thread(hash_password, body.password)
         try:
-            user = await _repo().create_user(
-                body.username, password_hash, list(body.roles), email=body.email
+            # Атомарно: пользователь + default-профиль + default-аккаунт. Аккаунт
+            # «По умолчанию» — со всеми платными опциями: пользователя создаёт
+            # администратор (осознанное предоставление доступа), поэтому поведение
+            # не меняется — ограничить опции админ может в этом же интерфейсе (#5).
+            user = await _repo().create_user_with_setup(
+                body.username,
+                password_hash,
+                list(body.roles),
+                email=body.email,
+                trial_end_at=None,
+                account_paid_default=True,
             )
         except IntegrityError as exc:
             raise HTTPException(
                 status_code=409, detail="Пользователь с таким логином уже есть"
             ) from exc
-        # Активный профиль default — как при регистрации: без него список закупок
-        # недоступен (нет контекста фильтрации) для ролей с базовыми вкладками.
-        # Создаётся только для ролей user/analyst (BR-07): администратору/devops
-        # профиль не положен.
-        await _repo().ensure_default_profile(user.id, user.roles)
         logger.info(
             "Админ %s создал пользователя %s (роли %s)",
             admin.username if admin else "?",
@@ -146,5 +158,126 @@ def build_users_router(ctx: ApiContext) -> APIRouter:
                     status_code=409, detail="Нельзя удалить последнего администратора"
                 )
         await _repo().delete_user(target.id)
+
+    async def _target_user(user_id: int) -> User:
+        """Пользователь-цель админ-действия или 404."""
+        target = await _repo().get_user(user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+        return target
+
+    @router.patch(
+        "/api/users/{user_id}/trial",
+        response_model=UserOut,
+        dependencies=[Depends(require_admin)],
+    )
+    async def update_trial(
+        user_id: int, body: UserTrialIn, admin: User | None = Depends(require_admin)
+    ) -> UserOut:
+        """Управляет триал-режимом пользователя (выдать/продлить/отключить).
+
+        ``days`` — триал на N суток от сейчас; ``trial_end_at`` — конкретная дата;
+        ни то, ни другое — триал отключается (пользователь переходит на аккаунт).
+        """
+        target = await _target_user(user_id)
+        if admin is not None and target.id == admin.id:
+            # Себе триал админ тоже может выдать; запрета нет.
+            pass
+        if body.days is not None:
+            trial_end_at = datetime.now(UTC) + timedelta(days=body.days)
+        elif body.trial_end_at is not None:
+            trial_end_at = body.trial_end_at
+            if trial_end_at.tzinfo is None:
+                trial_end_at = trial_end_at.replace(tzinfo=UTC)
+        else:
+            trial_end_at = None
+        updated = await _repo().set_user_trial_end(target.id, trial_end_at)
+        return UserOut.model_validate(updated)
+
+    @router.get(
+        "/api/users/{user_id}/accounts",
+        response_model=UserAccountsOut,
+        dependencies=[Depends(require_admin)],
+    )
+    async def list_user_accounts(user_id: int) -> UserAccountsOut:
+        """Аккаунты пользователя и состояние триала (для админ-вкладки)."""
+        target = await _target_user(user_id)
+        accounts = await _repo().list_accounts(target.id)
+        active_account_id = next((a.id for a in accounts if a.is_active), None)
+        trial_enabled = in_trial_now(target.trial_end_at)
+        days_left = None
+        if trial_enabled and target.trial_end_at is not None:
+            seconds = (target.trial_end_at - datetime.now(UTC)).total_seconds()
+            days_left = max(0, int(math.ceil(seconds / 86400)))
+        return UserAccountsOut(
+            user_id=target.id,
+            username=target.username,
+            active_account_id=active_account_id,
+            accounts=[AccountOut.model_validate(a) for a in accounts],
+            trial={
+                "enabled": trial_enabled,
+                "trial_end_at": target.trial_end_at,
+                "days_left": days_left,
+            },
+        )
+
+    @router.post(
+        "/api/users/{user_id}/accounts",
+        response_model=AccountOut,
+        status_code=201,
+        dependencies=[Depends(require_admin)],
+    )
+    async def create_user_account(user_id: int, body: AccountIn) -> AccountOut:
+        """Создаёт аккаунт пользователю (становится активным, если активного нет)."""
+        await _target_user(user_id)
+        try:
+            account = await _repo().create_account(user_id, body.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return AccountOut.model_validate(account)
+
+    @router.put(
+        "/api/users/{user_id}/accounts/{account_id}",
+        response_model=AccountOut,
+        dependencies=[Depends(require_admin)],
+    )
+    async def update_user_account(
+        user_id: int, account_id: int, body: AccountUpdateIn
+    ) -> AccountOut:
+        """Обновляет имя/опции аккаунта пользователя."""
+        try:
+            account = await _repo().update_account(
+                user_id, account_id, name=body.name, options=body.options
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        if account is None:
+            raise HTTPException(status_code=404, detail="Аккаунт не найден")
+        return AccountOut.model_validate(account)
+
+    @router.post(
+        "/api/users/{user_id}/accounts/{account_id}/activate",
+        response_model=AccountOut,
+        dependencies=[Depends(require_admin)],
+    )
+    async def activate_user_account(user_id: int, account_id: int) -> AccountOut:
+        """Делает аккаунт пользователя активным."""
+        try:
+            account = await _repo().set_active_account(user_id, account_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return AccountOut.model_validate(account)
+
+    @router.delete(
+        "/api/users/{user_id}/accounts/{account_id}",
+        status_code=204,
+        dependencies=[Depends(require_admin)],
+    )
+    async def delete_user_account(user_id: int, account_id: int) -> None:
+        """Удаляет аккаунт пользователя (нельзя удалить последний/активный)."""
+        try:
+            await _repo().delete_account(user_id, account_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return router

@@ -219,10 +219,17 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     state = ctx.state
     _repo = ctx._repo
     _active_context = ctx._active_context
+    _effective_options = ctx._effective_options
     require_user = ctx.require_user
     require_base = ctx.require_base
     require_internal = ctx.require_internal
     require_user_or_internal = ctx.require_user_or_internal
+
+    def _require_user(user: User | None) -> User:
+        """Реальный пользователь (авторизация всегда включена)."""
+        if user is None:
+            raise HTTPException(status_code=401, detail="Требуется авторизация")
+        return user
 
     @router.get(
         "/api/procurements",
@@ -739,17 +746,37 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         задание fit (если per-profile fit ещё не посчитан) и затем analysis —
         заполнение ``data`` требований к участнику + персональные вопросы профиля.
         Ручная корректировка оценок — вне MVP (Эпик 5, пост-MVP).
+
+        Стадии — платные опции (аккаунт/триал): fit использует опцию ``scoring``,
+        analysis — ``analysis`` и ``analysis_embeddings``. Недоступные стадии
+        пропускаются; если не доступна ни одна — операция отклоняется с
+        понятным сообщением (пользователь включает опции в личном кабинете).
         """
+        eff_user = _require_user(user)
         if state.score_transport is None:
             raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
-        _, profile = await _active_context(user)
+        _, profile = await _active_context(eff_user)
         assert profile is not None
+        eff = await _effective_options(eff_user)
+        can_fit = eff.has_option("scoring")
+        can_analysis = eff.has_option("analysis") and eff.has_option("analysis_embeddings")
+        if not can_fit and not can_analysis:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Операция недоступна в вашем аккаунте: анализ документов и скоринг — "
+                    "платные опции (LLM/эмбеддинги). Включите нужные опции в личном кабинете "
+                    "(в триал-режиме доступны все опции)."
+                ),
+            )
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
-            current = await _repo().get_score(procurement_id, profile.id)
-            if current is None or current.fit_score is None:
-                await _enqueue_next_stage(state, procurement_id, "fit", 0.5, profile.id)
-            await _enqueue_next_stage(state, procurement_id, "analysis", 0.5, profile.id)
+            if can_fit:
+                current = await _repo().get_score(procurement_id, profile.id)
+                if current is None or current.fit_score is None:
+                    await _enqueue_next_stage(state, procurement_id, "fit", 0.5, profile.id)
+            if can_analysis:
+                await _enqueue_next_stage(state, procurement_id, "analysis", 0.5, profile.id)
             queued.append(procurement_id)
         logger.info("Поставлено на обработку (fit+analysis): %s", queued)
         return {"status": "queued", "procurement_ids": queued}
@@ -762,20 +789,39 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     async def pwin_margin_procurements(
         body: ProcurementIdsIn, user: User | None = Depends(require_base)
     ) -> dict[str, Any]:
-        """Оценить P(win) и Margin для выбранных закупок (on-demand, обе стадии)."""
+        """Оценить P(win) и Margin для выбранных закупок (on-demand, обе стадии).
+
+        Стадии — платные опции аккаунта (``pwin``/``margin``); недоступные
+        пропускаются, при полной недоступности — 403 с подсказкой включить
+        опции в личном кабинете.
+        """
+        eff_user = _require_user(user)
         if state.score_transport is None:
             raise HTTPException(status_code=409, detail="Транспорт скоринга не настроен")
         cfg = state.cfg.score
-        _, profile = await _active_context(user)
+        _, profile = await _active_context(eff_user)
         assert profile is not None
+        eff = await _effective_options(eff_user)
+        stages: list[tuple[str, bool]] = []
+        if cfg.pwin_enabled:
+            stages.append(("pwin", eff.has_option("pwin")))
+        if cfg.margin_enabled:
+            stages.append(("margin", eff.has_option("margin")))
+        allowed = [stage for stage, ok in stages if ok]
+        if not allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Оценка P(win)/Margin недоступна в вашем аккаунте: это платные опции "
+                    "(LLM). Включите их в личном кабинете (в триал-режиме доступны все опции)."
+                ),
+            )
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
-            if cfg.pwin_enabled:
-                await _enqueue_next_stage(state, procurement_id, "pwin", 0.5, profile.id)
-            if cfg.margin_enabled:
-                await _enqueue_next_stage(state, procurement_id, "margin", 0.5, profile.id)
+            for stage in allowed:
+                await _enqueue_next_stage(state, procurement_id, stage, 0.5, profile.id)
             queued.append(procurement_id)
-        logger.info("Поставлено на оценку P(win)/Margin: %s", queued)
+        logger.info("Поставлено на оценку P(win)/Margin: %s (стадии: %s)", queued, allowed)
         return {"status": "queued", "procurement_ids": queued}
 
     return router

@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from zakupki_parser.api.app.converters import _meets_stage_notify_threshold  # noqa: F401
 from zakupki_parser.api.app.deps import build_context
+from zakupki_parser.api.app.routes.account import build_account_router
 from zakupki_parser.api.app.routes.admin import build_admin_router
 from zakupki_parser.api.app.routes.auth import build_auth_router
 from zakupki_parser.api.app.routes.clients import build_clients_router
@@ -95,6 +96,7 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
 
     app.include_router(build_admin_router(ctx))
     app.include_router(build_auth_router(ctx))
+    app.include_router(build_account_router(ctx))
     app.include_router(build_users_router(ctx))
     app.include_router(build_procurements_router(ctx))
     app.include_router(build_clients_router(ctx))

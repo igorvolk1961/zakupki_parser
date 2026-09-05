@@ -20,6 +20,54 @@ logger = logging.getLogger(__name__)
 # Метка узла: <a class="ui label" value=".path.">Название (код)<i .../></a>
 _LABEL_RE = re.compile(r'value="(\.[0-9]+(?:\.[0-9]+)*\.)"[^>]*>([^<]+?)\((\d+(?:\.\d+)*)\)<')
 
+# Код ОКПД2: 2-9 цифр, разделённые точками; класс всегда 2 цифры, вложенные
+# блоки — 1-3 цифры (напр. 62, 62.02, 62.02.1, 62.02.20.110).
+_OKPD2_BLOCK = r"\d{1,3}"
+_OKPD2_RE = re.compile(rf"^\d{{2}}(?:\.{_OKPD2_BLOCK})*$")
+
+
+def normalize_okpd_code(raw: str) -> str:
+    """Нормализует и проверяет один код ОКПД2 (формат: цифры и точки).
+
+    Принимает код с разделителями ``.``/``-``/пробелами либо «голые» цифры
+    (2-9). Возвращает канонический текст с точками; бросает ``ValueError`` для
+    не-кода (буквы, лишние разделители, неверная длина/структура).
+    """
+    if not raw or not raw.strip():
+        raise ValueError("Код ОКПД2 пуст")
+    # Пробелы и дефисы — разделители групп (62 02 / 62-02 → 62.02).
+    cleaned = re.sub(r"\s+", ".", raw.strip()).replace("-", ".")
+    # «Голые» цифры: оставляем как введено (площадки сами резолвят по цифрам).
+    if cleaned.isdigit():
+        if not 2 <= len(cleaned) <= 9:
+            raise ValueError(f"Код ОКПД2 «{raw}» должен содержать от 2 до 9 цифр")
+        return cleaned
+    if not _OKPD2_RE.match(cleaned):
+        raise ValueError(
+            f"Код ОКПД2 «{raw}» имеет неверный формат: цифры, разделённые точками "
+            "(например, 62.02 или 62.02.20.110)"
+        )
+    digits = re.sub(r"\D", "", cleaned)
+    if not 2 <= len(digits) <= 9:
+        raise ValueError(f"Код ОКПД2 «{raw}» должен содержать от 2 до 9 цифр")
+    return cleaned
+
+
+def normalize_okpd_codes(codes: list[str] | None) -> list[str]:
+    """Нормализует список кодов ОКПД2: проверка формата, трим, дедупликация."""
+    if not codes:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in codes:
+        if raw is None:
+            continue
+        code = normalize_okpd_code(str(raw))
+        if code and code not in seen:
+            seen.add(code)
+            out.append(code)
+    return out
+
 
 def parse_tree_html(html: str) -> dict[str, Any]:
     """Разбирает снимок выбранных ветвей ОКПД2 в маппинг код→путь и путь→имя."""

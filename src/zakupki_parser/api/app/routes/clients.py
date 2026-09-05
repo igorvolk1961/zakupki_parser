@@ -90,6 +90,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     _active_context = ctx._active_context
     _profile_out = ctx._profile_out
     _validate_profile_entries = ctx._validate_profile_entries
+    _effective_options = ctx._effective_options
     require_base = ctx.require_base
     require_user_or_internal = ctx.require_user_or_internal
 
@@ -202,9 +203,16 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> ProfileOut:
         eff_user = _require_user(user)
         await _validate_profile_entries(body)
-        return await _profile_out(
-            await _repo().upsert_profile(body.model_dump(exclude_none=True), eff_user.id)
-        )
+        eff = await _effective_options(eff_user)
+        try:
+            profile = await _repo().upsert_profile(
+                body.model_dump(exclude_none=True),
+                eff_user.id,
+                require_competencies=eff.account_provides_competency_scoring(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await _profile_out(profile)
 
     @router.put(
         "/api/clients/{client_id}",
@@ -222,9 +230,16 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         # переименовании — раньше upsert по name создавал новый профиль), null
         # сохраняется как null (exclude_unset, а не exclude_none).
         await _validate_profile_entries(body)
-        updated = await _repo().upsert_profile(
-            body.model_dump(exclude_unset=True), eff_user.id, profile_id=client_id
-        )
+        eff = await _effective_options(eff_user)
+        try:
+            updated = await _repo().upsert_profile(
+                body.model_dump(exclude_unset=True),
+                eff_user.id,
+                profile_id=client_id,
+                require_competencies=eff.account_provides_competency_scoring(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return await _profile_out(updated)
 
     @router.post(
@@ -274,7 +289,15 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         eff_user = _require_user(user)
         seed = parse_keywords_file()
         name = seed.get("name") or "default"
-        profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
+        eff = await _effective_options(eff_user)
+        try:
+            profile = await _repo().upsert_profile(
+                {**seed, "name": name},
+                eff_user.id,
+                require_competencies=eff.account_provides_competency_scoring(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info(
             "Профиль %s (id=%s) засижен из web-интерфейса (файл-сид профиля)",
             name,
@@ -300,7 +323,15 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         eff_user = _require_user(user)
         seed = parse_profile_json(payload.content)
         name = seed.get("name") or "default"
-        profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
+        eff = await _effective_options(eff_user)
+        try:
+            profile = await _repo().upsert_profile(
+                {**seed, "name": name},
+                eff_user.id,
+                require_competencies=eff.account_provides_competency_scoring(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
         return await _profile_out(profile)

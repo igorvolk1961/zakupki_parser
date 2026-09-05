@@ -116,11 +116,31 @@ function renderAuth() {
     bar.style.display = "flex";
     $("#user-name").textContent = state.authUser.username;
     $("#user-role").textContent = roleLabelList().join(", ");
+    renderTrialPill(state.authUser.trial_end_at);
   } else {
     bar.style.display = "none";
+    $("#user-trial").style.display = "none";
   }
   updateControls();
   updateRolesUI();
+}
+
+// Пилюля «триал N дн.» в шапке: расчёт по серверной дате окончания триала.
+function renderTrialPill(trialEndAt) {
+  const pill = $("#user-trial");
+  if (!pill) return;
+  if (!trialEndAt) {
+    pill.style.display = "none";
+    return;
+  }
+  const end = new Date(trialEndAt);
+  const days = Math.max(0, Math.ceil((end - Date.now()) / 86400000));
+  if (days <= 0) {
+    pill.style.display = "none";
+    return;
+  }
+  pill.textContent = `триал ${days} дн.`;
+  pill.style.display = "";
 }
 
 function logout() {

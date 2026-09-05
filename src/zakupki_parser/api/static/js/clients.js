@@ -2,8 +2,8 @@
 
 // Вкладка «Профили»: список, редактор профиля (слова/компетенции/вопросы),
 // лицензии и подтверждённый опыт (BR-03), переключение активного клиента.
-import { $, escapeHtml, fmtMoney, splitWords } from "./utils.js";
-import { api, apiJSON } from "./api.js";
+import { $, escapeHtml, fmtMoney } from "./utils.js";
+import { api, apiJSON, apiErrorDetail } from "./api.js";
 import { confirmDialog, confirmDialogAsync } from "./dialogs.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
@@ -14,6 +14,7 @@ let profileEditorName = "";
 let profilesTotal = 0;
 let profileKeywords = [];
 let profileExcl = [];
+let profileOkpd = [];
 let profileQuestions = [];
 let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
@@ -302,7 +303,9 @@ function fillProfileForm(p) {
   $("#pf-enabled").checked = p ? p.enabled : true;
   $("#pf-active").checked = p ? p.is_active : false;
   syncEnabledActiveState();
-  $("#pf-okpd").value = (p ? p.okpd_codes || [] : []).join(", ");
+  profileOkpd.length = 0;
+  (p ? p.okpd_codes || [] : []).forEach((c) => profileOkpd.push(c));
+  renderTags(profileOkpd, "#pf-okpd-tags");
   $("#pf-nmck-min").value = p && p.nmck_min != null ? p.nmck_min : "";
   $("#pf-nmck-max").value = p && p.nmck_max != null ? p.nmck_max : "";
   profileKeywords.length = 0;
@@ -463,6 +466,56 @@ function bindTagSearch(wrapId, arr) {
       input.value = "";
       apply();
     }
+  });
+}
+
+// --- Коды ОКПД2: чипы-теги с контролем формата (#1/#2) ------------------
+// Формат кода: 2-9 цифр, разделённых точками (например 62.02, 62.02.20.110).
+function okpdIsValid(code) {
+  const c = String(code).trim();
+  if (!c) return false;
+  const cleaned = c.replace(/\s+/g, ".").replace(/-/g, ".");
+  const digits = cleaned.replace(/\D/g, "");
+  if (digits.length < 2 || digits.length > 9) return false;
+  if (/^\d+$/.test(cleaned)) return true;
+  return /^\d{2}(\.\d{1,3})*$/.test(cleaned);
+}
+
+function setProfileSaveStatus(msg, isError) {
+  const el = $("#profile-save-status");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.classList.toggle("error", !!isError);
+}
+
+function bindOkpdTagInput() {
+  const box = $("#pf-okpd-tags");
+  if (!box) return;
+  const input = box.querySelector("input");
+  input.addEventListener("focus", () => renderTags(profileOkpd, "#pf-okpd-tags"));
+  input.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return;
+    const bad = [];
+    parts.forEach((w) => {
+      if (!okpdIsValid(w)) {
+        bad.push(w);
+        return;
+      }
+      if (!profileOkpd.includes(w)) profileOkpd.push(w);
+    });
+    if (bad.length) {
+      setProfileSaveStatus(
+        `Код ОКПД2 «${bad.join('», «')}» имеет неверный формат: цифры, разделённые точками (например, 62.02 или 62.02.20.110)`,
+        true
+      );
+    } else {
+      setProfileSaveStatus("");
+    }
+    input.value = "";
+    renderTags(profileOkpd, "#pf-okpd-tags");
   });
 }
 
@@ -961,7 +1014,7 @@ function profileFormData() {
     name: $("#pf-name").value.trim(),
     enabled: $("#pf-enabled").checked,
     is_active: $("#pf-active").checked,
-    okpd_codes: splitWords($("#pf-okpd").value),
+    okpd_codes: profileOkpd.slice(),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),
     target_etp: profilePlatforms.slice(),
@@ -1027,9 +1080,18 @@ async function openProfileEditor(id) {
 async function saveProfile() {
   const data = profileFormData();
   if (!data.name) {
+    setProfileSaveStatus("Укажите имя профиля", true);
     setProfileStatus("Укажите имя профиля");
     return false;
   }
+  const badOkpd = data.okpd_codes.filter((c) => !okpdIsValid(c));
+  if (badOkpd.length) {
+    const msg = `Код ОКПД2 «${badOkpd.join('», «')}» имеет неверный формат: цифры, разделённые точками (например, 62.02 или 62.02.20.110)`;
+    setProfileSaveStatus(msg, true);
+    setProfileStatus("Ошибка сохранения: " + msg);
+    return false;
+  }
+  setProfileSaveStatus("");
   // Защита от случайной потери: в профиле были слова, а форма пустая.
   if (profileExclLoaded > 0 && data.exclusion_words.length === 0) {
     if (
@@ -1067,15 +1129,18 @@ async function doSaveProfile(data) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
     });
-    if (!r.ok) throw new Error(await r.text());
+    if (!r.ok) throw new Error(await apiErrorDetail(r));
     snapshotProfile();
+    setProfileSaveStatus("Профиль сохранён");
     setProfileStatus(profileEditorId ? "Профиль сохранён" : "Профиль создан");
     closeProfileEditor();
     await loadProfiles();
     await loadActiveClient();
     return true;
   } catch (e) {
-    setProfileStatus("Ошибка сохранения: " + e.message);
+    const msg = "Ошибка сохранения: " + e.message;
+    setProfileSaveStatus(msg, true);
+    setProfileStatus(msg);
     return false;
   }
 }
@@ -1347,9 +1412,9 @@ $("#experience-cancel").addEventListener("click", () => {
 });
 bindTagInput("#pf-keywords-tags", profileKeywords);
 bindTagInput("#pf-excl-tags", profileExcl);
-bindTagInput("#pf-questions-tags", profileQuestions, (w) => ({ id: "q" + questionSeq++, text: w }));
 bindTagSearch("#pf-keywords-tags", profileKeywords);
 bindTagSearch("#pf-excl-tags", profileExcl);
+bindOkpdTagInput();
 $("#client-select").addEventListener("change", (ev) => {
   if (ev.target.value) switchClient(Number(ev.target.value));
 });

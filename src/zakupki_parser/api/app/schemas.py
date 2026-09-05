@@ -11,6 +11,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from zakupki_parser.config.models import SCORE_METHOD_FIT, SCORE_METHOD_STAGES
+from zakupki_parser.okpd import normalize_okpd_codes
+from zakupki_parser.options import PAID_KEYS, option_by_key
 
 
 class ProcurementOut(BaseModel):
@@ -236,6 +238,9 @@ class UserOut(BaseModel):
     email: str | None = None
     roles: list[str]
     status: str = "active"
+    # Окончание триал-режима (null — нет триала). Дата серверная: клиент не
+    # должен полагаться на собственные часы для расчёта оставшихся дней.
+    trial_end_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -431,6 +436,12 @@ class ProfileIn(BaseModel):
     licenses: list[LicenseIn] | None = None
     experience: list[ExperienceIn] | None = None
 
+    @field_validator("okpd_codes")
+    @classmethod
+    def _okpd_format(cls, value: list[str] | None) -> list[str] | None:
+        """Контроль формата кодов ОКПД2 (#1): цифры с точками, 2-9 знаков."""
+        return normalize_okpd_codes(value)
+
 
 class ProfileImportIn(BaseModel):
     """Загрузка профиля из файла (разметка как у файла-сида профиля)."""
@@ -596,3 +607,144 @@ class ReferenceRowsOut(BaseModel):
 
     total: int
     items: list[dict[str, Any]]
+
+
+class OptionOut(BaseModel):
+    """Опция каталога в личном кабинете: что доступно и почему.
+
+    ``enabled`` — фактическая доступность для пользователя сейчас (бесплатные —
+    всегда; платные — триал или активный аккаунт). ``account_enabled`` —
+    включена ли платная опция в активном аккаунте (для бесплатных None).
+    ``available`` — реализована ли опция системой (geo_premium отложена).
+    """
+
+    key: str
+    title: str
+    description: str
+    group: str
+    available: bool
+    requires_competencies: bool = False
+    enabled: bool = False
+    account_enabled: bool | None = None
+
+
+class AccountOut(BaseModel):
+    """Карточка аккаунта пользователя (набор платных опций)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    is_active: bool
+    options: dict[str, bool]
+    created_at: datetime
+    updated_at: datetime
+
+
+class AccountIn(BaseModel):
+    """Создание аккаунта (личный кабинет / админ)."""
+
+    name: str = Field(min_length=1, max_length=128)
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Укажите имя аккаунта")
+        return value
+
+
+class AccountUpdateIn(BaseModel):
+    """Переименование аккаунта и/или обновление переключателей платных опций.
+
+    Передаются только платные опции каталога (бесплатные доступны всегда и не
+    переключаются). Отложенные опции (geo_premium) включать нельзя.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    options: dict[str, bool] | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Укажите имя аккаунта")
+        return value
+
+    @field_validator("options")
+    @classmethod
+    def _options(cls, value: dict[str, bool] | None) -> dict[str, bool] | None:
+        if value is None:
+            return None
+        out: dict[str, bool] = {}
+        for key, enabled in value.items():
+            option = option_by_key(key)
+            if option is None:
+                raise ValueError(f"Неизвестная опция: {key}")
+            if key not in PAID_KEYS:
+                raise ValueError(f"Бесплатную опцию «{option.title}» нельзя переключать")
+            if not option.available:
+                raise ValueError(f"Опция «{option.title}» пока недоступна")
+            out[key] = bool(enabled)
+        return out
+
+
+class TrialStatusOut(BaseModel):
+    """Триал-режим пользователя в личном кабинете."""
+
+    enabled: bool
+    trial_end_at: datetime | None = None
+    days_left: int | None = None
+
+
+class CabinetOut(BaseModel):
+    """Личный кабинет: пользователь, триал, аккаунты и каталог опций."""
+
+    user_id: int
+    username: str
+    email: str | None = None
+    roles: list[str]
+    trial: TrialStatusOut
+    active_account_id: int | None = None
+    accounts: list[AccountOut]
+    catalog: list[OptionOut]
+
+
+class UserAccountsOut(BaseModel):
+    """Аккаунты пользователя для админа (список + состояние триала)."""
+
+    user_id: int
+    username: str
+    active_account_id: int | None = None
+    accounts: list[AccountOut]
+    trial: TrialStatusOut
+
+
+class PasswordChangeIn(BaseModel):
+    """Смена собственного пароля (личный кабинет)."""
+
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+    new_password_confirm: str = Field(min_length=8)
+
+    @model_validator(mode="after")
+    def _passwords_match(self) -> PasswordChangeIn:
+        if self.new_password != self.new_password_confirm:
+            raise ValueError("new_password_confirm не совпадает с new_password")
+        return self
+
+
+class UserTrialIn(BaseModel):
+    """Управление триалом пользователя администратором.
+
+    ``days`` — установить триал на N суток от текущего момента (перекрывает
+    ``trial_end_at``); ``trial_end_at`` — конкретная дата; null (и days null) —
+    отключить триал.
+    """
+
+    trial_end_at: datetime | None = None
+    days: int | None = Field(default=None, ge=1, le=3650)

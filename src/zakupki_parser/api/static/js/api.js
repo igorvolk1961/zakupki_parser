@@ -62,6 +62,27 @@ export async function apiJSON(url, opts) {
   return r;
 }
 
+// Читаемый текст ошибки из HTTP-ответа: detail (строка или массив ошибок полей
+// FastAPI), иначе тело ответа, иначе «HTTP <статус>». Общий для всех вкладок.
+export async function apiErrorDetail(r) {
+  let data = null;
+  try {
+    data = await r.json();
+  } catch (err) {
+    const text = await r.text().catch(() => "");
+    return text || "HTTP " + r.status;
+  }
+  if (data && data.detail !== undefined) {
+    if (Array.isArray(data.detail)) {
+      return data.detail
+        .map((d) => (d && (d.msg || d.detail)) || String(d))
+        .join("; ");
+    }
+    return String(data.detail);
+  }
+  return data == null ? "HTTP " + r.status : JSON.stringify(data);
+}
+
 // Живые обновления через WebSocket (вместо кнопки «Обновить» и опроса).
 let refreshScheduled = false;
 export function scheduleRefresh() {

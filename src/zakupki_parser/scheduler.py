@@ -20,6 +20,7 @@ from zakupki_parser.parser.orchestrator.context import ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
+from zakupki_parser.storage.repository.accounts import effective_options
 
 logger = logging.getLogger(__name__)
 
@@ -168,9 +169,14 @@ class Scheduler:
         """Включённые профили незаблокированных пользователей + слова (BR-07).
 
         Пустой список — профилей нет: обходы не строятся (dev-режим).
-        Из сбора исключаются пустые/невалидные профили (без компетенций): они не
-        могут участвовать в сборе закупок и не ставятся в очередь скоринга
-        (конвейер не скорит без контекста компетенций, BR-07).
+        Из сбора исключаются:
+        - пустые/невалидные профили (без компетенций): конвейер не скорит без
+          контекста компетенций (BR-07);
+        - профили владельцев, которым сейчас недоступна платная опция скоринга
+          (``scoring``): сбор закупок в текущей архитектуре всегда приводит к
+          LLM-скорингу, а доступность платных операций задаётся аккаунтом/триалом
+          пользователя (владелец ограничил операции — тратить деньги на его
+          профиль нельзя).
         """
         if self._repository is None:
             return []
@@ -178,6 +184,24 @@ class Scheduler:
         if not profiles:
             return []
         profiles = [p for p in profiles if self._profile_has_valid_competencies(p)]
+        if not profiles:
+            return []
+        # Доступность опции scoring считаем по пользователям профилей: триал либо
+        # активный аккаунт. Пользователь без аккаунтов (легаси) = полный доступ.
+        user_ids = sorted({p.user_id for p in profiles if p.user_id is not None})
+        if not user_ids:
+            return []
+        trial_map = await self._repository.get_users_with_trial(user_ids)
+        accounts_map = await self._repository.accounts_by_users(user_ids)
+        now = datetime.now(UTC)
+        scoring_ids = {
+            uid
+            for uid in user_ids
+            if effective_options(accounts_map.get(uid, []), trial_map.get(uid), now=now).has_option(
+                "scoring"
+            )
+        }
+        profiles = [p for p in profiles if p.user_id in scoring_ids]
         if not profiles:
             return []
         kw_map = await self._repository.list_profiles_keywords([p.id for p in profiles])
@@ -206,6 +230,28 @@ class Scheduler:
         except CompetenciesError:
             return False
         return not is_empty(model)
+
+    async def _recovery_allowed_profile_ids(self, profile_ids: list[int]) -> set[int]:
+        """Профили, которым recovery может ставить fit-задания (по опциям владельца).
+
+        Возвращает подмножество ``profile_ids``, чьи владельцы сейчас имеют
+        эффективный доступ к опции ``scoring`` (триал либо активный аккаунт).
+        Профиль без владельца (user_id IS NULL, легаси) пропускается как раньше.
+        """
+        if not profile_ids:
+            return set()
+        owner_map = await self._repository.profile_user_map(profile_ids)
+        user_ids = sorted({uid for uid in owner_map.values() if uid is not None})
+        trial_map = await self._repository.get_users_with_trial(user_ids) if user_ids else {}
+        accounts_map = await self._repository.accounts_by_users(user_ids) if user_ids else {}
+        now = datetime.now(UTC)
+        allowed: set[int] = set()
+        for profile_id, user_id in owner_map.items():
+            if user_id is None or effective_options(
+                accounts_map.get(user_id, []), trial_map.get(user_id), now=now
+            ).has_option("scoring"):
+                allowed.add(profile_id)
+        return allowed
 
     async def run_service(self) -> None:
         """Бесконечный цикл: проход -> ожидание таймера."""
@@ -249,7 +295,15 @@ class Scheduler:
             items = await self._repository.find_unscored(limit=200, queued_before=queued_before)
             if not items:
                 return
+            # Recovery не должен тратить деньги владельцев, у которых опция скоринга
+            # сейчас недоступна (триал истёк / опция отключена в аккаунте): те же
+            # правила, что и для новых обходов (_gather_profile_ctxs).
+            allowed_profiles = await self._recovery_allowed_profile_ids(
+                [int(item["profile_id"]) for item in items]
+            )
             for item in items:
+                if item["profile_id"] not in allowed_profiles:
+                    continue
                 ts = item["update_date"] or item["publication_date"]
                 priority = ts.timestamp() if ts is not None else now.timestamp()
                 # Пер-профильная постановка (BR-07): задания ставятся/отмечаются для

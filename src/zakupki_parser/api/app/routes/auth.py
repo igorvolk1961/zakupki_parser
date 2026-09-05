@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import LoginIn, RegisterIn, TokenOut, UserOut
 from zakupki_parser.auth import ROLE_USER, create_token, hash_password, verify_password
+from zakupki_parser.options import TRIAL_DEFAULT_DAYS
 from zakupki_parser.storage.db import User
 
 logger = logging.getLogger(__name__)
@@ -60,9 +62,19 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
         if await _repo().get_user_by_username(body.username) is not None:
             raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
         password_hash = await asyncio.to_thread(hash_password, body.password)
+        # Триал-режим: по умолчанию 14 дней (а не 10 лет); в триале доступны
+        # бесплатно все опции поиска и скоринга. Аккаунт «По умолчанию» — только
+        # бесплатные опции (#6): он начнёт действовать после окончания триала.
+        trial_end_at = datetime.now(UTC) + timedelta(days=TRIAL_DEFAULT_DAYS)
         try:
-            user = await _repo().create_user(
-                body.username, password_hash, [ROLE_USER], email=body.email
+            # Атомарно: пользователь + триал + default-профиль + default-аккаунт.
+            user = await _repo().create_user_with_setup(
+                body.username,
+                password_hash,
+                [ROLE_USER],
+                email=body.email,
+                trial_end_at=trial_end_at,
+                account_paid_default=False,
             )
         except IntegrityError as exc:
             # Гонка двух одновременных регистраций с одним логином: констрейнт
@@ -70,10 +82,6 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(
                 status_code=409, detail="Пользователь с таким логином уже есть"
             ) from exc
-        # Новому пользователю с ролью user/analyst — активный профиль default (BR-07):
-        # без него список закупок недоступен (нет контекста фильтрации). Профиль
-        # создаётся пустым — ключевые слова/компетенции загружаются seed-profile (R8).
-        await _repo().ensure_default_profile(user.id, user.roles)
         ttl = state.cfg.ops.auth.token_ttl_seconds
         token = create_token(user.id, user.roles, state.cfg.ops.auth.secret or "", ttl)
         logger.info(

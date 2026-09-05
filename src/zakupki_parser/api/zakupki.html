@@ -25,6 +25,8 @@
     </select>
     <span class="user-bar" id="user-bar" style="display:none;">
       <b id="user-name"></b><span class="pill" id="user-role"></span>
+      <span class="pill trial" id="user-trial" style="display:none;" title="Триал-режим: все опции поиска и скоринга бесплатны"></span>
+      <button class="ghost" id="open-account" title="Личный кабинет: аккаунты, платные опции, смена пароля">Кабинет</button>
       <button class="ghost" id="logout" title="Выйти">Выйти</button>
     </span>
   </div>
@@ -45,6 +47,7 @@
       <button id="tab-work">В работе <span class="tab-count" id="cnt-work"></span></button>
       <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
       <button id="tab-profiles">Профили</button>
+      <button id="tab-account" title="Личный кабинет: аккаунты и опции">Личный кабинет</button>
     </div>
     <div class="tabs-group" id="tabs-roles">
       <button id="tab-parser">Парсер</button>
@@ -221,7 +224,13 @@
             <label title="Профиль участвует в обработке. Отключённый профиль не выбирается активным и не используется в поиске/скоринге."><input type="checkbox" id="pf-enabled"> включён</label>
             <label title="Активный профиль — тот, по которому работают парсер и скоринг: его ключевые слова, компетенции, ОКПД2 и площадки применяются к поиску. Активным может быть только один профиль; если активный не отмечен, используется профиль по умолчанию либо первый включённый."><input type="checkbox" id="pf-active"> активный</label>
           </div>
-          <label title="Коды ОКПД2 (через запятую), по которым площадка ищет закупки">ОКПД2 (через запятую) <input id="pf-okpd"></label>
+          <label title="Коды ОКПД2 (Enter — добавить, × — удалить), по которым площадка ищет закупки. Формат: цифры, разделённые точками (например, 62.02 или 62.02.20.110)">ОКПД2
+            <div class="tag-input" id="pf-okpd-tags">
+              <div class="tags"></div>
+              <div class="tags-fallback" style="display:none;"></div>
+              <input type="text" placeholder="код ОКПД2, Enter" spellcheck="false">
+            </div>
+          </label>
           <div class="profile-checks">
             <label title="Нижняя граница НМЦК — фильтр поиска по цене контракта"><input type="number" step="0.01" id="pf-nmck-min"> НМЦК мин</label>
             <label title="Верхняя граница НМЦК — фильтр поиска по цене контракта"><input type="number" step="0.01" id="pf-nmck-max"> НМЦК макс</label>
@@ -357,7 +366,60 @@
             <button class="primary" id="profile-save">Сохранить профиль</button>
             <button id="profile-cancel">Отмена</button>
             <button class="danger" id="profile-delete" style="display:none;">Удалить профиль</button>
+            <span id="profile-save-status" class="muted"></span>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="view-account" style="display:none;">
+    <div class="panel">
+      <div class="panel-title">Личный кабинет</div>
+      <div id="acct-trial"></div>
+      <div class="tabs tabs-bar" id="acct-tabs" style="margin:6px 0 10px;">
+        <button type="button" class="active" id="acct-tab-accounts">Аккаунты и опции</button>
+        <button type="button" id="acct-tab-password">Смена пароля</button>
+      </div>
+      <div id="acct-pane-accounts">
+        <div class="split" style="grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div>
+            <div class="panel-title" style="font-size:14px;">Аккаунты</div>
+            <p class="muted" style="font-size:12px; margin-top:0;">Активен один аккаунт — его опции определяют, какие операции доступны после окончания триал-режима.</p>
+            <div id="acct-accounts"></div>
+            <div class="toolbar" style="margin:10px 0 0;">
+              <input id="acct-name" placeholder="имя нового аккаунта" style="min-width:200px;">
+              <button class="ghost" id="acct-create" title="Создать аккаунт с бесплатными опциями">Создать аккаунт</button>
+              <span id="acct-accounts-status" class="muted"></span>
+            </div>
+          </div>
+          <div>
+            <div class="panel-title" style="font-size:14px;">Опции активного аккаунта</div>
+            <p class="muted" style="font-size:12px; margin-top:0;">Платные операции (LLM/эмбеддинги) оплачиваются владельцем системы за каждый вызов. Включите только те, что вам нужны.</p>
+            <div id="acct-options"></div>
+            <div class="toolbar" style="margin:10px 0 0;">
+              <button class="primary" id="acct-options-save" title="Сохранить переключатели опций активного аккаунта">Сохранить опции</button>
+              <span id="acct-options-status" class="muted"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="acct-pane-password" style="display:none; max-width:440px;">
+        <div class="field">
+          <label for="acct-password-current">Текущий пароль</label>
+          <input id="acct-password-current" type="password" autocomplete="current-password">
+        </div>
+        <div class="field">
+          <label for="acct-password-new">Новый пароль (не менее 8 символов)</label>
+          <input id="acct-password-new" type="password" autocomplete="new-password">
+        </div>
+        <div class="field">
+          <label for="acct-password-confirm">Повторите новый пароль</label>
+          <input id="acct-password-confirm" type="password" autocomplete="new-password">
+        </div>
+        <div class="error" id="acct-password-error"></div>
+        <div class="toolbar" style="margin:10px 0 0;">
+          <button class="primary" id="acct-password-save">Сменить пароль</button>
+          <span id="acct-password-status" class="muted"></span>
         </div>
       </div>
     </div>
@@ -695,6 +757,17 @@
     </div>
   </div>
 </div>
+<div class="modal-bg" id="user-accounts-modal-bg">
+  <div class="modal" id="user-accounts-modal" style="width:min(760px, 92vw);">
+    <span class="close" onclick="closeUserAccountsModal()">×</span>
+    <h2 id="user-accounts-title">Аккаунты и опции</h2>
+    <div id="user-accounts-body"></div>
+    <div class="toolbar" style="margin-bottom:0; justify-content:flex-end;">
+      <button class="ghost" id="user-accounts-close">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>
