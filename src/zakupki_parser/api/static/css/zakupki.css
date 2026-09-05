@@ -379,12 +379,7 @@
   .auth-feats li::before { content: ""; position: absolute; left: 0; top: .55em;
     width: 8px; height: 8px; border-radius: 50%; background: var(--gw-amber);
     box-shadow: 0 0 0 3px rgba(242,169,59,.18); }
-  .auth-legend { margin: 0; font-size: 13px; color: var(--gw-muted);
-    border-left: 2px solid rgba(242,169,59,.5); padding: 2px 0 2px 12px; max-width: 62ch; }
-  .auth-legend b { color: var(--gw-ink); font-weight: 600; }
-
-  /* Карточка входа */
-  #login-modal { width: 100%; max-width: 100%; padding: 26px 26px 20px; border-radius: 18px;
+  /* Карточка входа */  #login-modal { width: 100%; max-width: 100%; padding: 26px 26px 20px; border-radius: 18px;
     box-shadow: 0 24px 60px -18px rgba(2,10,26,.55), 0 6px 18px -8px rgba(2,10,26,.35);
     background: var(--panel); }
   .login-card-head { margin-bottom: 18px; }
@@ -404,13 +399,9 @@
   .login-foot { margin-top: 16px; }
   .login-foot .switch { margin-top: 2px; }
   .login-foot .switch button { font-weight: 600; }
-  .login-sec { margin: 12px 0 0; font-size: 12px; line-height: 1.45; text-align: center; }
   .auth-foot { width: min(1240px, 100%); margin-top: 34px; display: flex; align-items: center;
-    justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    justify-content: flex-end; gap: 14px; flex-wrap: wrap;
     font-size: 12.5px; color: var(--gw-muted); }
-  .auth-online { display: inline-flex; align-items: center; gap: 7px; }
-  .auth-online .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ADE80;
-    box-shadow: 0 0 0 3px rgba(74,222,128,.18); }
   .auth-meta { letter-spacing: .01em; }
 
   /* Адаптивность гейта */
@@ -419,7 +410,6 @@
     .auth-hero { text-align: left; }
     .auth-brand { margin-bottom: 16px; }
     .auth-feats { margin-bottom: 0; }
-    .auth-legend { margin-top: 16px; }
     .auth-foot { justify-content: center; text-align: center; margin-top: 26px; }
   }
   /* На невысоких окнах контент выравнивается сверху и прокручивается целиком,
