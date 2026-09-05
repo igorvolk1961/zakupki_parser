@@ -16,8 +16,8 @@
 | 01_Business_Context | [`03_glossary.md`](01_Business_Context/03_glossary.md) | ✅ | Глоссарий предметной области и реализации |
 | 01_Business_Context | [`04_as-is-to_be.md`](01_Business_Context/04_as-is-to_be.md) | ✅ | Модели процессов AS-IS и TO-BE (шаги 1–9) |
 | 01_Business_Context | [`05_risks.md`](01_Business_Context/05_risks.md) | ✅ | Реестр рисков (вероятность/влияние/митигация) |
-| 02_Business_Requirements | [`01_user_stories.md`](02_Business_Requirements/01_user_stories.md) | ✅ | Эпики 1–9, user stories, AC |
-| 02_Business_Requirements | [`02_business_rules.md`](02_Business_Requirements/02_business_rules.md) | ✅ | Бизнес-правила BR-01…BR-07 |
+| 02_Business_Requirements | [`01_user_stories.md`](02_Business_Requirements/01_user_stories.md) | ✅ | Эпики 1–10, user stories, AC |
+| 02_Business_Requirements | [`02_business_rules.md`](02_Business_Requirements/02_business_rules.md) | ✅ | Бизнес-правила BR-01…BR-09 |
 | 02_Business_Requirements | [`03_product_backlog.md`](02_Business_Requirements/03_product_backlog.md) | ✅ | Итоговый Product Backlog (US/BR/FR/NFR) |
 | 02_Business_Requirements | [`04_traceability_matrix.md`](02_Business_Requirements/04_traceability_matrix.md) | ✅ | Матрица трассируемости US↔BR↔NFR↔ER↔этап (человекочитаемое представление требований) |
 | 02_Business_Requirements | [`05_functional_requirements.md`](02_Business_Requirements/05_functional_requirements.md) | ✅ | Функциональные требования FR-xx (включая FR-10 «Операционная работа») |
@@ -50,6 +50,7 @@
 
 - **MVP** — этапы 0–5 (4A+4B) по `plans/plan.md` (парсинг, профили, auto-Fit, RAG-анализ ТЗ).
 - **пост-MVP** — этапы 6, 4C, 7, 8, 9, 10 (аккаунты, решения, экспорт, compliance, observability).
+- **аккаунты/опции (Эпик 10, BR-09)** — наборы платных опций пользователя (`user_accounts`), триал `users.trial_end_at` (по умолчанию 14 дней); реализовано. Оплата/подписка (`subscriptions`) и заморозка/удаление (BR-05) — вне MVP / пост-MVP.
 - **вне MVP** — подтверждение email при регистрации, оплата/подписка (`subscriptions`),
   автоматический каскад P(win)/Margin для всех закупок.
 

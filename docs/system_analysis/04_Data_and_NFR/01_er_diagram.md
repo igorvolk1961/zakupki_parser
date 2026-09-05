@@ -10,6 +10,7 @@
 ```mermaid
 erDiagram
     USERS ||--o{ PROFILES : "владеет"
+    USERS ||--o{ USER_ACCOUNTS : "настраивает (активен один)"
     PROFILES ||--o{ KEYWORDS : "содержит"
     PROFILES ||--o{ PROFILE_LICENSES : "имеет"
     PROFILES ||--o{ PROFILE_EXPERIENCE : "имеет"
@@ -29,7 +30,17 @@ erDiagram
         string username
         string email
         string password_hash
+        datetime trial_end_at
         string role
+        datetime created_at
+    }
+
+    USER_ACCOUNTS {
+        int id PK
+        int user_id FK
+        string name
+        jsonb options "переключатели платных опций"
+        bool is_active "активен один"
         datetime created_at
     }
 
@@ -236,6 +247,15 @@ erDiagram
 - **Изоляция через user_id / profile_id** (BR-07): все таблицы с приватными данными
   (`profiles`, `procurement_evaluations`, `profile_licenses`, `profile_experience`)
   привязаны к пользователю/профилю; tenant-скоуп реализован в репозитории.
+- **Аккаунты пользователя и триал (Эпик 10, BR-09)**: `users.trial_end_at` — окончание
+  триал-режима (self-registered — по умолчанию now()+14 дней; в триале все опции поиска
+  и скоринга бесплатны). `user_accounts` — именованные наборы платных опций (`options` —
+  jsonb-переключатели: scoring, analysis_embeddings, analysis, pwin, margin; отложенное
+  платное гео — в каталоге `options.py`, не подключается); активен один аккаунт
+  (уникальность `(user_id, name)`). По окончании триала доступность платных операций
+  определяется активным аккаунтом (по умолчанию — только бесплатные опции).
+  Заморозка/удаление (`users.status` frozen/deleted) и `subscriptions` — целевая модель
+  (раздел 2).
 
 ## 2. Целевая модель (пост-MVP, этапы 6–10)
 
@@ -253,7 +273,7 @@ erDiagram
         string password_hash
         string role
         string status
-        date trial_end_date
+        datetime trial_end_at
         datetime last_activity_at
         datetime delete_notified_at
     }
@@ -279,9 +299,10 @@ erDiagram
     }
 ```
 
-- `users.status` (`trial|active|frozen|deleted`), `trial_end_date` (= now()+10 лет) —
-  жизненный цикл аккаунта (BR-05, этап 6); подтверждение email — целевая модель, в MVP
-  не реализуется.
+- `users.status` (`frozen|deleted` — целевая модель BR-05, этап 6): в текущей
+  реализации пользователь не замораживается после trial — происходит перевод на опции
+  активного аккаунта (BR-09); `users.trial_end_at` по умолчанию = now()+14 дней
+  (реализовано). Подтверждение email — целевая модель, в MVP не реализуется.
 - `subscriptions` — оплата/подписка (в MVP **не обязательна**, заглушка).
 - `audit_log` — аудит критичных действий пользователей с IP (US-9.4, этапы 6/9/10).
 - `procedure_categories.pwin_coefficient` — наполняется и используется в формуле P(win)

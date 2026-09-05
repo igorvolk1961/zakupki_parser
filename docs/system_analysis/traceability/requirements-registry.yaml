@@ -71,6 +71,31 @@ requirements:
       - src/zakupki_parser/storage/db/profile.py
     tests:
       - tests/integration/test_multiclient.py
+  - id: US-1.5
+    type: US
+    title: Коды ОКПД2 тегами с контролем формата
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/okpd.py
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/routes/clients.py
+    tests:
+      - tests/unit/test_okpd_format.py
+  - id: US-1.6
+    type: US
+    title: Понятные ошибки сохранения профиля
+    stakeholder: Тендеролог (user)
+    stage: "2"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/routes/clients.py
+    tests:
+      - tests/integration/test_multiclient.py
 
   - id: US-2.1
     type: US
@@ -358,13 +383,18 @@ requirements:
       - tests/unit/test_auth.py
   - id: US-7.2
     type: US
-    title: Trial-доступ 10 лет
+    title: Trial-доступ (по умолчанию 14 дней) и перевод на опции аккаунта
     stakeholder: Тендеролог (user)
     stage: "6"
-    status: planned
+    status: partial
     adr: "-"
-    code: []
-    tests: []
+    code:
+      - src/zakupki_parser/api/app/routes/auth.py
+      - src/zakupki_parser/storage/db/user.py
+      - src/zakupki_parser/options.py
+    tests:
+      - tests/unit/test_user_options.py
+    notes: users.trial_end_at = now()+14 дней (TRIAL_DEFAULT_DAYS) и аккаунты опций (BR-09) реализованы; заморозка по неоплате — целевая модель (BR-05)
   - id: US-7.3
     type: US
     title: Заморозка по истечении trial
@@ -518,6 +548,117 @@ requirements:
     adr: "-"
     code: []
     tests: []
+  - id: US-10.1
+    type: US
+    title: Личный кабинет (триал, аккаунты, каталог опций)
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/account.py
+      - src/zakupki_parser/storage/repository/accounts.py
+      - src/zakupki_parser/api/static/js/account.js
+    tests:
+      - tests/unit/test_user_options.py
+  - id: US-10.2
+    type: US
+    title: Выбор доступности платных операций
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/options.py
+      - src/zakupki_parser/api/app/routes/account.py
+      - src/zakupki_parser/storage/repository/accounts.py
+    tests:
+      - tests/unit/test_user_options.py
+  - id: US-10.3
+    type: US
+    title: Несколько аккаунтов, активен один
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/accounts.py
+      - src/zakupki_parser/storage/db/account.py
+    tests:
+      - tests/unit/test_user_options.py
+  - id: US-10.4
+    type: US
+    title: Смена пароля в личном кабинете
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/account.py
+    tests:
+      - tests/integration/test_auth_api.py
+  - id: US-10.5
+    type: US
+    title: По умолчанию только бесплатные опции
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/options.py
+      - src/zakupki_parser/storage/repository/accounts.py
+    tests:
+      - tests/unit/test_user_options.py
+  - id: US-10.6
+    type: US
+    title: "Триал 14 дней: все опции поиска и скоринга бесплатны"
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/options.py
+      - src/zakupki_parser/api/app/routes/auth.py
+      - src/zakupki_parser/storage/repository/accounts.py
+    tests:
+      - tests/unit/test_user_options.py
+  - id: US-10.7
+    type: US
+    title: Профиль без компетенций по аккаунту
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/routes/clients.py
+    tests:
+      - tests/integration/test_multiclient.py
+  - id: US-10.8
+    type: US
+    title: Админ управляет аккаунтами, опциями и триалом пользователей
+    stakeholder: Системный администратор
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/users.py
+      - src/zakupki_parser/api/app/routes/account.py
+      - src/zakupki_parser/storage/repository/accounts.py
+    tests:
+      - tests/integration/test_roles_api.py
+  - id: US-10.9
+    type: US
+    title: Гейт платных операций (on-demand, сбор, recovery)
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/scheduler.py
+    tests:
+      - tests/unit/test_scheduler_recovery.py
 
   # ===== Функциональные требования =====
   - id: FR-1.1
@@ -1336,6 +1477,7 @@ requirements:
     adr: "-"
     code: []
     tests: []
+    notes: users.trial_end_at (14 дней по умолчанию) и аккаунты опций (BR-09) реализованы; заморозка/удаление и subscriptions — целевая модель
   - id: BR-06
     type: BR
     title: Обработка ошибок (DLQ)
@@ -1365,6 +1507,22 @@ requirements:
       - tests/integration/test_multiclient.py
       - tests/unit/test_repository_round.py
       - tests/integration/test_profile_licenses_experience.py
+  - id: BR-09
+    type: BR
+    title: Аккаунты пользователя и платные опции
+    stakeholder: Product Owner
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/options.py
+      - src/zakupki_parser/storage/repository/accounts.py
+      - src/zakupki_parser/api/app/routes/account.py
+      - src/zakupki_parser/scheduler.py
+    tests:
+      - tests/unit/test_user_options.py
+      - tests/unit/test_scheduler_recovery.py
+    notes: один активный аккаунт; триал включает все опции; гейт платных операций и сохранение профиля без компетенций по аккаунту
 
   # ===== Нефункциональные требования =====
   - id: NFR-COST-1
