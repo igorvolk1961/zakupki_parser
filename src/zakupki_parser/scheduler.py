@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -60,9 +61,14 @@ class Scheduler:
         # текущего прохода, не дожидаясь следующего регулярного цикла.
         self._refresh_ids: set[int] = set()
         self._refresh_event = asyncio.Event()
-        # Момент завершения последнего прохода (regular или refresh): debounce
-        # между проходами, чтобы серия правок профиля копилась в один обход.
-        self._last_pass_done = 0.0
+        # Момент ПЕРВОГО сигнала текущего накопленного батча (монотонное время):
+        # внеочередной проход стартует не раньше debounce с этого момента, чтобы
+        # серия правок подряд копилась в один обход.
+        self._refresh_pending_since: float | None = None
+        # Профили, уже покрытые внеочередным обходом в текущем регулярном цикле:
+        # повторные сохранения того же профиля не запускают новый полный обход
+        # (сбрасывается после каждого регулярного прохода — см. run_service).
+        self._refresh_handled_in_cycle: set[int] = set()
 
     async def start(self) -> None:
         setup_logging(self._cfg.logging)
@@ -84,6 +90,9 @@ class Scheduler:
         пригодность профиля (enabled/компетенции/опция scoring владельца) ещё раз
         проверяется в момент запуска внеочередного обхода.
         """
+        if not self._refresh_ids:
+            # Начало нового накопленного батча: от него отсчитывается debounce.
+            self._refresh_pending_since = time.monotonic()
         self._refresh_ids.add(profile_id)
         self._refresh_event.set()
 
@@ -329,7 +338,12 @@ class Scheduler:
             while not self._stop.is_set():
                 self._iteration += 1
                 await self.run_once(self._iteration)
-                self._last_pass_done = loop.time()
+                # Новый регулярный цикл: покрытие внеочередными обходами сбрасывается;
+                # запросы, не снятые этим проходом (правки во время него), получают
+                # шанс внеочередного обхода в новом цикле.
+                self._refresh_handled_in_cycle.clear()
+                if self._refresh_ids:
+                    self._refresh_event.set()
                 next_full_at = loop.time() + self._cfg.ops.timeout_seconds
                 logger.info("Цикл завершён, ожидание %d с", self._cfg.ops.timeout_seconds)
                 # Между регулярными проходами обслуживаем запросы обновления
@@ -342,14 +356,17 @@ class Scheduler:
                     if reason == "stop" or reason == "timeout":
                         break
                     # reason == "refresh": внеочередной обход затронутых профилей.
-                    # Debounce: серия правок подряд копится и уходит в один обход.
-                    if loop.time() - self._last_pass_done < debounce:
-                        await asyncio.sleep(min(debounce, remaining))
-                        continue
+                    # Debounce от ПЕРВОГО сигнала накопленного батча: серия правок
+                    # подряд копится и уходит в один обход (а не в серию обходов).
+                    if self._refresh_pending_since is not None:
+                        since_first = loop.time() - self._refresh_pending_since
+                        if since_first < debounce:
+                            await asyncio.sleep(min(debounce - since_first, remaining))
+                            continue
                     self._refresh_event.clear()
+                    self._refresh_pending_since = None
                     self._iteration += 1
                     await self._run_refresh_pass(self._iteration)
-                    self._last_pass_done = loop.time()
         finally:
             await self.stop()
 
@@ -388,14 +405,27 @@ class Scheduler:
         созданный/изменённый профиль должен увидеть историю (ретроспективное
         сопоставление слов по уже сохранённым закупкам), а не только инкремент от
         ``last_processed_date`` площадки.
+
+        Профиль, уже покрытый внеочередным обходом в текущем регулярном цикле,
+        повторно полным окном не обходится (кап на число полных обходов одного
+        профиля за цикл) — запрос остаётся накопленным и снимается регулярным
+        проходом либо следующим циклом внеочередных обходов.
         """
-        profile_ids = list(self._refresh_ids)
-        self._refresh_ids.clear()
+        if not self._refresh_ids:
+            self._refresh_pending_since = None
+            return
+        profile_ids = [
+            pid for pid in self._refresh_ids if pid not in self._refresh_handled_in_cycle
+        ]
         if not profile_ids:
             return
+        self._refresh_ids.difference_update(profile_ids)
+        if not self._refresh_ids:
+            self._refresh_pending_since = None
         ctxs = await self._gather_profile_ctxs(only_ids=set(profile_ids))
         if not ctxs:
             return
+        self._refresh_handled_in_cycle.update(c.profile.id for c in ctxs)
         await self._run_platform_pass(ctxs, iteration, full_window=True)
         logger.info(
             "Внеочередной обход завершён: профилей %d (итерация %d)",

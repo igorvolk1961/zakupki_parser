@@ -25,10 +25,15 @@ def test_request_profile_refresh_forwards_to_running_scheduler(app_config: Any) 
     _request_profile_refresh(state, 7)
 
     assert scheduler.calls == [7]
+    assert state.pending_profile_refresh_ids == set()
 
 
-def test_request_profile_refresh_noop_without_scheduler(app_config: Any) -> None:
+def test_request_profile_refresh_queued_while_parser_stopped(app_config: Any) -> None:
+    """Сигнал при остановленном парсере сохраняется и будет передан при старте."""
     state = AppState(app_config, "configs")
     assert state.parser_scheduler is None
 
-    _request_profile_refresh(state, 7)  # парсер остановлен — ничего не делает
+    _request_profile_refresh(state, 7)
+    _request_profile_refresh(state, 7)  # дубликаты схлопываются
+
+    assert state.pending_profile_refresh_ids == {7}

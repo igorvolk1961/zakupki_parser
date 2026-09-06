@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -199,10 +200,11 @@ async def test_run_once_noop_without_profiles(
 
 
 class _FakeProfileCtx:
-    """Профиль-контекст для внеочередного обхода (нужен только ``id``)."""
+    """Профиль-контекст для внеочередного обхода (нужны ``id`` и ``profile.id``)."""
 
     def __init__(self, profile_id: int) -> None:
         self.id = profile_id
+        self.profile = SimpleNamespace(id=profile_id)
 
 
 @pytest.mark.asyncio
@@ -238,12 +240,18 @@ async def test_request_profile_refresh_sets_event_and_ids(
     scheduler = _make_scheduler(app_config, max_concurrent=2)
     assert not scheduler._refresh_ids  # noqa: SLF001
     assert not scheduler._refresh_event.is_set()  # noqa: SLF001
+    assert scheduler._refresh_pending_since is None  # noqa: SLF001
 
     scheduler.request_profile_refresh(7)
+    since = scheduler._refresh_pending_since  # noqa: SLF001
     scheduler.request_profile_refresh(7)  # повторный сигнал не дублирует
 
     assert scheduler._refresh_ids == {7}  # noqa: SLF001
     assert scheduler._refresh_event.is_set()  # noqa: SLF001
+    assert scheduler._refresh_pending_since == since  # noqa: SLF001
+
+    scheduler.request_profile_refresh(8)  # следующий батч не сбрасывает окно
+    assert scheduler._refresh_ids == {7, 8}  # noqa: SLF001
 
 
 @pytest.mark.asyncio
@@ -278,10 +286,57 @@ async def test_run_refresh_pass_processes_only_requested_profiles(
     await scheduler._run_refresh_pass(iteration=5)  # noqa: SLF001
 
     assert scheduler._refresh_ids == set()  # noqa: SLF001
+    assert scheduler._refresh_handled_in_cycle == {7}  # noqa: SLF001
     assert calls == [
         ("p1", [7], 5, True),
         ("p2", [7], 5, True),
     ]
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_pass_skips_profile_handled_this_cycle(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Повторная правка того же профиля за регулярный цикл не запускает новый
+    полный обход: один full-window проход на профиль за цикл (кап нагрузки)."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    calls: list[tuple[str, list[int], int, bool]] = []
+    gathers: list[set[int] | None] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
+        calls.append(
+            (platform_id, sorted(c.id for c in profiles), iteration, full_window)  # type: ignore[attr-defined]
+        )
+
+    async def fake_gather(only_ids: set[int] | None = None) -> list[_FakeProfileCtx]:
+        gathers.append(only_ids)
+        if only_ids:
+            return [_FakeProfileCtx(p) for p in only_ids]
+        return []
+
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather)
+    monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: ["p1"])
+    monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+
+    scheduler.request_profile_refresh(7)
+    await scheduler._run_refresh_pass(iteration=1)  # noqa: SLF001
+    assert len(calls) == 1
+
+    # Вторая правка того же профиля в этом же регулярном цикле.
+    scheduler.request_profile_refresh(7)
+    await scheduler._run_refresh_pass(iteration=2)  # noqa: SLF001
+
+    assert len(calls) == 1  # повторный полный обход не запускается
+    assert gathers == [{7}]  # вторая правка не доходит даже до сбора контекста
+    assert scheduler._refresh_ids == {7}  # noqa: SLF001  # остаётся до регулярного прохода
+    assert scheduler._refresh_handled_in_cycle == {7}  # noqa: SLF001
 
 
 @pytest.mark.asyncio

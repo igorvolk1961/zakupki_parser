@@ -216,7 +216,7 @@ class Orchestrator(
         # включается через full_window — известные закупки не пропускаются.
         self._multi_run = len(run_profiles) > 1 or self._full_window
 
-        cutoff = await self._compute_cutoff(by_relevance, explicit, run_profiles)
+        cutoff = await self._compute_cutoff(by_relevance, explicit)
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
 
         # Оптимизация повторного прохода: грузим номера сохранённых закупок, чтобы
@@ -293,18 +293,14 @@ class Orchestrator(
         """
         return []
 
-    async def _compute_cutoff(
-        self,
-        by_relevance: bool,
-        explicit: bool,
-        run_profiles: list[ProfileRunContext],
-    ) -> datetime | None:
+    async def _compute_cutoff(self, by_relevance: bool, explicit: bool) -> datetime | None:
         """Стоп-порог по дате для прохода площадки.
 
-        В мультипрофильной ветке (несколько профилей или режим ``full_window``,
-        явный список) используем полное окно ``now - default_cutoff_days`` — иначе
-        новый профиль потерял бы историю (``last_processed_date`` — инкремент от
-        последней записи площадки).
+        В мультипрофильной ветке (``self._multi_run``: несколько профилей или режим
+        ``full_window``, явный список) используем полное окно ``now - default_cutoff_days`` —
+        иначе новый профиль потерял бы историю (``last_processed_date`` — инкремент
+        от последней записи площадки). Единый источник условия — ``_multi_run``,
+        вычисленный в ``run``.
         """
         if by_relevance:
             logger.info(
@@ -312,7 +308,7 @@ class Orchestrator(
                 self._platform_id,
             )
             return None
-        if self._repository is None or (explicit and (self._full_window or len(run_profiles) > 1)):
+        if self._repository is None or (explicit and self._multi_run):
             return self._now - timedelta(days=self._cfg.service.default_cutoff_days)
         # Поле даты стоп-порога: update_date, если площадка его поддерживает
         # (переменная update_date в карточке списка), иначе publication_date.

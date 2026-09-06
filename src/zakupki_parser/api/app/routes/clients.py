@@ -79,6 +79,27 @@ def _safe_filename(name: str) -> str:
     return cleaned or "profile"
 
 
+def _crawl_state_key(profile: Any, words: dict[str, list[str]]) -> tuple[Any, ...]:
+    """Ключ crawl-значимого состояния профиля для change-detection (fast-start).
+
+    Сравниваются только поля, влияющие на обход/фильтрацию площадок; правки
+    остальных (имя, вопросы, лицензии, опыт, min_fit_threshold и т.п.) не должны
+    запускать внеочередной полный обход.
+    """
+    return (
+        profile.enabled,
+        tuple(sorted(profile.okpd_codes or [])),
+        profile.nmck_min,
+        profile.nmck_max,
+        tuple(sorted(profile.target_etp or [])),
+        tuple(sorted(profile.target_laws or [])),
+        tuple(sorted(profile.target_regions or [])),
+        profile.max_region_distance_km,
+        tuple(sorted(words.get("keywords") or [])),
+        tuple(sorted(words.get("exclusion_words") or [])),
+    )
+
+
 def _export_timestamp() -> str:
     """Временная метка для имени файла экспорта (дата + время, без секунд в разделе)."""
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -241,6 +262,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         # PUT — полная замена: обновляем существующий профиль по id (в т.ч. при
         # переименовании — раньше upsert по name создавал новый профиль), null
         # сохраняется как null (exclude_unset, а не exclude_none).
+        # Change-detection: внеочередной обход запрашиваем только при фактическом
+        # изменении crawl-полей (иначе rename/no-op сохранения гоняли бы полный обход).
+        old_words = await _repo().get_profile_keywords(existing.id)
+        old_key = _crawl_state_key(existing, old_words)
         await _validate_profile_entries(body)
         eff = await _effective_options(eff_user)
         try:
@@ -252,8 +277,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        _request_refresh_for(updated)
-        return await _profile_out(updated)
+        new_words = await _repo().get_profile_keywords(updated.id)
+        if _crawl_state_key(updated, new_words) != old_key:
+            _request_refresh_for(updated)
+        return await _profile_out(updated, keywords=new_words)
 
     @router.post(
         "/api/clients/{client_id}/activate",

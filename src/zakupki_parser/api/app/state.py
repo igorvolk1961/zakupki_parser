@@ -39,6 +39,9 @@ class AppState:
         # Активный экземпляр Scheduler (пока запущен постоянный мониторинг):
         # API-роуты просят внеочередной обход профиля через request_profile_refresh.
         self.parser_scheduler: Any | None = None
+        # Профили, для которых запрошен внеочередной обход, пока парсер остановлен
+        # (parser_scheduler is None): передаются новому планировщику при старте.
+        self.pending_profile_refresh_ids: set[int] = set()
         self.parser_status: dict[str, Any] = {
             "running": False,
             "stopped": False,
@@ -70,12 +73,15 @@ def _request_profile_refresh(state: AppState, profile_id: int) -> None:
 
     Вызывается после создания/изменения включённого профиля: планировщик обработает
     профиль сразу после завершения текущего прохода, не дожидаясь конца периода
-    цикла (timeout_seconds). Безопасна: если парсер не запущен — ничего не делает,
-    профиль подхватит ближайший регулярный проход.
+    цикла (timeout_seconds). Если парсер остановлен/перезапускается — запрос
+    сохраняется в ``pending_profile_refresh_ids`` и передаётся планировщику при
+    старте (``_run_parser``).
     """
     scheduler = state.parser_scheduler
     if scheduler is not None:
         scheduler.request_profile_refresh(profile_id)
+    else:
+        state.pending_profile_refresh_ids.add(profile_id)
 
 
 async def _run_parser(state: AppState) -> None:
@@ -84,6 +90,12 @@ async def _run_parser(state: AppState) -> None:
 
     scheduler = Scheduler(state.cfg, on_update=lambda: _broadcast(state))
     state.parser_scheduler = scheduler
+    # Запросы на внеочередной обход, сделанные пока парсер был остановлен,
+    # передаём новому планировщику (fast-start после «настроил профиль -> запустил»).
+    pending = list(state.pending_profile_refresh_ids)
+    state.pending_profile_refresh_ids.clear()
+    for profile_id in pending:
+        scheduler.request_profile_refresh(profile_id)
     try:
         await scheduler.run_service()
     except asyncio.CancelledError:

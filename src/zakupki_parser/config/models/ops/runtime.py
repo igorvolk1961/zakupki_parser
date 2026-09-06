@@ -14,8 +14,9 @@ class OpsConfig(_BaseConfig):
     """Эксплуатационная конфигурация: таймер, БД, уведомления, выгрузка, circuit breaker."""
 
     timeout_seconds: int = Field(default=3600, ge=1)
-    # Пауза перед внеочередным обходом профиля после сигнала (fast-start): серия
-    # правок подряд копится в один обход. 0 — без ожидания.
+    # Окно коалесинга внеочередного обхода профиля (fast-start): обход стартует не
+    # раньше этого интервала с момента ПЕРВОГО сигнала, чтобы серия правок подряд
+    # копилась в один обход. 0 — без ожидания.
     profile_refresh_debounce_seconds: float = Field(default=3.0, ge=0)
     db: DbConfig = Field(default_factory=DbConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
