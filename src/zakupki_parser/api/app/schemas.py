@@ -492,6 +492,16 @@ class ProfileOut(BaseModel):
     facts: ProfileFactsOut | None = None
 
 
+class ProfileSaveOut(ProfileOut):
+    """Ответ сохранения профиля: карточка + уведомление о начале сбора данных.
+
+    ``notice`` — человекочитаемое сообщение пользователю о том, когда начнётся
+    (или почему не начнётся) сбор данных по сохранённому профилю.
+    """
+
+    notice: str | None = None
+
+
 class ProfileListOut(BaseModel):
     total: int
     items: list[ProfileOut]

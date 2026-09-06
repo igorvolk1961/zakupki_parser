@@ -24,9 +24,10 @@ class OpsConfig(_BaseConfig):
         ),
     )
     # Окно коалесинга внеочередного обхода профиля (fast-start): обход стартует не
-    # раньше этого интервала с момента ПЕРВОГО сигнала, чтобы серия правок подряд
+    # раньше этого интервала с момента ПОСЛЕДНЕГО сигнала (каждое сохранение
+    # сбрасывает таймер), чтобы серия правок подряд — хоть в течение пары минут —
     # копилась в один обход. 0 — без ожидания.
-    profile_refresh_debounce_seconds: float = Field(default=3.0, ge=0)
+    profile_refresh_debounce_seconds: float = Field(default=120.0, ge=0)
     db: DbConfig = Field(default_factory=DbConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     export_dir: str = Field(

@@ -1130,9 +1130,17 @@ async function doSaveProfile(data) {
       body: JSON.stringify(data),
     });
     if (!r.ok) throw new Error(await apiErrorDetail(r));
+    let notice = null;
+    try {
+      const saved = await r.json();
+      notice = saved && saved.notice ? saved.notice : null;
+    } catch (e) {
+      // Тело может отсутствовать/не парситься — показываем общий текст.
+    }
     snapshotProfile();
-    setProfileSaveStatus("Профиль сохранён");
-    setProfileStatus(profileEditorId ? "Профиль сохранён" : "Профиль создан");
+    const baseMsg = profileEditorId ? "Профиль сохранён" : "Профиль создан";
+    setProfileSaveStatus(notice || baseMsg);
+    setProfileStatus(notice || baseMsg);
     closeProfileEditor();
     await loadProfiles();
     await loadActiveClient();
@@ -1198,7 +1206,14 @@ async function importProfileFile() {
       setProfileStatus("Ошибка загрузки: " + msg);
       return;
     }
-    setProfileStatus("Профиль загружен из файла «" + file.name + "»");
+    let notice = null;
+    try {
+      const saved = await r.json();
+      notice = saved && saved.notice ? saved.notice : null;
+    } catch (e) {
+      /* ignore */
+    }
+    setProfileStatus(notice || "Профиль загружен из файла «" + file.name + "»");
     await loadProfiles();
     await loadActiveClient();
   } catch (e) {

@@ -910,3 +910,127 @@ async def test_process_list_record_region_distance_disables_string_filter(
     )
     assert (known, number, saved) == (False, "N5", True)
     assert len(recorder.persisted) == 1
+
+
+class _ScoringProfile:
+    """Профиль для проверки авто-пуша скоринга (мониторинг без опции scoring)."""
+
+    id = 7
+    target_etp: list[str] = []
+    competencies = ""
+
+
+class _MatchedRepo:
+    """Фейковый репозиторий: пишет matched_keywords, не находит оценку-представителя."""
+
+    def __init__(self) -> None:
+        self.recorded: list[tuple[int, int, list[str]]] = []
+        self.queued: list[tuple[int, int]] = []
+
+    async def record_matched_keywords(
+        self,
+        procurement_id: int,
+        profile_id: int,
+        matched: list[str],
+        comp_hash: str | None = None,
+    ) -> None:
+        self.recorded.append((procurement_id, profile_id, list(matched)))
+
+    async def find_group_evaluation(self, procurement_id: int, comp_hash: str) -> Any:
+        return None
+
+    async def mark_scoring_queued(
+        self, procurement_id: int, profile_id: int, queued_at: Any
+    ) -> bool:
+        self.queued.append((procurement_id, profile_id))
+        return True
+
+    async def mark_scoring_iteration(self, procurement_id: int, iteration: int) -> bool:
+        return True
+
+
+class _PushTransport:
+    """Записывает enqueue-вызовы авто-пуша."""
+
+    def __init__(self) -> None:
+        self.enqueued: list[tuple[int, int | None]] = []
+
+    async def enqueue(
+        self,
+        procurement_id: int,
+        priority: float,
+        stage: str = "fit",
+        profile_id: int | None = None,
+    ) -> None:
+        self.enqueued.append((procurement_id, profile_id))
+
+
+def _scoring_ctx(*, scoring_allowed: bool) -> ProfileRunContext:
+    """Контекст профиля со словом «роботы» и заданной доступностью LLM-скоринга."""
+    return ProfileRunContext(
+        profile=cast(Profile, _ScoringProfile()),
+        keywords=["роботы"],
+        exclusion_words=[],
+        scoring_allowed=scoring_allowed,
+    )
+
+
+def _make_push_recorder(
+    app_config: AppConfig,
+) -> tuple[_PersistRecorder, _MatchedRepo, _PushTransport]:
+    """Recorder с фейковым репозиторием и транспортом (для проверки авто-пуша)."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.score.scoring_transport_url = ""  # транспорт подставляем вручную ниже
+    repo = _MatchedRepo()
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=repo,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    transport = _PushTransport()
+    recorder._transport = transport  # type: ignore[attr-defined]  # noqa: SLF001
+    return recorder, repo, transport
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_monitoring_without_scoring_skips_push(
+    app_config: AppConfig,
+) -> None:
+    """Мониторинг без скоринга: matched_keywords пишутся, задание на LLM НЕ ставится."""
+    recorder, repo, transport = _make_push_recorder(app_config)
+    recorder._profile_ctxs = [_scoring_ctx(scoring_allowed=False)]  # noqa: SLF001
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "S1", "id": "100", "subject": "Поставка промышленных роботов"},
+        detail_url="https://zakupki.mos.ru/need/100",
+        number="S1",
+    )
+    assert (known, number, saved) == (False, "S1", True)
+    assert len(recorder.persisted) == 1
+    # matched_keywords записаны (мониторинг), очередь LLM-скоринга не тронута.
+    assert repo.recorded and repo.recorded[0][:2] == (100, 7)
+    assert repo.queued == []
+    assert transport.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_scoring_allowed_pushes(app_config: AppConfig) -> None:
+    """Владелец с опцией scoring: отобранная закупка ставится в очередь LLM-скоринга."""
+    recorder, repo, transport = _make_push_recorder(app_config)
+    recorder._profile_ctxs = [_scoring_ctx(scoring_allowed=True)]  # noqa: SLF001
+    known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+        page=object(),  # type: ignore[arg-type]
+        list_vars={"number": "S2", "id": "101", "subject": "Поставка промышленных роботов"},
+        detail_url="https://zakupki.mos.ru/need/101",
+        number="S2",
+    )
+    assert (known, number, saved) == (False, "S2", True)
+    assert repo.recorded and repo.recorded[0][:2] == (101, 7)
+    assert transport.enqueued == [(101, 7)]
+    assert repo.queued == [(101, 7)]

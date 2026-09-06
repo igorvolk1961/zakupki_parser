@@ -16,6 +16,7 @@ from zakupki_parser.api.app.schemas import (
     ProfileIn,
     ProfileListOut,
     ProfileOut,
+    ProfileSaveOut,
 )
 from zakupki_parser.api.app.state import _broadcast, _request_profile_refresh
 from zakupki_parser.storage.db import User
@@ -132,6 +133,64 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if profile is not None and profile.enabled:
             _request_profile_refresh(state, profile.id)
 
+    def _collection_notice(profile: Any, *, refresh_requested: bool) -> str:
+        """Уведомление пользователю: когда начнётся сбор данных по профилю.
+
+        Вызывается сразу после сохранения; ``refresh_requested`` — запрошен ли
+        внеочередной обход этой правкой (см. change-detection в ``update_client``).
+        """
+        if not profile.enabled:
+            return (
+                "Профиль отключён — сбор данных по нему не выполняется. "
+                "Включите профиль и сохраните его, чтобы начать сбор."
+            )
+        if not refresh_requested:
+            return (
+                "Профиль сохранён. Изменения не влияют на критерии сбора "
+                "(ОКПД2/слова/НМЦК/регионы/площадки) — сбор данных продолжится "
+                "по регулярному расписанию мониторинга."
+            )
+        scheduler = state.parser_scheduler
+        if scheduler is None:
+            if profile.id in state.pending_profile_refresh_ids:
+                return (
+                    "Профиль сохранён. Парсер остановлен: внеочередной сбор по "
+                    "профилю начнётся сразу после запуска мониторинга."
+                )
+            return (
+                "Профиль сохранён. Парсер не запущен: сбор данных по профилю "
+                "начнётся после запуска мониторинга на панели devops."
+            )
+        status = scheduler.profile_refresh_status(profile.id)
+        if status.get("handled_this_cycle"):
+            return (
+                "Профиль сохранён. Внеочередной сбор по нему уже выполнялся в "
+                "текущем цикле: эта правка будет учтена следующим проходом "
+                "мониторинга."
+            )
+        remaining = status.get("remaining_seconds")
+        if remaining is not None and remaining > 0:
+            total = int(remaining)
+            approx = f"{total // 60} мин {total % 60} с" if total >= 60 else f"{total} с"
+            return (
+                "Профиль сохранён. Внеочередной сбор данных по нему начнётся "
+                f"после завершения текущего прохода — не ранее чем через {approx} "
+                "после последнего сохранения."
+            )
+        return (
+            "Профиль сохранён. Внеочередной сбор данных по нему начнётся сразу "
+            "после завершения текущего прохода мониторинга."
+        )
+
+    async def _save_out(
+        profile: Any,
+        notice: str | None,
+        keywords: dict[str, list[str]] | None = None,
+    ) -> ProfileSaveOut:
+        """Карточка сохранённого профиля + уведомление о начале сбора."""
+        base = await _profile_out(profile, keywords=keywords)
+        return ProfileSaveOut(**base.model_dump(), notice=notice)
+
     @router.get(
         "/api/clients/active",
         response_model=ProfileOut,
@@ -227,12 +286,12 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
 
     @router.post(
         "/api/clients",
-        response_model=ProfileOut,
+        response_model=ProfileSaveOut,
         dependencies=[Depends(require_base)],
     )
     async def create_client(
         body: ProfileIn, user: User | None = Depends(require_base)
-    ) -> ProfileOut:
+    ) -> ProfileSaveOut:
         eff_user = _require_user(user)
         await _validate_profile_entries(body)
         eff = await _effective_options(eff_user)
@@ -245,16 +304,17 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         _request_refresh_for(profile)
-        return await _profile_out(profile)
+        notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
+        return await _save_out(profile, notice)
 
     @router.put(
         "/api/clients/{client_id}",
-        response_model=ProfileOut,
+        response_model=ProfileSaveOut,
         dependencies=[Depends(require_base)],
     )
     async def update_client(
         client_id: int, body: ProfileIn, user: User | None = Depends(require_base)
-    ) -> ProfileOut:
+    ) -> ProfileSaveOut:
         eff_user = _require_user(user)
         existing = await _repo().get_profile(eff_user.id, client_id)
         if existing is None:
@@ -278,9 +338,13 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         new_words = await _repo().get_profile_keywords(updated.id)
-        if _crawl_state_key(updated, new_words) != old_key:
+        crawl_changed = _crawl_state_key(updated, new_words) != old_key
+        if crawl_changed:
             _request_refresh_for(updated)
-        return await _profile_out(updated, keywords=new_words)
+        notice = _collection_notice(
+            updated, refresh_requested=crawl_changed and bool(updated.enabled)
+        )
+        return await _save_out(updated, notice, keywords=new_words)
 
     @router.post(
         "/api/clients/{client_id}/activate",
@@ -314,10 +378,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
 
     @router.post(
         "/api/clients/seed",
-        response_model=ProfileOut,
+        response_model=ProfileSaveOut,
         dependencies=[Depends(require_base)],
     )
-    async def seed_client(user: User | None = Depends(require_base)) -> ProfileOut:
+    async def seed_client(user: User | None = Depends(require_base)) -> ProfileSaveOut:
         """Загружает/обновляет профиль из файла-сида профиля
         (как CLI ``zp seed-profile``).
 
@@ -345,16 +409,17 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         )
         await _broadcast(state)
         _request_refresh_for(profile)
-        return await _profile_out(profile)
+        notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
+        return await _save_out(profile, notice)
 
     @router.post(
         "/api/clients/import",
-        response_model=ProfileOut,
+        response_model=ProfileSaveOut,
         dependencies=[Depends(require_base)],
     )
     async def import_client(
         payload: ProfileImportIn, user: User | None = Depends(require_base)
-    ) -> ProfileOut:
+    ) -> ProfileSaveOut:
         """Загружает/обновляет профиль из загруженного файла.
 
         Основной формат — единый JSON-файл (компетенции — подобъект внутри схемы
@@ -376,6 +441,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
         _request_refresh_for(profile)
-        return await _profile_out(profile)
+        notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
+        return await _save_out(profile, notice)
 
     return router

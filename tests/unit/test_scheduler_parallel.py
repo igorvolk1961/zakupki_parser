@@ -3,12 +3,34 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from zakupki_parser.options import paid_default_options
 from zakupki_parser.scheduler import Scheduler
+from zakupki_parser.storage.db import UserAccount
+
+
+def _competencies_json() -> str:
+    """Канонический JSON валидного непустого профиля компетенций (BR-07)."""
+    return json.dumps(
+        {
+            "positioning": "Тестовые компетенции",
+            "breadth": "broad",
+            "competencies": [{"area": "Аудит", "description": "обследование"}],
+            "exclusions": [],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _free_account(uid: int) -> UserAccount:
+    """Аккаунт только с бесплатными опциями (нет платного LLM-скоринга)."""
+    return UserAccount(user_id=uid, name="free", options=paid_default_options(False), is_active=True)
 
 
 class _FakeRepo:
@@ -236,7 +258,11 @@ async def test_run_once_regular_pass_uses_incremental_window(
 async def test_request_profile_refresh_sets_event_and_ids(
     app_config: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """request_profile_refresh добавляет id и будит планировщик из сна."""
+    """request_profile_refresh добавляет id и будит планировщик из сна.
+
+    Debounce сбрасывается от КАЖДОГО сигнала (trailing): повторные правки в
+    пределах окна не накапливают старые таймеры, а продлевают ожидание.
+    """
     scheduler = _make_scheduler(app_config, max_concurrent=2)
     assert not scheduler._refresh_ids  # noqa: SLF001
     assert not scheduler._refresh_event.is_set()  # noqa: SLF001
@@ -244,14 +270,19 @@ async def test_request_profile_refresh_sets_event_and_ids(
 
     scheduler.request_profile_refresh(7)
     since = scheduler._refresh_pending_since  # noqa: SLF001
-    scheduler.request_profile_refresh(7)  # повторный сигнал не дублирует
-
     assert scheduler._refresh_ids == {7}  # noqa: SLF001
     assert scheduler._refresh_event.is_set()  # noqa: SLF001
-    assert scheduler._refresh_pending_since == since  # noqa: SLF001
 
-    scheduler.request_profile_refresh(8)  # следующий батч не сбрасывает окно
+    # Повторный сигнал того же профиля продлевает окно от последнего сигнала.
+    scheduler.request_profile_refresh(7)
+    assert scheduler._refresh_ids == {7}  # noqa: SLF001
+    assert scheduler._refresh_event.is_set()  # noqa: SLF001
+    assert scheduler._refresh_pending_since >= since  # noqa: SLF001
+
+    # Другой профиль в том же батче также продлевает окно.
+    scheduler.request_profile_refresh(8)
     assert scheduler._refresh_ids == {7, 8}  # noqa: SLF001
+    assert scheduler._refresh_pending_since >= since  # noqa: SLF001
 
 
 @pytest.mark.asyncio
@@ -444,3 +475,107 @@ async def test_run_service_wakes_on_refresh_keeps_regular_cadence(
     scheduler._stop.set()  # noqa: SLF001
     await asyncio.wait_for(task, timeout=2)
     assert scheduler._refresh_ids == set()  # noqa: SLF001
+
+
+class _GatherRepo:
+    """Фейковый репозиторий для ``_gather_profile_ctxs`` (профили + аккаунты)."""
+
+    def __init__(
+        self,
+        profiles: list[Any],
+        accounts: dict[int, list[UserAccount]] | None = None,
+        keywords: dict[int, dict[str, list[str]]] | None = None,
+    ) -> None:
+        self._profiles = profiles
+        self._accounts = accounts or {}
+        self._keywords = keywords or {}
+
+    async def list_enabled_profiles_for_active_users(self) -> list[Any]:
+        return self._profiles
+
+    async def get_users_with_trial(self, user_ids: list[int]) -> dict[int, Any]:
+        return {int(uid): None for uid in user_ids}
+
+    async def accounts_by_users(self, user_ids: list[int]) -> dict[int, list[UserAccount]]:
+        return {int(uid): self._accounts.get(int(uid), []) for uid in user_ids}
+
+    async def list_profiles_keywords(
+        self, profile_ids: list[int]
+    ) -> dict[int, dict[str, list[str]]]:
+        return {
+            int(pid): self._keywords.get(int(pid), {"keywords": [], "exclusion_words": []})
+            for pid in profile_ids
+        }
+
+
+def _profile(pid: int, uid: int, *, competencies: str | None = None) -> Any:
+    """Профиль-заглушка с crawl-полями (для ``_gather_profile_ctxs``)."""
+    return SimpleNamespace(
+        id=pid,
+        user_id=uid,
+        enabled=True,
+        competencies=competencies or "",
+        okpd_codes=["62.02"],
+        nmck_min=None,
+        nmck_max=None,
+        target_etp=[],
+        target_laws=[],
+        target_regions=[],
+        max_region_distance_km=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_gather_includes_profiles_without_scoring_option(
+    app_config: Any,
+) -> None:
+    """Мониторинг работает без скоринга: профиль владельца с бесплатным аккаунтом
+    попадает в обход (поисковый профиль), но ``scoring_allowed`` у него False."""
+    scheduler = Scheduler(app_config)
+    scheduler._repository = _GatherRepo(  # type: ignore[assignment]  # noqa: SLF001
+        [_profile(11, 2), _profile(12, 2, competencies=_competencies_json())],
+        accounts={2: [_free_account(2)]},
+    )
+
+    ctxs = await scheduler._gather_profile_ctxs()  # noqa: SLF001
+
+    by_id = {c.profile.id: c for c in ctxs}
+    assert set(by_id) == {11, 12}
+    # У владельца нет опции scoring -> LLM-задания по этим профилям не ставятся.
+    assert by_id[11].scoring_allowed is False
+    assert by_id[12].scoring_allowed is False
+
+
+@pytest.mark.asyncio
+async def test_gather_scoring_allowed_needs_option_and_competencies(
+    app_config: Any,
+) -> None:
+    """scoring_allowed=True только когда владелец имеет опцию scoring И у профиля
+    валидные непустые компетенции; иначе профиль всё равно собирается (мониторинг)."""
+    scheduler = Scheduler(app_config)
+    # Пользователь 1 — легаси без аккаунтов (полный доступ к платным опциям).
+    # Пользователь 3 — активный аккаунт со всеми платными опциями.
+    full_account = UserAccount(
+        user_id=3,
+        name="full",
+        options=paid_default_options(True),
+        is_active=True,
+    )
+    scheduler._repository = _GatherRepo(  # type: ignore[assignment]  # noqa: SLF001
+        [
+            _profile(1, 1, competencies=_competencies_json()),
+            _profile(2, 1),  # легаси-владелец с полным доступом, но без компетенций
+            _profile(3, 3, competencies=_competencies_json()),
+        ],
+        accounts={3: [full_account]},
+    )
+
+    ctxs = await scheduler._gather_profile_ctxs()  # noqa: SLF001
+
+    by_id = {c.profile.id: c for c in ctxs}
+    assert set(by_id) == {1, 2, 3}
+    # Компетенции + опция есть -> LLM-скоринг допустим.
+    assert by_id[1].scoring_allowed is True
+    assert by_id[3].scoring_allowed is True
+    # Опция есть, но компетенций нет -> профиль собирается без постановки на LLM.
+    assert by_id[2].scoring_allowed is False

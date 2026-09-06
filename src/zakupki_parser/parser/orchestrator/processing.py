@@ -226,7 +226,10 @@ class RecordProcessingMixin(OrchestratorState):
                     #     НОВОЕ задание не ставится; профиль лишь подписывается под
                     #     результат группы (метка scoring_queued_at, результат придёт
                     #     через apply_score_to_comp_hash_group).
-                    if self._transport is not None:
+                    #     Мониторинг без скоринга: профили с scoring_allowed=False
+                    #     (владельцу недоступна опция scoring) собираются, но задания
+                    #     на LLM не ставятся — matched_keywords уже записаны выше.
+                    if self._transport is not None and ctx.scoring_allowed:
                         key = (int(record["id"]), ctx.profile.id)
                         if key not in pushed_scoring:
                             pushed_scoring.add(key)
