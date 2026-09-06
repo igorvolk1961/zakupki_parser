@@ -966,10 +966,10 @@ class _PushTransport:
 
 
 def _scoring_ctx(*, scoring_allowed: bool) -> ProfileRunContext:
-    """Контекст профиля со словом «роботы» и заданной доступностью LLM-скоринга."""
+    """Контекст профиля со словом «робот*» и заданной доступностью LLM-скоринга."""
     return ProfileRunContext(
         profile=cast(Profile, _ScoringProfile()),
-        keywords=["роботы"],
+        keywords=["робот*"],
         exclusion_words=[],
         scoring_allowed=scoring_allowed,
     )
