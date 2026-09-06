@@ -29,10 +29,9 @@ requirements:
     status: implemented
     adr: ADR-10
     code:
-      - src/zakupki_parser/storage/keywords_parser.py
+      - src/zakupki_parser/storage/repository/profiles.py
       - src/zakupki_parser/storage/db/profile.py
     tests:
-      - tests/unit/test_keywords_parser.py
       - tests/unit/test_profile_json.py
   - id: US-1.2
     type: US
@@ -542,10 +541,10 @@ requirements:
     status: implemented
     adr: ADR-10
     code:
-      - src/zakupki_parser/storage/keywords_parser.py
+      - src/zakupki_parser/storage/repository/profiles.py
       - src/zakupki_parser/storage/db/profile.py
     tests:
-      - tests/unit/test_keywords_parser.py
+      - tests/unit/test_profile_json.py
   - id: FR-1.3
     type: FR
     title: Ровно один активный профиль
@@ -560,17 +559,16 @@ requirements:
       - tests/integration/test_multiclient.py
   - id: FR-1.4
     type: FR
-    title: Сид профиля из файла
+    title: Импорт профиля из единого JSON-файла
     stakeholder: Тендеролог (user)
     stage: "2"
     status: implemented
     adr: ADR-10
     code:
       - src/zakupki_parser/api/app/routes/clients.py
-      - src/zakupki_parser/cli/commands.py
+      - src/zakupki_parser/storage/profile_json.py
     tests:
-      - tests/unit/test_cli.py
-      - tests/unit/test_keywords_parser.py
+      - tests/unit/test_profile_json.py
 
   - id: FR-2.1
     type: FR

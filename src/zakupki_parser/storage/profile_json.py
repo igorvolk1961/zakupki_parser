@@ -7,17 +7,51 @@
 именно эта структура при сохранении в БД (строка ``profile.competencies``) понимается
 фронтендом (``parseComp``) и scoring-воркером (``profile_to_texts``). Legacy-текст
 представляется как ``{"mode": "raw", "text": ...}``.
+
+Файл также несёт факты профиля BR-03 — ``licenses`` и ``experience``. Для переносимости
+между БД ссылки на справочники хранятся стабильными ключами, а не числовыми id:
+- ``licenses[].license_type_name`` — уникальное наименование вида лицензии
+  (``license_types.name``, сид ``licenze_kind.md``);
+- ``experience[].confirmation_type_code`` — стабильный код типа подтверждения
+  (``experience_confirmation_types.code``: ``platform``/``documents``/``registry``).
+
+При импорте эти ключи резолвятся в ``license_type_id``/``confirmation_type_id``
+(``resolve_profile_fact_refs``) перед записью в БД.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
+from datetime import date, datetime
 from typing import Any
 
 from zakupki_parser.storage.competencies import normalize_competencies
 
 SCHEMA = "zakupki-profile"
 VERSION = 1
+
+# Колонки ORM-моделей ProfileLicense/ProfileExperience (BR-03). Только эти ключи
+# передаются в ``upsert_profile`` (без id/profile_id/created_at/updated_at).
+_LICENSE_FIELDS = (
+    "license_type_id",
+    "number",
+    "authority",
+    "issue_date",
+    "expiry_date",
+    "notes",
+)
+_EXPERIENCE_FIELDS = (
+    "title",
+    "customer_name",
+    "contract_number",
+    "start_date",
+    "end_date",
+    "amount",
+    "confirmation_type_id",
+    "import_independent",
+    "notes",
+)
 
 
 def _split_competencies(raw: str) -> dict[str, Any]:
@@ -54,8 +88,82 @@ def _join_competencies(block: Any) -> str:
     return normalize_competencies(json.dumps(block, ensure_ascii=False))
 
 
+def _iso(value: Any) -> str | None:
+    """date/datetime -> ISO-строка; ``None`` -> ``None``; прочее приводим к строке."""
+    if value is None:
+        return None
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return str(value)
+
+
+def _fact_ref(entry: Mapping[str, Any], *, field: str, nested: str, key: str) -> Any:
+    """Ссылка на справочник из записи факта.
+
+    Берёт ``entry[f"{nested}.{field}"]`` (объект ``_out`` со вложенным справочником),
+    затем ``entry[key]`` (плоская переносимая форма ``license_type_name``/
+    ``confirmation_type_code``), затем ``entry[f"{nested}_id"]`` (числовой id).
+    """
+    inner = entry.get(nested)
+    if isinstance(inner, Mapping) and inner.get(field) is not None:
+        return inner[field]
+    if entry.get(key) is not None:
+        return entry[key]
+    return entry.get(f"{nested}_id")
+
+
+def _serialize_license(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Запись лицензии -> переносимая форма (``license_type_name`` вместо id)."""
+    return {
+        "license_type_id": entry.get("license_type_id"),
+        "license_type_name": _fact_ref(
+            entry, field="name", nested="license_type", key="license_type_name"
+        ),
+        "number": entry.get("number"),
+        "authority": entry.get("authority"),
+        "issue_date": _iso(entry.get("issue_date")),
+        "expiry_date": _iso(entry.get("expiry_date")),
+        "notes": entry.get("notes"),
+    }
+
+
+def _serialize_experience_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Запись опыта -> переносимая форма (``confirmation_type_code`` вместо id)."""
+    return {
+        "confirmation_type_id": entry.get("confirmation_type_id"),
+        "confirmation_type_code": _fact_ref(
+            entry, field="code", nested="confirmation_type", key="confirmation_type_code"
+        ),
+        "title": entry.get("title"),
+        "customer_name": entry.get("customer_name"),
+        "contract_number": entry.get("contract_number"),
+        "start_date": _iso(entry.get("start_date")),
+        "end_date": _iso(entry.get("end_date")),
+        "amount": entry.get("amount"),
+        "import_independent": entry.get("import_independent"),
+        "notes": entry.get("notes"),
+    }
+
+
+def _serialize_licenses(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    return [_serialize_license(e) for e in items if isinstance(e, Mapping)]
+
+
+def _serialize_experience(items: Any) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    return [_serialize_experience_entry(e) for e in items if isinstance(e, Mapping)]
+
+
 def serialize_profile_json(profile: dict[str, Any]) -> str:
-    """``ProfileOut.model_dump()`` -> JSON-текст файла, компетенции как подобъект."""
+    """``ProfileOut.model_dump()`` -> JSON-текст файла, компетенции как подобъект.
+
+    Факты BR-03 (``licenses``/``experience``) сериализуются переносимыми ссылками
+    (наименование/license_type, код/confirmation_type) и при отсутствии — пустыми
+    списками (файл самодостаточен, round-trip без потерь).
+    """
     block = _split_competencies(str(profile.get("competencies") or ""))
     payload = {
         "schema": SCHEMA,
@@ -75,6 +183,8 @@ def serialize_profile_json(profile: dict[str, Any]) -> str:
             "keywords": profile.get("keywords") or [],
             "exclusion_words": profile.get("exclusion_words") or [],
             "questions": profile.get("questions") or [],
+            "licenses": _serialize_licenses(profile.get("licenses") or []),
+            "experience": _serialize_experience(profile.get("experience") or []),
         },
         "competencies": block,
     }
@@ -112,19 +222,43 @@ def _as_str_list(value: Any) -> list[str]:
     raise ValueError(f"Ожидается список строк, получено: {value!r}")
 
 
+def _fact_entries(value: Any, fields: tuple[str, ...]) -> list[dict[str, Any]] | None:
+    """Читает список фактов (licenses/experience) из файла.
+
+    Возвращает ``None``, если ключ не задан или не список (импорт не трогает факты);
+    иначе список словарей, приведённых к колонкам ``fields`` (лишние ключи отброшены).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("Ожидается список")
+    out: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise ValueError("Ожидается объект")
+        out.append(
+            {key: item.get(key) for key in fields}
+            | {extra: item.get(extra) for extra in ("license_type_name",) if extra in item}
+            | {extra: item.get(extra) for extra in ("confirmation_type_code",) if extra in item}
+        )
+    return out
+
+
 def parse_profile_json(content: str) -> dict[str, Any]:
     """JSON-текст файла -> seed для ``upsert_profile``.
 
     Понимает и плоскую форму (поля профиля в корне), и обёртку ``profile``+``competencies``.
     Поля приводятся к типам колонок; при неверном типе бросается ``ValueError``
-    (``clients.py`` откатывается на markdown-парсер).
+    (``clients.py`` откатывается на markdown-парсер). Факты BR-03 (``licenses``/
+    ``experience``) возвращаются в переносимой форме (name/code) — резолв в id
+    выполняет ``resolve_profile_fact_refs``.
     """
     payload = json.loads(content)
     if not isinstance(payload, dict):
         raise ValueError("Ожидается JSON-объект")
     profile = payload.get("profile")
     src = profile if isinstance(profile, dict) else payload
-    return {
+    seed: dict[str, Any] = {
         "name": str(src.get("name") or "default").strip(),
         "enabled": _as_bool(src.get("enabled")),
         "is_active": _as_bool(src.get("is_active")),
@@ -141,3 +275,59 @@ def parse_profile_json(content: str) -> dict[str, Any]:
         "nmck_min": _as_float(src.get("nmck_min")),
         "nmck_max": _as_float(src.get("nmck_max")),
     }
+    # Факты BR-03: ключ задан явно — импортируем (полная замена), иначе не трогаем.
+    licenses = _fact_entries(src.get("licenses"), _LICENSE_FIELDS)
+    if licenses is not None:
+        seed["licenses"] = licenses
+    experience = _fact_entries(src.get("experience"), _EXPERIENCE_FIELDS)
+    if experience is not None:
+        seed["experience"] = experience
+    return seed
+
+
+def _resolve_license(
+    entry: Mapping[str, Any], license_name_to_id: Mapping[str, int]
+) -> dict[str, Any]:
+    """Переносимая запись лицензии -> колонки ``ProfileLicense`` (id резолвится по name)."""
+    name = entry.get("license_type_name")
+    if name:
+        type_id = license_name_to_id.get(str(name))
+        if type_id is None:
+            raise ValueError(f"Неизвестный вид лицензии: {name}")
+        entry = {**entry, "license_type_id": type_id}
+    return {key: entry.get(key) for key in _LICENSE_FIELDS}
+
+
+def _resolve_experience(
+    entry: Mapping[str, Any], confirmation_code_to_id: Mapping[str, int]
+) -> dict[str, Any]:
+    """Переносимая запись опыта -> колонки ``ProfileExperience`` (id резолвится по code)."""
+    code = entry.get("confirmation_type_code")
+    if code:
+        type_id = confirmation_code_to_id.get(str(code))
+        if type_id is None:
+            raise ValueError(f"Неизвестный тип подтверждения: {code}")
+        entry = {**entry, "confirmation_type_id": type_id}
+    return {key: entry.get(key) for key in _EXPERIENCE_FIELDS}
+
+
+def resolve_profile_fact_refs(
+    seed: dict[str, Any],
+    license_name_to_id: Mapping[str, int],
+    confirmation_code_to_id: Mapping[str, int],
+) -> dict[str, Any]:
+    """Резолвит ссылки лицензий/опыта в ``seed`` в id справочников.
+
+    Применяется перед ``upsert_profile`` (иначе переносимые name/code не записать
+    в FK-колонки). При неизвестной ссылке бросается ``ValueError``.
+    """
+    seed = dict(seed)
+    if "licenses" in seed:
+        seed["licenses"] = [
+            _resolve_license(e, license_name_to_id) for e in seed.get("licenses") or []
+        ]
+    if "experience" in seed:
+        seed["experience"] = [
+            _resolve_experience(e, confirmation_code_to_id) for e in seed.get("experience") or []
+        ]
+    return seed

@@ -36,11 +36,4 @@ def _build_parser() -> argparse.ArgumentParser:
     cap.add_argument("--platform", default="zakupki_mos", help="platform_id из config_dom")
     cap.add_argument("--out", default="tests/fixtures", help="каталог вывода")
 
-    seed = sub.add_parser("seed-profile", help="Заполнить default-профиль пользователя из файла")
-    seed.add_argument("--user", default="admin", help="логин пользователя (по умолчанию: admin)")
-    seed.add_argument(
-        "--file",
-        default="docs/references/bbk-it-profile.md",
-        help="файл с секциями **keywords**/**exclussion_words**/**competencies**",
-    )
     return parser

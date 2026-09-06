@@ -32,7 +32,6 @@ def test_check_config_summary(app_config: AppConfig) -> None:
     assert "zakupki_mos" in out
     assert "Критерии поиска" in out
     assert "keywords" in out
-    assert "Сид: zp seed-profile" in out
     assert "Порог дат (дней):" in out
     assert "режим:" in out
 

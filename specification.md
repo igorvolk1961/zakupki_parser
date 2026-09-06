@@ -74,8 +74,8 @@
    Код без предка/потомков пропускается с предупреждением.
 
    **Прочие критерии** — диапазон НМЦК (`nmck_min`/`nmck_max`), коды ОКПД2
-   (`okpd_codes`) задаются в ПРОФИЛЕ (таблица `profiles`; сид — `файл-сид профиля`,
-   `zp seed-profile`). Выбор по состоянию (`active_only`) — глобальный
+   (`okpd_codes`) задаются в ПРОФИЛЕ (таблица `profiles`). Выбор по состоянию
+   (`active_only`) — глобальный
    (`config_service.yaml -> search_criteria.active_only`). Ключевые слова НЕ
    передаются на площадку (R9): серверная фильтрация — только по кодам ОКПД2
    (+ обход «без кода»); позитивные/негативные слова применяются клиентски после
@@ -411,8 +411,6 @@ UNIQUE `(procurement_id, profile_id)`). Активный профиль — per-
 - `zp run-service` — периодический запуск;
 - `zp stop [--force]` — остановка запущенных процессов парсера;
 - `zp capture-fixture [--platform PLATFORM] [--out DIR]` — сохранение HTML-фикстур для тестов;
-- `zp seed-profile [--user USER] [--file FILE]` — заполнить профиль пользователя
-  словами/компетенциями из файла-сида (таблица `keywords`, R8);
 - `zp serve [--host H] [--port P]` — запуск FastAPI-сервиса.
 
 ## 11. API-сервис (FastAPI)
@@ -470,9 +468,9 @@ UNIQUE `(procurement_id, profile_id)`). Активный профиль — per-
 - `GET /api/reference/{table}` / `POST|PUT|DELETE` — справочные таблицы
   («Справочники», analyst): типы лицензий, типы подтверждения опыта;
 - `GET /api/clients` / `POST` / `GET|PUT|DELETE /api/clients/{id}` —
-  CRUD профилей фильтрации (tenant-скоуп BR-07); `POST /api/clients/{id}/activate` —
-  активация; `POST /api/clients/seed` / `/api/clients/import` — засид из файла / импорт;
-  `GET /api/clients/{id}/export` — экспорт профиля JSON;
+   CRUD профилей фильтрации (tenant-скоуп BR-07); `POST /api/clients/{id}/activate` —
+   активация; `POST /api/clients/import` — импорт единого JSON-файла;
+   `GET /api/clients/{id}/export` — экспорт профиля JSON;
 - `GET /api/clients/active` — активный профиль (для внутреннего вызова конвейера
   через `X-Internal-Token` с `X-Profile-ID`);
 - `GET /api/clients/{id}/licenses` / `/experience` — лицензии и подтверждённый опыт
@@ -589,7 +587,7 @@ DSN задаётся через `ZAKUPKI_DB_DSN`.
 
 | Требование (docs) | Статус | Место в коде | Закрывает этап |
 | :---------------- | :----- | :----------- | :------------- |
-| US-1.1–1.4 Профили фильтрации (слова, исключения, ЭТП, законы, несколько профилей) | ✅ `profiles` per-user (BR-07): активный профиль per-user, CRUD, слова — таблица `keywords` | `storage/db.py`, `api/app.py`, `repository.py` | 1, 2 || ER: таблица `keywords` (word, type) | ✅ канонический источник (миграции 1.29–1.31; JSONB-колонки убраны) | `storage/db.py`, `keywords_parser.py` | 1, 2 || US-2.1 Периодический сбор закупок | ✅ планировщик по списку площадок | `scheduler.py` | — |
+| US-1.1–1.4 Профили фильтрации (слова, исключения, ЭТП, законы, несколько профилей) | ✅ `profiles` per-user (BR-07): активный профиль per-user, CRUD, слова — таблица `keywords` | `storage/db.py`, `api/app.py`, `repository.py` | 1, 2 || ER: таблица `keywords` (word, type) | ✅ канонический источник (миграции 1.29–1.31; JSONB-колонки убраны) | `storage/db.py`, `storage/repository/profiles.py` | 1, 2 || US-2.1 Периодический сбор закупок | ✅ планировщик по списку площадок | `scheduler.py` | — |
 | US-2.2 Первичный скоринг Fit | ✅ LLM-пайплайн, `fit_score`, пороги | `scoring_service/`, `api/app.py` | — |
 | US-2.3 Сортировка по убыванию Fit | ✅ `sort=fit_score` | `storage/repository.py` | — |
 | US-2.4 Не прошедшие фильтр не попадают в список | 🟡 stop-условия (`keyword_context_required`, `exclusion_words_present`); R9 меняет механику на клиентскую пост-фильтрацию **до записи в БД** | `parser/orchestrator/stop.py` | 3 || US-2.5 Не показывать отклонённые повторно | ❌ ручное отклонение — вне MVP; скрытия из выдачи нет | — | 7 || US-3.1 Оповещение о высокорелевантных закупках в Telegram | 🟡 уведомления после стадий каскада есть (Telegram/MAX/webhook); оповещение по каждой высокорелевантной закупке в Telegram — с этапа 8; дайджест топ-3 **не нужен** (US-3.4 удалён решением заказчика) | `notify.py`, `api/app/` | 8 |
@@ -737,7 +735,7 @@ erDiagram
   stateless воркеры — пост-MVP (4C).
 - **R6** — изоляция BR-07: профили фильтруются по `user_id`, оценки — по `profile_id`; внутренние вызовы — только `X-Internal-Token`.
 - **R7** — сервис-аккаунт (админ) до этапа 3; глобальный `active_client_id` удалён (активный профиль per-user).
-- **R8** — сид таблицы `keywords` из `файл-сид профиля` (скрипт `zp seed-profile`).
+- **R8** — источник слов профиля — таблица `keywords`; задаются в профиле (редактор / импорт JSON).
 - **R9** — ключевые слова — клиентская пост-фильтрация до записи; серверная фильтрация — только ОКПД2 (+ обход «без кода», пропускаемый без позитивных слов с логом).
 
 ### 14.4 Roadmap этапов перестройки

@@ -7,6 +7,7 @@ raw/markdown не поддерживаются. Невалидные/не-JSON �
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pytest
 
@@ -15,6 +16,7 @@ from zakupki_parser.storage.profile_json import (
     SCHEMA,
     VERSION,
     parse_profile_json,
+    resolve_profile_fact_refs,
     serialize_profile_json,
 )
 
@@ -232,3 +234,137 @@ def test_parse_rejects_string_target_regions() -> None:
     payload = json.dumps({"profile": {"name": "x", "target_regions": "Москва"}})
     with pytest.raises(ValueError):
         parse_profile_json(payload)
+
+
+def test_serialize_includes_licenses_experience_portable() -> None:
+    """Факты BR-03 сериализуются переносимыми ссылками (name/code) вместо id."""
+    profile = {
+        "name": "x",
+        "competencies": "{}",
+        "licenses": [
+            {
+                "license_type_id": 3,
+                "license_type": {"id": 3, "name": "Лицензия на отходы"},
+                "number": "077-123",
+                "authority": "Росприроднадзор",
+                "issue_date": date(2020, 1, 1),
+                "expiry_date": None,
+                "notes": "бессрочная",
+            }
+        ],
+        "experience": [
+            {
+                "confirmation_type_id": 1,
+                "confirmation_type": {"id": 1, "code": "platform", "name": "Через площадку"},
+                "title": "Услуги по утилизации отходов",
+                "customer_name": "АО «Мосводоканал»",
+                "contract_number": "123-К",
+                "start_date": date(2023, 1, 1),
+                "end_date": date(2024, 1, 1),
+                "amount": 4370184.0,
+                "import_independent": None,
+                "notes": None,
+            }
+        ],
+    }
+    payload = json.loads(serialize_profile_json(profile))
+    lic = payload["profile"]["licenses"][0]
+    assert lic["license_type_name"] == "Лицензия на отходы"
+    assert lic["license_type_id"] == 3
+    assert lic["issue_date"] == "2020-01-01"
+    assert lic["expiry_date"] is None
+    exp = payload["profile"]["experience"][0]
+    assert exp["confirmation_type_code"] == "platform"
+    assert exp["confirmation_type_id"] == 1
+    assert exp["start_date"] == "2023-01-01"
+    assert exp["import_independent"] is None
+
+
+def test_parse_licenses_experience_flat_form() -> None:
+    """Плоская форма (licenses/experience в корне profile) читается в seed."""
+    content = json.dumps(
+        {
+            "profile": {
+                "name": "Экопаттерн",
+                "licenses": [
+                    {
+                        "license_type_name": "Лицензия на отходы",
+                        "license_type_id": 3,
+                        "number": "077-123",
+                    }
+                ],
+                "experience": [
+                    {
+                        "confirmation_type_code": "platform",
+                        "confirmation_type_id": 1,
+                        "title": "Утилизация отходов",
+                    }
+                ],
+            },
+            "competencies": {"positioning": "Утилизация отходов"},
+        }
+    )
+    seed = parse_profile_json(content)
+    assert seed["licenses"] == [
+        {
+            "license_type_id": 3,
+            "license_type_name": "Лицензия на отходы",
+            "number": "077-123",
+            "authority": None,
+            "issue_date": None,
+            "expiry_date": None,
+            "notes": None,
+        }
+    ]
+    assert seed["experience"][0]["confirmation_type_code"] == "platform"
+
+
+def test_parse_omits_facts_when_absent() -> None:
+    """Ключи licenlsé/experience отсутствуют — импорт их не трогает (не стирает БД)."""
+    seed = parse_profile_json(json.dumps({"profile": {"name": "x"}, "competencies": {}}))
+    assert "licenses" not in seed
+    assert "experience" not in seed
+
+
+def test_parse_rejects_non_list_licenses() -> None:
+    """licenses не списком — ValueError (как okpd_codes строкой)."""
+    payload = json.dumps({"profile": {"name": "x", "licenses": "077-123"}})
+    with pytest.raises(ValueError):
+        parse_profile_json(payload)
+
+
+def test_resolve_profile_fact_refs_resolves_codes() -> None:
+    """name/code резолвятся в id справочников; ссылки отбрасываются."""
+    seed = parse_profile_json(
+        json.dumps(
+            {
+                "profile": {
+                    "name": "x",
+                    "licenses": [{"license_type_name": "Лицензия на отходы", "number": "077"}],
+                    "experience": [
+                        {"confirmation_type_code": "platform", "title": "Опыт", "amount": 1.0}
+                    ],
+                },
+                "competencies": {"positioning": "П"},
+            }
+        )
+    )
+    resolved = resolve_profile_fact_refs(
+        seed,
+        license_name_to_id={"Лицензия на отходы": 7},
+        confirmation_code_to_id={"platform": 2},
+    )
+    assert resolved["licenses"][0]["license_type_id"] == 7
+    assert "license_type_name" not in resolved["licenses"][0]
+    assert resolved["experience"][0]["confirmation_type_id"] == 2
+    assert "confirmation_type_code" not in resolved["experience"][0]
+
+
+def test_resolve_profile_fact_refs_unknown_reference() -> None:
+    """Неизвестная ссылка (name/code) — ValueError на этапе резолва."""
+    seed = {
+        "name": "x",
+        "licenses": [{"license_type_name": "Нет такого вида", "number": "077"}],
+    }
+    with pytest.raises(ValueError):
+        resolve_profile_fact_refs(seed, license_name_to_id={}, confirmation_code_to_id={})

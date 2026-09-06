@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -18,7 +19,11 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import _broadcast
 from zakupki_parser.storage.db import User
-from zakupki_parser.storage.profile_json import parse_profile_json, serialize_profile_json
+from zakupki_parser.storage.profile_json import (
+    parse_profile_json,
+    resolve_profile_fact_refs,
+    serialize_profile_json,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +103,47 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if user is None:
             raise HTTPException(status_code=401, detail="Требуется авторизация")
         return user
+
+    async def _export_licenses(profile_id: int) -> list[dict[str, Any]]:
+        """Лицензии профиля -> переносимая форма (``license_type_name`` вместо id)."""
+        types_map = await ctx._license_types_map()
+        out: list[dict[str, Any]] = []
+        for lic in await _repo().list_licenses(profile_id):
+            kind = types_map.get(lic.license_type_id)
+            out.append(
+                {
+                    "license_type_id": lic.license_type_id,
+                    "license_type_name": kind.name if kind else None,
+                    "number": lic.number,
+                    "authority": lic.authority,
+                    "issue_date": lic.issue_date,
+                    "expiry_date": lic.expiry_date,
+                    "notes": lic.notes,
+                }
+            )
+        return out
+
+    async def _export_experience(profile_id: int) -> list[dict[str, Any]]:
+        """Опыт профиля -> переносимая форма (``confirmation_type_code`` вместо id)."""
+        types_map = await ctx._confirmation_types_map()
+        out: list[dict[str, Any]] = []
+        for exp in await _repo().list_experience(profile_id):
+            kind = types_map.get(exp.confirmation_type_id)
+            out.append(
+                {
+                    "confirmation_type_id": exp.confirmation_type_id,
+                    "confirmation_type_code": kind.code if kind else None,
+                    "title": exp.title,
+                    "customer_name": exp.customer_name,
+                    "contract_number": exp.contract_number,
+                    "start_date": exp.start_date,
+                    "end_date": exp.end_date,
+                    "amount": exp.amount,
+                    "import_independent": exp.import_independent,
+                    "notes": exp.notes,
+                }
+            )
+        return out
 
     @router.get(
         "/api/clients/active",
@@ -185,6 +231,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=404, detail="Профиль не найден")
         profile = await _profile_out(row)
         data = profile.model_dump()
+        # Факты BR-03 (лицензии/опыт) — часть структуры профиля и переносятся в файл
+        # переносимыми ссылками (наименование/код), а не числовыми id справочников.
+        data["licenses"] = await _export_licenses(row.id)
+        data["experience"] = await _export_experience(row.id)
         safe = _safe_filename(data["name"] or "profile")
         profile_filename = f"{safe}_{_export_timestamp()}.json"
         return ProfileExportOut(
@@ -258,32 +308,6 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         await _broadcast(state)
 
     @router.post(
-        "/api/clients/seed",
-        response_model=ProfileOut,
-        dependencies=[Depends(require_base)],
-    )
-    async def seed_client(user: User | None = Depends(require_base)) -> ProfileOut:
-        """Загружает/обновляет профиль из файла-сида профиля
-        (как CLI ``zp seed-profile``).
-
-        Имя профиля берётся из файла (секция ``**name**``); при отсутствии —
-        ``default``. Активный профиль пользователя становится засиженным.
-        """
-        from zakupki_parser.storage.keywords_parser import parse_keywords_file
-
-        eff_user = _require_user(user)
-        seed = parse_keywords_file()
-        name = seed.get("name") or "default"
-        profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
-        logger.info(
-            "Профиль %s (id=%s) засижен из web-интерфейса (файл-сид профиля)",
-            name,
-            profile.id,
-        )
-        await _broadcast(state)
-        return await _profile_out(profile)
-
-    @router.post(
         "/api/clients/import",
         response_model=ProfileOut,
         dependencies=[Depends(require_base)],
@@ -298,7 +322,23 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         удалено, компетенции всегда канонический JSON.
         """
         eff_user = _require_user(user)
-        seed = parse_profile_json(payload.content)
+        # Некорректный файл (не JSON, не формат zakupki-profile, не-объектные
+        # компетенции) — понятная ошибка 422, а не 500.
+        try:
+            seed = parse_profile_json(payload.content)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Файл не распознан как профиль ({exc})",
+            ) from exc
+        # Факты BR-03 переносятся ссылками (наименование/код): резолвим их в id
+        # справочников целевой БД перед записью (иначе имя/код не лягут в FK).
+        license_map = {t.name: t.id for t in await _repo().list_license_types()}
+        confirmation_map = {c.code: c.id for c in await _repo().list_confirmation_types()}
+        try:
+            seed = resolve_profile_fact_refs(seed, license_map, confirmation_map)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         name = seed.get("name") or "default"
         profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)

@@ -84,7 +84,7 @@ per-user аккаунты и профили фильтрации, изоляци
 ```
 configs/                       # YAML-конфигурация парсера
 src/zakupki_parser/
-  cli.py                       # CLI (check-config, run-once, run-service, serve, capture-fixture, seed-profile)
+  cli.py                       # CLI (check-config, run-once, run-service, serve, capture-fixture)
   scheduler.py                 # таймерный цикл по сайтам
   api/                         # FastAPI-сервис (health, procurements, ТЗ)
   parser/                      # оркестратор, lister, extractor, detail, filters
@@ -242,16 +242,9 @@ uv run zp --configs configs run-once        # один проход по все�
 uv run zp --configs configs run-service     # периодически по таймеру (timeout_seconds)
 ```
 
-Заполнить default-профиль пользователя ключевыми словами/компетенциями из файла
-(по умолчанию — `файл-сид профиля`, пользователь `admin`):
-
-```bash
-uv run zp --configs configs seed-profile --user admin --file <файл-сид>
-```
-
-Файл `файл-сид профиля` содержит секции `**name**`, `**keywords**`, `**exclussion_words**`,
-`**competencies**` (компетенции могут быть ссылкой на файл, например
-`docs/references/bbk-it-site.md`). Ключевые слова записываются в таблицу `keywords`
+Заполнить профиль — через веб-интерфейс (редактор профиля) либо импортом единого
+JSON-файла (`POST /api/clients/import`, схема `zakupki-profile`; поля профиля и
+компетенции-подобъект внутри). Ключевые слова записываются в таблицу `keywords`
 (канонический источник; синтаксис `слов*` / `(фраза* фраза*)~N`).
 
 Пересоздать HTML-фикстуры для тестов:
@@ -302,8 +295,8 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
 - `config_service.yaml` — **аналитические** настройки: список сайтов, порог дат,
   stop-условия, правила оценки (`scoring`), объединение одинаковых обходов
   (`deduplicate_requests`) (редактируется через web-интерфейс). Критерии поиска
-  (ОКПД2, НМЦК, состояние) задаются в ПРОФИЛЕ (таблица `profiles`; сид —
-  `файл-сид профиля`, команда `zp seed-profile`), а не в этом конфиге.
+  (ОКПД2, НМЦК, состояние) задаются в ПРОФИЛЕ (таблица `profiles`), а не в этом
+  конфиге.
   Мультипрофильный обход и дедупликация запросов — `docs/profile-crawling.md`.
 - `config_ops.yaml` — **эксплуатационные** настройки (devops): таймер, БД, уведомления
   (telegram/max/webhook, постадийные пороги и флаги `notify_min_fit_score`/
