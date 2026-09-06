@@ -4,12 +4,14 @@
     --text: #1f2937; --muted: #6b7280; --accent: #0284c7; --good: #16a34a; --warn: #d97706;
     --on-accent: #ffffff; --sel-bg: #dbeafe;
     --pill-score-bg: #e0f2fe; --pill-score-border: #bae6fd; --pill-score-text: #075985;
+    --brand-amber: #D98E1B;
   }
   html[data-theme="dark"] {
     --bg: #0f172a; --panel: #1e293b; --panel2: #273449; --line: #334155;
     --text: #e2e8f0; --muted: #94a3b8; --accent: #38bdf8; --good: #4ade80; --warn: #fbbf24;
     --on-accent: #06283a; --sel-bg: #0c4a6e;
     --pill-score-bg: #082f49; --pill-score-border: #0c4a6e; --pill-score-text: #38bdf8;
+    --brand-amber: #F2A93B;
   }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -81,6 +83,8 @@
   .pill.score { background: var(--pill-score-bg); border-color: var(--pill-score-border); color: var(--pill-score-text); font-weight:700;}
   .pill.active { background: #dcfce7; border-color: #bbf7d0; color: #166534; font-weight:600;}
   .pill.inactive { background: #fee2e2; border-color: #fecaca; color: #991b1b; font-weight:600;}
+  .pill.trial { background:#dcfce7; border-color:#bbf7d0; color:#166534; font-weight:600; }
+  html[data-theme="dark"] .pill.trial { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .pill.inactive { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
   .client-switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
@@ -282,3 +286,115 @@
   .status-pill.blocked { background:#fee2e2; border-color:#fecaca; color:#991b1b; }
   html[data-theme="dark"] .status-pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .status-pill.blocked { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
+  /* Личный кабинет: триал, аккаунты и опции. */
+  #profile-save-status.error { color:#dc2626; font-weight:600; }
+  html[data-theme="dark"] #profile-save-status.error { color:#f87171; }
+  .acct-banner { padding:10px 12px; border-radius:8px; margin-bottom:10px; font-size:13px; }
+  .acct-banner.trial { background:#dcfce7; border:1px solid #bbf7d0; color:#14532d; }
+  .acct-banner.off { background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  html[data-theme="dark"] .acct-banner.trial { background:#052e16; border-color:#14532d; color:#86efac; }
+  .acct-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; border:1px solid var(--line);
+    border-radius:8px; padding:6px 10px; margin-bottom:6px; background:var(--panel); }
+  .acct-row.active { border-color: var(--good); }
+  .acct-row .acct-name { font-weight:600; }
+  .acct-row .btn-mini { padding:3px 8px; font-size:12px; }
+  .opt-row { display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border:1px solid var(--line);
+    border-radius:8px; margin-bottom:6px; background:var(--panel); font-size:13px; }
+  .opt-row.opt-free { background:var(--panel2); }
+  .opt-row .opt-check { min-width:22px; }
+  .opt-row input[type="checkbox"] { width:17px; height:17px; accent-color: var(--good); }
+  .opt-note { margin-left:6px; font-size:12px; color: var(--accent); white-space:nowrap; }
+  .ua-trial { font-size:13px; }
+  .btn-mini { padding:4px 8px; font-size:12px; }
+
+  /* ================= Бренд TenderSearch (сыч) ================= */
+  header .brand-lockup { display:flex; align-items:center; gap:11px; }
+  .brand-mark { width:34px; height:34px; flex:0 0 auto; display:block; border-radius:9px;
+    box-shadow: 0 2px 10px rgba(11,30,56,.22); }
+  .brand-text { display:flex; flex-direction:column; gap:1px; min-width:0; }
+  .brand-title { font-size:18px; line-height:1.15; margin:0; letter-spacing:-.01em;
+    font-weight:800; color: var(--text); }
+  .brand-s { color: var(--brand-amber); }
+  .brand-sub { font-size:12px; color: var(--muted); }
+  .brand-sub .sub { color: inherit; }
+
+  /* ---------- Верхнее меню (над шапкой) ---------- */
+  .topnav { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    padding:6px 20px; background:var(--bg); border-bottom:1px solid var(--line); }
+  html[data-theme="light"] .topnav { background:#fff; }
+  .topnav-left, .topnav-right { display:flex; align-items:center; gap:2px; flex-wrap:wrap; }
+  .topnav-right { gap:10px; }
+  .topnav-menu { position:relative; }
+  .topnav-menu .dropdown { position:absolute; top:calc(100% + 6px); left:0; min-width:250px;
+    background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    box-shadow:0 10px 30px rgba(2,6,23,.18); padding:6px; z-index:40; }
+  .topnav-menu .dropdown[hidden] { display:none; }
+  .dropdown .dropdown-item { display:block; width:100%; text-align:left; background:none;
+    border:none; color:var(--text); font-size:13px; padding:8px 12px; border-radius:8px;
+    cursor:pointer; }
+  .dropdown .dropdown-item:hover { background:var(--panel2); }
+  .dropdown .dropdown-item[hidden] { display:none; }
+  .topnav-link { background:transparent; border:1px solid transparent; color:var(--text);
+    font-size:13.5px; padding:6px 12px; border-radius:8px; font-weight:500; }
+  .topnav-link:hover { background:var(--panel2); }
+  .topnav-link.warn { color:var(--accent); }
+  #menu-login { font-weight:600; }
+  .topnav .user-bar { gap:8px; }
+  .topnav .user-bar button.ghost { padding:5px 10px; font-size:12.5px; }
+
+  /* ---------- Модальное окно входа (по кнопке «Вход» в меню) ---------- */
+  #login-modal-bg { z-index:20; }
+  #login-modal { max-width:380px; border-radius:16px; padding:22px 24px 18px; }
+  .login-card-head { margin-bottom:14px; }
+  .login-card-head h2 { margin:0 0 2px; font-size:20px; }
+  .login-sub { margin:0; font-size:12.5px; color:var(--muted); }
+  #login-modal .field label { font-weight:600; }
+  #login-modal .field input { width:100%; background:var(--panel2); border-color:var(--line);
+    padding:10px 12px; border-radius:10px; font-size:14px; }
+  #login-modal .field input:focus { border-color:var(--accent); }
+  #login-modal button.login-btn { width:100%; padding:11px 16px; font-size:14.5px; border-radius:10px; }
+  #login-modal button.login-btn:disabled { opacity:.6; }
+  .login-foot { margin-top:14px; }
+  .login-foot .switch { margin-top:2px; }
+  .login-foot .switch button { font-weight:600; }
+
+  /* ---------- Главный экран для гостя (до входа) ---------- */
+  #view-guest { padding: clamp(24px, 6vh, 72px) 0; }
+  .guest-home { max-width:560px; margin:0 auto; text-align:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:34px 28px; }
+  .guest-home .brand-mark { width:52px; height:52px; border-radius:14px; margin:0 auto 14px; }
+  .guest-home h2 { margin:0 0 10px; font-size:22px; }
+  .guest-home p { margin:0 0 18px; font-size:14px; line-height:1.6; color:var(--muted); }
+  .guest-home .toolbar { justify-content:center; margin-bottom:14px; }
+  .guest-home .guest-note { margin:0; font-size:12px; }
+
+  /* ---------- Модальные окна: Документация / Информация ---------- */
+  #docs-modal-bg { z-index:30; }
+  #docs-modal { width:min(920px, 100%); }
+  #docs-modal .docs-body { max-height:min(70vh, 720px); overflow:auto;
+    background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+    padding:16px 20px; font-size:13.5px; line-height:1.6; word-break:break-word; }
+  .docs-body.md > :first-child { margin-top:0; }
+  .docs-body.md > :last-child { margin-bottom:0; }
+  .docs-body.md h1 { font-size:21px; } .docs-body.md h2 { font-size:18px; }
+  .docs-body.md h3 { font-size:15.5px; } .docs-body.md h4 { font-size:14px; }
+  .docs-body.md p { margin:0 0 10px; }
+  .docs-body.md ul, .docs-body.md ol { margin:0 0 10px; padding-left:22px; }
+  .docs-body.md li { margin:2px 0; }
+  .docs-body.md a { color:var(--accent); }
+  .docs-body.md code { background:var(--panel); border:1px solid var(--line); border-radius:4px;
+    padding:0 4px; font-family:ui-monospace,monospace; font-size:12.5px; }
+  .docs-body.md pre { background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:10px; overflow:auto; margin:0 0 10px; }
+  .docs-body.md pre code { background:none; border:none; padding:0; }
+  .docs-body.md blockquote { margin:0 0 10px; padding:0 0 0 14px;
+    border-left:3px solid var(--line); color:var(--muted); }
+  .docs-body.md hr { border:none; border-top:1px solid var(--line); margin:14px 0; }
+  .docs-body.md table { width:100%; border-collapse:collapse; margin:0 0 12px; font-size:13px; }
+  .docs-body.md th, .docs-body.md td { text-align:left; padding:7px 10px;
+    border:1px solid var(--line); vertical-align:top; }
+  .docs-body.md th { background:var(--panel); color:var(--muted); font-weight:600; white-space:nowrap; }
+  #info-modal { max-width:420px; }
+  #info-modal .muted { margin-top:0; }
+  #info-modal .toolbar { justify-content:flex-end; margin-bottom:0; }
+

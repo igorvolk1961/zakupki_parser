@@ -43,4 +43,7 @@ RUN uv sync --frozen --no-dev && \
 COPY configs ./configs
 
 ENV ZAKUPKI_CONFIGS=/app/configs
-CMD ["uv", "run", "zp", "--configs", "/app/configs", "run-service"]
+# Единый процесс парсера: веб-интерфейс + цикл мониторинга (автозапуск по флагу
+# auto_start_monitoring в config_ops.yaml). docker-compose переопределяет эту команду
+# для сервиса api; отдельный воркер run-service запускается при необходимости.
+CMD ["uv", "run", "zp", "--configs", "/app/configs", "serve", "--host", "0.0.0.0", "--port", "8000"]

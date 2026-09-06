@@ -12,6 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from zakupki_parser.storage.db.base import Base
 
 if TYPE_CHECKING:
+    from zakupki_parser.storage.db.account import UserAccount
     from zakupki_parser.storage.db.profile import Profile
 
 
@@ -41,9 +42,16 @@ class User(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default=text("'active'"), default="active"
     )
+    # Окончание триал-режима пользователя (по умолчанию now()+14 суток для
+    # self-registered). NULL — триала нет: доступность платных опций определяется
+    # активным аккаунтом. В триал-режиме все опции поиска и скоринга бесплатны.
+    trial_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     profiles: Mapped[list[Profile]] = relationship(back_populates="user_rel")
+    accounts: Mapped[list[UserAccount]] = relationship(
+        back_populates="user_rel", cascade="all, delete-orphan"
+    )

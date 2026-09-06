@@ -2,7 +2,7 @@
 # Управляет Docker-compose стеком проекта (docker/docker-compose.yml).
 #
 # Стек: db (PostgreSQL) + liquibase (миграции) + redis + scoring_service +
-# scoring_transport + parser + api (FastAPI :8000). Единый стек одной командой.
+# scoring_transport + api (FastAPI :8000, веб-интерфейс + цикл мониторинга парсера).
 # Простая альтернатива длинным командам `docker compose -f docker/docker-compose.yml ...`.
 #
 # Использование:
@@ -18,7 +18,7 @@
 #   scripts/compose.sh start             # запустить остановленные контейнеры (если не удалялись)
 #   scripts/compose.sh restart           # перезапустить
 #   scripts/compose.sh ps                # статус контейнеров
-#   scripts/compose.sh logs [svc]        # логи (можно по сервису, например: logs parser)
+#   scripts/compose.sh logs [svc]        # логи (можно по сервису, например: logs api)
 #   scripts/compose.sh build             # пересобрать образы
 #   scripts/compose.sh config [args]     # проверить/вывести манифест (docker compose config), напр. config --quiet
 #   scripts/compose.sh status            # алиас для ps

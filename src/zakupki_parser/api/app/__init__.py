@@ -8,9 +8,10 @@ web-интерфейса (CSS/JS-модули) раздаются из ката�
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -18,19 +19,21 @@ from fastapi.staticfiles import StaticFiles
 
 from zakupki_parser.api.app.converters import _meets_stage_notify_threshold  # noqa: F401
 from zakupki_parser.api.app.deps import build_context
+from zakupki_parser.api.app.routes.account import build_account_router
 from zakupki_parser.api.app.routes.admin import build_admin_router
 from zakupki_parser.api.app.routes.auth import build_auth_router
 from zakupki_parser.api.app.routes.clients import build_clients_router
 from zakupki_parser.api.app.routes.config import build_config_router
 from zakupki_parser.api.app.routes.coverage import build_coverage_router
 from zakupki_parser.api.app.routes.customers import build_customers_router
+from zakupki_parser.api.app.routes.docs import build_docs_router
 from zakupki_parser.api.app.routes.facts import build_facts_router
 from zakupki_parser.api.app.routes.logs import build_logs_router
 from zakupki_parser.api.app.routes.metrics import build_metrics_router
 from zakupki_parser.api.app.routes.procurements import build_procurements_router
 from zakupki_parser.api.app.routes.reference import build_reference_router
 from zakupki_parser.api.app.routes.users import build_users_router
-from zakupki_parser.api.app.state import _create_state
+from zakupki_parser.api.app.state import _create_state, _spawn_parser
 from zakupki_parser.notify import Notifier
 from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -78,7 +81,24 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
                 await ctx._seed_initial_admin()
             except Exception as exc:  # noqa: BLE001
                 logger.error("Не удалось создать начального администратора: %s", exc)
+        # Автозапуск цикла мониторинга при старте сервиса (config_ops.yaml, devops):
+        # выключенный флаг (auto_start_monitoring=false) — мониторинг запускается
+        # только вручную с панели devops (POST /api/parser/start).
+        if state.cfg.ops.auto_start_monitoring:
+            if state.repository is None:
+                logger.warning("Автозапуск мониторинга отменён: БД недоступна при старте сервиса")
+            else:
+                _spawn_parser(state)
+                logger.info(
+                    "Автозапуск цикла мониторинга парсера при старте сервиса "
+                    "(auto_start_monitoring=true)"
+                )
         yield
+        parser_task = state.parser_task
+        if parser_task is not None and not parser_task.done():
+            parser_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await parser_task
         if state.db is not None:
             await state.db.dispose()
 
@@ -95,8 +115,10 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
 
     app.include_router(build_admin_router(ctx))
     app.include_router(build_auth_router(ctx))
+    app.include_router(build_account_router(ctx))
     app.include_router(build_users_router(ctx))
     app.include_router(build_procurements_router(ctx))
+    app.include_router(build_docs_router(ctx))
     app.include_router(build_clients_router(ctx))
     app.include_router(build_facts_router(ctx))
     app.include_router(build_customers_router(ctx))

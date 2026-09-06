@@ -19,6 +19,10 @@ from zakupki_parser.config.models import AppConfig
 # (конкретные тесты могут переопределить/снять их через monkeypatch/os.environ).
 os.environ.setdefault("ZAKUPKI_AUTH_SECRET", "test-secret")
 os.environ.setdefault("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
+# Автозапуск мониторинга при старте сервиса в тестах отключён: тесты, поднимающие
+# приложение на рабочих конфигах (create_app() без cfgdir), не должны запускать
+# реальные циклы обхода. Отдельные тесты автозапуска переопределяют через YAML/env.
+os.environ.setdefault("ZAKUPKI_AUTO_START_MONITORING", "false")
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +36,7 @@ def _auth_env_defaults() -> None:
     """
     os.environ.setdefault("ZAKUPKI_AUTH_SECRET", "test-secret")
     os.environ.setdefault("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
+    os.environ.setdefault("ZAKUPKI_AUTO_START_MONITORING", "false")
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

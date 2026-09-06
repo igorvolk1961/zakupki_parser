@@ -60,6 +60,14 @@ def test_ops_schema_no_secrets() -> None:
     assert "token" not in telegram_keys
 
 
+def test_ops_schema_auto_start_monitoring() -> None:
+    """Флаг автозапуска мониторинга — переключатель (bool), по умолчанию включён."""
+    schema = build_schema(OpsConfig)
+    field = _find(schema, "auto_start_monitoring")
+    assert field["kind"] == "bool"
+    assert field["default"] is True
+
+
 def test_log_schema() -> None:
     schema = build_schema(LoggingConfig)
     assert _find(schema, "console")["kind"] == "bool"

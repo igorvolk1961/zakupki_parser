@@ -16,8 +16,9 @@ from zakupki_parser.api.app.schemas import (
     ProfileIn,
     ProfileListOut,
     ProfileOut,
+    ProfileSaveOut,
 )
-from zakupki_parser.api.app.state import _broadcast
+from zakupki_parser.api.app.state import _broadcast, _request_profile_refresh
 from zakupki_parser.storage.db import User
 from zakupki_parser.storage.profile_json import (
     parse_profile_json,
@@ -83,6 +84,27 @@ def _safe_filename(name: str) -> str:
     return cleaned or "profile"
 
 
+def _crawl_state_key(profile: Any, words: dict[str, list[str]]) -> tuple[Any, ...]:
+    """Ключ crawl-значимого состояния профиля для change-detection (fast-start).
+
+    Сравниваются только поля, влияющие на обход/фильтрацию площадок; правки
+    остальных (имя, вопросы, лицензии, опыт, min_fit_threshold и т.п.) не должны
+    запускать внеочередной полный обход.
+    """
+    return (
+        profile.enabled,
+        tuple(sorted(profile.okpd_codes or [])),
+        profile.nmck_min,
+        profile.nmck_max,
+        tuple(sorted(profile.target_etp or [])),
+        tuple(sorted(profile.target_laws or [])),
+        tuple(sorted(profile.target_regions or [])),
+        profile.max_region_distance_km,
+        tuple(sorted(words.get("keywords") or [])),
+        tuple(sorted(words.get("exclusion_words") or [])),
+    )
+
+
 def _export_timestamp() -> str:
     """Временная метка для имени файла экспорта (дата + время, без секунд в разделе)."""
     return datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -95,6 +117,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     _active_context = ctx._active_context
     _profile_out = ctx._profile_out
     _validate_profile_entries = ctx._validate_profile_entries
+    _effective_options = ctx._effective_options
     require_base = ctx.require_base
     require_user_or_internal = ctx.require_user_or_internal
 
@@ -144,6 +167,75 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
                 }
             )
         return out
+
+    def _request_refresh_for(profile: Any) -> None:
+        """Запрашивает внеочередной обход включённого профиля (fast-start).
+
+        Новый/изменённый включённый профиль планировщик обработает сразу после
+        текущего прохода, не дожидаясь следующего регулярного цикла. Отключённые
+        профили не сигналим: при включении сигнал придёт со следующим сохранением.
+        """
+        if profile is not None and profile.enabled:
+            _request_profile_refresh(state, profile.id)
+
+    def _collection_notice(profile: Any, *, refresh_requested: bool) -> str:
+        """Уведомление пользователю: когда начнётся сбор данных по профилю.
+
+        Вызывается сразу после сохранения; ``refresh_requested`` — запрошен ли
+        внеочередной обход этой правкой (см. change-detection в ``update_client``).
+        """
+        if not profile.enabled:
+            return (
+                "Профиль отключён — сбор данных по нему не выполняется. "
+                "Включите профиль и сохраните его, чтобы начать сбор."
+            )
+        if not refresh_requested:
+            return (
+                "Профиль сохранён. Изменения не влияют на критерии сбора "
+                "(ОКПД2/слова/НМЦК/регионы/площадки) — сбор данных продолжится "
+                "по регулярному расписанию мониторинга."
+            )
+        scheduler = state.parser_scheduler
+        if scheduler is None:
+            if profile.id in state.pending_profile_refresh_ids:
+                return (
+                    "Профиль сохранён. Парсер остановлен: внеочередной сбор по "
+                    "профилю начнётся сразу после запуска мониторинга."
+                )
+            return (
+                "Профиль сохранён. Парсер не запущен: сбор данных по профилю "
+                "начнётся после запуска мониторинга на панели devops."
+            )
+        status = scheduler.profile_refresh_status(profile.id)
+        if status.get("handled_this_cycle"):
+            return (
+                "Профиль сохранён. Внеочередной сбор по нему уже выполнялся в "
+                "текущем цикле: эта правка будет учтена следующим проходом "
+                "мониторинга."
+            )
+        remaining = status.get("remaining_seconds")
+        if remaining is not None and remaining > 0:
+            total = int(remaining)
+            approx = f"{total // 60} мин {total % 60} с" if total >= 60 else f"{total} с"
+            return (
+                "Профиль сохранён. Внеочередной сбор данных по нему начнётся "
+                f"не ранее чем через {approx} после последнего сохранения "
+                "(сразу после завершения текущего прохода, если он идёт)."
+            )
+        return (
+            "Профиль сохранён. Внеочередной сбор данных по нему начнётся сразу "
+            "после завершения текущего прохода (если он идёт) — в ближайшее окно "
+            "между проходами мониторинга."
+        )
+
+    async def _save_out(
+        profile: Any,
+        notice: str | None,
+        keywords: dict[str, list[str]] | None = None,
+    ) -> ProfileSaveOut:
+        """Карточка сохранённого профиля + уведомление о начале сбора."""
+        base = await _profile_out(profile, keywords=keywords)
+        return ProfileSaveOut(**base.model_dump(), notice=notice)
 
     @router.get(
         "/api/clients/active",
@@ -244,26 +336,35 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
 
     @router.post(
         "/api/clients",
-        response_model=ProfileOut,
+        response_model=ProfileSaveOut,
         dependencies=[Depends(require_base)],
     )
     async def create_client(
         body: ProfileIn, user: User | None = Depends(require_base)
-    ) -> ProfileOut:
+    ) -> ProfileSaveOut:
         eff_user = _require_user(user)
         await _validate_profile_entries(body)
-        return await _profile_out(
-            await _repo().upsert_profile(body.model_dump(exclude_none=True), eff_user.id)
-        )
+        eff = await _effective_options(eff_user)
+        try:
+            profile = await _repo().upsert_profile(
+                body.model_dump(exclude_none=True),
+                eff_user.id,
+                require_competencies=eff.account_provides_competency_scoring(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _request_refresh_for(profile)
+        notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
+        return await _save_out(profile, notice)
 
     @router.put(
         "/api/clients/{client_id}",
-        response_model=ProfileOut,
+        response_model=ProfileSaveOut,
         dependencies=[Depends(require_base)],
     )
     async def update_client(
         client_id: int, body: ProfileIn, user: User | None = Depends(require_base)
-    ) -> ProfileOut:
+    ) -> ProfileSaveOut:
         eff_user = _require_user(user)
         existing = await _repo().get_profile(eff_user.id, client_id)
         if existing is None:
@@ -271,11 +372,29 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         # PUT — полная замена: обновляем существующий профиль по id (в т.ч. при
         # переименовании — раньше upsert по name создавал новый профиль), null
         # сохраняется как null (exclude_unset, а не exclude_none).
+        # Change-detection: внеочередной обход запрашиваем только при фактическом
+        # изменении crawl-полей (иначе rename/no-op сохранения гоняли бы полный обход).
+        old_words = await _repo().get_profile_keywords(existing.id)
+        old_key = _crawl_state_key(existing, old_words)
         await _validate_profile_entries(body)
-        updated = await _repo().upsert_profile(
-            body.model_dump(exclude_unset=True), eff_user.id, profile_id=client_id
+        eff = await _effective_options(eff_user)
+        try:
+            updated = await _repo().upsert_profile(
+                body.model_dump(exclude_unset=True),
+                eff_user.id,
+                profile_id=client_id,
+                require_competencies=eff.account_provides_competency_scoring(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        new_words = await _repo().get_profile_keywords(updated.id)
+        crawl_changed = _crawl_state_key(updated, new_words) != old_key
+        if crawl_changed:
+            _request_refresh_for(updated)
+        notice = _collection_notice(
+            updated, refresh_requested=crawl_changed and bool(updated.enabled)
         )
-        return await _profile_out(updated)
+        return await _save_out(updated, notice, keywords=new_words)
 
     @router.post(
         "/api/clients/{client_id}/activate",
@@ -309,12 +428,12 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
 
     @router.post(
         "/api/clients/import",
-        response_model=ProfileOut,
+        response_model=ProfileSaveOut,
         dependencies=[Depends(require_base)],
     )
     async def import_client(
         payload: ProfileImportIn, user: User | None = Depends(require_base)
-    ) -> ProfileOut:
+    ) -> ProfileSaveOut:
         """Загружает/обновляет профиль из загруженного файла.
 
         Основной формат — единый JSON-файл (компетенции — подобъект внутри схемы
@@ -340,9 +459,19 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         name = seed.get("name") or "default"
-        profile = await _repo().upsert_profile({**seed, "name": name}, eff_user.id)
+        eff = await _effective_options(eff_user)
+        try:
+            profile = await _repo().upsert_profile(
+                {**seed, "name": name},
+                eff_user.id,
+                require_competencies=eff.account_provides_competency_scoring(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
-        return await _profile_out(profile)
+        _request_refresh_for(profile)
+        notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
+        return await _save_out(profile, notice)
 
     return router

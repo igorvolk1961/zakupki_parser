@@ -19,6 +19,8 @@
 | US-1.2 | Целевые ЭТП и законы | — | — | PROFILE | TO-BE шаг 1 | 2 | 🟡 |
 | US-1.3 | Самостоятельное изменение слов | BR-02 | NFR-PERF-1 | KEYWORD | — | 2 | ✅ |
 | US-1.4 | Несколько профилей | BR-07 | NFR-SEC-1 | PROFILE | — | 2 | ✅ |
+| US-1.5 | Коды ОКПД2 тегами + формат | BR-02 | — | PROFILE (okpd_codes) | TO-BE шаг 1 | 2 | ✅ |
+| US-1.6 | Понятные ошибки сохранения профиля | BR-09 | — | PROFILE | — | 2 | ✅ |
 | US-2.1 | Периодический сбор закупок | BR-01 | NFR-PERF-2, NFR-COST-2 | PROCUREMENT | Парсинг/скоринг; TO-BE шаг 2 | 3, 4 | ✅ |
 | US-2.2 | Оценка Fit | BR-02 | NFR-COST-1/3 | PROCUREMENT_EVALUATION | Парсинг/скоринг; TO-BE шаг 3 | 3 | ✅ |
 | US-2.3 | Сортировка по Fit | BR-02 | NFR-PERF-1 | PROCUREMENT_EVALUATION | — | 3 | ✅ |
@@ -41,11 +43,11 @@
 | US-6.1 | Сводка «В работу» в XLSX | BR-02 | NFR-SEC-4 | PROCUREMENT_EVALUATION | TO-BE шаг 9 | 8 | ❌ |
 | US-6.2 | Маркеры в сводке | BR-03, BR-04 | NFR-SEC-4 | PROCUREMENT_EVALUATION | TO-BE шаг 9 | 8 | ❌ |
 | US-7.1 | Самостоятельная регистрация | BR-07 | NFR-SEC-2 | USER | — | 1, 6 | ✅ |
-| US-7.2 | Trial-доступ 10 лет | BR-05 | — | USER (trial_end_date) | Жизненный цикл аккаунта | 6 | 🟡 |
-| US-7.3 | Заморозка по истечении trial | BR-05 | — | USER (status) | Жизненный цикл аккаунта | 6 | ❌ |
+| US-7.2 | Trial-доступ (по умолчанию 14 дней) | BR-05, BR-09 | — | USER (trial_end_at), USER_ACCOUNT | Жизненный цикл аккаунта | 6 | 🟡 (реализовано: 14 дней + аккаунты опций; заморозка — целевая) |
+| US-7.3 | Заморозка по истечении trial (целевая модель) | BR-05 | — | USER (status) | Жизненный цикл аккаунта | 6 | ❌ (текущая реализация — перевод на опции аккаунта, US-10.5/10.6) |
 | US-7.4 | Предупреждения о конце trial | BR-05 | — | USER | Жизненный цикл аккаунта | 6 | ❌ |
 | US-7.5 | Удаление через 90 дней | BR-05 | — | USER | Жизненный цикл аккаунта | 6 | ❌ |
-| US-7.6 | Админ-контроль аккаунтов | BR-07 | NFR-OBS-2 | USER | Admin/Observability | 6, 10 | ❌ |
+| US-7.6 | Админ-контроль аккаунтов | BR-07, BR-09 | NFR-OBS-2 | USER, USER_ACCOUNT | Admin/Observability | 6, 10 | 🟡 (пользователи + «Опции»/триал реализованы; статистика — целевая модель) |
 | US-7.7 | Создание администраторов | BR-07 | — | USER (role) | Admin/Observability | 6 | ❌ |
 | US-7.8 | Изоляция данных | BR-07 | NFR-SEC-1 | PROFILE, PROCUREMENT_EVALUATION | — | 1 | ✅ |
 | US-7.9 | Мультитенантность БД | BR-07 | NFR-SEC-1 | все пользовательские таблицы | — | 1 | ✅ |
@@ -56,6 +58,15 @@
 | US-9.2 | robots.txt, официальные API | — | NFR-SEC-5 | — | Context | 9 | ❌ |
 | US-9.3 | Маскирование ПДн | — | NFR-SEC-3 | PROCUREMENT (text) | — | 9 | ❌ |
 | US-9.4 | Аудит действий с IP | — | NFR-OBS-2 | AUDIT_LOG (цель) | Admin/Observability | 6, 9 | ❌ |
+| US-10.1 | Личный кабинет (триал/аккаунты/каталог опций) | BR-09 | — | USER, USER_ACCOUNT | Жизненный цикл аккаунта | 6 | ✅ |
+| US-10.2 | Выбор платных операций | BR-09 | — | USER_ACCOUNT (options) | — | 6 | ✅ |
+| US-10.3 | Несколько аккаунтов, активен один | BR-09 | BR-07 | USER_ACCOUNT | — | 6 | ✅ |
+| US-10.4 | Смена пароля | — | NFR-SEC-2 | USER | — | 6 | ✅ |
+| US-10.5 | По умолчанию — только бесплатные опции | BR-09 | — | USER_ACCOUNT | — | 6 | ✅ |
+| US-10.6 | Триал 14 дней: все опции поиска и скоринга | BR-05, BR-09 | — | USER (trial_end_at) | Жизненный цикл аккаунта | 6 | ✅ |
+| US-10.7 | Профиль без компетенций по аккаунту | BR-09 | — | PROFILE, USER_ACCOUNT | — | 6 | ✅ |
+| US-10.8 | Админ: аккаунты/опции/триал пользователей | BR-09 | BR-07 | USER_ACCOUNT | Admin/Observability | 6 | ✅ |
+| US-10.9 | Гейт платных операций (сбор/recovery) | BR-09 | NFR-COST-1/3 | PROCUREMENT_EVALUATION | Парсинг/скоринг | 6 | ✅ |
 
 ## 2. Business Rules → NFR/ER/этап
 
@@ -65,10 +76,11 @@
 | BR-02 | Первичный скоринг Fit и пост-фильтрация | US-1.1, US-2.2–2.4, US-3.1, US-5.3 | NFR-PERF-1, NFR-COST-1/3 | KEYWORD, PROCUREMENT_EVALUATION | 3 | ✅ |
 | BR-03 | Валидация опыта (ПП РФ 2571) | US-4.2, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
 | BR-04 | Реестр Минпромторга («не установлено») | US-4.3, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
-| BR-05 | Жизненный цикл аккаунта | US-7.2–7.5 | — | USER, SUBSCRIPTION (цель) | 6 | ❌ |
+| BR-05 | Жизненный цикл аккаунта | US-7.2–7.5, US-10.6 | — | USER (trial_end_at), SUBSCRIPTION (цель) | 6 | 🟡 (trial/аккаунты-опции реализованы; freeze/удаление — цель) |
 | BR-06 | Обработка ошибок (DLQ) | US-8.3 | NFR-REL-2, NFR-FT-1/3/4 | PROCUREMENT | 4, 10 | 🟡 |
 | BR-07 | Изоляция данных | US-7.8, US-7.9, US-5.4–5.6 | NFR-SEC-1 | PROFILE, PROCUREMENT_EVALUATION, PROCUREMENT_WORK_ITEM, SUBSCRIPTION, AUDIT_LOG | 1 | ✅ |
 | BR-08 | Сохранность решений «в работе» | US-5.4–5.6 | NFR-SEC-1 | PROCUREMENT_WORK_ITEM | 7 | ✅ |
+| BR-09 | Аккаунты и платные опции | US-10.1–10.9 | — | USER_ACCOUNT, USER (trial_end_at) | 6 | ✅ |
 
 ## 3. NFR → этап/статус (сводно)
 
@@ -107,7 +119,7 @@
 | Доставка/экспорт | 3, 6 | FR-3.1–3.4 | 🟡 |
 | Анализ ТЗ | 4 | FR-4.1–4.3 | 🟡 |
 | Решения | 5 | FR-5.1–5.7 | ✅ (FR-5.2 — отложен) |
-| Доступ/аккаунты | 7 | FR-6.1–6.4 | 🟡 |
+| Доступ/аккаунты | 7, 10 | FR-6.1–6.7 | 🟡 |
 | Наблюдаемость | 8 | FR-7.1–7.3 | 🟡 |
 | Compliance | 9 | FR-8.1–8.4 | ❌ |
 | Каскад | 2, 4 | FR-9.1–9.3 | 🟡 |

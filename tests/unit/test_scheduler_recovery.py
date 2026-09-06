@@ -7,7 +7,9 @@ from typing import Any
 
 import pytest
 
+from zakupki_parser.options import paid_default_options
 from zakupki_parser.scheduler import Scheduler
+from zakupki_parser.storage.db import UserAccount
 
 
 class _FakeTransport:
@@ -69,6 +71,17 @@ class _FakeRepo:
 
     async def list_matched_profile_ids(self, procurement_id: int) -> list[int]:
         return []
+
+    async def profile_user_map(self, profile_ids: list[int]) -> dict[int, int | None]:
+        # Профили принадлежат легаси-пользователю 1 (без триала/аккаунтов) —
+        # в effective_options это «полный доступ», recovery разрешён.
+        return {int(pid): 1 for pid in profile_ids}
+
+    async def get_users_with_trial(self, user_ids: list[int]) -> dict[int, datetime | None]:
+        return {int(uid): None for uid in user_ids}
+
+    async def accounts_by_users(self, user_ids: list[int]) -> dict[int, list[Any]]:
+        return {}
 
 
 def _item(
@@ -198,6 +211,42 @@ async def test_recover_skips_fresh_queued_when_ttl_disabled(
         [_item(1, publication_date=datetime(2026, 8, 10, 12, 0, tzinfo=UTC))],
         queued_at={1: stale},
     )
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    monkeypatch.setattr(
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
+    )
+
+    await scheduler._recover_scoring_queue()  # noqa: SLF001
+
+    assert fake_transport.enqueued == []
+    assert repo.marked == []
+
+
+@pytest.mark.asyncio
+async def test_recover_skips_profiles_without_scoring_option(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery не ставит fit владельцам, у которых опция скоринга недоступна.
+
+    После окончания триала (активный аккаунт только с бесплатными опциями)
+    ранее отобранные, но не оценённые закупки не должны до-скориваться.
+    """
+    scheduler = Scheduler(app_config)
+    fake_transport = _FakeTransport()
+    repo = _FakeRepo([_item(1)])
+    free_account = UserAccount(
+        user_id=2, name="free", options=paid_default_options(False), is_active=True
+    )
+
+    async def profile_user_map(profile_ids: list[int]) -> dict[int, int | None]:
+        return {int(pid): 2 for pid in profile_ids}
+
+    async def accounts_by_users(user_ids: list[int]) -> dict[int, list[UserAccount]]:
+        return {int(uid): [free_account] for uid in user_ids}
+
+    repo.profile_user_map = profile_user_map  # type: ignore[method-assign]
+    repo.accounts_by_users = accounts_by_users  # type: ignore[method-assign]
     scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
     monkeypatch.setattr(
         "zakupki_parser.scheduler.ScoringTransportClient",

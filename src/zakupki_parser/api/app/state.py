@@ -37,6 +37,12 @@ class AppState:
         # Управление парсером (запуск/остановка из web-интерфейса).
         self.parser_lock = asyncio.Lock()
         self.parser_task: asyncio.Task[None] | None = None
+        # Активный экземпляр Scheduler (пока запущен постоянный мониторинг):
+        # API-роуты просят внеочередной обход профиля через request_profile_refresh.
+        self.parser_scheduler: Any | None = None
+        # Профили, для которых запрошен внеочередной обход, пока парсер остановлен
+        # (parser_scheduler is None): передаются новому планировщику при старте.
+        self.pending_profile_refresh_ids: set[int] = set()
         self.parser_status: dict[str, Any] = {
             "running": False,
             "stopped": False,
@@ -66,11 +72,50 @@ async def _broadcast(state: AppState, message: str = "data-changed") -> None:
             state.ws_clients.discard(ws)
 
 
+def _request_profile_refresh(state: AppState, profile_id: int) -> None:
+    """Просит планировщик выполнить внеочередной обход профиля (fast-start).
+
+    Вызывается после создания/изменения включённого профиля: планировщик обработает
+    профиль сразу после завершения текущего прохода, не дожидаясь конца периода
+    цикла (timeout_seconds). Если парсер остановлен/перезапускается — запрос
+    сохраняется в ``pending_profile_refresh_ids`` и передаётся планировщику при
+    старте (``_run_parser``).
+    """
+    scheduler = state.parser_scheduler
+    if scheduler is not None:
+        scheduler.request_profile_refresh(profile_id)
+    else:
+        state.pending_profile_refresh_ids.add(profile_id)
+
+
+def _spawn_parser(state: AppState) -> None:
+    """Запускает постоянный мониторинг парсера в фоне и обновляет статус.
+
+    Общая точка старта для кнопки на панели devops и автозапуска при старте
+    веб-сервиса (``auto_start_monitoring`` в config_ops.yaml).
+    """
+    state.parser_status = {
+        "running": True,
+        "stopped": False,
+        "error": None,
+        "started_at": datetime.now(UTC).isoformat(),
+        "finished_at": None,
+    }
+    state.parser_task = asyncio.create_task(_run_parser(state))
+
+
 async def _run_parser(state: AppState) -> None:
     """Запускает постоянный мониторинг парсера (периодические проходы) в фоне."""
     from zakupki_parser.scheduler import Scheduler
 
     scheduler = Scheduler(state.cfg, on_update=lambda: _broadcast(state))
+    state.parser_scheduler = scheduler
+    # Запросы на внеочередной обход, сделанные пока парсер был остановлен,
+    # передаём новому планировщику (fast-start после «настроил профиль -> запустил»).
+    pending = list(state.pending_profile_refresh_ids)
+    state.pending_profile_refresh_ids.clear()
+    for profile_id in pending:
+        scheduler.request_profile_refresh(profile_id)
     try:
         await scheduler.run_service()
     except asyncio.CancelledError:
@@ -80,6 +125,7 @@ async def _run_parser(state: AppState) -> None:
     except Exception as exc:  # noqa: BLE001
         state.parser_status["error"] = str(exc)
     finally:
+        state.parser_scheduler = None
         with suppress(Exception):
             await scheduler.stop()
         await _broadcast(state)

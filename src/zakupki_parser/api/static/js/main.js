@@ -35,6 +35,7 @@ import {
 } from "./work.js";
 import { loadMetrics } from "./metrics.js";
 import { loadProfiles, loadActiveClient, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
+import { loadAccount } from "./account.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
 import {
   loadServicesConfig,
@@ -47,10 +48,11 @@ import {
   parserDirty,
   closeEnvModal,
 } from "./ops_config.js";
-import { loadUsers, closeUserModal } from "./users.js";
+import { loadUsers, closeUserModal, closeUserAccountsModal } from "./users.js";
 import { loadLogs, loadLogFiles } from "./logs.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
+import { closeDocsModal, closeInfoModal } from "./topmenu.js";
 import { loadRefTables, refDirty } from "./reference.js";
 import { ALL_TABS, canAccessBase, switchTo, updateRolesUI } from "./roles.js";
 
@@ -62,6 +64,7 @@ const TAB_LOADERS = {
   work: loadWork,
   cust: loadCustomers,
   profiles: loadProfiles,
+  account: loadAccount,
   metrics: loadMetrics,
   users: loadUsers,
   monitor: () => {
@@ -95,6 +98,9 @@ ALL_TABS.forEach((t) => {
   if (!btn) return;
   btn.addEventListener("click", () => switchTo(t));
 });
+
+// Кнопка «Кабинет» в шапке — открывает вкладку личного кабинета.
+$("#open-account").addEventListener("click", () => switchTo("account"));
 
 // Активация вкладки = переключение + загрузка содержимого. Слушаем событие от
 // switchTo: оно приходит и при клике по кнопке вкладки, и при программном
@@ -153,8 +159,11 @@ document.addEventListener("keydown", (e) => {
     closeDeleteProfileModal();
     closeExportProfileModal();
     closeUserModal();
+    closeUserAccountsModal();
     closeConfirmDialog();
     closeEnvModal();
+    closeDocsModal();
+    closeInfoModal();
   }
 });
 
@@ -175,8 +184,9 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
   // Состояние переключателя «Только релевантные» и числового поля порога.
   $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
   updateMinFit();
-  // При включённой авторизации без входа не загружаем данные (ждём логин) —
-  // WebSocket подключится после успешного входа (см. doLogin).
+  // При включённой авторизации без входа данные не загружаем (ждём вход) —
+  // WebSocket подключится после успешного входа (см. doLogin). Гость видит
+  // главный экран приложения с меню, вход — из меню или гостевого экрана.
   const authActive = await checkAuth();
   updateRolesUI();
   if (authActive && !state.authUser) return;

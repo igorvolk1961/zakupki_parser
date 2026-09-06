@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, cast
 
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import CursorResult
 
-from zakupki_parser.storage.db import Profile, User
+from zakupki_parser.auth import has_default_profile_role
+from zakupki_parser.options import paid_default_options
+from zakupki_parser.storage.db import Profile, User, UserAccount
+from zakupki_parser.storage.repository.accounts import AccountMixin
 from zakupki_parser.storage.repository.base import RepositoryMixin
+from zakupki_parser.storage.repository.profiles import ProfileMixin
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +54,58 @@ class UserMixin(RepositoryMixin):
         logger.info("Создан пользователь %s (роли %s)", username, ",".join(roles))
         return user
 
+    async def create_user_with_setup(
+        self,
+        username: str,
+        password_hash: str,
+        roles: list[str],
+        email: str | None = None,
+        *,
+        trial_end_at: datetime | None = None,
+        account_paid_default: bool = False,
+    ) -> User:
+        """Регистрирует пользователя одной транзакцией: пользователь + триал.
+
+        В том же коммите создаются default-профиль (для ролей user/analyst, как
+        ``ensure_default_profile``) и активный default-аккаунт (как
+        ``ensure_default_account``). Атомарность важна: если бы пользователь
+        коммитился до выставления ``trial_end_at``/аккаунта, сбой между шагами
+        оставлял бы пользователя без триала и без аккаунта — по правилам
+        легаси-доступа это означало бы «вечный полный доступ» (см. ревью).
+        """
+        async with self._db.session() as session:
+            user = User(username=username, password_hash=password_hash, roles=roles, email=email)
+            user.trial_end_at = trial_end_at
+            session.add(user)
+            await session.flush()
+            if has_default_profile_role(roles):
+                session.add(
+                    Profile(
+                        name=ProfileMixin.DEFAULT_PROFILE_NAME,
+                        user_id=user.id,
+                        enabled=True,
+                        is_active=True,
+                        competencies="",
+                    )
+                )
+            session.add(
+                UserAccount(
+                    user_id=user.id,
+                    name=AccountMixin.DEFAULT_ACCOUNT_NAME,
+                    options=paid_default_options(enabled=account_paid_default),
+                    is_active=True,
+                )
+            )
+            await session.commit()
+            await session.refresh(user)
+        logger.info(
+            "Создан пользователь %s (роли %s, триал до %s)",
+            username,
+            ",".join(roles),
+            trial_end_at,
+        )
+        return user
+
     async def update_user_roles(self, user_id: int, roles: list[str]) -> User | None:
         stmt = select(User).where(User.id == user_id)
         async with self._db.session() as session:
@@ -71,6 +128,19 @@ class UserMixin(RepositoryMixin):
             await session.commit()
             await session.refresh(user)
         logger.info("Изменён статус пользователя %s: %s", user_id, status)
+        return user
+
+    async def set_user_password(self, user_id: int, password_hash: str) -> User | None:
+        """Устанавливает новый хэш пароля (смена пароля в личном кабинете)."""
+        stmt = select(User).where(User.id == user_id)
+        async with self._db.session() as session:
+            user = (await session.execute(stmt)).scalar_one_or_none()
+            if user is None:
+                return None
+            user.password_hash = password_hash
+            await session.commit()
+            await session.refresh(user)
+        logger.info("Изменён пароль пользователя %s", user_id)
         return user
 
     async def delete_user(self, user_id: int) -> bool:

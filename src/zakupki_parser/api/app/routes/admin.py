@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +14,7 @@ from sqlalchemy import text as sql_text
 
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import ClearDbIn, ClearIrrelevantIn, HealthOut
-from zakupki_parser.api.app.state import _broadcast, _run_parser
+from zakupki_parser.api.app.state import _broadcast, _spawn_parser
 from zakupki_parser.auth import decode_token
 from zakupki_parser.storage.db import User
 
@@ -108,14 +107,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         async with state.parser_lock:
             if state.parser_task is not None and not state.parser_task.done():
                 raise HTTPException(status_code=409, detail="Парсер уже запущен")
-            state.parser_status = {
-                "running": True,
-                "stopped": False,
-                "error": None,
-                "started_at": datetime.now(UTC).isoformat(),
-                "finished_at": None,
-            }
-            state.parser_task = asyncio.create_task(_run_parser(state))
+            _spawn_parser(state)
         logger.info("Запущен парсер (постоянный мониторинг) по команде из web-интерфейса")
         return {"status": "started"}
 
@@ -148,14 +140,7 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
                 with suppress(asyncio.CancelledError):
                     await task
                 # _run_parser сбрасывает state.parser_task в блоке finally.
-            state.parser_status = {
-                "running": True,
-                "stopped": False,
-                "error": None,
-                "started_at": datetime.now(UTC).isoformat(),
-                "finished_at": None,
-            }
-            state.parser_task = asyncio.create_task(_run_parser(state))
+            _spawn_parser(state)
         logger.info("Перезапущен парсер по команде из web-интерфейса")
         return {"status": "restarting"}
 

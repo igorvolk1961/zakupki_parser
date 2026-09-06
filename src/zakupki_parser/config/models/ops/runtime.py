@@ -15,6 +15,20 @@ class OpsConfig(_BaseConfig):
     """Эксплуатационная конфигурация: таймер, БД, уведомления, выгрузка, circuit breaker."""
 
     timeout_seconds: int = Field(default=3600, ge=1)
+    # Автозапуск цикла мониторинга при старте веб-сервиса (serve): true (по
+    # умолчанию) — при старте сервиса сразу запускается постоянный мониторинг
+    # парсера; false — только по команде с панели devops (POST /api/parser/start).
+    auto_start_monitoring: bool = Field(
+        default=True,
+        description=(
+            "автозапуск цикла мониторинга парсера при старте сервиса (по умолчанию включён)"
+        ),
+    )
+    # Окно коалесинга внеочередного обхода профиля (fast-start): обход стартует не
+    # раньше этого интервала с момента ПОСЛЕДНЕГО сигнала (каждое сохранение
+    # сбрасывает таймер), чтобы серия правок подряд — хоть в течение пары минут —
+    # копилась в один обход. 0 — без ожидания.
+    profile_refresh_debounce_seconds: float = Field(default=120.0, ge=0)
     db: DbConfig = Field(default_factory=DbConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
     geocoding: GeocodingConfig = Field(

@@ -99,6 +99,15 @@ class ProfileMixin(RepositoryMixin):
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
 
+    async def profile_user_map(self, profile_ids: list[int]) -> dict[int, int | None]:
+        """Маппинг id профиля -> user_id (для гейта recovery по опциям владельца)."""
+        if not profile_ids:
+            return {}
+        stmt = select(Profile.id, Profile.user_id).where(Profile.id.in_(profile_ids))
+        async with self._db.session() as session:
+            rows = (await session.execute(stmt)).all()
+        return {int(profile_id): user_id for profile_id, user_id in rows}
+
     async def get_profile_by_name(self, user_id: int, name: str) -> Profile | None:
         stmt = select(Profile).where(Profile.user_id == user_id, Profile.name == name)
         async with self._db.session() as session:
@@ -559,7 +568,12 @@ class ProfileMixin(RepositoryMixin):
         return profile
 
     async def upsert_profile(
-        self, data: dict[str, Any], user_id: int, profile_id: int | None = None
+        self,
+        data: dict[str, Any],
+        user_id: int,
+        profile_id: int | None = None,
+        *,
+        require_competencies: bool = True,
     ) -> Profile:
         """Создаёт или обновляет профиль пользователя (одной транзакцией).
 
@@ -573,8 +587,15 @@ class ProfileMixin(RepositoryMixin):
         (``profile_licenses``/``profile_experience``, полная замена — BR-03).
         При ``is_active=true`` остальные профили пользователя деактивируются
         (гарантия единственного активного профиля).
+
+        ``require_competencies`` — профиль без компетенций сохранить нельзя:
+        LLM-скоринг (опция ``scoring``) требует компетенций. Если опция
+        пользователю недоступна (нет обработки компетенций языковой моделью,
+        #9) — сохраняем профиль и без них.
         """
-        return await self._upsert_profile(data, user_id, profile_id, _retry_left=1)
+        return await self._upsert_profile(
+            data, user_id, profile_id, _retry_left=1, _require_competencies=require_competencies
+        )
 
     async def _upsert_profile(
         self,
@@ -582,13 +603,14 @@ class ProfileMixin(RepositoryMixin):
         user_id: int,
         profile_id: int | None,
         _retry_left: int,
+        _require_competencies: bool = True,
     ) -> Profile:
         name = data.get("name")
         if not name:
             raise ValueError("profiles.name обязателен")
-        # Компетенции — всегда канонический JSON схемы Profile (BR-07). Обязательная
-        # валидация на записи: пустой профиль (без компетенций/позиционирования)
-        # не может участвовать в сборе закупок, поэтому его сохранение запрещено.
+        # Компетенции — всегда канонический JSON схемы Profile (BR-07). Пустой профиль
+        # (без компетенций) запрещено сохранять, только если пользователю доступен
+        # LLM-скоринг компетенций (опция scoring); иначе — разрешено (#9).
         if "competencies" in data:
             from zakupki_parser.storage.competencies import (
                 CompetenciesError,
@@ -600,11 +622,32 @@ class ProfileMixin(RepositoryMixin):
             )
 
             profile_model = parse_competencies(str(data.get("competencies") or ""))
-            if _competencies_is_empty(profile_model):
+            if _competencies_is_empty(profile_model) and _require_competencies:
                 raise CompetenciesError(
-                    "Профиль без компетенций нельзя сохранить: он не участвует в сборе закупок"
+                    "Профиль без компетенций нельзя сохранить: LLM-скоринг по компетенциям "
+                    "доступен в вашем аккаунте. Отключите опцию «Скоринг по компетенциям» "
+                    "в личном кабинете, чтобы сохранять профили без компетенций."
                 )
             data = {**data, "competencies": normalize_competencies(data.get("competencies"))}
+        elif "competencies" not in data and profile_id is None:
+            # Новый профиль без поля competencies: трактуем как «пустые компетенции».
+            from zakupki_parser.storage.competencies import CompetenciesError as _EmptyError
+
+            if _require_competencies:
+                raise _EmptyError(
+                    "Профиль без компетенций нельзя сохранить: LLM-скоринг по компетенциям "
+                    "доступен в вашем аккаунте. Отключите опцию «Скоринг по компетенциям» "
+                    "в личном кабинете, чтобы сохранять профили без компетенций."
+                )
+            from zakupki_parser.storage.competencies import normalize_competencies as _ncomp
+
+            data["competencies"] = _ncomp("")
+        # Контроль формата кодов ОКПД2 (#1) на записи: единый для всех путей
+        # (веб-форма, импорт JSON-файла, CLI seed).
+        if "okpd_codes" in data and data.get("okpd_codes"):
+            from zakupki_parser.okpd import normalize_okpd_codes
+
+            data["okpd_codes"] = normalize_okpd_codes(list(data["okpd_codes"]))
         wants_keywords = "keywords" in data or "exclusion_words" in data
         async with self._db.session() as session:
             stmt = (
@@ -696,7 +739,13 @@ class ProfileMixin(RepositoryMixin):
                 # констрейнт uq_profiles_user_name. Откатываем и пробуем ещё раз —
                 # на повторном проходе строка уже существует, выполнится update.
                 await session.rollback()
-                return await self._upsert_profile(data, user_id, profile_id, _retry_left - 1)
+                return await self._upsert_profile(
+                    data,
+                    user_id,
+                    profile_id,
+                    _retry_left - 1,
+                    _require_competencies=_require_competencies,
+                )
             # updated_at (server onupdate) генерируется в БД: с expire_on_commit=False
             # SQLAlchemy не подставляет его в объект без refresh. После выхода из
             # сессии объект detached, и _profile_out упадёт с DetachedInstanceError.

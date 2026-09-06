@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from zakupki_parser.storage.db.account import UserAccount
 from zakupki_parser.storage.db.base import Base
 from zakupki_parser.storage.db.customer import Customer
 from zakupki_parser.storage.db.engine import Database
@@ -48,4 +49,5 @@ __all__ = [
     "ProfileExperience",
     "ProfileLicense",
     "User",
+    "UserAccount",
 ]
