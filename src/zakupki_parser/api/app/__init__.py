@@ -25,6 +25,7 @@ from zakupki_parser.api.app.routes.clients import build_clients_router
 from zakupki_parser.api.app.routes.config import build_config_router
 from zakupki_parser.api.app.routes.coverage import build_coverage_router
 from zakupki_parser.api.app.routes.customers import build_customers_router
+from zakupki_parser.api.app.routes.docs import build_docs_router
 from zakupki_parser.api.app.routes.facts import build_facts_router
 from zakupki_parser.api.app.routes.logs import build_logs_router
 from zakupki_parser.api.app.routes.metrics import build_metrics_router
@@ -99,6 +100,7 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
     app.include_router(build_account_router(ctx))
     app.include_router(build_users_router(ctx))
     app.include_router(build_procurements_router(ctx))
+    app.include_router(build_docs_router())
     app.include_router(build_clients_router(ctx))
     app.include_router(build_facts_router(ctx))
     app.include_router(build_customers_router(ctx))

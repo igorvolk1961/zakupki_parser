@@ -1,9 +1,10 @@
 "use strict";
 
 // Ролевая модель web-интерфейса: наборы вкладок по ролям.
-// Видимые вкладки пользователя — объединение наборов его ролей; при выключенной
-// авторизации (state.authUser == null, dev-режим) видны все вкладки.
-// Базовые вкладки (Закупки/В работе/Заказчики/Профили) — слева, ролевые — справа.
+// Видимые вкладки пользователя — объединение наборов его ролей; без входа
+// (гость) ролевых вкладок нет — вместо них показывается главный экран
+// с меню («Вход», «Документация»). Базовые вкладки (Закупки/В работе/
+// Заказчики/Профили) — слева, ролевые — справа.
 import { state } from "./store.js";
 
 export const TAB_BASE = ["proc", "work", "cust", "profiles"];
@@ -52,7 +53,7 @@ export const ROLE_LABELS = {
 };
 
 export function userRoles() {
-  if (!state.authUser) return Object.keys(TAB_SETS);
+  if (!state.authUser) return [];
   return state.authUser.roles || [];
 }
 
@@ -96,6 +97,25 @@ export function switchTo(name) {
 }
 
 export function updateRolesUI() {
+  const guestView = document.getElementById("view-guest");
+  if (!state.authUser) {
+    // Гость (сессии нет): вкладок и ролевых панелей не показываем — вместо них
+    // главный экран-приглашение (вход доступен из верхнего меню).
+    ALL_TABS.forEach((t) => {
+      const btn = document.getElementById("tab-" + t);
+      if (btn) {
+        btn.classList.remove("active");
+        btn.style.display = "none";
+      }
+      const view = document.getElementById("view-" + t);
+      if (view) view.style.display = "none";
+    });
+    const panel = document.getElementById("parser-panel");
+    if (panel) panel.style.display = "none";
+    if (guestView) guestView.style.display = "block";
+    return;
+  }
+  if (guestView) guestView.style.display = "none";
   const visible = visibleTabs();
   ALL_TABS.forEach((t) => {
     const btn = document.getElementById("tab-" + t);
@@ -107,10 +127,13 @@ export function updateRolesUI() {
   // Клиентская выгрузка CSV — базовые вкладки (роли user/analyst).
   const exportBtn = document.getElementById("db-export");
   if (exportBtn) exportBtn.style.display = hasRole("user") || hasRole("analyst") ? "" : "none";
-  // Активная вкладка скрыта ролью — переключаемся на первую видимую.
-  const active = document.querySelector(".tabs .active");
-  if (active && active.style.display === "none") {
-    const first = visible[0];
-    if (first) switchTo(first);
+  // Активная вкладка скрыта ролью (или не выбрана после входа) —
+  // переключаемся на первую видимую. Проверяем только основные вкладки
+  // (внутри экранов есть свои под-вкладки с тем же классом .active).
+  const activeBtn = ALL_TABS.map((t) => document.getElementById("tab-" + t)).find(
+    (b) => b && b.classList.contains("active")
+  );
+  if ((!activeBtn || activeBtn.style.display === "none") && visible.length) {
+    switchTo(visible[0]);
   }
 }

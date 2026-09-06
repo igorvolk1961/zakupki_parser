@@ -52,6 +52,7 @@ import { loadUsers, closeUserModal, closeUserAccountsModal } from "./users.js";
 import { loadLogs, loadLogFiles } from "./logs.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
+import { closeDocsModal, closeInfoModal } from "./topmenu.js";
 import { loadRefTables, refDirty } from "./reference.js";
 import { ALL_TABS, canAccessBase, switchTo, updateRolesUI } from "./roles.js";
 
@@ -161,6 +162,8 @@ document.addEventListener("keydown", (e) => {
     closeUserAccountsModal();
     closeConfirmDialog();
     closeEnvModal();
+    closeDocsModal();
+    closeInfoModal();
   }
 });
 
@@ -178,15 +181,12 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
 (async function init() {
   updateControls();
   updateRolesUI();
-  // Версия приложения на экране входа — из шапки (единый источник).
-  const authVersion = $("#auth-version");
-  const appVersion = $("#app-version");
-  if (authVersion && appVersion) authVersion.textContent = appVersion.textContent;
   // Состояние переключателя «Только релевантные» и числового поля порога.
   $("#proc-relevant").checked = localStorage.getItem("zp_relevant") === "1";
   updateMinFit();
-  // При включённой авторизации без входа не загружаем данные (ждём логин) —
-  // WebSocket подключится после успешного входа (см. doLogin).
+  // При включённой авторизации без входа данные не загружаем (ждём вход) —
+  // WebSocket подключится после успешного входа (см. doLogin). Гость видит
+  // главный экран приложения с меню, вход — из меню или гостевого экрана.
   const authActive = await checkAuth();
   updateRolesUI();
   if (authActive && !state.authUser) return;

@@ -3,11 +3,11 @@
 // Авторизация: вход / регистрация / выход / текущий пользователь.
 import { $ } from "./utils.js";
 import { state } from "./store.js";
-import { authToken, authHeaders, setToken, connectWS } from "./api.js";
+import { authHeaders, setToken, connectWS } from "./api.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadActiveClient } from "./clients.js";
-import { updateControls } from "./admin.js";
+import { updateControls, refreshParserStatus } from "./admin.js";
 import { canAccessBase, roleLabelList, updateRolesUI } from "./roles.js";
 
 let loginMode = "login"; // "login" | "register"
@@ -100,6 +100,7 @@ async function doLogin(register) {
     hideLogin();
     renderAuth();
     connectWS();
+    refreshParserStatus();
     // Базовые вкладки грузим только тем, у кого есть доступ (user/analyst);
     // devops/admin-only аккаунтам они не положены и упали бы 403.
     if (canAccessBase()) {
@@ -114,14 +115,20 @@ async function doLogin(register) {
 
 function renderAuth() {
   const bar = $("#user-bar");
+  const loginBtn = $("#menu-login");
   if (state.authUser) {
     bar.style.display = "flex";
+    if (loginBtn) loginBtn.style.display = "none";
     $("#user-name").textContent = state.authUser.username;
     $("#user-role").textContent = roleLabelList().join(", ");
     renderTrialPill(state.authUser.trial_end_at);
   } else {
     bar.style.display = "none";
+    if (loginBtn) loginBtn.style.display = "";
     $("#user-trial").style.display = "none";
+    // Без сессии состояние парсера не запрашиваем — статус недоступен.
+    const ps = document.getElementById("parser-status");
+    if (ps) ps.textContent = "—";
   }
   updateControls();
   updateRolesUI();
@@ -156,12 +163,12 @@ function logout() {
     state.wsSocket = null;
   }
   renderAuth();
-  showLogin();
 }
 
 // Проверяет состояние авторизации. Возвращает true, если авторизация включена
-// (200 — пользователь известен, 401 — показать вход); false — отключена/сбой
-// (dev-режим, загружаем данные без логина).
+// (200 — пользователь известен); false — сервис ещё недоступен. При 401 вход
+// НЕ показываем принудительно: приложение открывается на главном экране, где
+// вход доступен из верхнего меню («Вход») или из гостевого экрана.
 async function checkAuth() {
   try {
     const r = await fetch("/api/auth/me", { headers: authHeaders() });
@@ -172,15 +179,21 @@ async function checkAuth() {
       return true;
     }
     if (r.status === 403) {
-      // Заблокированный аккаунт: вход закрыт, показываем ошибку в модалке входа.
+      // Заблокированный аккаунт: сбрасываем токен и показываем ошибку в окне входа.
+      setToken(null);
       state.authRequired = true;
+      state.authUser = null;
+      renderAuth();
       showLogin();
       $("#login-error").textContent = "Аккаунт заблокирован";
       return true;
     }
     if (r.status === 401) {
+      // Просроченный/отсутствующий токен — гость без входа (без авто-модалки).
+      setToken(null);
       state.authRequired = true;
-      showLogin();
+      state.authUser = null;
+      renderAuth();
       return true;
     }
   } catch (e) {
@@ -215,8 +228,13 @@ $("#login-switch").addEventListener("click", () => {
     if (e.key === "Enter") doLogin(loginMode === "register");
   });
 });
+// Окно входа закрывается (клик по фону, крестик, Escape): вход необязателен,
+// главный экран приложения доступен и без него.
 $("#login-modal-bg").addEventListener("click", (e) => {
-  // Не даём закрыть модалку входа кликом мимо (нужна авторизация).
-  if (e.target.id === "login-modal-bg" && state.authUser) hideLogin();
+  if (e.target.id === "login-modal-bg") hideLogin();
+});
+$("#login-close").addEventListener("click", hideLogin);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && $("#login-modal-bg").classList.contains("open")) hideLogin();
 });
 $("#logout").addEventListener("click", logout);

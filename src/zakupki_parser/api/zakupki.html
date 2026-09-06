@@ -9,6 +9,22 @@
   <link rel="stylesheet" href="/static/css/zakupki.css">
 </head>
 <body>
+<nav class="topnav" aria-label="Основное меню">
+  <div class="topnav-left">
+    <button class="topnav-link" id="menu-docs" title="Руководство пользователя">Документация</button>
+    <button class="topnav-link" id="menu-support" title="Техподдержка">Техподдержка</button>
+    <button class="topnav-link" id="menu-contacts" title="Контакты">Контакты</button>
+  </div>
+  <div class="topnav-right">
+    <span class="user-bar" id="user-bar" style="display:none;">
+      <b id="user-name"></b><span class="pill" id="user-role"></span>
+      <span class="pill trial" id="user-trial" style="display:none;" title="Триал-режим: все опции поиска и скоринга бесплатны"></span>
+      <button class="ghost" id="open-account" title="Личный кабинет: аккаунты, платные опции, смена пароля">Кабинет</button>
+      <button class="ghost" id="logout" title="Выйти">Выйти</button>
+    </span>
+    <button class="topnav-link warn" id="menu-login" title="Войти в систему">Вход</button>
+  </div>
+</nav>
 <header>
   <div class="brand-lockup">
     <svg class="brand-mark" viewBox="0 0 32 32" role="img" aria-label="TenderSearch">
@@ -36,15 +52,32 @@
       <option value="light">Светлая</option>
       <option value="dark">Тёмная</option>
     </select>
-    <span class="user-bar" id="user-bar" style="display:none;">
-      <b id="user-name"></b><span class="pill" id="user-role"></span>
-      <span class="pill trial" id="user-trial" style="display:none;" title="Триал-режим: все опции поиска и скоринга бесплатны"></span>
-      <button class="ghost" id="open-account" title="Личный кабинет: аккаунты, платные опции, смена пароля">Кабинет</button>
-      <button class="ghost" id="logout" title="Выйти">Выйти</button>
-    </span>
   </div>
 </header>
 <main>
+  <div id="view-guest" style="display:none;">
+    <div class="guest-home">
+      <svg class="brand-mark" viewBox="0 0 32 32" role="img" aria-label="TenderSearch">
+        <rect width="32" height="32" rx="8" fill="#0B1E38"/>
+        <circle cx="16" cy="15" r="10.5" fill="#1B3F6B"/>
+        <circle cx="12" cy="14.5" r="3.4" fill="#F2A93B"/>
+        <circle cx="20" cy="14.5" r="3.4" fill="#F2A93B"/>
+        <circle cx="12" cy="14.5" r="1.5" fill="#0B1E38"/>
+        <circle cx="20" cy="14.5" r="1.5" fill="#0B1E38"/>
+        <path d="M14.4 18.8h3.2l-1.6 3z" fill="#D98E1B"/>
+        <path d="M8 9.5C9.7 7.7 12.3 7.9 14 10.4M24 9.5c-1.7-1.8-4.3-1.6-6 .9" stroke="#0B1E38" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+      <h2>Tender<span class="brand-s">S</span>earch</h2>
+      <p>Сервис мониторинга и скоринга закупок: ведёт закупки по профилям клиентов,
+        оценивает Fit, проверяет ТЗ на скрытые требования и сводит всё в готовые карточки решений.</p>
+      <div class="toolbar">
+        <button class="primary" id="guest-login">Вход</button>
+        <button class="ghost" id="guest-docs">Документация</button>
+      </div>
+      <p class="guest-note muted">Вкладки и данные рабочего пространства доступны после входа.</p>
+    </div>
+  </div>
+
   <div class="panel" id="parser-panel">
     <div class="panel-title">Парсер</div>
     <div class="toolbar">
@@ -715,60 +748,49 @@
   </div>
 </div>
 
-<div class="modal-bg auth-bg" id="login-modal-bg">
-  <div class="auth-shell">
-    <div class="auth-main">
-      <section class="auth-hero">
-        <div class="auth-brand">
-          <svg class="brand-hero-owl" viewBox="0 0 120 120" role="img" aria-label="Сыч — эмблема TenderSearch">
-            <circle class="radar-ring" cx="56" cy="62" r="52" fill="none" stroke="#63bdf2" stroke-width="2" stroke-dasharray="3 10" stroke-linecap="round" opacity=".45"/>
-            <path d="M30 58c-3.5 27 9 46 26 46 17 0 29.5-19 26-46-2-20-11-28-26-28s-24 8-26 28z" fill="#1E4368"/>
-            <circle cx="56" cy="45" r="29" fill="#1E4368"/>
-            <circle cx="56" cy="43" r="21" fill="#2C5A8F"/>
-            <path d="M29 29C35 21 40 20 46 25M83 29C77 21 72 20 66 25" stroke="#0A1C38" stroke-width="5" stroke-linecap="round"/>
-            <circle cx="44" cy="43" r="9" fill="#F5B23E"/>
-            <circle cx="68" cy="43" r="9" fill="#F5B23E"/>
-            <circle cx="44" cy="43" r="3.4" fill="#0A1C38"/>
-            <circle cx="68" cy="43" r="3.4" fill="#0A1C38"/>
-            <circle cx="41.6" cy="40.6" r="1.6" fill="#FFF8E1"/>
-            <circle cx="65.6" cy="40.6" r="1.6" fill="#FFF8E1"/>
-            <path d="M51 49h10l-5 12z" fill="#E09A24"/>
-          </svg>
-          <div class="auth-brand-text">
-            <h2 class="auth-brand-name">Tender<span class="brand-s">S</span>earch</h2>
-            <p class="auth-brand-slogan">тендер-сыч · зоркий мониторинг закупок</p>
-          </div>
-        </div>
-        <p class="auth-lead">Вы видите то, что другие пропускают.</p>
-        <p class="auth-sub">Сервис ведёт закупки по профилям всех ваших клиентов: оценивает Fit, проверяет ТЗ на скрытые требования и сводит всё в готовые карточки решений.</p>
-      </section>
-      <div class="modal login-modal" id="login-modal">
-        <div class="login-card-head">
-          <h2 id="login-title">Вход</h2>
-          <p class="login-sub">Рабочее пространство тендеролога</p>
-        </div>
-        <div class="field">
-          <label for="login-username">Логин</label>
-          <input id="login-username" list="login-usernames" autocomplete="off" placeholder="логин">
-          <datalist id="login-usernames"></datalist>
-        </div>
-        <div class="field">
-          <label for="login-password">Пароль</label>
-          <input id="login-password" type="password" autocomplete="new-password" placeholder="пароль">
-        </div>
-        <div class="field" id="login-confirm-field" style="display:none;">
-          <label for="login-password-confirm">Подтверждение пароля</label>
-          <input id="login-password-confirm" type="password" autocomplete="new-password" placeholder="повторите пароль">
-        </div>
-        <div class="error" id="login-error"></div>
-        <button class="primary login-btn" id="login-submit">Вход</button>
-        <div class="login-foot">
-          <div class="switch"><span class="muted">Нет аккаунта?</span> <button type="button" id="login-switch">Зарегистрироваться</button></div>
-        </div>
-      </div>
+<div class="modal-bg" id="login-modal-bg">
+  <div class="modal login-modal" id="login-modal">
+    <span class="close" id="login-close" title="Закрыть">×</span>
+    <div class="login-card-head">
+      <h2 id="login-title">Вход</h2>
+      <p class="login-sub">Рабочее пространство тендеролога</p>
     </div>
-    <div class="auth-foot">
-      <span class="auth-meta">© 2026 TenderSearch · Парсер закупок · <span id="auth-version">v0.3.0</span></span>
+    <div class="field">
+      <label for="login-username">Логин</label>
+      <input id="login-username" list="login-usernames" autocomplete="off" placeholder="логин">
+      <datalist id="login-usernames"></datalist>
+    </div>
+    <div class="field">
+      <label for="login-password">Пароль</label>
+      <input id="login-password" type="password" autocomplete="new-password" placeholder="пароль">
+    </div>
+    <div class="field" id="login-confirm-field" style="display:none;">
+      <label for="login-password-confirm">Подтверждение пароля</label>
+      <input id="login-password-confirm" type="password" autocomplete="new-password" placeholder="повторите пароль">
+    </div>
+    <div class="error" id="login-error"></div>
+    <button class="primary login-btn" id="login-submit">Вход</button>
+    <div class="login-foot">
+      <div class="switch"><span class="muted">Нет аккаунта?</span> <button type="button" id="login-switch">Зарегистрироваться</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="docs-modal-bg">
+  <div class="modal" id="docs-modal">
+    <span class="close" id="docs-close" title="Закрыть">×</span>
+    <h2>Руководство пользователя</h2>
+    <div class="docs-body md" id="docs-content"><div class="muted">Загрузка…</div></div>
+  </div>
+</div>
+
+<div class="modal-bg" id="info-modal-bg">
+  <div class="modal" id="info-modal">
+    <span class="close" id="info-close" title="Закрыть">×</span>
+    <h2 id="info-title"></h2>
+    <p class="muted" id="info-message"></p>
+    <div class="toolbar">
+      <button class="primary" id="info-ok">Закрыть</button>
     </div>
   </div>
 </div>
@@ -816,5 +838,6 @@
 </div>
 
 <script type="module" src="/static/js/main.js"></script>
+<script type="module" src="/static/js/topmenu.js"></script>
 </body>
 </html>
