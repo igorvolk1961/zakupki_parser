@@ -318,101 +318,73 @@
   .brand-sub { font-size:12px; color: var(--muted); }
   .brand-sub .sub { color: inherit; }
 
-  /* ---------- Экран входа (главная форма, полноэкранный) ---------- */
-  #login-modal-bg {
-    /* Переменные гейта: фирменный «полночный» градиент (обе темы одинаковые). */
-    --gw-night: #0A1C38;
-    --gw-ink: #EAF1FB;
-    --gw-muted: rgba(214,228,246,.72);
-    --gw-owl: #1E4368;
-    --gw-owl-face: #2C5a8f;
-    --gw-amber: #F5B23E;
-    --gw-amber-deep: #E09A24;
-    --gw-sky: #63bdf2;
-    padding: 0;
-    align-items: stretch;
-    justify-content: center;
-    background:
-      radial-gradient(52rem 40rem at 88% -12%, rgba(242,169,59,.16), transparent 60%),
-      radial-gradient(46rem 40rem at -12% 112%, rgba(99,189,242,.14), transparent 55%),
-      radial-gradient(70rem 60rem at 60% 130%, rgba(42,101,166,.25), transparent 60%),
-      linear-gradient(155deg, #071530 0%, #0B2143 48%, #123059 100%);
-  }
-  .auth-shell {
-    width: 100%;
-    min-height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: clamp(28px, 6vh, 64px) clamp(16px, 4vw, 52px);
-    box-sizing: border-box;
-  }
-  .auth-main {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
-    gap: clamp(28px, 5vw, 90px);
-    align-items: center;
-    width: min(1240px, 100%);
-  }
-  .auth-hero { color: var(--gw-ink); min-width: 0; }
-  .auth-brand { display:flex; align-items:center; gap:18px; margin-bottom:26px; }
-  .brand-hero-owl { width: clamp(96px, 14vw, 150px); height:auto; flex:0 0 auto; }
-  .radar-ring { transform-box: view-box; transform-origin: 56px 62px;
-    animation: radar-spin 26s linear infinite; }
-  @keyframes radar-spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) {
-    .radar-ring { animation: none; }
-  }
-  .auth-brand-name { font-size: clamp(28px, 3.4vw, 40px); margin: 0 0 2px;
-    font-weight: 800; letter-spacing: -.02em; color: var(--gw-ink); }
-  .auth-brand-name .brand-s { color: var(--gw-amber); }
-  .auth-brand-slogan { margin: 0; color: var(--gw-muted); font-size: 13.5px;
-    letter-spacing: .02em; }
-  .auth-lead { font-size: clamp(22px, 2.6vw, 30px); line-height: 1.25; margin: 0 0 12px;
-    font-weight: 700; letter-spacing: -.01em; }
-  .auth-sub { margin: 0; color: var(--gw-muted); font-size: 15px; line-height: 1.55;
-    max-width: 56ch; }
-  /* Карточка входа */  #login-modal { width: 100%; max-width: 100%; padding: 26px 26px 20px; border-radius: 18px;
-    box-shadow: 0 24px 60px -18px rgba(2,10,26,.55), 0 6px 18px -8px rgba(2,10,26,.35);
-    background: var(--panel); }
-  .login-card-head { margin-bottom: 18px; }
-  .login-card-head h2 { margin: 0 0 2px; font-size: 22px; }
-  .login-sub { margin: 0; font-size: 13px; color: var(--muted); }
-  #login-modal .field label { font-weight: 600; }
-  #login-modal .field input { width: 100%; background: var(--panel2); border-color: var(--line);
-    padding: 11px 12px; border-radius: 10px; font-size: 14px; }
-  #login-modal .field input:focus { border-color: var(--brand-amber);
-    box-shadow: 0 0 0 3px rgba(242,169,59,.16); }
-  #login-modal button.login-btn { width: 100%; padding: 12px 16px; font-size: 15px;
-    border-radius: 10px; background: var(--gw-owl); border-color: var(--gw-owl); color: #fff; }
-  html[data-theme="dark"] #login-modal button.login-btn { background: var(--brand-amber);
-    border-color: var(--brand-amber); color: #14181F; }
-  #login-modal button.login-btn:hover { filter: brightness(1.08); }
-  #login-modal button.login-btn:disabled { opacity: .6; }
-  .login-foot { margin-top: 16px; }
-  .login-foot .switch { margin-top: 2px; }
-  .login-foot .switch button { font-weight: 600; }
-  .auth-foot { width: min(1240px, 100%); margin-top: 34px; display: flex; align-items: center;
-    justify-content: flex-end; gap: 14px; flex-wrap: wrap;
-    font-size: 12.5px; color: var(--gw-muted); }
-  .auth-meta { letter-spacing: .01em; }
+  /* ---------- Верхнее меню (над шапкой) ---------- */
+  .topnav { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    padding:6px 20px; background:var(--bg); border-bottom:1px solid var(--line); }
+  html[data-theme="light"] .topnav { background:#fff; }
+  .topnav-left, .topnav-right { display:flex; align-items:center; gap:2px; flex-wrap:wrap; }
+  .topnav-right { gap:10px; }
+  .topnav-link { background:transparent; border:1px solid transparent; color:var(--text);
+    font-size:13.5px; padding:6px 12px; border-radius:8px; font-weight:500; }
+  .topnav-link:hover { background:var(--panel2); }
+  .topnav-link.warn { color:var(--accent); }
+  #menu-login { font-weight:600; }
+  .topnav .user-bar { gap:8px; }
+  .topnav .user-bar button.ghost { padding:5px 10px; font-size:12.5px; }
 
-  /* Адаптивность гейта */
-  @media (max-width: 980px) {
-    .auth-main { grid-template-columns: 1fr; gap: 26px; max-width: 440px; }
-    .auth-hero { text-align: left; }
-    .auth-brand { margin-bottom: 16px; }
-    .auth-foot { justify-content: center; text-align: center; margin-top: 26px; }
-  }
-  /* На невысоких окнах контент выравнивается сверху и прокручивается целиком,
-     чтобы верх гейта не обрезался при центрировании. */
-  @media (max-height: 820px) {
-    .auth-shell { justify-content: flex-start; }
-  }
-  @media (max-width: 520px) {
-    .auth-sub { font-size: 14px; }
-    #login-modal { padding: 22px 18px 16px; }
-  }
-  body:has(#login-modal-bg.open) { overflow: hidden; }
+  /* ---------- Модальное окно входа (по кнопке «Вход» в меню) ---------- */
+  #login-modal-bg { z-index:20; }
+  #login-modal { max-width:380px; border-radius:16px; padding:22px 24px 18px; }
+  .login-card-head { margin-bottom:14px; }
+  .login-card-head h2 { margin:0 0 2px; font-size:20px; }
+  .login-sub { margin:0; font-size:12.5px; color:var(--muted); }
+  #login-modal .field label { font-weight:600; }
+  #login-modal .field input { width:100%; background:var(--panel2); border-color:var(--line);
+    padding:10px 12px; border-radius:10px; font-size:14px; }
+  #login-modal .field input:focus { border-color:var(--accent); }
+  #login-modal button.login-btn { width:100%; padding:11px 16px; font-size:14.5px; border-radius:10px; }
+  #login-modal button.login-btn:disabled { opacity:.6; }
+  .login-foot { margin-top:14px; }
+  .login-foot .switch { margin-top:2px; }
+  .login-foot .switch button { font-weight:600; }
+
+  /* ---------- Главный экран для гостя (до входа) ---------- */
+  #view-guest { padding: clamp(24px, 6vh, 72px) 0; }
+  .guest-home { max-width:560px; margin:0 auto; text-align:center;
+    background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:34px 28px; }
+  .guest-home .brand-mark { width:52px; height:52px; border-radius:14px; margin:0 auto 14px; }
+  .guest-home h2 { margin:0 0 10px; font-size:22px; }
+  .guest-home p { margin:0 0 18px; font-size:14px; line-height:1.6; color:var(--muted); }
+  .guest-home .toolbar { justify-content:center; margin-bottom:14px; }
+  .guest-home .guest-note { margin:0; font-size:12px; }
+
+  /* ---------- Модальные окна: Документация / Информация ---------- */
+  #docs-modal-bg { z-index:30; }
+  #docs-modal { width:min(920px, 100%); }
+  #docs-modal .docs-body { max-height:min(70vh, 720px); overflow:auto;
+    background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+    padding:16px 20px; font-size:13.5px; line-height:1.6; word-break:break-word; }
+  .docs-body.md > :first-child { margin-top:0; }
+  .docs-body.md > :last-child { margin-bottom:0; }
+  .docs-body.md h1 { font-size:21px; } .docs-body.md h2 { font-size:18px; }
+  .docs-body.md h3 { font-size:15.5px; } .docs-body.md h4 { font-size:14px; }
+  .docs-body.md p { margin:0 0 10px; }
+  .docs-body.md ul, .docs-body.md ol { margin:0 0 10px; padding-left:22px; }
+  .docs-body.md li { margin:2px 0; }
+  .docs-body.md a { color:var(--accent); }
+  .docs-body.md code { background:var(--panel); border:1px solid var(--line); border-radius:4px;
+    padding:0 4px; font-family:ui-monospace,monospace; font-size:12.5px; }
+  .docs-body.md pre { background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:10px; overflow:auto; margin:0 0 10px; }
+  .docs-body.md pre code { background:none; border:none; padding:0; }
+  .docs-body.md blockquote { margin:0 0 10px; padding:0 0 0 14px;
+    border-left:3px solid var(--line); color:var(--muted); }
+  .docs-body.md hr { border:none; border-top:1px solid var(--line); margin:14px 0; }
+  .docs-body.md table { width:100%; border-collapse:collapse; margin:0 0 12px; font-size:13px; }
+  .docs-body.md th, .docs-body.md td { text-align:left; padding:7px 10px;
+    border:1px solid var(--line); vertical-align:top; }
+  .docs-body.md th { background:var(--panel); color:var(--muted); font-weight:600; white-space:nowrap; }
+  #info-modal { max-width:420px; }
+  #info-modal .muted { margin-top:0; }
+  #info-modal .toolbar { justify-content:flex-end; margin-bottom:0; }
 
