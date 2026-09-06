@@ -22,6 +22,28 @@ const PROC_PAGE_SIZE = 100;
 let procPage = 1;
 let procTotal = 0;
 
+// Эффективная доступность опции scoring у пользователя (BR-09). Без неё
+// фильтр «закупки без прошедшего скоринга» отключается: закупки скоринг не
+// проходят вовсе, поэтому таблица показывает все собранные закупки.
+let scoringEnabled = true;
+let scoringGatePromise = null;
+
+async function loadScoringGate() {
+  try {
+    const cab = await api("account/cabinet");
+    const option = (cab.catalog || []).find((o) => o.key === "scoring");
+    scoringEnabled = !option || option.enabled === true;
+  } catch (err) {
+    scoringEnabled = true;
+  }
+  return scoringEnabled;
+}
+
+function scoringGate() {
+  if (!scoringGatePromise) scoringGatePromise = loadScoringGate();
+  return scoringGatePromise;
+}
+
 // Состояние анализа документов: id закупок, для которых сейчас выполняется анализ.
 // Кнопка «Анализ документов» блокируется до получения результата (см. pollProc).
 const analyzingIds = new Set();
@@ -132,20 +154,25 @@ function goProcPage(page) {
   loadProc();
 }
 
-function procParams() {
+async function procParams() {
   const params = { limit: PROC_PAGE_SIZE, offset: (procPage - 1) * PROC_PAGE_SIZE };
   if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
   if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
-  if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
-  // Закупки без fit-score (ещё не обработаны конвейером скоринга) в таблице не показываем.
-  params.scored = true;
+  if (await scoringGate()) {
+    // Скоринг доступен: «Только релевантные» фильтрует по fit-score.
+    if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
+    // Закупки без fit-score (ещё не обработаны конвейером скоринга) не показываем.
+    params.scored = true;
+  }
+  // Скоринг отключён — фильтр «закупки не прошедшие скоринг» выключен:
+  // параметры scored/min_fit_score не отправляются, показываются все закупки.
   return params;
 }
 
 async function loadProc() {
   clampPage();
-  const data = await api("procurements", procParams());
+  const data = await api("procurements", await procParams());
   procTotal = data.total;
   const pages = Math.max(1, Math.ceil(procTotal / PROC_PAGE_SIZE));
   if (procPage > pages) {
@@ -163,7 +190,7 @@ async function loadProc() {
 async function pollProc() {
   try {
     clampPage();
-    const data = await api("procurements", procParams());
+    const data = await api("procurements", await procParams());
     const pages = Math.max(1, Math.ceil(data.total / PROC_PAGE_SIZE));
     if (procPage > pages) {
       procPage = pages;
@@ -831,6 +858,29 @@ export {
   closeReject,
   doReject,
 };
+
+// Гейт «мониторинг без скоринга» (BR-09): узнав доступность опции scoring,
+// применяем состояние фильтров. Без скоринга фильтр «Только релевантные»
+// (fit-порог) отключаем, сортировку по умолчанию меняем на дату и показываем
+// подсказку — в таблице видны все собранные закупки, в т.ч. без fit-оценки.
+scoringGate().then((hasScoring) => {
+  const rel = $("#proc-relevant");
+  if (!hasScoring) {
+    if (rel) {
+      rel.checked = false;
+      rel.disabled = true;
+      rel.title = "Скоринг отключён — фильтр по fit-оценке недоступен";
+    }
+    updateMinFit();
+    const sortSel = $("#proc-sort");
+    if (sortSel && sortSel.value === "fit_score") sortSel.value = "publication_date";
+    const note = $("#proc-no-scoring-note");
+    if (note) note.style.display = "";
+    // Список мог загрузиться с фильтром «scored» до выяснения опций — перечитываем.
+    const view = $("#view-proc");
+    if (view && view.style.display !== "none") loadProc();
+  }
+});
 
 $("#proc-rows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-id]");

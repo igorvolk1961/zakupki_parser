@@ -30,7 +30,12 @@ def _competencies_json() -> str:
 
 def _free_account(uid: int) -> UserAccount:
     """Аккаунт только с бесплатными опциями (нет платного LLM-скоринга)."""
-    return UserAccount(user_id=uid, name="free", options=paid_default_options(False), is_active=True)
+    return UserAccount(
+        user_id=uid,
+        name="free",
+        options=paid_default_options(False),
+        is_active=True,
+    )
 
 
 class _FakeRepo:

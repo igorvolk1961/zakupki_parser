@@ -40,6 +40,7 @@ from zakupki_parser.parser.detail import extract_detail_vars, extract_details, o
 from zakupki_parser.parser.filtering import region_match
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.storage.db import User
+from zakupki_parser.storage.repository.accounts import effective_options
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,20 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=401, detail="Требуется авторизация")
         return user
 
+    async def _profile_owner_has_scoring(profile: Any) -> bool:
+        """Доступна ли владельцу профиля платная опция scoring (BR-09).
+
+        Рассылки о прошедших порог закупках строятся на результатах скоринга:
+        если опция scoring у владельца недоступна — такие уведомления не шлём.
+        """
+        uid = getattr(profile, "user_id", None)
+        if uid is None:
+            return True  # легаси-профиль без владельца = полный доступ
+        accounts_map = await _repo().accounts_by_users([uid])
+        trial_map = await _repo().get_users_with_trial([uid])
+        eff = effective_options(accounts_map.get(uid, []), trial_map.get(uid))
+        return eff.has_option("scoring")
+
     @router.get(
         "/api/procurements",
         response_model=ProcurementListOut,
@@ -255,6 +270,14 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         # Per-profile скоринг активного профиля пользователя (BR-07).
         _, profile = await _active_context(user)
         assert profile is not None
+        assert user is not None  # require_user выше гарантирует авторизацию
+        # Мониторинг без скоринга: владельцу без опции scoring фильтр «только
+        # оценённые» бессмыслен (fit не считается) — показываем все собранные
+        # закупки, параметры scored/min_fit_score принудительно снимаются.
+        eff = await _effective_options(user)
+        if not eff.has_option("scoring"):
+            scored = None
+            min_fit_score = None
         rows, total = await _repo().list_procurements(
             number=number,
             platform_id=platform_id,
@@ -723,11 +746,14 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
 
         # Уведомление после стадии: только когда результат стадии изменён
         # (не повторная доставка) и возвращаемое значение прошло её порог.
+        # Мониторинг без скоринга (BR-09): владельцу профиля без опции scoring
+        # рассылка не выполняется — уведомления строятся на fit-пороге.
         stage_changed = existing.score_method != row.score_method
         if (
             stage_changed
             and state.notifier is not None
             and _meets_stage_notify_threshold(row, state)
+            and await _profile_owner_has_scoring(target_profile)
         ):
             await state.notifier.notify(_row_to_record(row))
         return _procurement_detail_out(row, include_costs=True)
