@@ -11,9 +11,18 @@
 <body>
 <nav class="topnav" aria-label="Основное меню">
   <div class="topnav-left">
-    <button class="topnav-link" id="menu-docs" title="Руководство пользователя">Документация</button>
+    <div class="topnav-menu" id="docs-menu">
+      <button class="topnav-link" id="menu-docs" type="button" aria-haspopup="true" aria-expanded="false" title="Руководства по ролям пользователя">Документация</button>
+      <div class="dropdown" id="docs-dropdown" role="menu" hidden>
+        <button type="button" class="dropdown-item" role="menuitem" data-guide="user">Руководство пользователя</button>
+        <button type="button" class="dropdown-item" role="menuitem" data-guide="admin" hidden>Руководство администратора</button>
+        <button type="button" class="dropdown-item" role="menuitem" data-guide="analyst" hidden>Руководство аналитика</button>
+        <button type="button" class="dropdown-item" role="menuitem" data-guide="devops" hidden>Руководство DevOps</button>
+      </div>
+    </div>
     <button class="topnav-link" id="menu-support" title="Техподдержка">Техподдержка</button>
     <button class="topnav-link" id="menu-contacts" title="Контакты">Контакты</button>
+    <button class="topnav-link" id="menu-tariffs" title="Тарифы">Тарифы</button>
   </div>
   <div class="topnav-right">
     <span class="user-bar" id="user-bar" style="display:none;">
@@ -69,7 +78,7 @@
       </svg>
       <h2>Tender<span class="brand-s">S</span>earch</h2>
       <p>Сервис мониторинга и скоринга закупок: ведёт закупки по профилям клиентов,
-        оценивает Fit, проверяет ТЗ на скрытые требования и сводит всё в готовые карточки решений.</p>
+        оценивает Fit, проверяет ТЗ на особые требования заказчика и сводит всё в готовые карточки решений.</p>
       <div class="toolbar">
         <button class="primary" id="guest-login">Вход</button>
         <button class="ghost" id="guest-docs">Документация</button>
@@ -779,7 +788,7 @@
 <div class="modal-bg" id="docs-modal-bg">
   <div class="modal" id="docs-modal">
     <span class="close" id="docs-close" title="Закрыть">×</span>
-    <h2>Руководство пользователя</h2>
+    <h2 id="docs-title">Руководство пользователя</h2>
     <div class="docs-body md" id="docs-content"><div class="muted">Загрузка…</div></div>
   </div>
 </div>

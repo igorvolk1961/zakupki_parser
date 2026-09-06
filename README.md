@@ -2,7 +2,7 @@
 
 Парсер площадок закупок (zakupki.mos.ru, ЕИС и др.) с веб-интерфейсом.
 
-> 📖 **Руководство пользователя:** [docs/user-guide.md](docs/user-guide.md)
+> 📖 **Руководства по ролям:** [docs/guides/](docs/guides/) (`user.md`, `admin.md`, `analyst.md`, `devops.md`)
 
 ## Дорожная карта: перестройка в TenderSearch
 

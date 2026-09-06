@@ -118,7 +118,7 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
     app.include_router(build_account_router(ctx))
     app.include_router(build_users_router(ctx))
     app.include_router(build_procurements_router(ctx))
-    app.include_router(build_docs_router())
+    app.include_router(build_docs_router(ctx))
     app.include_router(build_clients_router(ctx))
     app.include_router(build_facts_router(ctx))
     app.include_router(build_customers_router(ctx))

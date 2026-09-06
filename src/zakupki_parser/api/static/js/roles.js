@@ -98,6 +98,13 @@ export function switchTo(name) {
 
 export function updateRolesUI() {
   const guestView = document.getElementById("view-guest");
+  const docItems = document.querySelectorAll("#docs-dropdown .dropdown-item");
+  const docRoles = state.authUser
+    ? (state.authUser.roles || []).filter((r) => r in ROLE_LABELS)
+    : ["user"];
+  docItems.forEach((b) => {
+    b.hidden = !docRoles.includes(b.dataset.guide);
+  });
   if (!state.authUser) {
     // Гость (сессии нет): вкладок и ролевых панелей не показываем — вместо них
     // главный экран-приглашение (вход доступен из верхнего меню).
