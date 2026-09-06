@@ -41,7 +41,7 @@ uv run python -m scoring_transport consumer
 uv run python -m scoring_transport enqueue 42 --priority 250
 ```
 
-Полный стек приложения (db + redis + scoring_service + scoring_transport + parser + api)
+Полный стек приложения (db + redis + scoring_service + scoring_transport + api)
 поднимается одним манифестом из корня репозитория:
 ```bash
 docker compose -f docker/docker-compose.yml up --build

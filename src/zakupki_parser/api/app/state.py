@@ -84,6 +84,22 @@ def _request_profile_refresh(state: AppState, profile_id: int) -> None:
         state.pending_profile_refresh_ids.add(profile_id)
 
 
+def _spawn_parser(state: AppState) -> None:
+    """Запускает постоянный мониторинг парсера в фоне и обновляет статус.
+
+    Общая точка старта для кнопки на панели devops и автозапуска при старте
+    веб-сервиса (``auto_start_monitoring`` в config_ops.yaml).
+    """
+    state.parser_status = {
+        "running": True,
+        "stopped": False,
+        "error": None,
+        "started_at": datetime.now(UTC).isoformat(),
+        "finished_at": None,
+    }
+    state.parser_task = asyncio.create_task(_run_parser(state))
+
+
 async def _run_parser(state: AppState) -> None:
     """Запускает постоянный мониторинг парсера (периодические проходы) в фоне."""
     from zakupki_parser.scheduler import Scheduler

@@ -193,6 +193,7 @@ def test_ops_config_accepts_devops_keys() -> None:
     ops = OpsConfig.model_validate(
         {
             "timeout_seconds": 7200,
+            "auto_start_monitoring": False,
             "db": {"dsn": "postgresql+asyncpg://u:p@h:5432/db", "enabled": True},
             "auth": {"secret": "test-secret", "internal_token": "internal-123"},
             "notifications": {"backend": "none"},
@@ -202,9 +203,42 @@ def test_ops_config_accepts_devops_keys() -> None:
         }
     )
     assert ops.timeout_seconds == 7200
+    assert ops.auto_start_monitoring is False
     assert ops.db.enabled is True
     assert ops.notifications.backend == "none"
     assert ops.circuit_breaker_failure_threshold == 3
+
+
+def test_ops_auto_start_monitoring_default_enabled() -> None:
+    """Автозапуск цикла мониторинга при старте сервиса включён по умолчанию."""
+    from zakupki_parser.config.models import OpsConfig
+
+    ops = OpsConfig.model_validate(
+        {
+            "auth": {"secret": "test-secret", "internal_token": "internal-123"},
+            "notifications": {"backend": "none"},
+        }
+    )
+    assert ops.auto_start_monitoring is True
+
+
+def test_auto_start_monitoring_disabled_in_test_configs(app_config: AppConfig) -> None:
+    """В тестовых конфигах автозапуск мониторинга выключен.
+
+    Интеграционные тесты поднимают приложение и должны управлять парсером вручную
+    (POST /api/parser/start), не запуская реальные циклы обхода при старте.
+    """
+    assert app_config.ops.auto_start_monitoring is False
+
+
+def test_auto_start_monitoring_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ZAKUPKI_AUTO_START_MONITORING переопределяет YAML-флаг (приоритет env)."""
+    monkeypatch.setenv("ZAKUPKI_AUTO_START_MONITORING", "true")
+    cfg = load_config(CONFIGS_DIR)
+    assert cfg.ops.auto_start_monitoring is True
+    monkeypatch.setenv("ZAKUPKI_AUTO_START_MONITORING", "false")
+    cfg = load_config(CONFIGS_DIR)
+    assert cfg.ops.auto_start_monitoring is False
 
 
 def test_ops_config_rejects_unknown_keys() -> None:

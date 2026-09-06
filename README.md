@@ -139,10 +139,12 @@ uv run zp --configs configs serve --host 0.0.0.0 --port 8000
 Транспорт скоринга поднимается и ожидает готовности до того, как вы запустите парсер, — так
 авто-пуш заданий на внешний скоринг не теряется и уведомления доходят до подписчиков.
 
-Парсер запускается из web-интерфейса кнопкой «▶ Запустить» — это **постоянный мониторинг**
-(периодические проходы по площадкам, эндпоинт `POST /api/parser/start`); остановка —
-кнопка «■ Остановить» или CLI `stop`. Отдельные CLI-команды `run-once` / `run-service`
-нужны только для запуска без API — см. раздел «Утилиты».
+Цикл мониторинга парсера (периодические проходы по площадкам) по умолчанию
+запускается автоматически вместе с сервисом — флаг `auto_start_monitoring` в
+`config_ops.yaml` (вкладка «Конфигурация», devops). При выключенном флаге мониторинг
+запускается кнопкой «▶ Запустить» из web-интерфейса (эндпоинт `POST /api/parser/start`);
+остановка — кнопка «■ Остановить» или CLI `stop`. Отдельные CLI-команды `run-once` /
+`run-service` нужны только для запуска без API — см. раздел «Утилиты».
 
 ### Web-интерфейс (MVP)
 
@@ -327,6 +329,9 @@ notifications` (`backend: telegram | max | webhook`). Подробности —
   `http://scoring-transport:8200`, в локальном запуске — `http://localhost:8200`);
 - `ZAKUPKI_NOTIFY_BACKEND` — бэкенд уведомлений; `none` полностью отключает
   оповещения (в `docker/docker-compose.yml` задано `none`);
+- `ZAKUPKI_AUTO_START_MONITORING` — автозапуск цикла мониторинга при старте сервиса
+  (переопределяет `config_ops.yaml -> auto_start_monitoring`; `true/1/yes/on` —
+  включено);
 - секреты уведомлений — берутся из файла `.env` в корне проекта (см. `env_file: ../.env` в `docker/docker-compose.yml`):
   `ZAKUPKI_TELEGRAM_TOKEN`, `ZAKUPKI_MAX_TOKEN`, `ZAKUPKI_MAX_CHAT_ID`.
 
@@ -337,8 +342,9 @@ docker compose -f docker/docker-compose.yml up --build
 Запустит единый стек одной командой: PostgreSQL + Liquibase-миграции + Redis +
 `scoring_service` (воркер стадии Fit) + `scoring_transport` + `pwin_service` +
 `margin_service` + `analysis_service` (анализ документов: требования к участнику + вопросы профиля) +
-`parser` (периодический обход) +
-`api` (FastAPI на `http://localhost:8000/`). Сервисы связаны по имени (api ↔
+`api` (FastAPI на `http://localhost:8000/`; веб-интерфейс и, по умолчанию, цикл
+мониторинга парсера в том же процессе — флаг `auto_start_monitoring` в
+`config_ops.yaml`). Сервисы связаны по имени (api ↔
 `scoring-transport` ↔ redis), поэтому конвейер каскада скоринга (Fit → P(win) →
 Margin), возврат результата в `POST /score` и анализ документов работают из коробки.
 В штатный compose-стек также входит **LangFuse** (профиль `langfuse`) — он нужен для
@@ -363,7 +369,7 @@ scripts/compose.sh stop                # то же, что down: останав�
 scripts/compose.sh start               # запустить остановленные контейнеры (если не удалялись)
 scripts/compose.sh restart             # перезапустить
 scripts/compose.sh ps                  # статус контейнеров
-scripts/compose.sh logs [svc]          # логи (-f), например: logs parser
+scripts/compose.sh logs [svc]          # логи (-f), например: logs api
 scripts/compose.sh build               # пересобрать образы
 scripts/compose.sh config --quiet      # проверить манифест (docker compose config) или вывести его
 scripts/compose.sh free-port [порт]    # освободить порт (по умолчанию 5432), занятый контейнером

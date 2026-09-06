@@ -64,6 +64,18 @@ def _apply_env_overrides(
     if env_dsn:
         ops_model.db.dsn = env_dsn
 
+    # Автозапуск мониторинга при старте сервиса — из env (приоритет над YAML).
+    # Позволяет, например, тестам и отдельным окружениям отключить автозапуск,
+    # не меняя общий config_ops.yaml (true/1/yes/on — включено, иначе — выключено).
+    env_auto_start = os.environ.get("ZAKUPKI_AUTO_START_MONITORING")
+    if env_auto_start is not None:
+        ops_model.auto_start_monitoring = env_auto_start.strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
     # Путь к исполняемому файлу Chromium — из env (имеет приоритет над YAML).
     env_chromium = os.environ.get("ZAKUPKI_CHROMIUM_EXECUTABLE")
     if env_chromium:

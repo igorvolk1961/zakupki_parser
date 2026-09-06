@@ -2,7 +2,9 @@
 
 Последовательность подъёма контейнеров проекта (`docker/docker-compose.yml`) на чистом
 удалённом сервере. Стек: `db` + `liquibase` + `redis` + `langfuse-*` + `scoring_service` +
-`scoring_transport` + `parser` + `api` (FastAPI :8000). Управление — `scripts/compose.sh`.
+`scoring_transport` + `api` (FastAPI :8000). Управление — `scripts/compose.sh`.
+`api` — единый процесс парсера: веб-интерфейс (панель devops) и цикл мониторинга
+(запускается вместе с сервисом по флагу `auto_start_monitoring` в `config_ops.yaml`).
 
 > Все команды для узла, где живёт стек. Пользователь — `igor` (пример); root-действия —
 > через штатный доступ (SSH-ключ root или панель провайдера), НЕ через `sudo`/`su`,

@@ -341,7 +341,11 @@ services:
       - ../src/analysis_service/analysis_service/pipeline/prompts:/app/analysis-prompts
     restart: unless-stopped
 
-  parser:
+  # api — единый процесс парсера: веб-интерфейс (панель devops) и, по умолчанию,
+  # цикл мониторинга в том же процессе (флаг auto_start_monitoring в config_ops.yaml).
+  # Отдельный контейнер-воркер run-service не нужен: выключенный флаг оставляет
+  # запуск цикла только за кнопкой на панели devops.
+  api:
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -358,26 +362,6 @@ services:
       # Обнуляем host-путь к Chromium из корневого .env (env_file ../.env): он нужен
       # локальному run_all.sh, но в контейнере указывает на несуществующий файл.
       # Пустая строка = браузер берётся из PLAYWRIGHT_BROWSERS_PATH=/ms-playwright.
-      ZAKUPKI_CHROMIUM_EXECUTABLE: ""
-    volumes:
-      - ../configs:/app/configs
-    restart: unless-stopped
-
-  api:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    depends_on:
-      liquibase:
-        condition: service_completed_successfully
-    env_file:
-      - ../.env
-    environment:
-      ZAKUPKI_CONFIGS: /app/configs
-      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
-      ZAKUPKI_NOTIFY_BACKEND: none
-      ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
-      # Обнуляем host-путь к Chromium из корневого .env (см. комментарий у parser).
       ZAKUPKI_CHROMIUM_EXECUTABLE: ""
       # Общий том промптов: вкладка «Промпты» пишет сюда, scoring_service читает.
       ZAKUPKI_PROMPTS_DIR: /app/prompts
