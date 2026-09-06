@@ -71,6 +71,32 @@
   Для замера: `ZAKUPKI_TEST_DSN=… python -m coverage run --source=zakupki_parser -m pytest`.
 - [ ] Пересоздание `uv.lock`.
 
+## Замечания code review: внеочередной обход профилей (fast-start)
+Доработка механизма `Scheduler.request_profile_refresh` → `_run_refresh_pass` (целевой
+обход нового/изменённого профиля между регулярными проходами, режим `full_window`).
+- [ ] **Ограничить частоту refresh-проходов** (`scheduler.py:337-352`): нет потолка за
+      регулярный цикл, debounce замеряется от конца прохода, а не от первого сигнала, и
+      сигналы во время прохода дробятся на серию back-to-back полных обходов. Нужно:
+      merge всех накопленных id в один проход, debounce от первого ожидающего сигнала,
+      минимум-интервал/кап на число refresh-проходов между регулярными.
+- [ ] **Change-detection в сигнале** (`routes/clients.py:104`): `_request_refresh_for`
+      шлётся на любое сохранение включённого профиля (rename/licenses/questions/no-op PUT).
+      Сигналить только при изменении crawl-полей: `enabled`-переход, `okpd_codes`,
+      `nmck_min/max`, `keywords`/`exclusion_words`, `target_etp/laws/regions`,
+      `max_region_distance_km`.
+- [ ] **Снизить стоимость full-window refresh для правок** (`orchestrator/__init__.py:217`):
+      `full_window` для одного профиля отключает known-skip и раннюю остановку пагинации —
+      каждое редактирование ≈ повторный бэкфилл 20-дневного окна (+ повторная постановка
+      истории на скоринг при смене компетенций). Полное окно оставить для новых профилей,
+      для правок — известные записи пропускать, когда у (закупка, профиль) уже есть fit.
+- [ ] **Не терять refresh-сигналы при остановленном/CLI-парсере** (`state.py:76`): сигнал
+      только in-memory; при `parser_scheduler=None` пропадает, а ближайший регулярный
+      проход инкрементальный (ретроспективного сопоставления не будет). Персистить
+      pending-метки и на старте `run_service` делать full-window обход помеченных профилей.
+- [ ] **Убрать дубль предиката full-window/multi** (`orchestrator/__init__.py:315`):
+      в `_compute_cutoff` переиспользовать `explicit and self._multi_run` вместо повторного
+      вывода `(self._full_window or len(run_profiles) > 1)` (риск рассинхрона при правках).
+
 ## Развитие
 - [ ] **ЕИС (zakupki.gov.ru)** — уточнить:
   - файлы 223-ФЗ (путь `notice223/documents.html?purchaseNoticeNumber=…` — отличается от 44-ФЗ);

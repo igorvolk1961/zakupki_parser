@@ -59,7 +59,13 @@ def _install_tracked_process(
     active = 0
     max_active = 0
 
-    async def fake_process(platform_id: str, profiles: object, iteration: int = 0) -> None:
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
         nonlocal active, max_active
         active += 1
         max_active = max(max_active, active)
@@ -172,7 +178,13 @@ async def test_run_once_noop_without_profiles(
     _patch_platforms(scheduler, monkeypatch, ["p1", "p2"])
     called: list[str] = []
 
-    async def fake_process(platform_id: str, profiles: object, iteration: int = 0) -> None:
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
         called.append(platform_id)
 
     async def no_ctxs() -> list[object]:
@@ -186,6 +198,122 @@ async def test_run_once_noop_without_profiles(
     assert called == []
 
 
+class _FakeProfileCtx:
+    """Профиль-контекст для внеочередного обхода (нужен только ``id``)."""
+
+    def __init__(self, profile_id: int) -> None:
+        self.id = profile_id
+
+
+@pytest.mark.asyncio
+async def test_run_once_regular_pass_uses_incremental_window(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Регулярный проход не включает полное окно (full_window=False)."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    _patch_platforms(scheduler, monkeypatch, ["p1"])
+    flags: list[bool] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
+        flags.append(full_window)
+
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+
+    await scheduler.run_once()
+
+    assert flags == [False]
+
+
+@pytest.mark.asyncio
+async def test_request_profile_refresh_sets_event_and_ids(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """request_profile_refresh добавляет id и будит планировщик из сна."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    assert not scheduler._refresh_ids  # noqa: SLF001
+    assert not scheduler._refresh_event.is_set()  # noqa: SLF001
+
+    scheduler.request_profile_refresh(7)
+    scheduler.request_profile_refresh(7)  # повторный сигнал не дублирует
+
+    assert scheduler._refresh_ids == {7}  # noqa: SLF001
+    assert scheduler._refresh_event.is_set()  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_pass_processes_only_requested_profiles(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Внеочередной обход: только затронутые профили, по всем их площадкам, full_window."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    calls: list[tuple[str, list[int], int, bool]] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
+        calls.append(
+            (platform_id, sorted(c.id for c in profiles), iteration, full_window)  # type: ignore[attr-defined]
+        )
+
+    async def fake_gather(only_ids: set[int] | None = None) -> list[_FakeProfileCtx]:
+        assert only_ids == {7}
+        return [_FakeProfileCtx(7)]
+
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather)
+    monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: ["p1", "p2"])
+    monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+
+    scheduler.request_profile_refresh(7)
+    await scheduler._run_refresh_pass(iteration=5)  # noqa: SLF001
+
+    assert scheduler._refresh_ids == set()  # noqa: SLF001
+    assert calls == [
+        ("p1", [7], 5, True),
+        ("p2", [7], 5, True),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_pass_noop_when_profile_not_eligible(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Профиль не пригоден (например, отключён/нет компетенций): обход не выполняется."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    called: list[str] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
+        called.append(platform_id)
+
+    async def fake_gather(only_ids: set[int] | None = None) -> list[object]:
+        return []
+
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather)
+
+    scheduler.request_profile_refresh(42)
+    await scheduler._run_refresh_pass(iteration=1)  # noqa: SLF001
+
+    assert scheduler._refresh_ids == set()  # noqa: SLF001
+    assert called == []
+
+
 @pytest.mark.asyncio
 async def test_run_once_noop_without_platforms(
     app_config: Any, monkeypatch: pytest.MonkeyPatch
@@ -195,7 +323,13 @@ async def test_run_once_noop_without_platforms(
     _patch_platforms(scheduler, monkeypatch, [])
     called: list[str] = []
 
-    async def fake_process(platform_id: str, profiles: object, iteration: int = 0) -> None:
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
         called.append(platform_id)
 
     monkeypatch.setattr(scheduler, "_process_platform", fake_process)
@@ -203,3 +337,55 @@ async def test_run_once_noop_without_platforms(
     await scheduler.run_once()
 
     assert called == []
+
+
+@pytest.mark.asyncio
+async def test_run_service_wakes_on_refresh_keeps_regular_cadence(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сигнал во время сна будит планировщик на внеочередной обход; регулярный проход
+    по расписанию не дублируется."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    scheduler._cfg.ops.timeout_seconds = 3600  # noqa: SLF001
+    scheduler._cfg.ops.profile_refresh_debounce_seconds = 0.0  # noqa: SLF001
+
+    async def noop() -> None:
+        return None
+
+    monkeypatch.setattr(scheduler, "start", noop)
+    monkeypatch.setattr(scheduler, "stop", noop)
+
+    full_passes: list[int] = []
+    refresh_passes: list[list[int]] = []
+
+    async def fake_run_once(iteration: int = 0) -> None:
+        full_passes.append(iteration)
+
+    async def fake_refresh_pass(iteration: int = 0) -> None:
+        ids = sorted(scheduler._refresh_ids)  # noqa: SLF001
+        scheduler._refresh_ids.clear()  # noqa: SLF001
+        refresh_passes.append(ids)
+
+    monkeypatch.setattr(scheduler, "run_once", fake_run_once)
+    monkeypatch.setattr(scheduler, "_run_refresh_pass", fake_refresh_pass)
+
+    task = asyncio.create_task(scheduler.run_service())
+    await asyncio.sleep(0)
+    assert full_passes == [1]
+
+    # Профиль создан во время «сна» планировщика: внеочередной обход сразу.
+    scheduler.request_profile_refresh(7)
+    for _ in range(5):
+        await asyncio.sleep(0.01)
+    assert refresh_passes == [[7]]
+    assert full_passes == [1]  # регулярный проход не запускался повторно
+
+    # Вторая волна изменений — ещё один внеочередной обход.
+    scheduler.request_profile_refresh(8)
+    for _ in range(5):
+        await asyncio.sleep(0.01)
+    assert refresh_passes == [[7], [8]]
+
+    scheduler._stop.set()  # noqa: SLF001
+    await asyncio.wait_for(task, timeout=2)
+    assert scheduler._refresh_ids == set()  # noqa: SLF001

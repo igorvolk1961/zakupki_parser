@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -54,6 +55,14 @@ class Scheduler:
         # Номер текущей итерации цикла (run_once): растёт с каждым проходом,
         # записывается в scoring_iteration закупок — граница батча журнала «Метрики».
         self._iteration = 0
+        # Внеочередные обходы (fast-start): профили, запрошенные через
+        # ``request_profile_refresh``, обрабатываются сразу после завершения
+        # текущего прохода, не дожидаясь следующего регулярного цикла.
+        self._refresh_ids: set[int] = set()
+        self._refresh_event = asyncio.Event()
+        # Момент завершения последнего прохода (regular или refresh): debounce
+        # между проходами, чтобы серия правок профиля копилась в один обход.
+        self._last_pass_done = 0.0
 
     async def start(self) -> None:
         setup_logging(self._cfg.logging)
@@ -66,8 +75,20 @@ class Scheduler:
         self._stop.set()
         await self._db.dispose()
 
+    def request_profile_refresh(self, profile_id: int) -> None:
+        """Помечает профиль как требующий внеочередного обхода (fast-start).
+
+        Вызывается после создания/изменения включённого профиля (API-роуты).
+        Планировщик обработает профиль сразу после завершения текущего прохода,
+        не дожидаясь следующего регулярного цикла (``timeout_seconds``). Итоговая
+        пригодность профиля (enabled/компетенции/опция scoring владельца) ещё раз
+        проверяется в момент запуска внеочередного обхода.
+        """
+        self._refresh_ids.add(profile_id)
+        self._refresh_event.set()
+
     async def run_once(self, iteration: int = 0) -> None:
-        """Один проход: все включённые площадки обрабатываются параллельно.
+        """Один регулярный проход: все включённые площадки обрабатываются параллельно.
 
         Recovery очереди скоринга (догоняем закупки, не попавшие в очередь) выполняется
         до обхода площадок. Каждая включённая площадка обрабатывается отдельной
@@ -81,8 +102,27 @@ class Scheduler:
         (``deduplicate_requests``).
         """
         await self._recover_scoring_queue(iteration)
-        enabled_platforms = await self._repository.enabled_platform_ids()
         ctxs = await self._gather_profile_ctxs()
+        await self._run_platform_pass(ctxs, iteration, full_window=False)
+
+    async def _run_platform_pass(
+        self,
+        ctxs: list[ProfileRunContext],
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
+        """Обход включённых площадок для набора профилей (общая часть прохода).
+
+        Используется и регулярным ``run_once`` (все профили), и внеочередным
+        обходом ``_run_refresh_pass`` (только затронутые профили). При
+        ``full_window=True`` обход каждого профиля идёт по полному окну
+        ``default_cutoff_days`` (история для нового профиля), а не от инкремента
+        ``last_processed_date`` площадки.
+        """
+        if not ctxs or self._repository is None:
+            return
+        enabled_platforms = await self._repository.enabled_platform_ids()
 
         sem = asyncio.Semaphore(self._cfg.parser.max_concurrent_platforms)
         # Доменный лимит (R5): 44-ФЗ/223-ФЗ одного сайта (одинаковый domain_group
@@ -95,7 +135,9 @@ class Scheduler:
             d_sem = per_domain.setdefault(dkey, asyncio.Semaphore(per_domain_limit))
             # Единый порядок захвата (глобальный -> доменный) исключает deadlock.
             async with sem, d_sem:
-                await self._process_platform(platform_id, profiles, iteration)
+                await self._process_platform(
+                    platform_id, profiles, iteration, full_window=full_window
+                )
 
         pending = []
         for platform_id in self._ordered_enabled_platforms(enabled_platforms):
@@ -132,7 +174,12 @@ class Scheduler:
         return urlparse(platform.url).netloc.lower()
 
     async def _process_platform(
-        self, platform_id: str, profiles: list[ProfileRunContext], iteration: int = 0
+        self,
+        platform_id: str,
+        profiles: list[ProfileRunContext],
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
     ) -> None:
         """Обрабатывает одну площадку для набора профилей."""
         platform = self._cfg.dom.platforms.get(platform_id)
@@ -143,16 +190,19 @@ class Scheduler:
             )
             return
         logger.info(
-            "Обработка площадки: %s (профилей: %d, итерация: %d)",
+            "Обработка площадки: %s (профилей: %d, итерация: %d%s)",
             platform_id,
             len(profiles),
             iteration,
+            ", полное окно" if full_window else "",
         )
         # Контекст для логов: последующие записи этой площадки (и её подзадач)
         # автоматически получают префикс [platform#iteration] (см. logging_filter).
         token = set_run_context(platform_id, iteration)
         try:
-            await self._parse_platform(platform_id, platform, profiles, iteration)
+            await self._parse_platform(
+                platform_id, platform, profiles, iteration, full_window=full_window
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("Ошибка обработки площадки %s: %s", platform_id, exc)
         finally:
@@ -165,10 +215,15 @@ class Scheduler:
         etp = set(ctx.profile.target_etp or [])
         return not etp or platform_id in etp
 
-    async def _gather_profile_ctxs(self) -> list[ProfileRunContext]:
+    async def _gather_profile_ctxs(
+        self, only_ids: set[int] | None = None
+    ) -> list[ProfileRunContext]:
         """Включённые профили незаблокированных пользователей + слова (BR-07).
 
         Пустой список — профилей нет: обходы не строятся (dev-режим).
+        ``only_ids`` — подмножество профилей (внеочередной обход затронутых
+        профилей); фильтр применяется после тех же правил пригодности, что и для
+        регулярного прохода.
         Из сбора исключаются:
         - пустые/невалидные профили (без компетенций): конвейер не скорит без
           контекста компетенций (BR-07);
@@ -183,6 +238,8 @@ class Scheduler:
         profiles = await self._repository.list_enabled_profiles_for_active_users()
         if not profiles:
             return []
+        if only_ids is not None:
+            profiles = [p for p in profiles if p.id in only_ids]
         profiles = [p for p in profiles if self._profile_has_valid_competencies(p)]
         if not profiles:
             return []
@@ -254,19 +311,97 @@ class Scheduler:
         return allowed
 
     async def run_service(self) -> None:
-        """Бесконечный цикл: проход -> ожидание таймера."""
+        """Бесконечный цикл: регулярные проходы через ``timeout_seconds``.
+
+        После каждого прохода планировщик ждёт до следующего регулярного прохода,
+        но просыпается раньше по сигналу ``request_profile_refresh`` (создание или
+        изменение профиля) и выполняет внеочередной обход ТОЛЬКО затронутых
+        профилей: новый/изменённый профиль начинает собираться сразу после
+        завершения текущего прохода, а не через полный период цикла. Внеочередные
+        обходы выполняются строго между проходами (без параллельных обходов) и не
+        сдвигают расписание регулярных (``next_full_at`` фиксируется после каждого
+        регулярного прохода).
+        """
         await self.start()
+        loop = asyncio.get_running_loop()
+        debounce = max(self._cfg.ops.profile_refresh_debounce_seconds, 0.0)
         try:
             while not self._stop.is_set():
                 self._iteration += 1
                 await self.run_once(self._iteration)
+                self._last_pass_done = loop.time()
+                next_full_at = loop.time() + self._cfg.ops.timeout_seconds
                 logger.info("Цикл завершён, ожидание %d с", self._cfg.ops.timeout_seconds)
-                try:
-                    await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.ops.timeout_seconds)
-                except TimeoutError:
-                    continue
+                # Между регулярными проходами обслуживаем запросы обновления
+                # профилей; расписание регулярных проходов не сдвигается.
+                while not self._stop.is_set():
+                    remaining = next_full_at - loop.time()
+                    if remaining <= 0:
+                        break
+                    reason = await self._wait_signal_or_timeout(remaining)
+                    if reason == "stop" or reason == "timeout":
+                        break
+                    # reason == "refresh": внеочередной обход затронутых профилей.
+                    # Debounce: серия правок подряд копится и уходит в один обход.
+                    if loop.time() - self._last_pass_done < debounce:
+                        await asyncio.sleep(min(debounce, remaining))
+                        continue
+                    self._refresh_event.clear()
+                    self._iteration += 1
+                    await self._run_refresh_pass(self._iteration)
+                    self._last_pass_done = loop.time()
         finally:
             await self.stop()
+
+    async def _wait_signal_or_timeout(self, timeout: float) -> str:
+        """Ждёт stop/refresh-сигнал до истечения ``timeout``.
+
+        Возвращает ``"stop"``/``"refresh"``/``"timeout"``. Отмена внешней задачи
+        (остановка парсера) отменяет внутренние задачи ожидания.
+        """
+        stop_task = asyncio.create_task(self._stop.wait())
+        refresh_task = asyncio.create_task(self._refresh_event.wait())
+        try:
+            await asyncio.wait(
+                (stop_task, refresh_task),
+                timeout=timeout,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            for task in (stop_task, refresh_task):
+                if not task.done():
+                    task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.gather(stop_task, refresh_task, return_exceptions=True)
+        if self._stop.is_set():
+            return "stop"
+        if self._refresh_event.is_set():
+            return "refresh"
+        return "timeout"
+
+    async def _run_refresh_pass(self, iteration: int = 0) -> None:
+        """Внеочередной обход профилей, запрошенных через ``request_profile_refresh``.
+
+        Пригодность профиля проверяется заново (``_gather_profile_ctxs`` с теми же
+        правилами, что и регулярный проход: включён, валидные компетенции, опция
+        scoring у владельца). Обход идёт в режиме полного окна ``default_cutoff_days``:
+        созданный/изменённый профиль должен увидеть историю (ретроспективное
+        сопоставление слов по уже сохранённым закупкам), а не только инкремент от
+        ``last_processed_date`` площадки.
+        """
+        profile_ids = list(self._refresh_ids)
+        self._refresh_ids.clear()
+        if not profile_ids:
+            return
+        ctxs = await self._gather_profile_ctxs(only_ids=set(profile_ids))
+        if not ctxs:
+            return
+        await self._run_platform_pass(ctxs, iteration, full_window=True)
+        logger.info(
+            "Внеочередной обход завершён: профилей %d (итерация %d)",
+            len(ctxs),
+            iteration,
+        )
 
     async def _recover_scoring_queue(self, iteration: int = 0) -> None:
         """Догоняющая постановка пар (закупка, профиль) в очередь скоринга.
@@ -336,6 +471,8 @@ class Scheduler:
         platform: PlatformDom,
         profiles: list[ProfileRunContext],
         iteration: int = 0,
+        *,
+        full_window: bool = False,
     ) -> None:
         browser = BrowserManager(self._cfg.parser.browser)
         try:
@@ -355,7 +492,7 @@ class Scheduler:
                 on_record_saved=self._on_update,
             )
             try:
-                await orchestrator.run(page, profiles=profiles)
+                await orchestrator.run(page, profiles=profiles, full_window=full_window)
             except CircuitOpenError:
                 raise
             except Exception as exc:  # noqa: BLE001

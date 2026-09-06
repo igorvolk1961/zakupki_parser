@@ -88,6 +88,10 @@ class Orchestrator(
         # Профили текущего поискового обхода (мультипрофильная ветка веерной
         # фильтрации, BR-07): задаются в ``run`` перед каждым ``_crawl``.
         self._profile_ctxs: list[ProfileRunContext] = []
+        # Полное окно обхода (default_cutoff_days) вместо инкремента от
+        # last_processed_date: включается для внеочередного обхода нового/изменённого
+        # профиля, чтобы профиль увидел историю (ретроспективное сопоставление).
+        self._full_window = False
         # Досборка деталей площадки (BR-08): выполняется в обработчике POST /score
         # ПОСЛЕ получения результата скоринга (детали догружаются перед записью скора
         # в БД). Контекст запроса деталей (detail_api) сохраняется при персисте.
@@ -175,6 +179,7 @@ class Orchestrator(
         page: Page,
         *,
         profiles: Sequence[ProfileRunContext] | None = None,
+        full_window: bool = False,
     ) -> None:
         """Запускает проход по площадке на заданной ``page``.
 
@@ -183,6 +188,12 @@ class Orchestrator(
         прежнее поведение: активный профиль первого пользователя (dev/тесты).
         Идентичные запросы (идентичные критерии) разных профилей к одной площадке
         объединяются в один обход с веерной фильтрацией (BR-07).
+
+        ``full_window`` — обход по полному окну ``default_cutoff_days``: используется
+        для внеочередного обхода нового/изменённого профиля (fast-start). В этом
+        режиме проход ведёт себя как мультипрофильный: известные закупки не
+        пропускаются (слова профиля сопоставляются ретроспективно по всему окну),
+        а не от инкремента ``last_processed_date`` площадки.
         """
         if not self._site_cb.allow_request():
             raise CircuitOpenError("Сайт недоступен (circuit open)")
@@ -200,7 +211,10 @@ class Orchestrator(
             run_profiles = [p for p in profiles if self._platform_selects(p)]
         else:
             run_profiles = await self._load_legacy_profiles()
-        self._multi_run = len(run_profiles) > 1
+        self._full_window = full_window
+        # Полное окно (и ретроспективное сопоставление слов) для одного профиля
+        # включается через full_window — известные закупки не пропускаются.
+        self._multi_run = len(run_profiles) > 1 or self._full_window
 
         cutoff = await self._compute_cutoff(by_relevance, explicit, run_profiles)
         logger.info("Начало обработки площадки %s, порог даты: %s", self._platform_id, cutoff)
@@ -287,9 +301,10 @@ class Orchestrator(
     ) -> datetime | None:
         """Стоп-порог по дате для прохода площадки.
 
-        В мультипрофильной ветке (несколько профилей, явный список) используем полное
-        окно ``now - default_cutoff_days`` — иначе новый профиль потерял бы историю
-        (``last_processed_date`` — инкремент от последней записи площадки).
+        В мультипрофильной ветке (несколько профилей или режим ``full_window``,
+        явный список) используем полное окно ``now - default_cutoff_days`` — иначе
+        новый профиль потерял бы историю (``last_processed_date`` — инкремент от
+        последней записи площадки).
         """
         if by_relevance:
             logger.info(
@@ -297,7 +312,7 @@ class Orchestrator(
                 self._platform_id,
             )
             return None
-        if self._repository is None or (explicit and len(run_profiles) > 1):
+        if self._repository is None or (explicit and (self._full_window or len(run_profiles) > 1)):
             return self._now - timedelta(days=self._cfg.service.default_cutoff_days)
         # Поле даты стоп-порога: update_date, если площадка его поддерживает
         # (переменная update_date в карточке списка), иначе publication_date.

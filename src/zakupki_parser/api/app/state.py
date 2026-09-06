@@ -36,6 +36,9 @@ class AppState:
         # Управление парсером (запуск/остановка из web-интерфейса).
         self.parser_lock = asyncio.Lock()
         self.parser_task: asyncio.Task[None] | None = None
+        # Активный экземпляр Scheduler (пока запущен постоянный мониторинг):
+        # API-роуты просят внеочередной обход профиля через request_profile_refresh.
+        self.parser_scheduler: Any | None = None
         self.parser_status: dict[str, Any] = {
             "running": False,
             "stopped": False,
@@ -62,11 +65,25 @@ async def _broadcast(state: AppState, message: str = "data-changed") -> None:
             state.ws_clients.discard(ws)
 
 
+def _request_profile_refresh(state: AppState, profile_id: int) -> None:
+    """Просит планировщик выполнить внеочередной обход профиля (fast-start).
+
+    Вызывается после создания/изменения включённого профиля: планировщик обработает
+    профиль сразу после завершения текущего прохода, не дожидаясь конца периода
+    цикла (timeout_seconds). Безопасна: если парсер не запущен — ничего не делает,
+    профиль подхватит ближайший регулярный проход.
+    """
+    scheduler = state.parser_scheduler
+    if scheduler is not None:
+        scheduler.request_profile_refresh(profile_id)
+
+
 async def _run_parser(state: AppState) -> None:
     """Запускает постоянный мониторинг парсера (периодические проходы) в фоне."""
     from zakupki_parser.scheduler import Scheduler
 
     scheduler = Scheduler(state.cfg, on_update=lambda: _broadcast(state))
+    state.parser_scheduler = scheduler
     try:
         await scheduler.run_service()
     except asyncio.CancelledError:
@@ -76,6 +93,7 @@ async def _run_parser(state: AppState) -> None:
     except Exception as exc:  # noqa: BLE001
         state.parser_status["error"] = str(exc)
     finally:
+        state.parser_scheduler = None
         with suppress(Exception):
             await scheduler.stop()
         await _broadcast(state)

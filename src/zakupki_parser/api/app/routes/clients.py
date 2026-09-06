@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -16,7 +17,7 @@ from zakupki_parser.api.app.schemas import (
     ProfileListOut,
     ProfileOut,
 )
-from zakupki_parser.api.app.state import _broadcast
+from zakupki_parser.api.app.state import _broadcast, _request_profile_refresh
 from zakupki_parser.storage.db import User
 from zakupki_parser.storage.profile_json import parse_profile_json, serialize_profile_json
 
@@ -99,6 +100,16 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if user is None:
             raise HTTPException(status_code=401, detail="Требуется авторизация")
         return user
+
+    def _request_refresh_for(profile: Any) -> None:
+        """Запрашивает внеочередной обход включённого профиля (fast-start).
+
+        Новый/изменённый включённый профиль планировщик обработает сразу после
+        текущего прохода, не дожидаясь следующего регулярного цикла. Отключённые
+        профили не сигналим: при включении сигнал придёт со следующим сохранением.
+        """
+        if profile is not None and profile.enabled:
+            _request_profile_refresh(state, profile.id)
 
     @router.get(
         "/api/clients/active",
@@ -212,6 +223,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _request_refresh_for(profile)
         return await _profile_out(profile)
 
     @router.put(
@@ -240,6 +252,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _request_refresh_for(updated)
         return await _profile_out(updated)
 
     @router.post(
@@ -304,6 +317,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             profile.id,
         )
         await _broadcast(state)
+        _request_refresh_for(profile)
         return await _profile_out(profile)
 
     @router.post(
@@ -334,6 +348,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
+        _request_refresh_for(profile)
         return await _profile_out(profile)
 
     return router
