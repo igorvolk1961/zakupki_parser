@@ -368,3 +368,49 @@ def test_resolve_profile_fact_refs_unknown_reference() -> None:
     }
     with pytest.raises(ValueError):
         resolve_profile_fact_refs(seed, license_name_to_id={}, confirmation_code_to_id={})
+
+
+def test_resolve_profile_fact_refs_coerces_column_types() -> None:
+    """ISO-даты приводятся к date, сумма — к float, флаг — к bool (иначе asyncpg DataError)."""
+    seed = parse_profile_json(
+        json.dumps(
+            {
+                "profile": {
+                    "name": "x",
+                    "licenses": [
+                        {
+                            "license_type_name": "Лицензия на отходы",
+                            "number": "077",
+                            "issue_date": "2025-02-14",
+                            "expiry_date": None,
+                        }
+                    ],
+                    "experience": [
+                        {
+                            "confirmation_type_code": "platform",
+                            "title": "Опыт",
+                            "start_date": "2025-03-01",
+                            "end_date": "2025-12-31",
+                            "amount": "4370184.0",
+                            "import_independent": True,
+                        }
+                    ],
+                },
+                "competencies": {"positioning": "П"},
+            }
+        )
+    )
+    resolved = resolve_profile_fact_refs(
+        seed,
+        license_name_to_id={"Лицензия на отходы": 7},
+        confirmation_code_to_id={"platform": 2},
+    )
+    lic = resolved["licenses"][0]
+    exp = resolved["experience"][0]
+    assert lic["issue_date"] == date(2025, 2, 14)
+    assert lic["issue_date"].__class__ is date
+    assert lic["expiry_date"] is None
+    assert exp["start_date"] == date(2025, 3, 1)
+    assert exp["end_date"] == date(2025, 12, 31)
+    assert exp["amount"] == 4370184.0
+    assert exp["import_independent"] is True

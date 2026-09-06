@@ -212,6 +212,35 @@ def _as_float(value: Any) -> float | None:
         raise ValueError(f"Ожидается число, получено: {value!r}") from None
 
 
+def _as_int(value: Any) -> int | None:
+    """Целое/None; строка-цифра приводится к int, иначе ``ValueError`` (FK-колонка)."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(f"Ожидается целое число, получено: {value!r}")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Ожидается целое число, получено: {value!r}") from None
+
+
+def _as_date(value: Any) -> date | None:
+    """Дата/None. Строка ISO ``YYYY-MM-DD`` -> ``date`` (asyncpg не принимает str
+    для DATE-колонок); дата возвращается как есть; иначе ``ValueError``."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            raise ValueError(f"Ожидается дата ISO (YYYY-MM-DD), получено: {value!r}") from None
+    raise ValueError(f"Ожидается дата, получено: {value!r}")
+
+
 def _as_str_list(value: Any) -> list[str]:
     """Список строк/None; единственная строка (``okpd_codes: "62"``) не считается
     списком — иначе ``list("62")`` разбил бы её на символы (тихое искажение)."""
@@ -288,27 +317,52 @@ def parse_profile_json(content: str) -> dict[str, Any]:
 def _resolve_license(
     entry: Mapping[str, Any], license_name_to_id: Mapping[str, int]
 ) -> dict[str, Any]:
-    """Переносимая запись лицензии -> колонки ``ProfileLicense`` (id резолвится по name)."""
+    """Переносимая запись лицензии -> колонки ``ProfileLicense``.
+
+    Ссылка ``license_type_name`` резолвится в ``license_type_id``; даты приводятся
+    к ``date`` (asyncpg не принимает строку для DATE-колонок).
+    """
     name = entry.get("license_type_name")
     if name:
         type_id = license_name_to_id.get(str(name))
         if type_id is None:
             raise ValueError(f"Неизвестный вид лицензии: {name}")
         entry = {**entry, "license_type_id": type_id}
-    return {key: entry.get(key) for key in _LICENSE_FIELDS}
+    return {
+        "license_type_id": _as_int(entry.get("license_type_id")),
+        "number": entry.get("number"),
+        "authority": entry.get("authority"),
+        "issue_date": _as_date(entry.get("issue_date")),
+        "expiry_date": _as_date(entry.get("expiry_date")),
+        "notes": entry.get("notes"),
+    }
 
 
 def _resolve_experience(
     entry: Mapping[str, Any], confirmation_code_to_id: Mapping[str, int]
 ) -> dict[str, Any]:
-    """Переносимая запись опыта -> колонки ``ProfileExperience`` (id резолвится по code)."""
+    """Переносимая запись опыта -> колонки ``ProfileExperience``.
+
+    Ссылка ``confirmation_type_code`` резолвится в ``confirmation_type_id``; даты
+    приводятся к ``date``, сумма — к ``float``, флаг — к ``bool``.
+    """
     code = entry.get("confirmation_type_code")
     if code:
         type_id = confirmation_code_to_id.get(str(code))
         if type_id is None:
             raise ValueError(f"Неизвестный тип подтверждения: {code}")
         entry = {**entry, "confirmation_type_id": type_id}
-    return {key: entry.get(key) for key in _EXPERIENCE_FIELDS}
+    return {
+        "title": entry.get("title"),
+        "customer_name": entry.get("customer_name"),
+        "contract_number": entry.get("contract_number"),
+        "start_date": _as_date(entry.get("start_date")),
+        "end_date": _as_date(entry.get("end_date")),
+        "amount": _as_float(entry.get("amount")),
+        "confirmation_type_id": _as_int(entry.get("confirmation_type_id")),
+        "import_independent": _as_bool(entry.get("import_independent")),
+        "notes": entry.get("notes"),
+    }
 
 
 def resolve_profile_fact_refs(
