@@ -11,17 +11,6 @@ db:
   retry_backoff_seconds: 1.0
 auth:
   token_ttl_seconds: 43200
-geocoding:
-  enabled: true
-  provider: dadata
-  base_url: https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address
-  min_result_quality: 1
-  timeout_seconds: 10.0
-  max_retries: 2
-  retry_backoff_seconds: 2.0
-  rate_limit_per_second: 1.0
-  user_agent: zakupki-parser/0.5
-  key_env: ZAKUPKI_GEO_API_KEY
 export_dir: data/export
 notifications:
   backend: max

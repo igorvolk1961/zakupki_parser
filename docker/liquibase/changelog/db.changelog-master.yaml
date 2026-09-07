@@ -107,3 +107,5 @@ databaseChangeLog:
       file: db.changelog-1.53.yaml
   - include:
       file: db.changelog-1.54.yaml
+  - include:
+      file: db.changelog-1.55.yaml

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from zakupki_parser.config.models.ops.auth import AuthConfig
 from zakupki_parser.config.models.ops.db import DbConfig
-from zakupki_parser.config.models.ops.geocoding import GeocodingConfig
 from zakupki_parser.config.models.ops.notifications import (
     MaxConfig,
     NotificationsConfig,
@@ -23,7 +22,6 @@ from zakupki_parser.config.models.ops.runtime import OpsConfig
 __all__ = [
     "AuthConfig",
     "DbConfig",
-    "GeocodingConfig",
     "MaxConfig",
     "NotificationsConfig",
     "OpsConfig",

@@ -1419,21 +1419,28 @@ requirements:
     status: implemented
     adr: "-"
     code:
-      - src/zakupki_parser/geo/centers.py
-      - src/zakupki_parser/geo/distance.py
-      - src/zakupki_parser/geo/geocoder.py
-      - src/zakupki_parser/geo/region_filter.py
-      - src/zakupki_parser/config/models/ops/geocoding.py
-      - src/zakupki_parser/config/models/ops/runtime.py
+      - src/scoring_common/scoring_common/geo/__init__.py
+      - src/scoring_common/scoring_common/geo/centers.py
+      - src/scoring_common/scoring_common/geo/distance.py
+      - src/scoring_common/scoring_common/geo/geocoder.py
+      - src/scoring_common/scoring_common/geo/region_filter.py
+      - src/scoring_common/scoring_common/parser_api.py
+      - src/zakupki_parser/storage/db/profile.py
       - src/zakupki_parser/storage/db/procurement.py
+      - src/zakupki_parser/storage/repository/profiles.py
       - src/zakupki_parser/storage/repository/procurements.py
-      - src/zakupki_parser/api/app/state.py
       - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/api/app/schemas.py
+      - src/analysis_service/analysis_service/worker.py
+      - src/analysis_service/analysis_service/settings.py
+      - docker/liquibase/changelog/db.changelog-1.55.yaml
     tests:
       - tests/unit/test_geo_config.py
       - tests/unit/test_geo_distance.py
       - tests/unit/test_geo_geocoder.py
       - tests/unit/test_geo_region_filter.py
+      - src/analysis_service/tests/test_geo_verdict.py
 
   # ===== Бизнес-правила =====
   - id: BR-01

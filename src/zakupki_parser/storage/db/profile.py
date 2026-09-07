@@ -63,6 +63,11 @@ class Profile(Base):
     # ТОЛЬКО на этапе анализа (внешний сервис): при заданном расстоянии парсер НЕ
     # отсекает закупку по строковому региону (решение требует гео-координат).
     max_region_distance_km: Mapped[float | None] = mapped_column(Float)
+    # Кэш координат центров целевых регионов профиля (этап анализа). ``geo_regions`` —
+    # набор регионов, для которого посчитаны ``geo_centers`` (ключ инвалидации:
+    # перегеокодирование профиля только при изменении target_regions).
+    geo_regions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    geo_centers: Mapped[list[dict[str, float]]] = mapped_column(JSONB, nullable=False, default=list)
     # Критерии поиска принадлежат ПРОФИЛЮ (не глобальному конфигу): коды ОКПД2
     # и диапазон НМЦК. Выбор по состоянию (active_only) — глобальный
     # config_service.yaml -> search_criteria.active_only. Используются парсером при обходе ЭТП.

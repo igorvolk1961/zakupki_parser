@@ -11,12 +11,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from zakupki_parser.config.models.ops.geocoding import GeocodingConfig
-from zakupki_parser.geo.centers import GeoPoint
-from zakupki_parser.geo.distance import distance_km
-from zakupki_parser.geo.geocoder import Geocoder
+from scoring_common.geo.centers import GeoPoint
+from scoring_common.geo.distance import distance_km
+from scoring_common.geo.geocoder import Geocoder, GeocodingConfig
 
-logger = logging.getLogger("zakupki_parser.geo.region_filter")
+logger = logging.getLogger("scoring_common.geo.region_filter")
 
 # Уровень точности для геокодирования центра региона: приемлемо до города (qc_geo 4).
 _CENTER_QUALITY = 4
@@ -27,8 +26,6 @@ def geo_filter_ready(cfg: GeocodingConfig, profile: Any) -> bool:
 
     Требуются одновременно: (1) профиль задал целевые регионы и макс. расстояние,
     (2) в конфигурации описан доступ к сервису геокодирования (``enabled``).
-    Решение по расстоянию — только на этапе анализа (см. парсер: при заданном
-    ``max_region_distance_km`` строковый регионный фильтр отключён).
     """
     if not cfg.enabled:
         return False
@@ -44,8 +41,7 @@ async def geo_centers(regions: list[str], geocoder: Geocoder) -> list[GeoPoint]:
 
     Геокодируются на лету (с кэшем в ``geocoder``); регионов мало и они стабильны,
     поэтому фактически — один запрос на регион. Если геокодировать удалось не все
-    регионы, возвращается пустой список — гео-фильтр не активируется (условие
-    «координаты центров должны быть определены» не выполнено).
+    регионы, возвращается пустой список — гео-фильтр не активируется.
     """
     points: list[GeoPoint] = []
     for region in regions:

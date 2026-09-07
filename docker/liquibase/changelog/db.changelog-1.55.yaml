@@ -1,0 +1,12 @@
+databaseChangeLog:
+- changeSet:
+    id: 57
+    author: zakupki-parser
+    comment: 'Кэш координат центров целевых регионов профиля: profiles.geo_regions (JSONB NOT NULL, набор регионов, для которого посчитаны координаты — ключ инвалидации) и profiles.geo_centers (JSONB NOT NULL, координаты центров в порядке geo_regions). Хранится в профиле (этап анализа); перегеокодирование профиля — только при изменении target_regions.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS geo_regions JSONB NOT NULL DEFAULT '[]'::jsonb;
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS geo_centers JSONB NOT NULL DEFAULT '[]'::jsonb;

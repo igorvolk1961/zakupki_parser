@@ -21,6 +21,7 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import YamlConfigSource
+from scoring_common.geo.geocoder import GeocodingConfig
 from scoring_common.giga import (
     GIGA_AUTH_SCOPE,
     GIGA_AUTH_URL,
@@ -106,6 +107,34 @@ class Settings(BaseSettings):
     def giga_configured(self) -> bool:
         """Ключ доступа Giga задан (можно выполнять эмбеддинги напрямую)."""
         return bool(self.giga_client_id and self.giga_client_secret)
+
+    @property
+    def geo_config(self) -> GeocodingConfig:
+        """Конфиг геокодера этапа анализа (ключ — из env ``ANALYSIS_GEO_API_KEY``)."""
+        return GeocodingConfig(
+            enabled=self.geo_enabled,
+            provider=self.geo_provider,
+            base_url=self.geo_base_url,
+            min_result_quality=self.geo_min_result_quality,
+            timeout_seconds=self.geo_timeout_seconds,
+            max_retries=self.geo_max_retries,
+            retry_backoff_seconds=self.geo_retry_backoff_seconds,
+            rate_limit_per_second=self.geo_rate_limit_per_second,
+            user_agent=self.geo_user_agent,
+            key_env="ANALYSIS_GEO_API_KEY",
+        )
+
+    # Геокодирование (этап анализа: место поставки не дальше N км от центра региона).
+    # Провайдер/доступ — как у парсера ранее; ключ читается из env ``ANALYSIS_GEO_API_KEY``.
+    geo_enabled: bool = False
+    geo_provider: str = "dadata"
+    geo_base_url: str = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address"
+    geo_min_result_quality: int = Field(default=1, ge=0, le=4)
+    geo_timeout_seconds: float = Field(default=10.0, gt=0)
+    geo_max_retries: int = Field(default=2, ge=0)
+    geo_retry_backoff_seconds: float = Field(default=2.0, ge=0)
+    geo_rate_limit_per_second: float = Field(default=1.0, gt=0)
+    geo_user_agent: str = "zakupki-parser/0.5"
 
     # RAG-параметры.
     chunk_max_chars: int = Field(default=1500, ge=200, description="макс. размер чанка (символов)")

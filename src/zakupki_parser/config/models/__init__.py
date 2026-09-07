@@ -31,7 +31,6 @@ from zakupki_parser.config.models.dom import (
 from zakupki_parser.config.models.logging import LoggingConfig
 from zakupki_parser.config.models.ops import (
     DbConfig,
-    GeocodingConfig,
     MaxConfig,
     NotificationsConfig,
     OpsConfig,
@@ -77,7 +76,6 @@ __all__ = [
     "FileSpec",
     "FilterMapping",
     "FilterStep",
-    "GeocodingConfig",
     "LoggingConfig",
     "MaxConfig",
     "NotificationsConfig",

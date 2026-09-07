@@ -25,6 +25,8 @@ from zakupki_parser.api.app.schemas import (
     AcceptWorkIn,
     ExportIn,
     ProcurementDetailOut,
+    ProcurementGeoIn,
+    ProcurementGeoOut,
     ProcurementIdsIn,
     ProcurementListOut,
     RejectIn,
@@ -36,8 +38,6 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
 from zakupki_parser.browser.manager import BrowserManager
-from zakupki_parser.geo.distance import distance_km
-from zakupki_parser.geo.region_filter import geo_centers, region_too_far
 from zakupki_parser.parser.detail import extract_detail_vars, extract_details, open_detail
 from zakupki_parser.parser.filtering import region_match
 from zakupki_parser.parser.json_utils import json_safe
@@ -213,54 +213,6 @@ def _region_explicitly_requested(profile: Any) -> bool:
         profile is not None
         and (profile.target_regions or getattr(profile, "max_region_distance_km", None) is not None)
     )
-
-
-async def _geo_distance_verdict(
-    geocoder: Any,
-    cfg_geocoding: Any,
-    profile: Any,
-    region_value: str,
-) -> dict[str, Any] | None:
-    """Вердикт о расстоянии от центра целевого региона — этап анализа (BR-…).
-
-    Вызывается ТОЛЬКО при обработке результата анализа (``rag_report``): на сборе
-    геокодер не используется. Возвращает ``{"too_far", "distance_km",
-    "max_distance_km", "region", "delivery", "region_centers"}`` либо ``None``, если
-    гео-проверка неприменима — профиль не задал целевые регионы/макс. расстояние,
-    геокодер недоступен или решение принять нельзя. ``None`` = fail-open: закупка
-    не отбрасывается вслепую.
-    """
-    if geocoder is None or profile is None:
-        return None
-    regions = list(profile.target_regions or [])
-    max_km = getattr(profile, "max_region_distance_km", None)
-    if not regions or max_km is None:
-        return None
-    try:
-        centers = await geo_centers(regions, geocoder)
-    except Exception as exc:  # noqa: BLE001 — внешний геокодер недоступен: fail-open
-        logger.warning("Анализ расстояния: центры целевых регионов не определены: %s", exc)
-        return None
-    if not centers:
-        return None
-    try:
-        delivery = await geocoder.geocode(
-            region_value, min_quality=cfg_geocoding.min_result_quality
-        )
-    except Exception as exc:  # noqa: BLE001 — внешний геокодер недоступен: fail-open
-        logger.warning("Анализ расстояния: место поставки не геокодировано: %s", exc)
-        return None
-    if delivery is None:
-        return None
-    nearest = min(distance_km(delivery, center) for center in centers)
-    return {
-        "too_far": region_too_far(delivery, centers, float(max_km)),
-        "distance_km": round(nearest, 1),
-        "max_distance_km": float(max_km),
-        "region": region_value,
-        "delivery": {"lat": delivery.lat, "lon": delivery.lon},
-        "region_centers": [{"lat": c.lat, "lon": c.lon} for c in centers],
-    }
 
 
 def build_procurements_router(ctx: ApiContext) -> APIRouter:
@@ -579,6 +531,49 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             "text": text,
         }
 
+    @router.get(
+        "/api/procurements/{procurement_id}/geo",
+        response_model=ProcurementGeoOut,
+        dependencies=[Depends(require_user_or_internal)],
+    )
+    async def get_procurement_geo(
+        procurement_id: int, user: User | None = Depends(require_user_or_internal)
+    ) -> ProcurementGeoOut:
+        """Координаты места поставки закупки (кэш геокодирования анализа).
+
+        Читает кэш, если он есть — иначе ``delivery_*`` пустые, analysis_service
+        геокодирует заново и сохраняет через PUT.
+        """
+        row = await _repo().get_by_id(procurement_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return ProcurementGeoOut(
+            delivery_lat=row.delivery_lat,
+            delivery_lon=row.delivery_lon,
+            region=row.region,
+        )
+
+    @router.put(
+        "/api/procurements/{procurement_id}/geo",
+        response_model=ProcurementGeoOut,
+        dependencies=[Depends(require_user_or_internal)],
+    )
+    async def put_procurement_geo(
+        procurement_id: int,
+        body: ProcurementGeoIn,
+        user: User | None = Depends(require_user_or_internal),
+    ) -> ProcurementGeoOut:
+        """Сохраняет геокод-координаты места поставки (кэш для повторного анализа)."""
+        row = await _repo().get_by_id(procurement_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        await _repo().update_delivery_geo(procurement_id, body.delivery_lat, body.delivery_lon)
+        return ProcurementGeoOut(
+            delivery_lat=body.delivery_lat,
+            delivery_lon=body.delivery_lon,
+            region=row.region,
+        )
+
     async def _resolve_requirements(row: Any) -> dict[str, Any]:
         """Детерминированное извлечение требований + сохранение в БД (per-procurement).
 
@@ -702,8 +697,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 raise HTTPException(status_code=404, detail="Закупка не найдена")
             return _procurement_detail_out(row, include_costs=True)
         # Проверка расстояния от центра целевого региона (max_region_distance_km)
-        # выполняется ТОЛЬКО на этапе анализа по особым требованиям профиля —
-        # на сборе геокодер не вызывается (внешний сервис не нужен).
+        # выполняется на этапе анализа в analysis_service (особые требования профиля):
+        # парсер здесь гео-логики не содержит.
         # Стоимость обработки закупки: скоринг (body.score_costs) и анализ
         # (rag_report['cost']). Аналитическую стоимость вынимаем из rag_report ДО
         # сохранения, чтобы внутренняя метрика (USD) не персистилась/не отдавалась
@@ -714,24 +709,6 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if body.rag_report and body.rag_report.get("cost"):
             costs["analysis"] = body.rag_report.pop("cost")
         if body.rag_report is not None:
-            # Проверка расстояния от центра целевого региона — этап анализа
-            # (особые требования профиля). На сборе геокодер не вызывается; здесь,
-            # при обработке результата анализа, считаем вердикт и кладём его в
-            # rag_report (fail-open: недоступность геокодера не роняет запись).
-            geo_verdict = await _geo_distance_verdict(
-                state.geocoder, state.cfg.ops.geocoding, target_profile, region_value
-            )
-            if geo_verdict is not None:
-                body.rag_report["geo"] = geo_verdict
-                logger.info(
-                    "Закупка %s (профиль %s): анализ расстояния — "
-                    "too_far=%s distance_km=%s макс=%s",
-                    procurement_id,
-                    body.profile_id,
-                    geo_verdict["too_far"],
-                    geo_verdict["distance_km"],
-                    geo_verdict["max_distance_km"],
-                )
             # Анализ стоп-условий: сохраняем отчёт профилю (score_method не меняем).
             await _repo().update_rag_report(
                 procurement_id,

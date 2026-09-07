@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
     ProfileExportOut,
+    ProfileGeoIn,
+    ProfileGeoOut,
     ProfileImportIn,
     ProfileIn,
     ProfileListOut,
@@ -126,6 +128,17 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if user is None:
             raise HTTPException(status_code=401, detail="Требуется авторизация")
         return user
+
+    async def _profile_geo_out(client_id: int) -> ProfileGeoOut:
+        """Кэш центров регионов профиля: пустой, если ещё не геокодирован."""
+        row = await _repo().get_profile_geo_cache(client_id)
+        if row is None:
+            return ProfileGeoOut(profile_id=client_id, regions=[], centers=[])
+        return ProfileGeoOut(
+            profile_id=client_id,
+            regions=list(row.geo_regions or []),
+            centers=list(row.geo_centers or []),
+        )
 
     async def _export_licenses(profile_id: int) -> list[dict[str, Any]]:
         """Лицензии профиля -> переносимая форма (``license_type_name`` вместо id)."""
@@ -302,6 +315,45 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if row is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
         return await _profile_out(row)
+
+    @router.get(
+        "/api/clients/{client_id}/geo",
+        response_model=ProfileGeoOut,
+        dependencies=[Depends(require_user_or_internal)],
+    )
+    async def get_client_geo(
+        client_id: int, user: User | None = Depends(require_user_or_internal)
+    ) -> ProfileGeoOut:
+        """Кэш координат центров целевых регионов профиля (этап анализа).
+
+        Возвращает сохранённый набор регионов и координаты. Повторное геокодирование
+        профиля нужно только при изменении ``target_regions`` (сравнивается с
+        ``regions``). Доступ — внутренний (analysis_service) или владелец профиля.
+        """
+        if user is None:
+            profile = await _repo().get_profile_by_id(client_id)
+            if profile is None:
+                raise HTTPException(status_code=404, detail="Профиль не найден")
+            return await _profile_geo_out(client_id)
+        eff_user = _require_user(user)
+        row = await _repo().get_profile(eff_user.id, client_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Профиль не найден")
+        return await _profile_geo_out(client_id)
+
+    @router.put(
+        "/api/clients/{client_id}/geo",
+        response_model=ProfileGeoOut,
+        dependencies=[Depends(require_user_or_internal)],
+    )
+    async def put_client_geo(
+        client_id: int,
+        body: ProfileGeoIn,
+        user: User | None = Depends(require_user_or_internal),
+    ) -> ProfileGeoOut:
+        """Сохраняет кэш координат центров целевых регионов профиля (analysis_service)."""
+        await _repo().upsert_profile_geo_cache(client_id, body.regions, body.centers)
+        return await _profile_geo_out(client_id)
 
     @router.get(
         "/api/clients/{client_id}/export",

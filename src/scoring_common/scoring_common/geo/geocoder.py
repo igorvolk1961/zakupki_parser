@@ -1,13 +1,13 @@
 """Async-клиент облачного сервиса геокодирования (DaData / Nominatim).
 
-Абстракция ``Geocoder`` позволяет переключать провайдера только конфигом
-(``config_ops.yaml -> geocoding.provider``). Каждый провайдер реализует доступ к
-координатам; ``CachedGeocoder`` оборачивает его кэшем по нормализованному запросу
-(центры регионов геокодируются один раз, адреса — по hash) и сериализует запросы
-под лимит ``rate_limit_per_second`` (политика бесплатных тарифов <= 1 req/сек).
+Абстракция ``Geocoder`` позволяет переключать провайдера только конфигом. Каждый
+провайдер реализует доступ к координатам; ``CachedGeocoder`` оборачивает его кэшем
+по нормализованному запросу (центры регионов геокодируются один раз, адреса — по
+hash) и сериализует запросы под лимит ``rate_limit_per_second``.
 
 Интеграция — ``build_geocoder``: возвращает ``None``, если доступ к сервису не
-описан (модуль геопозиционирования не активируется).
+описан (модуль геопозиционирования не активируется). Конфиг — ``GeocodingConfig``,
+независимый от конкретного сервиса (см. analysis_service).
 """
 
 from __future__ import annotations
@@ -19,11 +19,49 @@ import time
 from typing import Any, Protocol
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field
 
-from zakupki_parser.config.models.ops.geocoding import GeocodingConfig
-from zakupki_parser.geo.centers import GeoPoint
+from scoring_common.geo.centers import GeoPoint
 
-logger = logging.getLogger("zakupki_parser.geo.geocoder")
+logger = logging.getLogger("scoring_common.geo.geocoder")
+
+
+class GeocodingConfig(BaseModel):
+    """Доступ к сервису геокодирования (провайдер, лимиты, точность).
+
+    API-ключ секретен и в конфиг не попадает: читается из env по ``key_env``
+    (по образцу прочих секретов проекта).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(
+        default=False,
+        description="включает модуль геопозиционирования. False — гео-фильтр не используется",
+    )
+    provider: str = Field(default="dadata", description="провайдер: dadata | nominatim")
+    base_url: str | None = Field(
+        default=None,
+        description=(
+            "базовый URL сервиса. Для DaData: "
+            "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address; "
+            "для Nominatim: https://nominatim.openstreetmap.org. Пусто — модуль не активен"
+        ),
+    )
+    min_result_quality: int = Field(
+        default=1,
+        ge=0,
+        le=4,
+        description="максимально допустимый qc_geo результата (0 — точные, 1 — дом, 2 — улица…)",
+    )
+    timeout_seconds: float = Field(default=10.0, gt=0, description="таймаут запроса, сек")
+    max_retries: int = Field(default=2, ge=0, description="повторы при сетевой ошибке/5xx/429")
+    retry_backoff_seconds: float = Field(default=2.0, ge=0, description="пауза перед повтором, сек")
+    rate_limit_per_second: float = Field(
+        default=1.0, gt=0, description="вежливый режим (политика Nominatim <= 1 req/сек)"
+    )
+    user_agent: str = Field(default="zakupki-parser/0.5")
+    key_env: str = Field(default="GEO_API_KEY", description="env-переменная с API-ключом")
 
 
 class Geocoder(Protocol):
@@ -262,7 +300,7 @@ def build_geocoder(cfg: GeocodingConfig) -> Geocoder | None:
 
     Модуль геопозиционирования не активируется, если ``enabled=False``, не задан
     ``base_url`` или провайдер неизвестен. API-ключ для DaData читается из env
-    ``cfg.key_env`` (в YAML секреты не хранятся).
+    ``cfg.key_env`` (в конфигах секреты не хранятся).
     """
     if not cfg.enabled or not cfg.base_url:
         return None

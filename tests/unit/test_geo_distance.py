@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from zakupki_parser.geo.centers import GeoPoint
-from zakupki_parser.geo.distance import distance_km
+from scoring_common.geo.centers import GeoPoint
+from scoring_common.geo.distance import distance_km
 
 
 def test_distance_moscow_spb_about_635_km() -> None:

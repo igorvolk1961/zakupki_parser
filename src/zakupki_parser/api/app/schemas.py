@@ -329,6 +329,36 @@ class PromptUpdate(BaseModel):
     content: str
 
 
+class ProcurementGeoOut(BaseModel):
+    """Координаты места поставки закупки (кэш геокодирования анализа)."""
+
+    delivery_lat: float | None = None
+    delivery_lon: float | None = None
+    region: str | None = None
+
+
+class ProcurementGeoIn(BaseModel):
+    """Запрос на сохранение геокод-координат места поставки (analysis_service)."""
+
+    delivery_lat: float
+    delivery_lon: float
+
+
+class ProfileGeoOut(BaseModel):
+    """Кэш координат центров целевых регионов профиля (этап анализа)."""
+
+    profile_id: int
+    regions: list[str] = Field(default_factory=list)
+    centers: list[dict[str, float]] = Field(default_factory=list)
+
+
+class ProfileGeoIn(BaseModel):
+    """Запрос на сохранение кэша координат центров регионов профиля."""
+
+    regions: list[str] = Field(default_factory=list)
+    centers: list[dict[str, float]] = Field(default_factory=list)
+
+
 class ScoreUpdate(BaseModel):
     """Обновление score внешним сервисом (по его инициативе)."""
 

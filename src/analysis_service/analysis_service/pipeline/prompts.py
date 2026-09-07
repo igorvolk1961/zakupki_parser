@@ -29,6 +29,8 @@ VERDICT_SYSTEM = _load_md("verdict_system.md")
 VERDICT_USER_TEMPLATE = _load_md("verdict_user.md")
 BATCH_SYSTEM = _load_md("batch_system.md")
 REQUIREMENTS_DATA = _load_md("requirements_data.md")
+GEO_ADDRESS_SYSTEM = _load_md("geo_address_system.md")
+GEO_ADDRESS_USER_TEMPLATE = _load_md("geo_address_user.md")
 
 # Структуры data для трёх основных типов требований + обобщённая для «прочих».
 # Точная схема лицензий/опыта/Минпромторга — рабочий контракт (финализируется при
@@ -92,6 +94,15 @@ def build_verdict_messages(question: str, context: str) -> tuple[str, str]:
     """
     user = _substitute(VERDICT_USER_TEMPLATE, {"question": question, "context": context})
     return VERDICT_SYSTEM, user
+
+
+def build_geo_address_messages(tz_text: str) -> tuple[str, str]:
+    """Промпты извлечения места поставки из ТЗ (этап анализа, треб. BR-…).
+
+    Структурированный ответ — ``{"address": str|null}``: из него извлекается адрес
+    для геокодирования; ``null``/нет адреса — фолбэк на регион закупки.
+    """
+    return GEO_ADDRESS_SYSTEM, _substitute(GEO_ADDRESS_USER_TEMPLATE, {"tz_text": tz_text})
 
 
 def build_batch_system_messages(context: str) -> tuple[str, str]:

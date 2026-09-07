@@ -7,7 +7,6 @@ from pydantic import Field
 from zakupki_parser.config.models.ops.auth import AuthConfig
 from zakupki_parser.config.models.ops.base import _BaseConfig
 from zakupki_parser.config.models.ops.db import DbConfig
-from zakupki_parser.config.models.ops.geocoding import GeocodingConfig
 from zakupki_parser.config.models.ops.notifications import NotificationsConfig
 
 
@@ -31,10 +30,6 @@ class OpsConfig(_BaseConfig):
     profile_refresh_debounce_seconds: float = Field(default=120.0, ge=0)
     db: DbConfig = Field(default_factory=DbConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
-    geocoding: GeocodingConfig = Field(
-        default_factory=GeocodingConfig,
-        description="доступ к сервису геокодирования (модуль геопозиционирования)",
-    )
     export_dir: str = Field(
         default="data/export",
         description=(

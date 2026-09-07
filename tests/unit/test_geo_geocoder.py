@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import httpx
 
-from zakupki_parser.geo.centers import GeoPoint
-from zakupki_parser.geo.geocoder import CachedGeocoder, DadataGeocoder, NominatimGeocoder
+from scoring_common.geo.centers import GeoPoint
+from scoring_common.geo.geocoder import CachedGeocoder, DadataGeocoder, NominatimGeocoder
 
 
 def _dadata(handler: httpx.MockTransport) -> DadataGeocoder:

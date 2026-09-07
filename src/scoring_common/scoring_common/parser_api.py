@@ -203,3 +203,51 @@ class ParserApiClient:
                 await asyncio.sleep(retry_backoff * (attempt + 1))
         assert last_exc is not None
         raise last_exc
+
+    async def get_procurement_geo(self, procurement_id: int) -> dict[str, Any]:
+        """Координаты места поставки закупки (кэш геокодирования анализа).
+
+        ``delivery_lat``/``delivery_lon`` — ``None``, если ещё не геокодирована.
+        """
+        url = f"{self._base}/api/procurements/{procurement_id}/geo"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(url, headers=self._headers(None))
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+            return data
+
+    async def put_procurement_geo(
+        self, procurement_id: int, delivery_lat: float, delivery_lon: float
+    ) -> dict[str, Any]:
+        """Сохраняет геокод-координаты места поставки закупки (кэш для анализа)."""
+        url = f"{self._base}/api/procurements/{procurement_id}/geo"
+        payload = {"delivery_lat": delivery_lat, "delivery_lon": delivery_lon}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.put(url, json=payload, headers=self._headers(None))
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+            return data
+
+    async def get_client_geo(self, profile_id: int) -> dict[str, Any]:
+        """Кэш координат центров целевых регионов профиля (этап анализа).
+
+        ``regions``/``centers`` пустые, если профиль ещё не геокодировался.
+        """
+        url = f"{self._base}/api/clients/{profile_id}/geo"
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(url, headers=self._headers(None))
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+            return data
+
+    async def put_client_geo(
+        self, profile_id: int, regions: list[str], centers: list[dict[str, float]]
+    ) -> dict[str, Any]:
+        """Сохраняет кэш координат центров целевых регионов профиля (analysis_service)."""
+        url = f"{self._base}/api/clients/{profile_id}/geo"
+        payload = {"regions": regions, "centers": centers}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.put(url, json=payload, headers=self._headers(None))
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+            return data

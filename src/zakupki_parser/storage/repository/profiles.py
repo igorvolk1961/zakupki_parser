@@ -99,6 +99,31 @@ class ProfileMixin(RepositoryMixin):
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
 
+    async def get_profile_geo_cache(self, profile_id: int) -> Profile | None:
+        """Профиль для чтения кэша координат целевых регионов (этап анализа).
+
+        Кэш — в колонках ``profiles.geo_regions``/``geo_centers``. Сравнение
+        ``geo_regions`` с текущим ``target_regions`` решает, нужно ли перегеокодировать
+        (см. analysis_service). Возвращает профиль (для доступа к колонкам) или
+        ``None``, если профиля нет.
+        """
+        stmt = select(Profile).where(Profile.id == profile_id)
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def upsert_profile_geo_cache(
+        self, profile_id: int, regions: list[str], centers: list[dict[str, float]]
+    ) -> None:
+        """Сохраняет кэш координат центров целевых регионов профиля (колонки profiles)."""
+        stmt = (
+            update(Profile)
+            .where(Profile.id == profile_id)
+            .values(geo_regions=regions, geo_centers=centers, updated_at=func.now())
+        )
+        async with self._db.session() as session:
+            await session.execute(stmt)
+            await session.commit()
+
     async def profile_user_map(self, profile_ids: list[int]) -> dict[int, int | None]:
         """Маппинг id профиля -> user_id (для гейта recovery по опциям владельца)."""
         if not profile_ids:

@@ -5,8 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from zakupki_parser.config.models.ops.geocoding import GeocodingConfig
-from zakupki_parser.geo.geocoder import CachedGeocoder, build_geocoder
+from scoring_common.geo.geocoder import CachedGeocoder, GeocodingConfig, build_geocoder
 
 
 def test_geocoding_config_defaults() -> None:
@@ -15,7 +14,7 @@ def test_geocoding_config_defaults() -> None:
     assert cfg.provider == "dadata"
     assert cfg.base_url is None
     assert cfg.min_result_quality == 1
-    assert cfg.key_env == "ZAKUPKI_GEO_API_KEY"
+    assert cfg.key_env == "GEO_API_KEY"
 
 
 def test_geocoding_config_unknown_key_rejected() -> None:
@@ -53,6 +52,6 @@ def test_build_geocoder_gating(
 
 
 def test_build_geocoder_dadata_reads_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ZAKUPKI_GEO_API_KEY", "secret")
+    monkeypatch.setenv("GEO_API_KEY", "secret")
     cfg = GeocodingConfig(enabled=True, base_url="http://suggestions")
     assert isinstance(build_geocoder(cfg), CachedGeocoder)
