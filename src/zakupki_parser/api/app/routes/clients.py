@@ -181,15 +181,18 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         return out
 
-    def _request_refresh_for(profile: Any) -> None:
+    def _request_refresh_for(profile: Any, *, rebuild: bool = False, rescore: bool = False) -> None:
         """Запрашивает внеочередной обход включённого профиля (fast-start).
 
         Новый/изменённый включённый профиль планировщик обработает сразу после
         текущего прохода, не дожидаясь следующего регулярного цикла. Отключённые
         профили не сигналим: при включении сигнал придёт со следующим сохранением.
+
+        ``rebuild`` — после обхода перестроить результаты сбора профиля (правка
+        области захвата); ``rescore`` — изменились компетенции, пересчитать скор.
         """
         if profile is not None and profile.enabled:
-            _request_profile_refresh(state, profile.id)
+            _request_profile_refresh(state, profile.id, rebuild=rebuild, rescore=rescore)
 
     def _collection_notice(profile: Any, *, refresh_requested: bool) -> str:
         """Уведомление пользователю: когда начнётся сбор данных по профилю.
@@ -441,11 +444,17 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         new_words = await _repo().get_profile_keywords(updated.id)
         crawl_changed = _crawl_state_key(updated, new_words) != old_key
-        if crawl_changed:
-            _request_refresh_for(updated)
-        notice = _collection_notice(
-            updated, refresh_requested=crawl_changed and bool(updated.enabled)
+        # Изменились компетенции (хэш канонического содержания) — результаты сбора
+        # нужно перестроить и скор пересчитать по новой области захвата.
+        from zakupki_parser.storage.competencies import competencies_hash
+
+        comp_changed = competencies_hash(existing.competencies) != competencies_hash(
+            updated.competencies
         )
+        rebuild = crawl_changed or comp_changed
+        if rebuild:
+            _request_refresh_for(updated, rebuild=True, rescore=comp_changed)
+        notice = _collection_notice(updated, refresh_requested=rebuild and bool(updated.enabled))
         return await _save_out(updated, notice, keywords=new_words)
 
     @router.post(
@@ -512,6 +521,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         name = seed.get("name") or "default"
         eff = await _effective_options(eff_user)
+        existing = await _repo().get_profile_by_name(eff_user.id, name)
         try:
             profile = await _repo().upsert_profile(
                 {**seed, "name": name},
@@ -522,7 +532,19 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
-        _request_refresh_for(profile)
+        # Импорт обновляет существующий профиль: перестраиваем результаты сбора
+        # (и пересчитываем скор, если изменились компетенции). Новый профиль —
+        # только по нему начинает идти обход (результатов ещё нет).
+        from zakupki_parser.storage.competencies import competencies_hash
+
+        comp_changed = existing is not None and competencies_hash(
+            existing.competencies
+        ) != competencies_hash(profile.competencies)
+        _request_refresh_for(
+            profile,
+            rebuild=existing is not None,
+            rescore=comp_changed,
+        )
         notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
         return await _save_out(profile, notice)
 

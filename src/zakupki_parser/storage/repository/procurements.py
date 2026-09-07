@@ -897,3 +897,192 @@ class ProcurementMixin(RepositoryMixin):
         deleted = int(result.rowcount or 0)
         logger.info("Удалено нерелевантных закупок (fit_score < %s): %s", min_fit_score, deleted)
         return deleted
+
+    async def rebuild_profile_results(
+        self,
+        profile: Any,
+        keywords: list[str],
+        exclusion_words: list[str],
+        *,
+        rescore: bool = False,
+    ) -> dict[str, int]:
+        """Перестраивает per-profile результаты сбора после изменения профиля.
+
+        ``procurements`` глобальна и от профилей не зависит (поэтому правка профиля
+        её не трогает), а вот ``procurement_evaluations`` — результаты сбора для
+        конкретного профиля — устаревают. Сверяем их с текущей областью захвата
+        профиля (площадки ``target_etp``, клиентская фильтрация R9 — слова/регионы —
+        и серверные критерии кодов ОКПД2/диапазона НМЦК):
+
+        - закупка НЕ входит в область -> удаляется оценка профиля (профиль «не
+          отобрал»; строки ``procurements`` сохраняются — они общие);
+        - закупка входит -> обновляется ``matched_keywords`` (+ ``comp_hash``);
+        - при ``rescore=True`` у совпавших оценок с готовым результатом стадии
+          (``score_method`` из каскада) и непустыми словами результат сбрасывается
+          (``fit_score``/``p_win``/``margin``/``queued_at`` -> NULL), чтобы он был
+          пересчитан по новым компетенциям.
+
+        Решения пользователя при перестройке НЕ затрагиваются:
+        - закупки, отклонённые вручную (``status='rejected'``), сохраняются как есть
+          (не удаляются и не пересчитываются — признак ручного отсева не сбрасывается);
+        - закупки, принятые «в работу» (``procurement_work_items``), остаются в этой
+          таблице, даже если их оценка удаляется из результатов (работ items живут
+          отдельно от ``procurement_evaluations``).
+
+        Повторная постановка в очередь выполняется recovery (``find_unscored``),
+        поэтому метод сам постановку не делает. Возвращает статистику
+        ``{created, updated, removed, reset}``.
+        """
+        from zakupki_parser.parser.filtering import (
+            exclusions_present,
+            keywords_match,
+            matched_keywords,
+            region_match,
+        )
+        from zakupki_parser.storage.competencies import competencies_hash
+
+        target_etp = set(profile.target_etp or [])
+        target_regions = list(profile.target_regions or [])
+        okpd = list(profile.okpd_codes or [])
+        nmck_min = profile.nmck_min
+        nmck_max = profile.nmck_max
+        comp_hash = competencies_hash(profile.competencies)
+
+        def matched_list(proc: Any) -> list[str] | None:
+            """Список совпавших слов, если закупка в области захвата, иначе None."""
+            record = {"subject": proc.subject or ""}
+            if keywords and not keywords_match(record, keywords):
+                return None
+            if exclusions_present(record, exclusion_words):
+                return None
+            # Регион отсекаем только когда он уже известен: неизвестный регион
+            # (досборка деталей BR-08) фильтром не отбрасывается, как на сборе.
+            if (
+                target_regions
+                and proc.region
+                and not region_match({"region": proc.region}, target_regions)
+            ):
+                return None
+            # Коды ОКПД2 / диапазон НМЦК — серверные критерии области захвата.
+            if okpd:
+                codes = proc.okpd2_codes or ""
+                if not codes or not any(code.lower() in codes.lower() for code in okpd):
+                    return None
+            if nmck_min is not None or nmck_max is not None:
+                value = proc.nmck
+                if value is None:
+                    return None
+                if nmck_min is not None and value < nmck_min:
+                    return None
+                if nmck_max is not None and value > nmck_max:
+                    return None
+            return matched_keywords(record, keywords)
+
+        created = 0
+        updated = 0
+        removed = 0
+        reset = 0
+        async with self._db.session() as session:
+            eval_rows = (
+                await session.execute(
+                    select(ProcurementEvaluation).where(
+                        ProcurementEvaluation.profile_id == profile.id
+                    )
+                )
+            ).scalars()
+            eval_by_proc: dict[int, ProcurementEvaluation] = {
+                int(e.procurement_id): e for e in eval_rows
+            }
+
+            stmt = select(
+                Procurement.id,
+                Procurement.subject,
+                Procurement.region,
+                Procurement.nmck,
+                Procurement.okpd2_codes,
+            )
+            if target_etp:
+                stmt = stmt.where(Procurement.platform_id.in_(target_etp))
+
+            to_upsert: dict[int, list[str]] = {}
+            to_reset: set[int] = set()
+            to_delete: set[int] = set()
+            scoped_ids: set[int] = set()
+            stream = await session.stream(stmt, execution_options={"yield_per": 500})
+            async for proc in stream:
+                pid = int(proc.id)
+                scoped_ids.add(pid)
+                words = matched_list(proc)
+                existing = eval_by_proc.get(pid)
+                if words is None:
+                    # Вне области захвата: если был результат — удаляем, кроме
+                    # вручную отклонённых (их статус пользователь не сбрасывал).
+                    if existing is not None and existing.status != "rejected":
+                        to_delete.add(pid)
+                    continue
+                if words:
+                    # Вручную отклонённую закупку не пересчитываем и не трогаем
+                    # (ручное решение пользователя переживает перестройку).
+                    if existing is not None and existing.status == "rejected":
+                        continue
+                    to_upsert[pid] = words
+                    if (
+                        rescore
+                        and existing is not None
+                        and (existing.matched_keywords or [])
+                        and existing.score_method in SCORE_METHOD_STAGES
+                    ):
+                        to_reset.add(pid)
+
+            # Оценки, ссылающиеся на закупки вне области (чужая площадка/осиротевшие),
+            # удаляются всегда, кроме вручную отклонённых.
+            for pid, existing in eval_by_proc.items():
+                if existing.status == "rejected":
+                    continue
+                if pid not in scoped_ids or pid in to_delete:
+                    to_delete.add(pid)
+
+            for pid, words in to_upsert.items():
+                existing = eval_by_proc.get(pid)
+                if existing is None:
+                    existing = ProcurementEvaluation(procurement_id=pid, profile_id=profile.id)
+                    session.add(existing)
+                    created += 1
+                else:
+                    updated += 1
+                existing.matched_keywords = list(words)
+                existing.comp_hash = comp_hash
+                if pid in to_reset:
+                    existing.fit_score = None
+                    existing.score = None
+                    existing.p_win = None
+                    existing.margin = None
+                    existing.score_method = "default"
+                    existing.embedding_similarity = None
+                    existing.scoring_queued_at = None
+                    reset += 1
+
+            for pid in to_delete:
+                existing = eval_by_proc.get(pid)
+                if existing is not None:
+                    await session.delete(existing)
+                    removed += 1
+
+            await session.commit()
+
+        logger.info(
+            "Перестроены результаты профиля %s: создано=%d обновлено=%d удалено=%d сброшено=%d "
+            "(rescore=%s)",
+            profile.id,
+            created,
+            updated,
+            removed,
+            reset,
+            rescore,
+        )
+        return {
+            "created": created,
+            "updated": updated,
+            "removed": removed,
+            "reset": reset,
+        }

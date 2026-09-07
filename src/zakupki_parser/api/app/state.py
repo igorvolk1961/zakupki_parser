@@ -42,6 +42,9 @@ class AppState:
         # Профили, для которых запрошен внеочередной обход, пока парсер остановлен
         # (parser_scheduler is None): передаются новому планировщику при старте.
         self.pending_profile_refresh_ids: set[int] = set()
+        # Флаги перестройки результатов/пересчёта скора для отложенных запросов.
+        self.pending_profile_rebuild_ids: set[int] = set()
+        self.pending_profile_rescore_ids: set[int] = set()
         self.parser_status: dict[str, Any] = {
             "running": False,
             "stopped": False,
@@ -68,20 +71,32 @@ async def _broadcast(state: AppState, message: str = "data-changed") -> None:
             state.ws_clients.discard(ws)
 
 
-def _request_profile_refresh(state: AppState, profile_id: int) -> None:
+def _request_profile_refresh(
+    state: AppState,
+    profile_id: int,
+    *,
+    rebuild: bool = False,
+    rescore: bool = False,
+) -> None:
     """Просит планировщик выполнить внеочередной обход профиля (fast-start).
 
     Вызывается после создания/изменения включённого профиля: планировщик обработает
     профиль сразу после завершения текущего прохода, не дожидаясь конца периода
-    цикла (timeout_seconds). Если парсер остановлен/перезапускается — запрос
-    сохраняется в ``pending_profile_refresh_ids`` и передаётся планировщику при
-    старте (``_run_parser``).
+    цикла (timeout_seconds). ``rebuild`` — после обхода перестроить результаты сбора
+    профиля по новой области захвата; ``rescore`` — изменились компетенции, нужно
+    пересчитать скор. Если парсер остановлен/перезапускается — запрос сохраняется
+    в ``pending_profile_refresh_ids`` и передаётся планировщику при старте
+    (``_run_parser``).
     """
     scheduler = state.parser_scheduler
     if scheduler is not None:
-        scheduler.request_profile_refresh(profile_id)
+        scheduler.request_profile_refresh(profile_id, rebuild=rebuild, rescore=rescore)
     else:
         state.pending_profile_refresh_ids.add(profile_id)
+        if rebuild:
+            state.pending_profile_rebuild_ids.add(profile_id)
+        if rescore:
+            state.pending_profile_rescore_ids.add(profile_id)
 
 
 def _spawn_parser(state: AppState) -> None:
@@ -111,7 +126,13 @@ async def _run_parser(state: AppState) -> None:
     pending = list(state.pending_profile_refresh_ids)
     state.pending_profile_refresh_ids.clear()
     for profile_id in pending:
-        scheduler.request_profile_refresh(profile_id)
+        scheduler.request_profile_refresh(
+            profile_id,
+            rebuild=profile_id in state.pending_profile_rebuild_ids,
+            rescore=profile_id in state.pending_profile_rescore_ids,
+        )
+    state.pending_profile_rebuild_ids.clear()
+    state.pending_profile_rescore_ids.clear()
     try:
         await scheduler.run_service()
     except asyncio.CancelledError:

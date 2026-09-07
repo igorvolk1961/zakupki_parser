@@ -825,3 +825,172 @@ async def test_upsert_score_is_per_profile(db: Database) -> None:
 
     # Другой профиль скор НЕ получает (пер-профильно, fan-out не применяется).
     assert (await repo.get_score(pid, other.id)) is None
+
+
+async def _save_proc(
+    repo: ProcurementRepository, number: str, *, platform: str = "zakupki_mos", **extra: object
+) -> int:
+    """Сохраняет закупку на явной площадке и возвращает её id."""
+    ok = await repo.upsert({"number": number, "platform_id": platform, "subject": "x", **extra})
+    assert ok is True
+    pid = await repo.find_id(number, platform)
+    assert pid is not None
+    return pid
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_reconciles_and_rescores(db: Database) -> None:
+    """Перестройка результатов после изменения профиля (rescore=True).
+
+    Проверяет правила области захвата (площадки/слова/регионы/ОКПД2) и сохранение
+    ручных решений: вручную отклонённая закупка не удаляется и не пересчитывается,
+    а остальные вышедшие из области удаляются; совпавшие — обновляются, их скор
+    сбрасывается при смене компетенций.
+    """
+    from zakupki_parser.storage.competencies import competencies_hash
+
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-user", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "competencies": COMP_JSON,
+            "target_etp": ["zakupki_mos"],
+            "okpd_codes": ["62.01"],
+            "target_regions": ["Москва"],
+            "keywords": ["аудит"],
+        },
+        user.id,
+    )
+    old_hash = competencies_hash('{"positioning":"старые"}')
+    new_hash = competencies_hash(COMP_JSON)
+
+    # В области захвата (совпадёт по словам/региону/ОКПД2/площадке).
+    in_area = await _save_proc(
+        repo,
+        "RB-1",
+        subject="Аудит финансов",
+        region="Москва",
+        okpd2_codes="62.01.10",
+        nmck=100.0,
+    )
+    # Вышедшие из области: слова, регион, площадка, ОКПД2.
+    out_words = await _save_proc(
+        repo,
+        "RB-2",
+        subject="Ремонт автобуса",
+        region="Москва",
+        okpd2_codes="62.01.10",
+        nmck=100.0,
+    )
+    out_region = await _save_proc(
+        repo,
+        "RB-3",
+        subject="Аудит",
+        region="Калуга",
+        okpd2_codes="62.01.10",
+        nmck=100.0,
+    )
+    out_platform = await _save_proc(
+        repo,
+        "RB-4",
+        platform="zakupki_gov",
+        subject="Аудит",
+        region="Москва",
+        okpd2_codes="62.01.10",
+        nmck=100.0,
+    )
+    # В области, но вручную отклонена.
+    rejected_proc = await _save_proc(
+        repo,
+        "RB-5",
+        subject="Аудит",
+        region="Москва",
+        okpd2_codes="62.01.10",
+        nmck=100.0,
+    )
+    # В области, но без оценки (расширение области захвата) — должна появиться.
+    new_proc = await _save_proc(
+        repo,
+        "RB-6",
+        subject="Аудит консолидации",
+        region="Москва",
+        okpd2_codes="62.01.10",
+        nmck=100.0,
+    )
+
+    # Оценки профиля.
+    await repo.record_matched_keywords(in_area, profile.id, ["аудит"], comp_hash=old_hash)
+    await repo.upsert_score(in_area, profile.id, score=0.9, fit_score=0.9, score_method="fit")
+    for pid in (out_words, out_region, out_platform):
+        await repo.record_matched_keywords(pid, profile.id, ["аудит"], comp_hash=old_hash)
+    await repo.record_matched_keywords(rejected_proc, profile.id, ["аудит"], comp_hash=old_hash)
+    await repo.upsert_score(rejected_proc, profile.id, score=0.8, fit_score=0.8, score_method="fit")
+    await repo.reject(rejected_proc, profile.id, rejection_reason="не наш профиль")
+
+    stats = await repo.rebuild_profile_results(profile, ["аудит"], [], rescore=True)
+
+    assert stats == {"created": 1, "updated": 1, "removed": 3, "reset": 1}
+    # Закупки в области: оценка обновлена, скор сброшен под новые компетенции.
+    a = await repo.get_score(in_area, profile.id)
+    assert a is not None
+    assert a.matched_keywords == ["аудит"]
+    assert a.comp_hash == new_hash
+    assert a.fit_score is None
+    assert a.score_method == "default"
+    assert a.scoring_queued_at is None
+    # Расширение области: новая закупка получила результат.
+    n = await repo.get_score(new_proc, profile.id)
+    assert n is not None
+    assert n.matched_keywords == ["аудит"]
+    assert n.comp_hash == new_hash
+    assert n.fit_score is None
+    # Вышедшие из области удалены из результатов.
+    for pid in (out_words, out_region, out_platform):
+        assert (await repo.get_score(pid, profile.id)) is None
+    # Вручную отклонённая — не удалена и не пересчитана.
+    r = await repo.get_score(rejected_proc, profile.id)
+    assert r is not None
+    assert r.status == "rejected"
+    assert r.rejection_reason == "не наш профиль"
+    assert r.fit_score == 0.8
+    # procurements глобальны и не зависят от профиля: все строки на месте.
+    for number in ("RB-1", "RB-2", "RB-3", "RB-4", "RB-5", "RB-6"):
+        assert await repo.exists(number, "zakupki_mos" if number != "RB-4" else "zakupki_gov")
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_keeps_score_without_rescore(db: Database) -> None:
+    """Перестройка без смены компетенций не сбрасывает уже посчитанный скор."""
+    from zakupki_parser.storage.competencies import competencies_hash
+
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-user2", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "competencies": COMP_JSON,
+            "target_etp": ["zakupki_mos"],
+            "keywords": ["аудит"],
+        },
+        user.id,
+    )
+    pid = await _save_proc(
+        repo,
+        "RB-K1",
+        subject="Аудит",
+        region="Москва",
+        okpd2_codes="62.01.10",
+        nmck=100.0,
+    )
+    await repo.record_matched_keywords(pid, profile.id, ["аудит"])
+    await repo.upsert_score(pid, profile.id, score=0.9, fit_score=0.9, score_method="fit")
+
+    stats = await repo.rebuild_profile_results(profile, ["аудит"], [], rescore=False)
+
+    assert stats == {"created": 0, "updated": 1, "removed": 0, "reset": 0}
+    row = await repo.get_score(pid, profile.id)
+    assert row is not None
+    assert row.fit_score == 0.9
+    assert row.score_method == "fit"
+    assert row.comp_hash == competencies_hash(COMP_JSON)

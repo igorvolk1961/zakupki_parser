@@ -232,6 +232,7 @@ class _FakeProfileCtx:
     def __init__(self, profile_id: int) -> None:
         self.id = profile_id
         self.profile = SimpleNamespace(id=profile_id)
+        self.scoring_allowed = True
 
 
 @pytest.mark.asyncio
@@ -433,6 +434,45 @@ async def test_run_once_noop_without_platforms(
     await scheduler.run_once()
 
     assert called == []
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_pass_rebuilds_results_on_flag(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Правка профиля с rebuild/rescore запускает перестройку результатов сбора."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    rebuild_calls: list[tuple[int, bool]] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> None:
+        return None
+
+    async def fake_gather(only_ids: set[int] | None = None) -> list[_FakeProfileCtx]:
+        assert only_ids == {7}
+        return [_FakeProfileCtx(7)]
+
+    async def fake_rebuild(ctx: object, *, rescore: bool = False) -> None:
+        rebuild_calls.append((int(ctx.profile.id), rescore))  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather)
+    monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: [])
+    monkeypatch.setattr(scheduler, "_rebuild_profile_results", fake_rebuild)
+    monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+
+    scheduler.request_profile_refresh(7, rebuild=True, rescore=True)
+    await scheduler._run_refresh_pass(iteration=5)  # noqa: SLF001
+
+    assert rebuild_calls == [(7, True)]
+    assert scheduler._refresh_ids == set()  # noqa: SLF001
+    assert scheduler._refresh_rebuild == set()  # noqa: SLF001
+    assert scheduler._refresh_rescore == set()  # noqa: SLF001
 
 
 @pytest.mark.asyncio

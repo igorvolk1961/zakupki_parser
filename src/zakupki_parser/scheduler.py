@@ -60,6 +60,11 @@ class Scheduler:
         # ``request_profile_refresh``, обрабатываются сразу после завершения
         # текущего прохода, не дожидаясь следующего регулярного цикла.
         self._refresh_ids: set[int] = set()
+        # Правка профиля может требовать не только внеочередного обхода, но и
+        # перестройки его результатов сбора (procurement_evaluations) и/или
+        # пересчёта скора (изменились компетенции) — см. request_profile_refresh.
+        self._refresh_rebuild: set[int] = set()
+        self._refresh_rescore: set[int] = set()
         self._refresh_event = asyncio.Event()
         # Момент ПОСЛЕДНЕГО сигнала текущего накопленного батча (монотонное время):
         # каждое сохранение сбрасывает таймер, и внеочередной проход стартует не
@@ -82,7 +87,13 @@ class Scheduler:
         self._stop.set()
         await self._db.dispose()
 
-    def request_profile_refresh(self, profile_id: int) -> None:
+    def request_profile_refresh(
+        self,
+        profile_id: int,
+        *,
+        rebuild: bool = False,
+        rescore: bool = False,
+    ) -> None:
         """Помечает профиль как требующий внеочередного обхода (fast-start).
 
         Вызывается после создания/изменения включённого профиля (API-роуты).
@@ -91,6 +102,12 @@ class Scheduler:
         профиля (включён, владелец активен и имеет поиск) ещё раз проверяется в
         момент запуска внеочередного обхода; опция ``scoring`` владельца при этом
         НЕ исключает профиль из обхода (мониторинг работает без скоринга).
+
+        ``rebuild`` — после обхода перестроить per-profile результаты сбора
+        (``procurement_evaluations``) по текущей области захвата профиля:
+        закупки, вышедшие из неё, из результатов удаляются, вошедшие — обновляются.
+        ``rescore`` — изменились компетенции: у совпавших результатов сбросить
+        устаревший скор, чтобы recovery пересчитал его по новым компетенциям.
 
         Debounce отсчитывается от ПОСЛЕДНЕГО сигнала накопленного батча: каждая
         правка сбрасывает таймер, поэтому серия сохранений с паузами меньше окна
@@ -102,6 +119,10 @@ class Scheduler:
         self._refresh_pending_since = time.monotonic()
         is_new_batch = not self._refresh_ids
         self._refresh_ids.add(profile_id)
+        if rebuild:
+            self._refresh_rebuild.add(profile_id)
+        if rescore:
+            self._refresh_rescore.add(profile_id)
         self._refresh_event.set()
         logger.info(
             "Запрошен внеочередной обход профиля %s (debounce %.0f с от последнего сохранения%s)",
@@ -460,13 +481,32 @@ class Scheduler:
         ]
         if not profile_ids:
             return
+        # Метки перестройки/пересчёта снимаем со всех запрошенных (в т.ч. тех,
+        # кто не пригоден): причина привязана к конкретной правке профиля.
+        requested = set(profile_ids)
+        rebuild_ids = self._refresh_rebuild & requested
+        rescore_ids = self._refresh_rescore & requested
         self._refresh_ids.difference_update(profile_ids)
+        self._refresh_rebuild.difference_update(requested)
+        self._refresh_rescore.difference_update(requested)
         if not self._refresh_ids:
             self._refresh_pending_since = None
-        ctxs = await self._gather_profile_ctxs(only_ids=set(profile_ids))
+        ctxs = await self._gather_profile_ctxs(only_ids=requested)
         if not ctxs:
             return
         self._refresh_handled_in_cycle.update(c.profile.id for c in ctxs)
+        # Перестройка результатов сбора по новой области захвата (и пересчёт скора,
+        # если изменились компетенции) — до обхода площадок: обход дособерёт новые
+        # закупки, а сброшенный скор recovery поставит на пересчёт в этом же цикле.
+        for ctx in ctxs:
+            if ctx.profile.id in rebuild_ids:
+                # Пересчёт устаревшего скора только когда профиль действительно
+                # пригоден для LLM-скоринга (опция владельца + валидные компетенции):
+                # иначе сброс лишь потерял бы посчитанный результат без пересчёта.
+                await self._rebuild_profile_results(
+                    ctx,
+                    rescore=ctx.profile.id in rescore_ids and ctx.scoring_allowed,
+                )
         logger.info(
             "Внеочередной обход начинается: профилей %d (%s), итерация %d",
             len(ctxs),
@@ -474,10 +514,38 @@ class Scheduler:
             iteration,
         )
         await self._run_platform_pass(ctxs, iteration, full_window=True)
+        # Сброшенный при перестройке скор пересчитываем сразу после обхода
+        # (те же правила recovery: опция scoring владельца, TTL).
+        await self._recover_scoring_queue(iteration)
         logger.info(
             "Внеочередной обход завершён: профилей %d (итерация %d)",
             len(ctxs),
             iteration,
+        )
+
+    async def _rebuild_profile_results(
+        self, ctx: ProfileRunContext, *, rescore: bool = False
+    ) -> None:
+        """Перестраивает результаты сбора одного профиля (после изменения профиля).
+
+        Используется внеочередным обходом при ``rebuild=True``: сверяет
+        ``procurement_evaluations`` профиля с текущей областью захвата (см.
+        ``ProcurementRepository.rebuild_profile_results``). При ``rescore`` у
+        устаревших по компетенциям результатов сбрасывается скор — recovery
+        поставит повторный fit.
+        """
+        if self._repository is None:
+            return
+        stats = await self._repository.rebuild_profile_results(
+            ctx.profile,
+            ctx.keywords,
+            ctx.exclusion_words,
+            rescore=rescore,
+        )
+        logger.info(
+            "Перестройка результатов профиля %s: %s",
+            ctx.profile.id,
+            stats,
         )
 
     async def _recover_scoring_queue(self, iteration: int = 0) -> None:
