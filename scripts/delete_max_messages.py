@@ -46,7 +46,10 @@ def _load_secrets() -> tuple[str, str]:
 
 
 def _message_id(msg: dict[str, Any]) -> str | None:
-    """Достаёт message_id из объекта сообщения (поле может лежать в вложенных объектах)."""
+    """Достаёт message_id из объекта сообщения (идентификатор лежит в ``body.mid``)."""
+    body = msg.get("body")
+    if isinstance(body, dict) and body.get("mid"):
+        return str(body["mid"])
     for key in ("id", "message_id"):
         if msg.get(key):
             return str(msg[key])
