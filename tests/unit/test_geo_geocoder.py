@@ -96,6 +96,63 @@ async def test_cached_geocoder_hits_cache() -> None:
     assert calls == 1
 
 
+async def test_dadata_http_error_returns_none_fail_open() -> None:
+    """Внешний сервис недоступен (401/5xx) — geocode отдаёт None, не бросает."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "invalid key"})
+
+    point = await _dadata(httpx.MockTransport(handler)).geocode("г Москва", min_quality=1)
+    assert point is None
+
+
+async def test_dadata_permanent_4xx_not_retried() -> None:
+    """Постоянная 4xx (неверный ключ) ретраится и тратит время впустую — fail-open сразу."""
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(403, json={"error": "forbidden"})
+
+    geo = _dadata(httpx.MockTransport(handler))
+    # max_retries=0, но даже с ретраями 4xx не повторяется.
+    point = await geo.geocode("г Москва", min_quality=1)
+    assert point is None
+    assert calls == 1
+
+
+async def test_dadata_transient_429_retries_then_fail_open() -> None:
+    """Транзиентный 429 ретраится, после исчерпания попыток — fail-open None."""
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, json={"error": "rate limit"})
+
+    geo = _dadata(httpx.MockTransport(handler))
+    point = await geo.geocode("г Москва", min_quality=1)
+    assert point is None
+    assert calls == 1  # max_retries=0 -> одна попытка
+
+
+async def test_nominatim_http_error_returns_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "server error"})
+
+    geo = NominatimGeocoder(
+        base_url="https://nominatim.openstreetmap.org",
+        timeout=5.0,
+        max_retries=0,
+        backoff=0.0,
+        rate=100.0,
+        user_agent="test",
+        transport=httpx.MockTransport(handler),
+    )
+    assert await geo.geocode("Москва", min_quality=1) is None
+
+
 async def test_cached_geocoder_does_not_cache_failure() -> None:
     calls = 0
 

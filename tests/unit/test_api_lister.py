@@ -892,13 +892,15 @@ async def test_process_list_record_region_unknown_not_rejected(app_config: AppCo
 
 
 @pytest.mark.asyncio
-async def test_process_list_record_region_distance_disables_string_filter(
+async def test_process_list_record_region_with_distance_still_applies_string_filter(
     app_config: AppConfig,
 ) -> None:
-    """Задан max_region_distance_km — строковый фильтр по региону в парсере выключен.
+    """Задан target_regions + max_region_distance_km — строковый фильтр по региону
+    на сборе ПО-ПРЕЖНЕМУ активен.
 
-    Решение по расстоянию принимается только на этапе анализа, поэтому закупка с
-    регионом вне строковых целевых НЕ отбрасывается на этапе списка.
+    Дистанция (max_region_distance_km) проверяется только на этапе анализа (геокодер
+    на сборе не вызывается), но соответствие целевых регионов строкой отсеивается
+    всегда, когда они заданы: регион вне целевых отбрасывается на этапе списка.
     """
     recorder = _make_region_recorder(app_config)
     recorder._profile_ctxs = [_region_ctx(["Москва"], distance_km=50.0)]  # noqa: SLF001
@@ -908,8 +910,8 @@ async def test_process_list_record_region_distance_disables_string_filter(
         detail_url="https://zakupki.mos.ru/need/5",
         number="N5",
     )
-    assert (known, number, saved) == (False, "N5", True)
-    assert len(recorder.persisted) == 1
+    assert (known, number, saved) == (False, "N5", False)
+    assert recorder.persisted == []
 
 
 class _ScoringProfile:

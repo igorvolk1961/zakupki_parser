@@ -85,6 +85,9 @@ class _BaseGeocoder:
             await self._throttle()
             try:
                 resp = await client.request(method, url, **kwargs)
+                # Транзиентные сбои (429/5xx) — ретраим. Постоянная 4xx (401 неверный
+                # ключ, 400 и т.п.) повтором не лечится: не тратим время, сразу
+                # прокидываем ошибку. Caller (geocode) переводит её в fail-open None.
                 if resp.status_code == 429 or resp.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"геокодер вернул {resp.status_code}",
@@ -94,6 +97,9 @@ class _BaseGeocoder:
                 resp.raise_for_status()
                 return resp
             except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                if status is not None and status < 500 and status != 429:
+                    raise
                 last_exc = exc
             except httpx.HTTPError as exc:
                 last_exc = exc
@@ -135,12 +141,18 @@ class DadataGeocoder(_BaseGeocoder):
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Token {self._api_key}"
-        resp = await self._request(
-            "POST",
-            f"{self._base}/suggestions/api/4_1/rs/suggest/address",
-            json={"query": text, "count": 3},
-            headers=headers,
-        )
+        try:
+            resp = await self._request(
+                "POST",
+                f"{self._base}/suggestions/api/4_1/rs/suggest/address",
+                json={"query": text, "count": 3},
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            # Внешний сервис недоступен/ошибка — fail-open: гео-решение не принимается,
+            # закупка не теряется (caller трактует None как «любое расстояние»).
+            logger.warning("Геокодер DaData недоступен («%s»): %s", text, exc)
+            return None
         try:
             payload = resp.json()
         except ValueError:
@@ -192,12 +204,16 @@ class NominatimGeocoder(_BaseGeocoder):
         text = query.strip()
         if not text:
             return None
-        resp = await self._request(
-            "GET",
-            f"{self._base}/search",
-            params={"q": text, "format": "json", "limit": 1, "countrycodes": "ru"},
-            headers={"Accept": "application/json"},
-        )
+        try:
+            resp = await self._request(
+                "GET",
+                f"{self._base}/search",
+                params={"q": text, "format": "json", "limit": 1, "countrycodes": "ru"},
+                headers={"Accept": "application/json"},
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("Геокодер Nominatim недоступен («%s»): %s", text, exc)
+            return None
         try:
             data = resp.json()
         except ValueError:
