@@ -45,6 +45,31 @@ def _load_secrets() -> tuple[str, str]:
     return token.strip(), chat_id.strip()
 
 
+def _verify_flag(token: str, api: str, insecure: bool) -> bool:
+    """Возвращает ``verify`` для httpx (True — проверять сертификат).
+
+    Если сертификат MAX (Минцифры) не в доверенных, предупреждает и отключает
+    проверку TLS автоматически; явный ``--insecure`` даёт то же самое без
+    маршрута пробного запроса.
+    """
+    if insecure:
+        return False
+    try:
+        with httpx.Client(headers={"Authorization": token}, verify=True, timeout=15.0) as client:
+            client.get(f"{api}/me")
+    except httpx.ConnectError as exc:
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc):
+            print(
+                "Внимание: сертификат MAX (Минцифры) не в доверенных — проверка TLS "
+                "отключена. Можно явно передать --insecure или добавить сертификат в "
+                "доверенные.",
+                file=sys.stderr,
+            )
+            return False
+        raise
+    return True
+
+
 def _message_id(msg: dict[str, Any]) -> str | None:
     """Достаёт message_id из объекта сообщения (идентификатор лежит в ``body.mid``)."""
     body = msg.get("body")
@@ -143,12 +168,11 @@ def main() -> None:
 
     token, env_chat_id = _load_secrets()
     chat_id = args.chat_id or env_chat_id
+    verify = _verify_flag(token, args.api, args.insecure)
 
     mode = "dry-run" if args.dry_run else "сбор"
     print(f"Перечисляю сообщения канала {chat_id} ({mode})…")
-    with httpx.Client(
-        headers={"Authorization": token}, verify=not args.insecure, timeout=30.0
-    ) as client:
+    with httpx.Client(headers={"Authorization": token}, verify=verify, timeout=30.0) as client:
         ids = fetch_message_ids(client, args.api, chat_id, args.dry_run)
 
     print(f"\nНайдено сообщений: {len(ids)}")
@@ -164,9 +188,7 @@ def main() -> None:
         print("Отмена: для удаления добавьте --confirm.", file=sys.stderr)
         return
 
-    with httpx.Client(
-        headers={"Authorization": token}, verify=not args.insecure, timeout=30.0
-    ) as client:
+    with httpx.Client(headers={"Authorization": token}, verify=verify, timeout=30.0) as client:
         for i, mid in enumerate(ids, start=1):
             delete_message(client, args.api, mid)
             if i % 100 == 0:

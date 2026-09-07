@@ -163,9 +163,11 @@ uv run scripts/delete_max_messages.py --dry-run
 # удалить всё (подтверждение обязательно)
 uv run scripts/delete_max_messages.py --confirm
 
-# если сертификат MAX не в доверенных (сертификат Минцифры)
-uv run scripts/delete_max_messages.py --confirm --insecure
 ```
+
+> `--insecure` необязателен: если сертификат MAX (Минцифры) не в доверенных,
+> утилита сама заметит `CERTIFICATE_VERIFY_FAILED` и отключит проверку TLS с
+> предупреждением. Флаг нужен, только чтобы подавить это предупреждение.
 
 Параметры: `--chat-id` (по умолчанию из `ZAKUPKI_MAX_CHAT_ID`), `--api`,
 `--dry-run`, `--confirm`, `--insecure`.
