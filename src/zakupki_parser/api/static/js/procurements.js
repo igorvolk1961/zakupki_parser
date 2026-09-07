@@ -64,6 +64,7 @@ function card(row) {
     <div class="num">${row.number}</div>
     <div class="subj">${escapeHtml(row.subject || "—")}</div>
     <div class="row"><span>Заказчик</span><b>${escapeHtml(row.customer || "—")}</b></div>
+    <div class="row"><span>Регион</span><b>${escapeHtml(row.region || "—")}</b></div>
     <div class="row"><span>Тип процедуры</span><b>${escapeHtml(row.procedure_type || "—")}</b></div>
     <div class="row"><span>НМЦК</span><b>${fmtMoney(row.nmck)}</b></div>
     <div class="row"><span>Срок подачи</span><b>${fmtDate(row.deadline)}</b></div>
@@ -282,6 +283,7 @@ function cardDataPanel(row, f, files) {
   return `<table>
     ${f("Предмет", escapeHtml(row.subject || "—"))}
     ${f("Заказчик", escapeHtml(row.customer || "—") + " <span class='muted'>(id " + (row.customer_id ?? "—") + ")</span>")}
+    ${f("Регион", escapeHtml(row.region || "—"))}
     ${f("Площадка", escapeHtml(row.platform_name || row.platform_id) + " <span class='muted'>(" + escapeHtml(row.platform_id) + ")</span>")}
     ${f("Тип процедуры", escapeHtml(row.procedure_type || "—"))}
     ${f("Закон", escapeHtml(row.law || "—"))}

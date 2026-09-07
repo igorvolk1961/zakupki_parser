@@ -48,7 +48,7 @@ import {
   parserDirty,
   closeEnvModal,
 } from "./ops_config.js";
-import { loadUsers, closeUserModal, closeUserAccountsModal } from "./users.js";
+import { loadUsers, closeUserModal } from "./users.js";
 import { loadLogs, loadLogFiles } from "./logs.js";
 import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
@@ -159,7 +159,6 @@ document.addEventListener("keydown", (e) => {
     closeDeleteProfileModal();
     closeExportProfileModal();
     closeUserModal();
-    closeUserAccountsModal();
     closeConfirmDialog();
     closeEnvModal();
     closeDocsModal();

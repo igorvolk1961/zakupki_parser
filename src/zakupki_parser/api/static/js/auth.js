@@ -8,7 +8,7 @@ import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadActiveClient } from "./clients.js";
 import { updateControls, refreshParserStatus } from "./admin.js";
-import { canAccessBase, roleLabelList, updateRolesUI } from "./roles.js";
+import { canAccessAccount, canAccessBase, roleLabelList, updateRolesUI } from "./roles.js";
 
 let loginMode = "login"; // "login" | "register"
 
@@ -135,10 +135,12 @@ function renderAuth() {
 }
 
 // Пилюля «триал N дн.» в шапке: расчёт по серверной дате окончания триала.
+// Показывается только ролям с профилем (user/analyst) — у admin/devops личного
+// кабинета и триала нет.
 function renderTrialPill(trialEndAt) {
   const pill = $("#user-trial");
   if (!pill) return;
-  if (!trialEndAt) {
+  if (!canAccessAccount() || !trialEndAt) {
     pill.style.display = "none";
     return;
   }

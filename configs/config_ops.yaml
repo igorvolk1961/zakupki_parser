@@ -1,6 +1,6 @@
 timeout_seconds: 3600
 auto_start_monitoring: false
-profile_refresh_debounce_seconds: 120.0
+profile_refresh_debounce_seconds: 0.0
 db:
   dsn: postgresql+asyncpg://postgres:postgres@localhost:5432/zakupki
   enabled: true

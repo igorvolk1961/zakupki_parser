@@ -22,9 +22,11 @@ export const TAB_PARSER = "parser";
 
 export const TAB_SETS = {
   user: [...TAB_BASE, TAB_ACCOUNT],
-  admin: [TAB_USERS, TAB_ACCOUNT],
+  // Личный кабинет/аккаунты — только ролям, у которых может быть профиль
+  // (user/analyst); admin/devops профилей не имеют, поэтому без кабинета.
+  admin: [TAB_USERS],
   analyst: [...TAB_BASE, TAB_METRICS, TAB_MONITOR, TAB_PROMPTS, TAB_REFS, TAB_ACCOUNT],
-  devops: [TAB_PARSER, TAB_SERVICES, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS, TAB_ACCOUNT],
+  devops: [TAB_PARSER, TAB_SERVICES, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS],
 };
 
 export const ALL_TABS = [
@@ -63,6 +65,12 @@ export function hasRole(role) {
 
 export function isDevops() {
   return hasRole("devops");
+}
+
+// Личный кабинет и аккаунты доступны только ролям, у которых может быть профиль
+// (user/analyst): admin/devops профилей не имеют, поэтому кабинет им не показываем.
+export function canAccessAccount() {
+  return hasRole("user") || hasRole("analyst");
 }
 
 // Базовые вкладки (Закупки/Заказчики/Профили) доступны ролям user/analyst.
@@ -119,6 +127,10 @@ export function updateRolesUI() {
     });
     const panel = document.getElementById("parser-panel");
     if (panel) panel.style.display = "none";
+    const openAccountBtn = document.getElementById("open-account");
+    if (openAccountBtn) openAccountBtn.style.display = "none";
+    const trialPill = document.getElementById("user-trial");
+    if (trialPill) trialPill.style.display = "none";
     if (guestView) guestView.style.display = "block";
     return;
   }
@@ -128,6 +140,12 @@ export function updateRolesUI() {
     const btn = document.getElementById("tab-" + t);
     if (btn) btn.style.display = visible.includes(t) ? "" : "none";
   });
+  // Кнопка «Кабинет» в шапке и пилюля триала — только ролям с профилем
+  // (user/analyst); admin/devops личного кабинета не имеют.
+  const openAccountBtn = document.getElementById("open-account");
+  if (openAccountBtn) openAccountBtn.style.display = canAccessAccount() ? "" : "none";
+  const trialPill = document.getElementById("user-trial");
+  if (trialPill && !canAccessAccount()) trialPill.style.display = "none";
   // Панель парсера (Запустить/Остановить/Очистить БД) — только devops.
   const panel = document.getElementById("parser-panel");
   if (panel) panel.style.display = isDevops() ? "" : "none";
