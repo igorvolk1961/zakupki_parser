@@ -27,7 +27,6 @@ search_criteria:
 deduplicate_requests: true
 scoring:
   embedding_filter_threshold: 0.0
-  giga_embedding_alpha: 0.0
   giga_enabled: true
   num_refine_rounds: 1
   max_fit_score: 10.0

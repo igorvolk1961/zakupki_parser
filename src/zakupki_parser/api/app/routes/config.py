@@ -792,12 +792,15 @@ def _register_service_config_routes(
             config_path, _ = _service_paths(state, svc)
             body = await _read_payload(request)
             data = _strip_secrets(body, svc.secrets)
+            # Логирование вынесено в центральную вкладку «Управление логами» и
+            # не входит в модель формы: не валидируем и не перезаписываем его.
+            data.pop("logging", None)
             try:
                 new_model = svc.model.model_validate(data)
             except ValidationError as exc:
                 raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
-            # Блок логирования не входит в модель формы: сохраняем его из текущего
-            # config.yaml, чтобы правки через форму не сбрасывали конфигурацию лога.
+            # Блок логирования сохраняем из текущего config.yaml (правки конфига
+            # через форму/Текстовый режим не сбрасывают настройку логирования).
             write = new_model.model_dump()
             current = _read_yaml_quiet(config_path)
             if isinstance(current, dict) and "logging" in current:
