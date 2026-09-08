@@ -9,6 +9,7 @@
 #   scripts/compose.sh                   # то же, что: up
 #   scripts/compose.sh up                # собрать и поднять стек в фоне (up -d --build)
 #   scripts/compose.sh up --no-langfuse   # поднять стек БЕЗ LangFuse (быстрый dev-стек)
+#   scripts/compose.sh up --no-build       # поднять, НЕ пересобирая (использовать существующие образы)
 #   scripts/compose.sh demo up [args]    # изолированный демо-стек: свой project и свои
 #                                        # host-порты (не конфликтует с dev); demo down/ps/logs/config тоже работают
 #   scripts/compose.sh demo up --ref [тег]  # демо из зафиксированного снапшота (--ref без значения
@@ -170,10 +171,13 @@ case "$CMD" in
         ;;
     up)
         # LangFuse поднимается по умолчанию (продакшн). `--no-langfuse` — отключить.
+        # `--no-build` — не пересобирать образы (взять уже собранные).
+        BUILD_FLAG="--build"
         for a in "$@"; do
             case "$a" in
                 --langfuse) PROFILE="langfuse" ;;
                 --no-langfuse) PROFILE="" ;;
+                --no-build) BUILD_FLAG="" ;;
                 *) ;;
             esac
         done
@@ -239,7 +243,8 @@ case "$CMD" in
             fi
         fi
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d --build
+        # shellcheck disable=SC2086
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d ${BUILD_FLAG}
         echo "Стек поднят. API: http://localhost:${API_PORT:-8000}/  (лог: scripts/compose.sh logs)"
         ;;
     down)
