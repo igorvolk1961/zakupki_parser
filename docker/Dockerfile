@@ -43,8 +43,10 @@ COPY src ./src
 RUN uv sync --frozen --no-dev && \
     uv run playwright install --with-deps chromium
 
-# Конфигурация
+# Конфигурация и руководства ролей (/api/docs/guide/<role> читает docs/guides/<role>.md).
+# Копируем только каталог guides (docs/ целиком весит ~78M из-за references).
 COPY configs ./configs
+COPY docs/guides ./docs/guides
 
 ENV ZAKUPKI_CONFIGS=/app/configs
 # Единый процесс парсера: веб-интерфейс + цикл мониторинга (автозапуск по флагу
