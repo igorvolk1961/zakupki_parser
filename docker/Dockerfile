@@ -44,9 +44,14 @@ RUN uv sync --frozen --no-dev && \
     uv run playwright install --with-deps chromium
 
 # Конфигурация и руководства ролей (/api/docs/guide/<role> читает docs/guides/<role>.md).
-# Копируем только каталог guides (docs/ целиком весит ~78M из-за references).
+# Копируем только каталог guides (docs/ целиком весит ~78M из-за references) и
+# точечно справочник лицензий (читает docs/references/licenze_kind.md).
 COPY configs ./configs
 COPY docs/guides ./docs/guides
+COPY docs/references/licenze_kind.md ./docs/references/licenze_kind.md
+
+# Чанжеты liquibase — иначе миграции в контейнере пропускаются (docker/liquibase/changelog).
+COPY docker/liquibase/changelog ./docker/liquibase/changelog
 
 ENV ZAKUPKI_CONFIGS=/app/configs
 # Единый процесс парсера: веб-интерфейс + цикл мониторинга (автозапуск по флагу
