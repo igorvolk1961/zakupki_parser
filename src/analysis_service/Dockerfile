@@ -6,7 +6,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Конвертеры легаси .doc в текст (catdoc/antiword): MarkItDown .doc не понимает,
 # а RAG-экстрактор ТЗ падает на них без внешнего конвертера.
-RUN apt-get update \
+RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
+    && apt-get update \
     && apt-get install -y --no-install-recommends catdoc antiword \
     && rm -rf /var/lib/apt/lists/*
 

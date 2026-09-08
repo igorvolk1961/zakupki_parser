@@ -106,6 +106,20 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
+# Docker Compose доступен либо как плагин `docker compose` (v2), либо как
+# отдельный бинарник `docker-compose` (v1/v2). В облаке плагин часто отсутствует,
+# поэтому определяем рабочую команду один раз и используем её во всех операциях.
+COMPOSE_CMD=()
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker compose)
+elif docker-compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker-compose)
+else
+    echo "Ошибка: Docker Compose не найден (нет ни 'docker compose', ни 'docker-compose')." >&2
+    echo "Установите Docker Compose v2: https://docs.docker.com/compose/install/" >&2
+    exit 1
+fi
+
 # --- free-port: освободить порт, занятый Docker-контейнером -----------------
 free_port() {
     local port="${1:-5432}"
@@ -225,43 +239,43 @@ case "$CMD" in
             fi
         fi
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d --build
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d --build
         echo "Стек поднят. API: http://localhost:${API_PORT:-8000}/  (лог: scripts/compose.sh logs)"
         ;;
     down)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" down
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" down
         echo "Стек остановлен и удалён (том БД pgdata сохранён)."
         ;;
     stop)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" down
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" down
         echo "Стек остановлен, контейнеры удалены (том БД pgdata сохранён)."
         ;;
     start)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" start
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" start
         echo "Контейнеры запущены."
         ;;
     restart)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" restart
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" restart
         ;;
     build)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" build
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" build
         ;;
     config)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" config "$@"
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" config "$@"
         ;;
     ps|status)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" ps
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" ps
         ;;
     logs)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" docker compose --project-name "$PROJECT" -f "$COMPOSE_FILE" logs -f "$@"
+        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" logs -f "$@"
         ;;
     free-port)
         free_port "$FP_PORT" "$FP_FORCE"

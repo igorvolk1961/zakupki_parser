@@ -7,8 +7,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Зависимости системы для запуска Chromium
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Зависимости системы для запуска Chromium.
+# Acquire::ForceIPv4 — на облачных хостах иногда нет IPv6-маршрута, а apt пробует
+# IPv6-адрес репозитория и падает с "Unable to connect". Принудительный IPv4 чинит это.
+RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
+    && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     fonts-liberation \
