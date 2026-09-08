@@ -22,6 +22,7 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import PwinCoefficients, YamlConfigSource
+from scoring_common.logging import LoggingSettings
 
 
 class _YamlSource(YamlConfigSource):
@@ -70,6 +71,9 @@ class Settings(BaseSettings, PwinCoefficients):
     )
     # Константа P(win) в режиме заглушки (0..1).
     stub_pwin: float = Field(default=0.5, ge=0, le=1)
+
+    # Логирование (собственный блок config.yaml; env — PWIN_LOGGING__LEVEL и т.п.).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @classmethod
     def settings_customise_sources(

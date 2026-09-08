@@ -30,6 +30,7 @@ from scoring_common.giga import (
     GIGA_DEFAULT_TIMEOUT_SECONDS,
     GIGA_EMBEDDINGS_MODEL,
 )
+from scoring_common.logging import LoggingSettings
 
 # Собственный каталог сервиса: src/analysis_service/analysis_service/settings.py -> parents[1].
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
@@ -144,6 +145,9 @@ class Settings(BaseSettings):
     # (VPN/корп. прокси) отдают самоподписанный промежуточный сертификат, которому
     # httpx не доверяет — поэтому по умолчанию выключено (см. scoring_service.tz_verify_ssl).
     tz_verify_ssl: bool = False
+
+    # Логирование (собственный блок config.yaml; env — ANALYSIS_LOGGING__LEVEL и т.п.).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @classmethod
     def settings_customise_sources(

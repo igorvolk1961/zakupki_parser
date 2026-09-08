@@ -33,6 +33,7 @@ from scoring_common.giga import (
     GIGA_DEFAULT_TIMEOUT_SECONDS,
     GIGA_EMBEDDINGS_MODEL,
 )
+from scoring_common.logging import LoggingSettings
 from scoring_service.profile import (
     Profile,
     ProfileTexts,
@@ -144,6 +145,9 @@ class Settings(BaseSettings):
     # embedding_similarity < порога, LLM-пайплайн не выполняется, возвращается
     # fit_score=0 и score_method=sim. Значение <= 0 отключает фильтрацию.
     embedding_filter_threshold: float = 0.66
+
+    # Логирование (собственный блок config.yaml; env — SCORE_LOGGING__LEVEL и т.п.).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @property
     def giga_configured(self) -> bool:

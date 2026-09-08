@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -21,6 +22,7 @@ from pydantic_settings import (
 )
 
 from scoring_common.config import YamlConfigSource
+from scoring_common.logging import LoggingSettings
 
 
 class _YamlSource(YamlConfigSource):
@@ -63,6 +65,9 @@ class Settings(BaseSettings):
 
     # Пайплайн
     score_round_digits: int = 2
+
+    # Логирование (собственный блок config.yaml; env — MARGIN_LOGGING__LEVEL и т.п.).
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @classmethod
     def settings_customise_sources(

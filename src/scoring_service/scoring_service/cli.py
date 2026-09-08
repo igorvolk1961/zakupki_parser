@@ -17,7 +17,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from scoring_common.logging import LoggingSettings, setup_logging
+from scoring_common.logging import setup_logging
 from scoring_service.profile import ProfileTexts
 from scoring_service.settings import Settings, get_settings
 
@@ -217,7 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
-    setup_logging(LoggingSettings())
+    setup_logging(settings.logging)
     args = build_parser().parse_args(argv)
 
     if args.command == "worker":

@@ -4,7 +4,9 @@
 // «Конфигурация» (config_ops.yaml), «Управление логами» (config_log.yaml)
 // и «Парсер» (config_parser.yaml) — форма + текстовый режим.
 import { api, apiJSON } from "./api.js";
+import { $ } from "./utils.js";
 import { createConfigView } from "./config_view.js";
+import { renderSchemaForm, collectSchemaValues } from "./form.js";
 import { confirmDialogAsync } from "./dialogs.js";
 import { refreshParserStatus } from "./admin.js";
 
@@ -17,11 +19,82 @@ const opsView = createConfigView("cfgops", "config/ops", {
     opsDirty = v;
   },
 });
-const logView = createConfigView("logcfg", "config/log", {
-  onDirty: (v) => {
-    logDirty = v;
+
+// --- Централизованное управление логами всех сервисов (combobox) ---------
+// «Управление логами»: выбираем сервис — правим его блок логирования.
+const logView = {
+  schema: [],
+  raw: false,
+
+  async load() {
+    const svc = $("#logcfg-service").value;
+    const [schemaData, data] = await Promise.all([
+      api("config/log/schema"),
+      api("config/log/" + encodeURIComponent(svc)),
+    ]);
+    logView.schema = schemaData.schema;
+    renderSchemaForm($("#logcfg-form"), logView.schema, data.logging);
+    logView.raw = false;
+    logView.syncMode();
+    $("#logcfg-status").textContent = "";
+    logDirty = false;
   },
-});
+
+  syncMode() {
+    const formEl = $("#logcfg-form");
+    const rawEl = $("#logcfg-raw");
+    const toggle = $("#logcfg-raw-toggle");
+    if (toggle) {
+      toggle.textContent = logView.raw ? "Обычный режим" : "Текстовый режим";
+      toggle.classList.toggle("active", logView.raw);
+    }
+    if (formEl) formEl.style.display = logView.raw ? "none" : "";
+    if (rawEl) rawEl.style.display = logView.raw ? "" : "none";
+  },
+
+  async toggleRaw() {
+    logView.raw = !logView.raw;
+    if (logView.raw) {
+      const svc = $("#logcfg-service").value;
+      try {
+        const data = await api("config/log/" + encodeURIComponent(svc) + "/raw");
+        $("#logcfg-raw").value = data.yaml;
+      } catch (err) {
+        logView.raw = false;
+        $("#logcfg-status").textContent = "Ошибка: " + err.message;
+      }
+    }
+    logView.syncMode();
+  },
+
+  async save() {
+    const svc = $("#logcfg-service").value;
+    $("#logcfg-status").textContent = "Сохранение…";
+    try {
+      const r = await apiJSON("/api/config/log/" + encodeURIComponent(svc) + (logView.raw ? "/raw" : ""), {
+        method: "PUT",
+        headers: { "Content-Type": logView.raw ? "text/plain" : "application/json" },
+        body: logView.raw ? $("#logcfg-raw").value : JSON.stringify(collectSchemaValues($("#logcfg-form"))),
+      });
+      if (r.status === 401) return;
+      if (!r.ok) {
+        let msg = "не удалось сохранить";
+        try {
+          const d = await r.json();
+          msg = typeof d.detail === "string" ? d.detail : JSON.stringify(d.detail);
+        } catch (e) {}
+        $("#logcfg-status").textContent = "Ошибка валидации: " + msg;
+        return;
+      }
+      $("#logcfg-status").textContent =
+        "Сохранено ✓ (применится при следующем старте сервиса)";
+      logDirty = false;
+    } catch (err) {
+      $("#logcfg-status").textContent = "Ошибка: " + err.message;
+    }
+  },
+};
+
 const parserView = createConfigView("parser", "config/parser", {
   onDirty: (v) => {
     parserDirty = v;
@@ -261,4 +334,37 @@ export function loadLogConfig() {
 
 export function loadParserConfig() {
   return parserView.load();
+}
+
+// --- Слушатели «Управление логами»: combobox + форма ---------------------
+const logServiceSel = document.getElementById("logcfg-service");
+if (logServiceSel) {
+  logServiceSel.addEventListener("change", () => {
+    if (logDirty && !confirm("Есть несохранённые изменения — переключить сервис?")) {
+      logServiceSel.value = logServiceSel.dataset.last || "parser";
+      return;
+    }
+    logServiceSel.dataset.last = logServiceSel.value;
+    logView.load();
+  });
+}
+const logSaveBtn = document.getElementById("logcfg-save");
+if (logSaveBtn) logSaveBtn.addEventListener("click", () => logView.save());
+const logReloadBtn = document.getElementById("logcfg-reload");
+if (logReloadBtn) logReloadBtn.addEventListener("click", () => logView.load());
+const logToggleBtn = document.getElementById("logcfg-raw-toggle");
+if (logToggleBtn) logToggleBtn.addEventListener("click", () => logView.toggleRaw());
+const logFormEl = document.getElementById("logcfg-form");
+if (logFormEl) {
+  logFormEl.addEventListener("input", () => {
+    logDirty = true;
+    $("#logcfg-status").textContent = "несохранённые изменения";
+  });
+}
+const logRawEl = document.getElementById("logcfg-raw");
+if (logRawEl) {
+  logRawEl.addEventListener("input", () => {
+    logDirty = true;
+    $("#logcfg-status").textContent = "несохранённые изменения";
+  });
 }

@@ -27,3 +27,14 @@ margin_rate: 1.0
 
 # Пайплайн
 score_round_digits: 2
+
+# Логирование (собственный блок; сервис в изолированном контейнере управляет
+# своим логом). file: null — логи в консоль/stdout (их собирает оркестратор);
+# для файла с ротацией укажите путь (например, data/logs/margin_service.log).
+logging:
+  level: INFO
+  format: "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
+  file: null
+  file_level: DEBUG
+  console: true
+  truncate_on_start: false

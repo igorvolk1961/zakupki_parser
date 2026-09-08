@@ -30,6 +30,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
+from scoring_common.logging import LoggingSettings
 from zakupki_parser.api.app.config_schema import build_schema
 from zakupki_parser.api.app.converters import (
     _ops_config_public,
@@ -795,7 +796,13 @@ def _register_service_config_routes(
                 new_model = svc.model.model_validate(data)
             except ValidationError as exc:
                 raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
-            _write_yaml(config_path, new_model.model_dump())
+            # Блок логирования не входит в модель формы: сохраняем его из текущего
+            # config.yaml, чтобы правки через форму не сбрасывали конфигурацию лога.
+            write = new_model.model_dump()
+            current = _read_yaml_quiet(config_path)
+            if isinstance(current, dict) and "logging" in current:
+                write["logging"] = current["logging"]
+            _write_yaml(config_path, write)
             logger.info("Сохранён %s (%s)", config_path, svc.title)
             return new_model.model_dump()
 
@@ -1017,6 +1024,129 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         state_setter=lambda m: setattr(state.cfg, "logging", m),
         validate=_validate_log,
     )
+
+    # --- Логи всех сервисов (combobox в «Управление логами») -------------
+    LOG_SERVICES: tuple[tuple[str, str], ...] = (
+        ("parser", "Парсер"),
+        ("scoring", "Скоринг"),
+        ("analysis", "Анализ документов"),
+        ("pwin", "P(win)"),
+        ("margin", "Margin"),
+    )
+
+    def _log_path(key: str) -> Path:
+        # «Парсер» — config_log.yaml (ложа парсера), остальные — config.yaml сервиса.
+        if key == "parser":
+            return Path(state.configs_dir) / "config_log.yaml"
+        svc = SERVICE_CONFIGS.get(key)
+        if svc is None:
+            raise HTTPException(status_code=404, detail="Неизвестный сервис: " + key)
+        return _service_paths(state, svc)[0]
+
+    def _read_log(key: str) -> LoggingSettings:
+        data = _read_yaml_quiet(_log_path(key))
+        raw = data if key == "parser" else (data.get("logging") or {})
+        try:
+            return LoggingSettings.model_validate(raw or {})
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
+
+    def _validate_log_file(settings: LoggingSettings) -> None:
+        if settings.file and (
+            Path(settings.file).is_absolute() or ".." in Path(settings.file).parts
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Путь файла лога должен быть относительным (от корня проекта)",
+            )
+
+    @router.get(
+        "/api/config/log/services",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def log_services() -> dict[str, Any]:
+        return {
+            "services": [
+                {"key": key, "label": label, "logging": _read_log(key).model_dump()}
+                for key, label in LOG_SERVICES
+            ]
+        }
+
+    @router.get(
+        "/api/config/log/{key}",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def log_service(key: str) -> dict[str, Any]:
+        label = next((lb for k, lb in LOG_SERVICES if k == key), key)
+        return {"key": key, "label": label, "logging": _read_log(key).model_dump()}
+
+    def _save_log(key: str, settings: LoggingSettings) -> None:
+        path = _log_path(key)
+        if key == "parser":
+            _write_yaml(path, settings.model_dump())
+            state.cfg.logging = LoggingConfig.model_validate(settings.model_dump())
+        else:
+            data = _read_yaml_quiet(path)
+            if not isinstance(data, dict):
+                data = {}
+            data["logging"] = settings.model_dump()
+            _write_yaml(path, data)
+        logger.info("Сохранён лог сервиса %s", key)
+
+    @router.put(
+        "/api/config/log/{key}",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def put_log_service(key: str, request: Request) -> dict[str, Any]:
+        body = await _read_payload(request)
+        try:
+            settings = LoggingSettings.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
+        _validate_log_file(settings)
+        _save_log(key, settings)
+        return settings.model_dump()
+
+    @router.get(
+        "/api/config/log/{key}/raw",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def log_service_raw(key: str) -> dict[str, Any]:
+        """Сырой YAML выбранного сервиса (блок логирования)."""
+        yaml_text = yaml.safe_dump(_read_log(key).model_dump(), allow_unicode=True, sort_keys=False)
+        return {"yaml": yaml_text}
+
+    @router.put(
+        "/api/config/log/{key}/raw",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def put_log_service_raw(key: str, request: Request) -> dict[str, Any]:
+        content = (await request.body()).decode("utf-8", errors="replace")
+        if not content.strip():
+            raise HTTPException(status_code=422, detail="Пустой YAML")
+        try:
+            parsed = yaml.safe_load(content)
+        except yaml.YAMLError as exc:
+            raise HTTPException(status_code=422, detail="Некорректный YAML: " + str(exc)) from exc
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=422, detail="Ожидался объект конфигурации логирования")
+        try:
+            settings = LoggingSettings.model_validate(parsed)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
+        _validate_log_file(settings)
+        _save_log(key, settings)
+        return settings.model_dump()
 
     # --- config_parser.yaml: «Парсер» (devops) ---------------------------
     def _prepare_parser(body: dict[str, Any]) -> None:

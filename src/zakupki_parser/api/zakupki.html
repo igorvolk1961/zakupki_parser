@@ -612,11 +612,20 @@
   </div>
   <div id="view-logcfg" style="display:none;">
     <div class="panel">
-      <div class="panel-title" title="config_log.yaml">Управление логами</div>
+      <div class="panel-title" title="Централизованное управление логированием всех сервисов">Управление логами</div>
       <div class="toolbar" style="margin-bottom:0;">
-        <button class="primary" id="logcfg-save" title="Сохранить конфигурацию логирования. Изменения применяются при следующем старте сервиса.">Сохранить</button>
-        <button id="logcfg-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
+        <label>Сервис:
+          <select id="logcfg-service" title="Сервис, лог которого редактируется">
+            <option value="parser">Парсер</option>
+            <option value="scoring">Скоринг</option>
+            <option value="analysis">Анализ документов</option>
+            <option value="pwin">P(win)</option>
+            <option value="margin">Margin</option>
+          </select>
+        </label>
+        <button class="primary" id="logcfg-save" title="Сохранить настройку логирования выбранного сервиса. Применяется при следующем старте сервиса.">Сохранить</button>
         <button id="logcfg-reload">Отменить изменения</button>
+        <button id="logcfg-raw-toggle" title="Показать/скрыть сырой YAML блока логирования">Текстовый режим</button>
         <span id="logcfg-status" class="muted"></span>
       </div>
     </div>
