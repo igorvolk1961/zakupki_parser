@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 from analysis_service.settings import Settings, get_settings
 from scoring_common.langfuse import flush
-from scoring_common.logging import setup_logging
+from scoring_common.logging import LoggingSettings, setup_logging
 
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
 
@@ -46,6 +46,7 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
         api_key=settings.llm_api_key,
         temperature=settings.llm_temperature,
         timeout=settings.llm_request_timeout,
+        max_tokens=settings.llm_max_tokens,
     )
     report = await RagAnalyzer(settings, embedder, llm).analyze(record, questions, profile_facts)
     flush()
@@ -66,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     settings = get_settings()
-    setup_logging(settings.logging)
+    setup_logging(LoggingSettings())
     if args.command == "worker":
         return asyncio.run(_cmd_worker(settings))
     return asyncio.run(_cmd_analyze(settings, args.card))

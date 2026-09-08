@@ -30,7 +30,6 @@ from scoring_common.giga import (
     GIGA_DEFAULT_TIMEOUT_SECONDS,
     GIGA_EMBEDDINGS_MODEL,
 )
-from scoring_common.logging import LoggingSettings
 
 # Собственный каталог сервиса: src/analysis_service/analysis_service/settings.py -> parents[1].
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
@@ -58,6 +57,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:8001/v1"
     llm_api_key: str = "sk-dummy"
     llm_model: str = "deepseek-chat"
+    llm_max_tokens: int = 4096
     llm_temperature: float = 0.0
     llm_request_timeout: float = 45.0
 
@@ -144,9 +144,6 @@ class Settings(BaseSettings):
     # (VPN/корп. прокси) отдают самоподписанный промежуточный сертификат, которому
     # httpx не доверяет — поэтому по умолчанию выключено (см. scoring_service.tz_verify_ssl).
     tz_verify_ssl: bool = False
-
-    # Логирование (собственный блок config.yaml; env — ANALYSIS_LOGGING__LEVEL и т.п.).
-    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @classmethod
     def settings_customise_sources(

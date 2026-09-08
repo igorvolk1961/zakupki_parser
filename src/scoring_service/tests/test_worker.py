@@ -88,7 +88,7 @@ class _AnalystConfigParser(_OkParser):
     """Имитация парсера, отдающего аналитические скор-настройки."""
 
     async def get_scoring_config(self, internal_token: str | None = None) -> dict:
-        return {"embedding_filter_threshold": 0.5, "giga_embedding_alpha": 0.25}
+        return {"embedding_filter_threshold": 0.5}
 
 
 class _TimeoutScorer:
@@ -227,7 +227,6 @@ async def test_scorer_applies_analyst_scoring_config(
     assert worker._queue._client is not None
     scorer = await worker._ensure_scorer()
     assert scorer._settings.embedding_filter_threshold == 0.5
-    assert scorer._settings.giga_embedding_alpha == 0.25
     # Тот же snapshot — scorer не пересобирается.
     assert await worker._ensure_scorer() is scorer
 

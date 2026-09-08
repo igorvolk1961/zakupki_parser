@@ -1,7 +1,7 @@
 [project]
 name = "pwin-service"
 version = "0.1.0"
-description = "Стадия каскада скоринга: расчёт P(win) = base_pwin × k_smp × k_license × k_large × k_procedure × k_ai"
+description = "Стадия каскада скоринга: расчёт P(win) = base_pwin × k_smp × k_license × k_large × k_procedure"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

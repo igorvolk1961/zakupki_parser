@@ -87,8 +87,6 @@
   html[data-theme="dark"] .pill.trial { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .pill.active { background:#052e16; border-color:#14532d; color:#86efac; }
   html[data-theme="dark"] .pill.inactive { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
-  .client-switch { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
-  .client-switch select { padding:4px 6px; font-size:13px; }
   .profile-form { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
   .profile-form label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
   .profile-form input[type="text"], .profile-form input[type="number"], .profile-form textarea {
@@ -212,6 +210,10 @@
   .modal .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
   .modal .field label { font-size:13px; color: var(--muted); }
   .modal .error { color: #dc2626; font-size:13px; min-height:18px; margin-bottom:8px; }
+  /* Панель смены пароля в личном кабинете: единый layout метка-над-полем. */
+  #acct-pane-password .field { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  #acct-pane-password .field label { font-size:13px; color: var(--muted); }
+  #acct-pane-password .field input { width:100%; }
   /* Карточка закупки: вкладки (данные / скоринг+анализ / метрики). */
   .card-tabs { margin: 2px 0 14px; flex-wrap:wrap; }
   .card-tabs button { border-radius:20px; }
@@ -397,4 +399,3 @@
   #info-modal { max-width:420px; }
   #info-modal .muted { margin-top:0; }
   #info-modal .toolbar { justify-content:flex-end; margin-bottom:0; }
-

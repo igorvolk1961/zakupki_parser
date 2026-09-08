@@ -519,7 +519,7 @@ def test_score_embedding_missing_credentials_no_crash() -> None:
 
 
 def test_score_embedding_branch_runs_and_sets_similarity() -> None:
-    """Ветка выполняется, similarity попадает в результат и влияет на score при alpha>0."""
+    """Ветка выполняется, similarity попадает в результат (ветка диагностическая)."""
     fit = _FakeFit([8.0])
     judge = _FakeJudge([_judge("accept", 8.0)])
     embedder = _FakeEmbedder(similarity=0.6)
@@ -530,7 +530,6 @@ def test_score_embedding_branch_runs_and_sets_similarity() -> None:
             giga_enabled=True,
             giga_client_id="cid",
             giga_client_secret="secret",
-            giga_embedding_alpha=0.5,
             # Фильтрация выключена: ниже порога ветка не должна отсекать закупку.
             embedding_filter_threshold=0.0,
         ),
@@ -539,12 +538,12 @@ def test_score_embedding_branch_runs_and_sets_similarity() -> None:
     out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
     assert embedder.calls == 1
     assert out.embedding_similarity == 0.6
-    # fit_norm = 8/10 = 0.8; base = 0.5*0.8 + 0.5*0.6 = 0.7; score = 0.7
-    assert out.score == 0.7
+    # Ветка не влияет на score (вес удалён): score = fit_norm = 8/10 = 0.8
+    assert out.score == 0.8
 
 
-def test_score_embedding_branch_sets_similarity_but_alpha_zero_keeps_score() -> None:
-    """alpha=0 — similarity фиксируется, но на score не влияет."""
+def test_score_embedding_branch_sets_similarity_only() -> None:
+    """Ветка выполнения фиксирует similarity, но на score не влияет."""
     fit = _FakeFit([8.0])
     judge = _FakeJudge([_judge("accept", 8.0)])
     scorer = Scorer(

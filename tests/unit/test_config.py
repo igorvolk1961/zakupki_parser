@@ -305,7 +305,7 @@ def test_service_schema_includes_scoring() -> None:
     scoring = next(f for f in schema if f["key"] == "scoring")
     assert scoring["kind"] == "object"
     keys = {sub["key"] for sub in scoring["fields"]}
-    assert {"embedding_filter_threshold", "giga_embedding_alpha", "num_refine_rounds"} <= keys
+    assert {"embedding_filter_threshold", "giga_enabled", "num_refine_rounds"} <= keys
 
 
 def test_score_service_schema_has_no_secrets_and_expected_fields() -> None:

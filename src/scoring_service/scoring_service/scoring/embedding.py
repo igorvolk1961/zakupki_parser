@@ -53,7 +53,6 @@ class EmbeddingMixin:
                     **(parent_config.get("metadata") or {}),
                     "branch": "embedding",
                     "model": self._settings.giga_embeddings_model,
-                    "alpha": self._settings.giga_embedding_alpha,
                 },
             },
         )

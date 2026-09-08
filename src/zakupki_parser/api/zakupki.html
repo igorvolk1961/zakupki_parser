@@ -53,10 +53,6 @@
   </div>
   <div class="header-right">
     <span id="parser-status" class="muted" title="Состояние парсера">проверка…</span>
-    <span class="client-switch" id="client-switch" style="display:none;" title="Активный клиентский профиль">
-      <label for="client-select">клиент:</label>
-      <select id="client-select"><option value="">— загрузка… —</option></select>
-    </span>
     <select id="theme" title="Цветовая схема">
       <option value="light">Светлая</option>
       <option value="dark">Тёмная</option>
@@ -83,7 +79,6 @@
         <button class="primary" id="guest-login">Вход</button>
         <button class="ghost" id="guest-docs">Документация</button>
       </div>
-      <p class="guest-note muted">Вкладки и данные рабочего пространства доступны после входа.</p>
     </div>
   </div>
 
@@ -453,7 +448,7 @@
           </div>
           <div>
             <div class="panel-title" style="font-size:14px;">Опции активного аккаунта</div>
-            <p class="muted" style="font-size:12px; margin-top:0;">Платные операции (LLM/эмбеддинги) оплачиваются владельцем системы за каждый вызов. Включите только те, что вам нужны.</p>
+            <p class="muted" style="font-size:12px; margin-top:0;">Платные операции (LLM/эмбеддинги) оплачиваются за каждый вызов. Включите только те, что вам нужны.</p>
             <div id="acct-options"></div>
             <div class="toolbar" style="margin:10px 0 0;">
               <button class="primary" id="acct-options-save" title="Сохранить переключатели опций активного аккаунта">Сохранить опции</button>
@@ -512,6 +507,19 @@
     <div class="toolbar">
       <button class="primary" id="user-new">Создать пользователя</button>
       <span id="users-status" class="muted"></span>
+    </div>
+    <div class="toolbar" style="margin:8px 0 0;">
+      <input id="users-search" placeholder="Поиск по логину или email…" style="min-width:220px;">
+      <label>Роль:
+        <select id="users-role-filter">
+          <option value="">все роли</option>
+          <option value="user">Пользователь</option>
+          <option value="admin">Администратор</option>
+          <option value="analyst">Аналитик</option>
+          <option value="devops">DevOps</option>
+        </select>
+      </label>
+      <span id="users-filter-status" class="muted"></span>
     </div>
     <div class="table-wrap">
       <table class="cust users-table">
@@ -784,7 +792,7 @@
     <div class="error" id="login-error"></div>
     <button class="primary login-btn" id="login-submit">Вход</button>
     <div class="login-foot">
-      <div class="switch"><span class="muted">Нет аккаунта?</span> <button type="button" id="login-switch">Зарегистрироваться</button></div>
+      <div class="switch"><button type="button" id="login-switch">Зарегистрироваться</button></div>
     </div>
   </div>
 </div>

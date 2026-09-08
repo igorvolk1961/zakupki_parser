@@ -60,7 +60,7 @@ def test_pwin_service_schema_has_coefficients() -> None:
 
     schema = build_schema(PwinServiceConfig)
     keys = {f["key"] for f in schema}
-    assert {"base_pwin", "k_ai", "max_pwin_cap", "use_stub", "ai_markers"} <= keys
+    assert {"base_pwin", "max_pwin_cap", "use_stub", "stub_pwin"} <= keys
 
 
 def test_strip_secrets_removes_only_secret_keys() -> None:

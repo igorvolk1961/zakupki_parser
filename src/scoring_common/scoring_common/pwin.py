@@ -2,12 +2,11 @@
 
 Модель из исследования ``docs/references/Модель P(win) для IT-закупок России...pdf``:
 
-    P(win) = base_pwin × k_smp × k_license × k_large × k_procedure × k_ai
+    P(win) = base_pwin × k_smp × k_license × k_large × k_procedure
 
 На первом этапе из карточки закупки доступны только ``nmck`` (для ``k_large``) и
-``subject``/``okpd2_codes`` (для ``k_ai``). Коэффициенты СМП/лицензий/процедуры
-применяются, когда соответствующие поля появятся в карточке (заготовки резолверов),
-иначе — 1.0.
+``subject``/``okpd2_codes``. Коэффициенты СМП/лицензий/процедуры применяются,
+когда соответствующие поля появятся в карточке (заготовки резолверов), иначе — 1.0.
 """
 
 from __future__ import annotations
@@ -40,11 +39,6 @@ def _text(record: dict[str, Any]) -> str:
         if value:
             parts.append(str(value))
     return " ".join(parts)
-
-
-def _is_ai(record: dict[str, Any], coeffs: PwinCoefficients) -> bool:
-    text = _text(record).lower()
-    return any(marker in text for marker in coeffs.ai_markers)
 
 
 def _procedure_kind(record: dict[str, Any]) -> str | None:
@@ -107,7 +101,5 @@ def compute_pwin(record: dict[str, Any], coeffs: PwinCoefficients) -> float:
     else:
         k_procedure = 1.0
 
-    k_ai = coeffs.k_ai if _is_ai(record, coeffs) else 1.0
-
-    pwin = coeffs.base_pwin * k_smp * k_license * k_large * k_procedure * k_ai
+    pwin = coeffs.base_pwin * k_smp * k_license * k_large * k_procedure
     return round(min(pwin, coeffs.max_pwin_cap), 4)

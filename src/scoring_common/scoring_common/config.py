@@ -15,7 +15,7 @@ from pydantic_settings import PydanticBaseSettingsSource
 
 
 class PwinCoefficients(BaseModel):
-    """Коэффициенты модели P(win) = base_pwin × k_smp × k_license × k_large × k_procedure × k_ai.
+    """Коэффициенты модели P(win) = base_pwin × k_smp × k_license × k_large × k_procedure.
 
     На первом этапе применяются только коэффициенты, которые можно вычислить из
     уже доступных полей карточки (НМЦК, subject, okpd2). Коэффициенты СМП/лицензий/
@@ -45,22 +45,6 @@ class PwinCoefficients(BaseModel):
     k_procedure_auction: float = Field(default=1.3, ge=0, description="электронный аукцион")
     k_procedure_contest: float = Field(default=1.0, ge=0, description="открытый конкурс")
     k_procedure_quotation: float = Field(default=0.8, ge=0, description="запрос котировок")
-
-    k_ai: float = Field(default=1.8, ge=0, description="закупка ИИ-решений")
-
-    # Маркеры ИИ-закупки в subject/okpd2 (регистронезависимый поиск подстроки).
-    ai_markers: tuple[str, ...] = (
-        "искусственный интеллект",
-        "нейросет",
-        "машинное обучение",
-        "llm",
-        "большая языковая модель",
-        "ии-",
-        " ai ",
-        "ии ",
-        "ии,",
-        "гпт",
-    )
 
     max_pwin_cap: float = Field(
         default=0.95, ge=0, le=1, description="кап P(win) — защита от переоценки"

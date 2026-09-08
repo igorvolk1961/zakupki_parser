@@ -19,6 +19,29 @@ const ASSIGNABLE_ROLES = ["admin", "analyst", "devops"];
 let users = [];
 let userModalMode = "create"; // "create" | "roles"
 let userModalTarget = null;
+// Поиск и фильтр по ролям (клиентские: список грузится целиком).
+let userFilter = { q: "", role: "" };
+
+function filteredUsers() {
+  const q = userFilter.q.trim().toLowerCase();
+  const role = userFilter.role;
+  return users.filter((u) => {
+    if (role && !u.roles.includes(role)) return false;
+    if (!q) return true;
+    const hay = ((u.username || "") + " " + (u.email || "")).toLowerCase();
+    return hay.includes(q);
+  });
+}
+
+function updateFilterStatus(count) {
+  const el = $("#users-filter-status");
+  if (!el) return;
+  if (userFilter.q || userFilter.role) {
+    el.textContent = `показано ${count} из ${users.length}`;
+  } else {
+    el.textContent = "";
+  }
+}
 
 function closeUserModal() {
   $("#user-modal-bg").classList.remove("open");
@@ -37,13 +60,17 @@ function rolePills(roles) {
 
 function renderUsers() {
   const tbody = $("#users-rows");
-  if (!users.length) {
+  const list = filteredUsers();
+  updateFilterStatus(list.length);
+  if (!list.length) {
     tbody.innerHTML = "";
-    $("#users-empty").style.display = "";
+    const empty = $("#users-empty");
+    empty.textContent = users.length ? "По вашему запросу никого не найдено" : "Пользователей нет";
+    empty.style.display = "";
     return;
   }
   $("#users-empty").style.display = "none";
-  tbody.innerHTML = users
+  tbody.innerHTML = list
     .map((u) => {
       const self = state.authUser && u.id === state.authUser.id;
       const simple = u.roles.length === 1 && u.roles[0] === "user";
@@ -215,6 +242,14 @@ async function removeUser(u) {
 export { loadUsers, closeUserModal };
 
 $("#user-new").addEventListener("click", openCreateUser);
+$("#users-search").addEventListener("input", () => {
+  userFilter.q = $("#users-search").value;
+  renderUsers();
+});
+$("#users-role-filter").addEventListener("change", () => {
+  userFilter.role = $("#users-role-filter").value;
+  renderUsers();
+});
 $("#user-save").addEventListener("click", saveUserModal);
 $("#user-cancel").addEventListener("click", closeUserModal);
 $("#user-modal-bg").addEventListener("click", (e) => {

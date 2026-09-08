@@ -291,8 +291,8 @@ ADR-3 изначально фиксировал очередь-«outbox» на �
 **LLM-пайплайн `scoring_service`** (`scoring_service/scoring.py`): Fit (0–10, reasoning +
 `fit_score`) → Judge (критики / verdict / `final_fit_score`) → при `verdict=reject` до
 `num_refine_rounds` повторный Fit → уточнение по тексту ТЗ (`tz_review`, флаг
-`requires_tz_review`) → ветка Giga Embedder (косинусная близость,
-`giga_embedding_alpha`, результат `embedding_similarity`; с ADR-8 — предварительный
+`requires_tz_review`) → диагностическая ветка Giga Embedder (косинусная близость,
+результат `embedding_similarity`; с ADR-8 — предварительный
 фильтр перед LLM). Score = нормализованный Fit × P(win) × Margin.
 
 **Последствия.**
@@ -410,7 +410,7 @@ P(win) (рейтинг/квалификация заказчика, катего
    и `score_method=fit`. Результат публикуется в `scoring:results`, транспорт возвращает
    его в парсер через `POST /score`.
 2. **P(win)** (`pwin_service`) — потребляет очередь `pwin:jobs`, считает
-   `P(win) = base_pwin × k_smp × k_license × k_large × k_procedure × k_ai`
+   `P(win) = base_pwin × k_smp × k_license × k_large × k_procedure`
    (формула и коэффициенты — в `scoring_common/pwin.py`, YAML-источник в конфиге
    сервиса), возвращает `p_win` и `score_method=pwin`. Сейчас используется
    заглушка `use_stub=true` (P(win) = константа `stub_pwin`) до калибровки

@@ -1143,7 +1143,6 @@ async function doSaveProfile(data) {
     setProfileStatus(notice || baseMsg);
     closeProfileEditor();
     await loadProfiles();
-    await loadActiveClient();
     return true;
   } catch (e) {
     const msg = "Ошибка сохранения: " + e.message;
@@ -1177,7 +1176,6 @@ async function doDeleteProfile() {
     setProfileStatus("Профиль удалён");
     if (profileEditorId === id) closeProfileEditor();
     await loadProfiles();
-    await loadActiveClient();
   } catch (e) {
     setProfileStatus("Ошибка удаления: " + e.message);
   }
@@ -1215,7 +1213,6 @@ async function importProfileFile() {
     }
     setProfileStatus(notice || "Профиль загружен из файла «" + file.name + "»");
     await loadProfiles();
-    await loadActiveClient();
   } catch (e) {
     setProfileStatus("Ошибка загрузки: " + e.message);
   }
@@ -1294,28 +1291,6 @@ async function doExportProfile() {
   }
 }
 
-// Селектор активного клиентского профиля в шапке (мультиклиентный скоринг).
-async function loadActiveClient() {
-  try {
-    const list = await api("clients", { limit: 500 });
-    const sel = $("#client-select");
-    const cur = sel.value;
-    sel.innerHTML = "";
-    for (const p of list.items) {
-      const opt = document.createElement("option");
-      opt.value = p.id;
-      opt.textContent = p.name + (p.is_active ? " (активный)" : "");
-      sel.appendChild(opt);
-    }
-    const c = await api("clients/active");
-    sel.value = String(c.id);
-    $("#client-switch").style.display = "inline-flex";
-    if (cur && cur !== String(c.id)) loadProfiles();
-  } catch (err) {
-    $("#client-switch").style.display = "none";
-  }
-}
-
 async function switchClient(profileId) {
   try {
     const r = await apiJSON(`/api/clients/${profileId}/activate`, {
@@ -1323,7 +1298,6 @@ async function switchClient(profileId) {
       headers: { "Content-Type": "application/json" },
     });
     if (!r.ok) throw new Error(await r.text());
-    await loadActiveClient();
     await loadProfiles();
     await loadProc();
     await loadCustomers();
@@ -1339,7 +1313,6 @@ function profileFormDirty() {
 
 export {
   loadProfiles,
-  loadActiveClient,
   switchClient,
   openProfileEditor,
   closeProfileEditor,
@@ -1430,6 +1403,3 @@ bindTagInput("#pf-excl-tags", profileExcl);
 bindTagSearch("#pf-keywords-tags", profileKeywords);
 bindTagSearch("#pf-excl-tags", profileExcl);
 bindOkpdTagInput();
-$("#client-select").addEventListener("change", (ev) => {
-  if (ev.target.value) switchClient(Number(ev.target.value));
-});

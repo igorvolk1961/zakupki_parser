@@ -52,9 +52,9 @@ flowchart LR
   Транспорт — единственная граница между конвейером и парсером; приоритет приходит из
   парсера (эвристика дефолтного score в транспорте не дублируется).
 - **LLM-пайплайн** `scoring_service`: Fit → Judge → refine (`num_refine_rounds`) →
-  уточнение по тексту ТЗ (`tz_review`) → параллельная ветка векторной близости
-  **Giga Embedder** (влияет на score через `giga_embedding_alpha`, результат —
-  `embedding_similarity`). Режим заглушки `score_use_stub` удалён (ADR-7).
+  уточнение по тексту ТЗ (`tz_review`) → параллельная диагностическая ветка
+  векторной близости **Giga Embedder** (результат — `embedding_similarity`).
+  Режим заглушки `score_use_stub` удалён (ADR-7).
 - **Уведомления** подписчиков отправляются **после каждой стадии** каскада (fit/pwin/
   margin), когда значение стадии прошло её порог (`notify_min_fit_score`/
   `notify_min_pwin`/`notify_min_margin`; флаги `notify_{fit,pwin,margin}_enabled`

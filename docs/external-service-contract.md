@@ -57,8 +57,8 @@
 
 1. **Fit** (`scoring_service`) — LLM-пайплайн, возвращает `fit_score` (0..1) и
    `score_method=fit`.
-2. **P(win)** (`pwin_service`) — считает `P(win) = base_pwin × k_smp × k_license ×
-   k_large × k_procedure × k_ai` и возвращает `p_win` (`score_method=pwin`).
+2. **P(win)** (`pwin_service`) — считает    `P(win) = base_pwin × k_smp × k_license ×
+   k_large × k_procedure` и возвращает `p_win` (`score_method=pwin`).
 3. **Margin** (`margin_service`) — считает маржу (`НМЦК × margin_rate`) и возвращает
    `margin` (`score_method=margin`).
 

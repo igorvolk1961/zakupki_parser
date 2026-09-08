@@ -53,6 +53,7 @@ class AnalysisWorker:
             api_key=settings.llm_api_key,
             temperature=settings.llm_temperature,
             timeout=settings.llm_request_timeout,
+            max_tokens=settings.llm_max_tokens,
         )
         self._analyzer = RagAnalyzer(settings, self._embedder, self._llm)
         # Геокодер этапа анализа (место поставки не дальше N км от центра региона).

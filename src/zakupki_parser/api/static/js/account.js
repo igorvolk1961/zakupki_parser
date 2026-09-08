@@ -73,7 +73,7 @@ function renderAccounts() {
       return `<div class="acct-row${a.is_active ? " active" : ""}" data-id="${a.id}">
         <button class="ghost btn-mini" data-act="activate" ${a.is_active ? "disabled" : ""}>${a.is_active ? "✓ активен" : "активировать"}</button>
         <span class="acct-name" data-field="name" title="Имя аккаунта">${escapeHtml(a.name)}</span>
-        <span class="muted" style="font-size:12px">${paidOn.length ? "платные: " + escapeHtml(paidOn.join(", ")) : "только бесплатные опции"}</span>
+        ${paidOn.length ? `<span class="muted" style="font-size:12px">платные: ${escapeHtml(paidOn.join(", "))}</span>` : ""}
         <button class="danger btn-mini" data-act="delete" ${delDisabled ? "disabled" : ""} title="${delTitle}">удалить</button>
       </div>`;
     })

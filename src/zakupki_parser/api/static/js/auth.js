@@ -6,7 +6,7 @@ import { state } from "./store.js";
 import { authHeaders, setToken, connectWS } from "./api.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
-import { loadActiveClient } from "./clients.js";
+
 import { updateControls, refreshParserStatus } from "./admin.js";
 import { canAccessAccount, canAccessBase, roleLabelList, updateRolesUI } from "./roles.js";
 
@@ -93,8 +93,25 @@ async function doLogin(register) {
       err.textContent = detail || "Не удалось выполнить вход";
       return;
     }
-    setToken(data.access_token);
     saveLoginToCache(username);
+    if (register) {
+      // После регистрации не авторизуем автоматически — возвращаем в окно логина.
+      loginMode = "login";
+      $("#login-title").textContent = "Вход";
+      $("#login-switch").textContent = "Зарегистрироваться";
+      $("#login-submit").textContent = "Вход";
+      const sub = $("#login-modal .login-sub");
+      if (sub) sub.textContent = "Рабочее пространство тендеролога";
+      $("#login-password").value = "";
+      $("#login-password").type = "password";
+      $("#login-password").autocomplete = "new-password";
+      $("#login-confirm-field").style.display = "none";
+      $("#login-password-confirm").value = "";
+      err.textContent = "Аккаунт создан. Выполните вход.";
+      $("#login-username").focus();
+      return;
+    }
+    setToken(data.access_token);
     state.authUser = data.user;
     state.authRequired = true;
     hideLogin();
@@ -104,7 +121,7 @@ async function doLogin(register) {
     // Базовые вкладки грузим только тем, у кого есть доступ (user/analyst);
     // devops/admin-only аккаунтам они не положены и упали бы 403.
     if (canAccessBase()) {
-      loadProc(); loadCustomers(); loadPlatforms(); loadActiveClient();
+      loadProc(); loadCustomers(); loadPlatforms();
     }
   } catch (e) {
     err.textContent = "Ошибка: " + e.message;
@@ -216,7 +233,7 @@ $("#login-switch").addEventListener("click", () => {
   $("#login-submit").textContent = loginMode === "register" ? "Создать аккаунт" : "Вход";
   const sub = $("#login-modal .login-sub");
   if (sub) sub.textContent = loginMode === "register"
-    ? "Создайте аккаунт — роли назначает администратор"
+    ? "Создайте аккаунт"
     : "Рабочее пространство тендеролога";
   $("#login-password").type = "password";
   $("#login-password").autocomplete = "new-password";

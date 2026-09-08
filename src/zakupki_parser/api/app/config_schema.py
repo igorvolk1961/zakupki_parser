@@ -29,13 +29,27 @@ def _unwrap_optional(annotation: Any) -> tuple[Any, bool]:
 
 
 def _label_from_description(description: str | None, key: str) -> str:
-    """Человекочитаемая подпись поля: первое предложение описания или имя."""
+    """Человекочитаемая подпись поля: первое предложение описания или имя.
+
+    Резать по ``". "`` (конец предложения) безопасно только когда перед точкой —
+    полноценная фраза, а не сокращение вроде «Мин.», «Макс.», «сек.»: иначе
+    подпись обрезается до аббревиатуры (см. giga_min_token_ttl_seconds).
+    """
     if description:
-        first = description.strip()
-        for sep in (". ", "\n", "("):
-            first = first.split(sep)[0].strip()
-        if first:
-            return first
+        text = description.strip()
+        idx = text.find(". ")
+        if idx != -1:
+            head = text[:idx].strip()
+            # Сокращение — одиночное короткое слово без пробела: не режем.
+            if len(head) > 6 or " " in head:
+                return head
+        idx = text.find("\n")
+        if idx != -1:
+            return text[:idx].strip()
+        idx = text.find("(")
+        if idx != -1:
+            return text[:idx].strip()
+        return text
     return key.replace("_", " ")
 
 

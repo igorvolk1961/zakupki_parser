@@ -17,19 +17,9 @@ def test_pwin_large_nmck_applies_k_large() -> None:
     assert compute_pwin({"subject": "Разработка ПО", "nmck": 60_000_000}, coeffs) == 0.24
 
 
-def test_pwin_ai_markers_in_subject() -> None:
-    coeffs = PwinCoefficients()
-    assert compute_pwin({"subject": "Разработка ИИ-агента", "nmck": 1_000}, coeffs) == 0.72
-
-
-def test_pwin_ai_marker_in_okpd2() -> None:
-    coeffs = PwinCoefficients()
-    assert compute_pwin({"subject": "Услуги", "okpd2_codes": "62.01", "nmck": 1_000}, coeffs) == 0.4
-
-
 def test_pwin_cap_applied() -> None:
-    coeffs = PwinCoefficients(base_pwin=0.9, k_ai=1.8)
-    assert compute_pwin({"subject": "ИИ-платформа", "nmck": 1_000}, coeffs) == 0.95
+    coeffs = PwinCoefficients(base_pwin=0.99)
+    assert compute_pwin({"subject": "Разработка", "nmck": 1_000}, coeffs) == 0.95
 
 
 def test_pwin_procedure_from_subject() -> None:

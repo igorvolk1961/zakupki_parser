@@ -97,9 +97,8 @@ class ScoringWorker:
         self._scorer = build_scorer(effective)
         self._scoring_snapshot = key
         logger.info(
-            "scorer построен под скор-настройки (filter_threshold=%s, alpha=%s, refine=%s)",
+            "scorer построен под скор-настройки (filter_threshold=%s, refine=%s)",
             effective.embedding_filter_threshold,
-            effective.giga_embedding_alpha,
             effective.num_refine_rounds,
         )
         return self._scorer

@@ -11,6 +11,7 @@
 llm_base_url: "https://api.deepseek.com/v1"
 llm_api_key: "sk-dummy"
 llm_model: "deepseek-v4-flash"
+llm_max_tokens: 4096
 llm_temperature: 0.0
 # Таймаут одного LLM-запроса (сек) и число повторов при сетевой ошибке/таймауте.
 llm_request_timeout: 45.0
@@ -74,8 +75,6 @@ giga_auth_url: "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
 giga_client_id: ""
 giga_client_secret: ""
 giga_auth_scope: "GIGACHAT_API_PERS"
-# Влияние ветки на score: 0.0 — ветка не влияет (только диагностика/просмотр).
-giga_embedding_alpha: 0.0
 # Таймаут запроса эмбеддингов (сек).
 giga_timeout_seconds: 30.0
 # Порог остаточного времени жизни токена (сек): при значении меньше — обновить.
@@ -103,14 +102,3 @@ langfuse_host:
 # Авторизация HTTP-эндпоинтов (обязательна для `serve`): задаётся через env
 # SCORE_AUTH_TOKEN — без токена сервис не стартует.
 auth_token:
-
-# Логирование (собственный блок; сервис в изолированном контейнере управляет
-# своим логом). file: null — логи в консоль/stdout (их собирает оркестратор);
-# для файла с ротацией укажите путь (например, data/logs/scoring_service.log).
-logging:
-  level: INFO
-  format: "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
-  file: null
-  file_level: DEBUG
-  console: true
-  truncate_on_start: false

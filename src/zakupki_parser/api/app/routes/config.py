@@ -301,7 +301,6 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
     """
     scoring_labels: dict[str, str] = {
         "embedding_filter_threshold": "Порог векторной близости",
-        "giga_embedding_alpha": "Вес векторной близости",
         "giga_enabled": "Ветка векторной близости",
         "num_refine_rounds": "Повторные fit-итерации",
         "max_fit_score": "Максимальный Fit",
@@ -439,6 +438,7 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                     (
                         "llm_base_url",
                         "llm_model",
+                        "llm_max_tokens",
                         "llm_temperature",
                         "llm_request_timeout",
                         "llm_max_retries",
@@ -458,6 +458,11 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "processing_recovery_priority",
                         "queue_poll_seconds",
                         "jobs_retry_key",
+                    ),
+                ),
+                (
+                    "Повторная обработка после сбоя LLM",
+                    (
                         "llm_retry_max_attempts",
                         "llm_retry_backoff_seconds",
                     ),
@@ -490,14 +495,12 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "giga_embeddings_model",
                         "giga_auth_url",
                         "giga_auth_scope",
-                        "giga_embedding_alpha",
                         "giga_timeout_seconds",
                         "giga_min_token_ttl_seconds",
                         "giga_verify_ssl",
                         "embedding_filter_threshold",
                     ),
                 ),
-                ("Логирование", ("logging",)),
             ),
         ),
         _ServiceConfig(
@@ -516,11 +519,28 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                     (
                         "llm_base_url",
                         "llm_model",
+                        "llm_max_tokens",
                         "llm_temperature",
                         "llm_request_timeout",
                     ),
                 ),
-                ("Эмбеддинги", ("embedding_base_url", "embedding_model", "embedding_timeout")),
+                (
+                    "Giga Embedder",
+                    (
+                        "giga_enabled",
+                        "giga_base_url",
+                        "giga_embeddings_model",
+                        "giga_auth_url",
+                        "giga_auth_scope",
+                        "giga_timeout_seconds",
+                        "giga_min_token_ttl_seconds",
+                        "giga_verify_ssl",
+                    ),
+                ),
+                (
+                    "Эмбеддинги (fallback)",
+                    ("embedding_base_url", "embedding_model", "embedding_timeout"),
+                ),
                 ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
                 (
                     "Redis-очередь",
@@ -545,7 +565,6 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "tz_verify_ssl",
                     ),
                 ),
-                ("Логирование", ("logging",)),
             ),
         ),
         _ServiceConfig(
@@ -588,12 +607,9 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "k_procedure_auction",
                         "k_procedure_contest",
                         "k_procedure_quotation",
-                        "k_ai",
                         "max_pwin_cap",
                     ),
                 ),
-                ("Маркеры ИИ-закупки", ("ai_markers",)),
-                ("Логирование", ("logging",)),
             ),
         ),
         _ServiceConfig(
@@ -623,7 +639,6 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                     ),
                 ),
                 ("Пайплайн", ("margin_rate", "score_round_digits")),
-                ("Логирование", ("logging",)),
             ),
         ),
     )
@@ -662,20 +677,23 @@ def _group_schema(
 ) -> list[dict[str, Any]]:
     """Присваивает полям ``group`` (подпись секции) и упорядочивает по группам.
 
-    Поля вне групп остаются в конце (без секции). Внутри группы порядок сохраняется.
+    Поля вне групп остаются в конце (без секции). Внутри группы поля идут в том
+    порядке, в котором перечислены в ``groups`` (а не по алфавиту).
     """
     index: dict[str, int] = {}
+    pos_in_group: dict[str, int] = {}
     label_of: dict[str, str] = {}
     for i, (label, keys) in enumerate(groups):
-        for key in keys:
+        for j, key in enumerate(keys):
             index[key] = i
+            pos_in_group[key] = j
             label_of[key] = label
 
-    def sort_key(field: dict[str, Any]) -> tuple[int, int, str]:
+    def sort_key(field: dict[str, Any]) -> tuple[int, int, int, str]:
         key = field["key"]
         if key in index:
-            return (0, index[key], key)
-        return (1, 0, key)
+            return (0, index[key], pos_in_group[key], key)
+        return (1, 0, 0, key)
 
     ordered = sorted(schema, key=sort_key)
     for field in ordered:

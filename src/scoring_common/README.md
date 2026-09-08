@@ -2,7 +2,7 @@
 
 Общие компоненты каскада скоринга `Fit -> P(win) -> Margin`:
 
-- `pwin.py` — формула `P(win) = base_pwin × k_smp × k_license × k_large × k_procedure × k_ai`
+- `pwin.py` — формула `P(win) = base_pwin × k_smp × k_license × k_large × k_procedure`
   (чистая функция, коэффициенты из конфига);
 - `margin.py` — маржа `НМЦК × margin_rate`;
 - `config.py` — модель коэффициентов P(win) и YAML-источник настроек;

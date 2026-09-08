@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from margin_service.settings import Settings, get_settings
-from scoring_common.logging import setup_logging
+from scoring_common.logging import LoggingSettings, setup_logging
 
 
 async def _cmd_worker(settings: Settings) -> int:
@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
-    setup_logging(settings.logging)
+    setup_logging(LoggingSettings())
     args = build_parser().parse_args(argv)
 
     if args.command == "worker":

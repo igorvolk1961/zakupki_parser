@@ -33,7 +33,6 @@ from scoring_common.giga import (
     GIGA_DEFAULT_TIMEOUT_SECONDS,
     GIGA_EMBEDDINGS_MODEL,
 )
-from scoring_common.logging import LoggingSettings
 from scoring_service.profile import (
     Profile,
     ProfileTexts,
@@ -54,6 +53,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: str = "sk-dummy"
     llm_model: str = "gpt-4o-mini"
+    llm_max_tokens: int = 4096
     llm_temperature: float = 0.0
     # Таймаут одного LLM-запроса (сек) и число повторов при сетевой ошибке/таймауте.
     # Без таймаута зависший запрос блокирует весь прогон (например, оценку --repeat).
@@ -132,8 +132,6 @@ class Settings(BaseSettings):
     giga_client_id: str = ""
     giga_client_secret: str = ""
     giga_auth_scope: str = GIGA_AUTH_SCOPE
-    # Влияние ветки на score: 0.0 — ветка не влияет (только диагностика/просмотр).
-    giga_embedding_alpha: float = 0.0
     # Таймаут запроса эмбеддингов (сек).
     giga_timeout_seconds: float = GIGA_DEFAULT_TIMEOUT_SECONDS
     # Порог остаточного времени жизни токена (сек): при значении меньше — обновить.
@@ -146,9 +144,6 @@ class Settings(BaseSettings):
     # embedding_similarity < порога, LLM-пайплайн не выполняется, возвращается
     # fit_score=0 и score_method=sim. Значение <= 0 отключает фильтрацию.
     embedding_filter_threshold: float = 0.66
-
-    # Логирование (собственный блок config.yaml; env — SCORE_LOGGING__LEVEL и т.п.).
-    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @property
     def giga_configured(self) -> bool:
@@ -221,7 +216,6 @@ class Settings(BaseSettings):
 SCORING_TUNABLE_FIELDS: frozenset[str] = frozenset(
     {
         "embedding_filter_threshold",
-        "giga_embedding_alpha",
         "giga_enabled",
         "num_refine_rounds",
         "max_fit_score",

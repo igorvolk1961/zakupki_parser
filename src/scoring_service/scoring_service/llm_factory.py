@@ -29,6 +29,7 @@ def build_llm(settings: Settings) -> ChatOpenAI:
     return ChatOpenAI(
         model=settings.llm_model,
         temperature=settings.llm_temperature,
+        max_tokens=settings.llm_max_tokens,
         base_url=settings.llm_base_url,
         api_key=SecretStr(settings.llm_api_key),
         request_timeout=settings.llm_request_timeout,

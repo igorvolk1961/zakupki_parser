@@ -34,7 +34,7 @@ import {
   openWorkCard,
 } from "./work.js";
 import { loadMetrics } from "./metrics.js";
-import { loadProfiles, loadActiveClient, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
+import { loadProfiles, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
 import { loadAccount } from "./account.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
 import {
@@ -197,7 +197,6 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
       await loadPlatforms();
       await loadProc();
       await loadCustomers();
-      await loadActiveClient();
       await loadWork();
     } catch (err) {
       $("#proc-rows").innerHTML = `<tr><td colspan="4" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;

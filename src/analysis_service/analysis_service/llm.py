@@ -35,12 +35,14 @@ class LlmClient:
         api_key: str | None = None,
         temperature: float = 0.0,
         timeout: float = 45.0,
+        max_tokens: int | None = None,
     ) -> None:
         self._base = base_url.rstrip("/")
         self._model = model
         self._api_key = api_key
         self._temperature = temperature
         self._timeout = timeout
+        self._max_tokens = max_tokens
         # Накопленная стоимость LLM-вызовов (USD) текущего анализа: сбрасывается
         # на каждый прогон (RagAnalyzer.reset_cost) и читается в конце (cost поля
         # rag_report). None-состояния (сбой/без usage) не добавляют стоимость.
@@ -95,6 +97,8 @@ class LlmClient:
                 {"role": "user", "content": user},
             ],
         }
+        if self._max_tokens is not None:
+            payload["max_tokens"] = self._max_tokens
         obs = start_observation(
             name="verdict",
             as_type="generation",

@@ -163,12 +163,9 @@ class PipelineMixin:
         procurement_id: int | None,
     ) -> ScoringOutput:
         """Финальный ScoringOutput с учётом ветки векторной близости."""
-        # Смешиваем Fit с веткой векторной близости, если ветка выполнена и alpha>0.
-        base = result.fit_norm
-        if embed_sim is not None and self._settings.giga_embedding_alpha > 0:
-            alpha = self._settings.giga_embedding_alpha
-            base = (1 - alpha) * base + alpha * embed_sim
-        score = round(base, self._settings.score_round_digits)
+        # Ветка векторной близости — только диагностическая: embed_sim не влияет
+        # на Score (вес ветки удалён), пишется в результат для анализа.
+        score = round(result.fit_norm, self._settings.score_round_digits)
 
         return ScoringOutput(
             procurement_id=procurement_id,

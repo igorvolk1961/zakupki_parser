@@ -90,6 +90,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         # Пишутся в каждый трейс, чтобы группировать/сравнивать запуски по конфигурации.
         self._base_metadata: dict[str, Any] = {
             "llm_model": settings.llm_model,
+            "llm_max_tokens": settings.llm_max_tokens,
             "llm_temperature": settings.llm_temperature,
             "llm_structured_method": settings.llm_structured_method,
             "num_refine_rounds": settings.num_refine_rounds,
@@ -97,7 +98,6 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             "giga_enabled": settings.giga_enabled,
             "giga_configured": settings.giga_configured,
             "giga_model": settings.giga_embeddings_model,
-            "giga_embedding_alpha": settings.giga_embedding_alpha,
             "embedding_filter_threshold": settings.embedding_filter_threshold,
         }
         if settings.giga_enabled and not settings.giga_configured:

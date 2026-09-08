@@ -66,12 +66,12 @@ async def test_pwin_publishes_result(worker_queue) -> None:
     results = worker._queue._settings.results_key
     payload = await worker._queue._client.lindex(results, 0)
     data = json.loads(payload)
-    # ИИ-закупка: base 0.4 × k_ai 1.8 = 0.72; score = fit 0.7 × 0.72 = 0.504
+    # base 0.4 (СМП/лицензия/процедура/крупность не срабатывают); score = fit 0.7 × 0.4 = 0.28
     assert data["procurement_id"] == 1
     assert data["score_method"] == "pwin"
-    assert data["p_win"] == 0.72
+    assert data["p_win"] == 0.4
     assert data["fit_score"] == 0.7
-    assert data["score"] == 0.504
+    assert data["score"] == 0.28
 
 
 async def test_pwin_stub_returns_constant() -> None:

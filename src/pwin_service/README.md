@@ -2,7 +2,7 @@
 
 Стадия каскада скоринга `Fit -> P(win) -> Margin`: расчёт вероятности победы
 
-    P(win) = base_pwin × k_smp × k_license × k_large × k_procedure × k_ai
+    P(win) = base_pwin × k_smp × k_license × k_large × k_procedure
 
 Потребляет задачи из Redis-очереди `pwin:jobs`, получает карточку закупки через
 REST API парсера, считает `P(win)` и публикует результат в `pwin:results`

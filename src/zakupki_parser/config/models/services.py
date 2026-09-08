@@ -16,7 +16,6 @@ from typing import Literal
 
 from pydantic import Field
 
-from scoring_common.logging import LoggingSettings
 from zakupki_parser.config.models.ops.base import _BaseConfig
 
 
@@ -29,6 +28,7 @@ class ScoringServiceConfig(_BaseConfig):
         description="Базовый URL LLM (OpenAI-совместимый)",
     )
     llm_model: str = Field(default="deepseek-v4-flash", description="Модель LLM")
+    llm_max_tokens: int = Field(default=4096, ge=1, description="Максимум токенов в ответе LLM")
     llm_temperature: float = Field(default=0.0, ge=0, le=2, description="Температура LLM")
     llm_request_timeout: float = Field(
         default=45.0, gt=0, description="Таймаут одного LLM-запроса (сек)"
@@ -103,9 +103,6 @@ class ScoringServiceConfig(_BaseConfig):
         default="https://ngw.devices.sberbank.ru:9443/api/v2/oauth", description="URL OAuth Giga"
     )
     giga_auth_scope: str = Field(default="GIGACHAT_API_PERS", description="Scope OAuth Giga")
-    giga_embedding_alpha: float = Field(
-        default=0.0, description="Влияние ветки на score (0 — только диагностика)"
-    )
     giga_timeout_seconds: float = Field(default=30.0, gt=0, description="Таймаут эмбеддингов (сек)")
     giga_min_token_ttl_seconds: float = Field(
         default=60.0, ge=0, description="Мин. TTL токена до обновления (сек)"
@@ -121,9 +118,6 @@ class ScoringServiceConfig(_BaseConfig):
         default=300.0, gt=0, description="Дедлайн на оценку одной закупки (сек)"
     )
 
-    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
-    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")
-
 
 class AnalysisServiceConfig(_BaseConfig):
     """Несекретная конфигурация analysis_service (src/analysis_service/config.yaml)."""
@@ -133,10 +127,29 @@ class AnalysisServiceConfig(_BaseConfig):
         default="https://api.deepseek.com/v1", description="Базовый URL LLM (OpenAI-совместимый)"
     )
     llm_model: str = Field(default="deepseek-v4-flash", description="Модель LLM")
+    llm_max_tokens: int = Field(default=4096, ge=1, description="Максимум токенов в ответе LLM")
     llm_temperature: float = Field(default=0.0, ge=0, le=2, description="Температура LLM")
     llm_request_timeout: float = Field(
         default=45.0, gt=0, description="Таймаут одного LLM-запроса (сек)"
     )
+
+    # Giga Embedder (векторная близость) — тот же набор параметров, что и в
+    # scoring_service; порог близости (embedding_filter_threshold) здесь не
+    # используется (нет скоринга по мотивам).
+    giga_enabled: bool = Field(default=True, description="Включить ветку векторной близости")
+    giga_base_url: str = Field(
+        default="https://gigachat.devices.sberbank.ru/api/v1", description="Базовый URL Giga"
+    )
+    giga_embeddings_model: str = Field(default="EmbeddingsGigaR", description="Модель эмбеддингов")
+    giga_auth_url: str = Field(
+        default="https://ngw.devices.sberbank.ru:9443/api/v2/oauth", description="URL OAuth Giga"
+    )
+    giga_auth_scope: str = Field(default="GIGACHAT_API_PERS", description="Scope OAuth Giga")
+    giga_timeout_seconds: float = Field(default=30.0, gt=0, description="Таймаут эмбеддингов (сек)")
+    giga_min_token_ttl_seconds: float = Field(
+        default=60.0, ge=0, description="Мин. TTL токена до обновления (сек)"
+    )
+    giga_verify_ssl: bool = Field(default=False, description="Проверять SSL при обращении к Giga")
 
     # Эмбеддинги (OpenAI-совместимый endpoint /embeddings)
     embedding_base_url: str = Field(
@@ -176,9 +189,6 @@ class AnalysisServiceConfig(_BaseConfig):
     )
     tz_verify_ssl: bool = Field(default=False, description="Проверять SSL при скачивании файла ТЗ")
 
-    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
-    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")
-
 
 class MarginServiceConfig(_BaseConfig):
     """Несекретная конфигурация margin_service (src/margin_service/config.yaml)."""
@@ -204,9 +214,6 @@ class MarginServiceConfig(_BaseConfig):
         default=1.0, ge=0, description="Норма прибыли: Margin = НМЦК × margin_rate"
     )
     score_round_digits: int = Field(default=2, ge=0, description="Округление score")
-
-    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
-    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")
 
 
 class PwinServiceConfig(_BaseConfig):
@@ -249,14 +256,6 @@ class PwinServiceConfig(_BaseConfig):
     k_procedure_auction: float = Field(default=1.3, ge=0, description="Электронный аукцион")
     k_procedure_contest: float = Field(default=1.0, ge=0, description="Открытый конкурс")
     k_procedure_quotation: float = Field(default=0.8, ge=0, description="Запрос котировок")
-    k_ai: float = Field(default=1.8, ge=0, description="Закупка ИИ-решений")
-    ai_markers: list[str] = Field(
-        default_factory=list,
-        description="Маркеры ИИ-закупки в subject/okpd2 (регистронезависимый поиск подстроки)",
-    )
     max_pwin_cap: float = Field(
         default=0.95, ge=0, le=1, description="Кап P(win) — защита от переоценки"
     )
-
-    # Логирование (собственный config.yaml сервиса; в изолированном контейнере).
-    logging: LoggingSettings = Field(default_factory=LoggingSettings, description="Логирование")

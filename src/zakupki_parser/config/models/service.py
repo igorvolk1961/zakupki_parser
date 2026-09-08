@@ -92,12 +92,6 @@ class ScoringConfig(_BaseConfig):
             "score=0 и score_method=sim. Значение <= 0 отключает фильтрацию"
         ),
     )
-    giga_embedding_alpha: float = Field(
-        default=0.0,
-        ge=0,
-        le=1,
-        description="Вес векторной близости в итоговом score (0 — только диагностика)",
-    )
     giga_enabled: bool = Field(
         default=False,
         description="Выполнять ли ветку векторной близости (эмбеддинги компетенций и описания)",
