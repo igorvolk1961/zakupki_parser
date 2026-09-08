@@ -2,7 +2,8 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    UV_COMPILE_BYTECODE=1
+    UV_COMPILE_BYTECODE=1 \
+    DEBIAN_FRONTEND=noninteractive
 
 # Конвертеры легаси .doc в текст (catdoc/antiword): MarkItDown .doc не понимает,
 # а RAG-экстрактор ТЗ падает на них без внешнего конвертера.
