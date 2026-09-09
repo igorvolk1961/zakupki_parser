@@ -252,7 +252,7 @@ function renderModal(row) {
   }
   const panels = [
     `<div class="card-tab-panel active" data-cardpanel="data">${cardDataPanel(row, f, files)}</div>`,
-    `<div class="card-tab-panel" data-cardpanel="scoring" style="display:none">${cardScoringPanel(row, f)}</div>`,
+    `<div class="card-tab-panel" data-cardpanel="scoring" style="display:none">${cardScoringPanel(row, f, isAnalyzing)}</div>`,
   ];
   if (analyst) {
     panels.push(`<div class="card-tab-panel" data-cardpanel="metrics" style="display:none">${cardMetricsPanel(row)}</div>`);
@@ -301,7 +301,7 @@ function cardDataPanel(row, f, files) {
 }
 
 // Вкладка «Результаты скоринга и анализа»: оценки каскада + RAG-отчёт стоп-условий.
-function cardScoringPanel(row, f) {
+function cardScoringPanel(row, f, isAnalyzing) {
   const methodLabel = row.score_method
     ? { manual: "ручная", reject: "отклонена", fit: "fit", sim: "sim", pwin: "pwin", margin: "margin" }[row.score_method] || row.score_method
     : "—";
@@ -321,7 +321,7 @@ function cardScoringPanel(row, f) {
     ${f("Трейс скоринга", scoreTrace)}
     ${f("Трейс анализа документов", analysisTrace)}
   </table>
-  ${ragReportHtml(row.rag_report)}`;
+  ${ragReportHtml(row.rag_report, isAnalyzing)}`;
 }
 
 // Вкладка «Метрики» (только analyst): токены, стоимость токенов, латенси,
@@ -571,11 +571,13 @@ async function viewRequirements(id) {
 }
 
 // RAG-отчёт анализа по вопросам клиента (персонализированные вопросы профиля).
-function ragReportHtml(report) {
+function ragReportHtml(report, isAnalyzing) {
   if (!report) {
+    const hint = isAnalyzing
+      ? "Анализ выполняется. Вердикты по вопросам профиля появятся после завершения."
+      : "Анализ не выполнялся. Нажмите «Анализ документов», чтобы получить вердикты по вопросам профиля.";
     return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
-      <p class="muted">Анализ не выполнялся. Нажмите «Анализ документов», чтобы получить
-      вердикты по вопросам профиля.</p>`;
+      <p class="muted">${hint}</p>`;
   }
   const verdictBadge = (q) => {
     const v = q.verdict;

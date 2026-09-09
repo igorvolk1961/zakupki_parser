@@ -21,6 +21,7 @@ async function loadLogFiles() {
     return;
   }
   const saved = localStorage.getItem(LOG_FILE_KEY) || "";
+  const current = sel.value;
   sel.innerHTML = "";
   (data.files || []).forEach((f) => {
     const o = document.createElement("option");
@@ -32,9 +33,10 @@ async function loadLogFiles() {
     sel.innerHTML = '<option value="">— нет файлов —</option>';
     return;
   }
-  // Предпочитаем сохранённый выбор, иначе первый файл (основной лог).
-  const savedOption = Array.from(sel.options).find((o) => o.value === saved);
-  sel.value = savedOption ? saved : sel.options[0].value;
+  // Предпочитаем текущий выбор, затем сохранённый, иначе первый файл (основной лог).
+  const keepCurrent = Array.from(sel.options).find((o) => o.value === current);
+  const keepSaved = Array.from(sel.options).find((o) => o.value === saved);
+  sel.value = (keepCurrent || keepSaved || sel.options[0]).value;
   loadLogs();
 }
 
@@ -120,7 +122,9 @@ function setupAutoRefresh() {
       const view = document.getElementById("view-logs");
       if (!view || view.style.display === "none") return;
       try {
-        await loadLogs();
+        // loadLogFiles сам вызывает loadLogs; заодно обновляет список файлов, чтобы
+        // только что появившийся лог сервиса попал в селектор без перезагрузки.
+        await loadLogFiles();
       } catch (e) {
         /* сервис недоступен — повторим на следующем тике */
       }

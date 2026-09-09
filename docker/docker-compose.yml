@@ -255,8 +255,11 @@ services:
       LANGFUSE_HOST: ${LANG_HOST:-http://langfuse-web:3000}
       # Общий том промптов: правки из вкладки «Промпты» (api) видны при следующем старте.
       SCORE_PROMPTS_DIR: /app/prompts
+      # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
+      SCORE_LOGGING__FILE: data/logs/scoring_service.log
     volumes:
       - ../src/scoring_service/scoring_service/pipeline/prompts:/app/prompts
+      - ../data/logs:/app/scoring_service/data/logs
     restart: unless-stopped
 
   scoring-transport:
@@ -273,8 +276,12 @@ services:
       # Bearer-токен для inbound-запросов (авто-пуш от парсера): тот же внутренний
       # service-to-service секрет, что и у парсера. serve без него не стартует.
       TRANSPORT_AUTH_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
+      # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
+      TRANSPORT_LOGGING__FILE: data/logs/scoring_transport.log
     ports:
       - "${TRANSPORT_PORT:-8200}:8200"
+    volumes:
+      - ../data/logs:/app/scoring_transport/data/logs
     restart: unless-stopped
 
   pwin-service:
@@ -288,6 +295,10 @@ services:
       PWIN_REDIS_URL: redis://redis:6379/0
       PWIN_PARSER_API_URL: http://api:8000
       PWIN_PARSER_INTERNAL_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
+      # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
+      PWIN_LOGGING__FILE: data/logs/pwin_service.log
+    volumes:
+      - ../data/logs:/app/pwin_service/data/logs
     restart: unless-stopped
 
   margin-service:
@@ -301,6 +312,10 @@ services:
       MARGIN_REDIS_URL: redis://redis:6379/0
       MARGIN_PARSER_API_URL: http://api:8000
       MARGIN_PARSER_INTERNAL_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
+      # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
+      MARGIN_LOGGING__FILE: data/logs/margin_service.log
+    volumes:
+      - ../data/logs:/app/margin_service/data/logs
     restart: unless-stopped
 
   analysis-service:
@@ -337,8 +352,11 @@ services:
       LANGFUSE_HOST: ${LANG_HOST:-http://langfuse-web:3000}
       # Общий том промптов: правки из вкладки «Промпты» (api) видны при следующем старте.
       ANALYSIS_PROMPTS_DIR: /app/analysis-prompts
+      # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
+      ANALYSIS_LOGGING__FILE: data/logs/analysis_service.log
     volumes:
       - ../src/analysis_service/analysis_service/pipeline/prompts:/app/analysis-prompts
+      - ../data/logs:/app/analysis_service/data/logs
     restart: unless-stopped
 
   # api — единый процесс парсера: веб-интерфейс (панель devops) и, по умолчанию,
@@ -376,6 +394,7 @@ services:
       - ../configs:/app/configs
       - ../src/scoring_service/scoring_service/pipeline/prompts:/app/prompts
       - ../src/analysis_service/analysis_service/pipeline/prompts:/app/analysis-prompts
+      - ../data/logs:/app/data/logs
     restart: unless-stopped
 
 volumes:
