@@ -1270,3 +1270,100 @@ def test_analysis_prompts_list_get_put(tmp_path: Path, analyst_headers: dict[str
         )
     os.environ.pop("ZAKUPKI_DB_DSN", None)
     os.environ.pop("ZAKUPKI_ANALYSIS_PROMPTS_DIR", None)
+
+
+def test_active_context_creates_default_profile(api_client: tuple[TestClient, Path]) -> None:
+    """Легаси-аккаунт с ролью user, но без профиля: активный контекст само-лечится.
+
+    Регрессия: «Активный профиль не найден (примените миграции)» при приёме
+    закупки «в работу» (POST /api/procurements/work/by-url) для аккаунтов,
+    созданных до мультитенантности (``create_user`` без default-профиля).
+    """
+    client, _ = api_client
+
+    async def _mk_user() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            user = await repo.create_user("legacy-no-profile", "h", [ROLE_USER])
+            assert await repo.get_active_profile(user.id) is None
+            return user.id
+        finally:
+            await db.dispose()
+
+    user_id = asyncio.run(_mk_user())
+    token = create_token(user_id, [ROLE_USER], AUTH_SECRET, 3600)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # «В работе» — базовый эндпоинт, зависящий от активного профиля.
+    resp = client.get("/api/procurements/work", headers=headers)
+    assert resp.status_code == 200
+
+    async def _profile_created() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            profile = await repo.get_active_profile(user_id)
+            assert profile is not None
+            assert profile.is_active is True
+        finally:
+            await db.dispose()
+
+    asyncio.run(_profile_created())
+
+
+def test_active_context_does_not_resurrect_disabled_profiles(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Все профили отключены: активный контекст не создаёт новый, а даёт 409.
+
+    Иначе молчаливое создание default-профиля вернуло бы пользователя в обход
+    парсера (`enabled=true`), хотя он осознанно отключил все свои профили.
+    """
+    client, _ = api_client
+
+    async def _mk_user() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            user = await repo.create_user("legacy-disabled-profile", "h", [ROLE_USER])
+            await repo.upsert_profile(
+                {
+                    "name": "disabled-only",
+                    "enabled": False,
+                    "is_active": False,
+                    "competencies": COMP_JSON,
+                    "keywords": [],
+                    "exclusion_words": [],
+                    "questions": [],
+                },
+                user.id,
+            )
+            assert await repo.get_active_profile(user.id) is None
+            return user.id
+        finally:
+            await db.dispose()
+
+    user_id = asyncio.run(_mk_user())
+    token = create_token(user_id, [ROLE_USER], AUTH_SECRET, 3600)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = client.get("/api/procurements/work", headers=headers)
+    assert resp.status_code == 409
+
+    async def _still_disabled() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            rows, total = await repo.list_profiles(user_id)
+            assert total == 1
+            assert rows[0].name == "disabled-only"
+            assert await repo.get_active_profile(user_id) is None
+        finally:
+            await db.dispose()
+
+    asyncio.run(_still_disabled())
