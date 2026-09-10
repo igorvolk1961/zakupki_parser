@@ -12,6 +12,9 @@ import { api, apiJSON } from "./api.js";
 import { openDetail } from "./procurements.js";
 
 const WORK_LIMIT = 1000;
+// Потолок GET /api/procurements (Query le=100) — список «в работе» грузим
+// страницами, иначе limit=1000 даёт 422 и таблица молча не обновляется.
+const WORK_PAGE_SIZE = 100;
 let workTotal = 0;
 let workRows = [];
 let orphans = [];
@@ -78,13 +81,21 @@ function workStatus(msg, isError) {
 
 export async function loadWork() {
   try {
-    const data = await api("procurements", {
-      in_work: true,
-      limit: WORK_LIMIT,
-      offset: 0,
-    });
-    workTotal = data.total || 0;
-    workRows = data.items || [];
+    workRows = [];
+    workTotal = 0;
+    let offset = 0;
+    while (offset < WORK_LIMIT) {
+      const data = await api("procurements", {
+        in_work: true,
+        limit: WORK_PAGE_SIZE,
+        offset,
+      });
+      const items = data.items || [];
+      workRows = workRows.concat(items);
+      workTotal = data.total || 0;
+      if (!items.length || workRows.length >= workTotal) break;
+      offset += WORK_PAGE_SIZE;
+    }
     // Записи-снимки по URL без закупки в базе (procurement_id IS NULL): BR-08 —
     // не пропадают при очистке результатов поиска и остаются управляемыми.
     const all = await api("procurements/work");
