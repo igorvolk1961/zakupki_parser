@@ -30,6 +30,16 @@ def _subject(record: dict[str, Any]) -> str:
     return subject if isinstance(subject, str) else ""
 
 
+def subject_of(record: dict[str, Any]) -> str:
+    """Публичная обёртка над ``_subject`` — для вызывающих из других модулей.
+
+    Нужна live-фоллбэку поиска по документам (``processing.py``), который
+    комбинирует ``subject`` с текстом документов перед повторной проверкой
+    ``keywords_match_text``.
+    """
+    return _subject(record)
+
+
 def _stem_pattern(token: str) -> str:
     """Паттерн усечённого слова: ``услуг*`` -> ``услуг[а-яё]*`` (граница слова)."""
     stem = token.rstrip("*")
@@ -93,14 +103,43 @@ def _expression_match(subject: str, expression: str) -> bool:
     return all(_token_match(subject, token) for token in tokens)
 
 
-def keywords_match(record: dict[str, Any], keywords: list[str]) -> bool:
-    """True, если хотя бы одно позитивное слово совпало (пустой список — True)."""
+def keywords_match_text(text: str, keywords: list[str]) -> bool:
+    """True, если хотя бы одно позитивное слово совпало с ``text`` (пустой список — True).
+
+    Базовая функция матчинга по произвольному тексту (не только ``subject``
+    записи) — используется и для клиентской пост-фильтрации листинга, и для
+    live-фоллбэка поиска по тексту документов закупки (профильная опция
+    «искать ключевые слова в документах»), чтобы оба пути давали одинаковые
+    результаты при одинаковом тексте.
+    """
     if not keywords:
         return True
-    subject = _subject(record)
-    if not subject:
+    if not text:
         return False
-    return any(_expression_match(subject, keyword) for keyword in keywords)
+    return any(_expression_match(text, keyword) for keyword in keywords)
+
+
+def matched_keywords_text(text: str, keywords: list[str]) -> list[str]:
+    """Список ключевых слов, совпавших с ``text`` (пустой список — не совпало)."""
+    if not keywords:
+        return []
+    if not text:
+        return []
+    return [keyword for keyword in keywords if _expression_match(text, keyword)]
+
+
+def exclusions_present_text(text: str, exclusion_words: list[str]) -> bool:
+    """True, если любое слово-исключение совпало с ``text``."""
+    if not exclusion_words:
+        return False
+    if not text:
+        return False
+    return any(_expression_match(text, word) for word in exclusion_words)
+
+
+def keywords_match(record: dict[str, Any], keywords: list[str]) -> bool:
+    """True, если хотя бы одно позитивное слово совпало (пустой список — True)."""
+    return keywords_match_text(_subject(record), keywords)
 
 
 def matched_keywords(record: dict[str, Any], keywords: list[str]) -> list[str]:
@@ -109,22 +148,12 @@ def matched_keywords(record: dict[str, Any], keywords: list[str]) -> list[str]:
     Возвращает совпавшие выражения (из ``keywords``) для записи в
     ``procurement_evaluations.matched_keywords``. Пустой список — не совпало.
     """
-    if not keywords:
-        return []
-    subject = _subject(record)
-    if not subject:
-        return []
-    return [keyword for keyword in keywords if _expression_match(subject, keyword)]
+    return matched_keywords_text(_subject(record), keywords)
 
 
 def exclusions_present(record: dict[str, Any], exclusion_words: list[str]) -> bool:
     """True, если любое слово-исключение совпало с описанием закупки."""
-    if not exclusion_words:
-        return False
-    subject = _subject(record)
-    if not subject:
-        return False
-    return any(_expression_match(subject, word) for word in exclusion_words)
+    return exclusions_present_text(_subject(record), exclusion_words)
 
 
 def _region_of(record: dict[str, Any]) -> str:

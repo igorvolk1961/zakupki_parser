@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from zakupki_parser.parser.filtering import (
     exclusions_present,
+    exclusions_present_text,
     keywords_match,
+    keywords_match_text,
+    matched_keywords_text,
     region_match,
 )
 
@@ -98,6 +101,40 @@ def test_matched_keywords_empty_subject() -> None:
     from zakupki_parser.parser.filtering import matched_keywords
 
     assert matched_keywords({"number": "N", "subject": ""}, ["ИИ"]) == []
+
+
+def test_keywords_match_text_equivalent_to_record_subject() -> None:
+    # keywords_match(record, kw) должен быть тонкой обёрткой над keywords_match_text
+    # по subject — эквивалентность гарантирует, что live-путь по subject и
+    # live-фоллбэк по subject+документы (см. processing.py) используют один движок.
+    assert keywords_match_text("Разработка ИИ-ассистента", ["ИИ"])
+    assert keywords_match(_record("Разработка ИИ-ассистента"), ["ИИ"]) == keywords_match_text(
+        "Разработка ИИ-ассистента", ["ИИ"]
+    )
+
+
+def test_keywords_match_text_matches_document_only_text() -> None:
+    # Совпадение, которого нет в subject, но есть в тексте документа — ровно
+    # сценарий live-фоллбэка «искать ключевые слова в документах».
+    subject = "Оказание услуг по уборке помещений"
+    document_text = "Приложение 1: техническое задание на разработку ИИ-ассистента"
+    assert not keywords_match_text(subject, ["ИИ-ассистент*"])
+    combined = f"{subject}\n{document_text}"
+    assert keywords_match_text(combined, ["ИИ-ассистент*"])
+    assert matched_keywords_text(combined, ["ИИ-ассистент*", "ремонт"]) == ["ИИ-ассистент*"]
+
+
+def test_keywords_match_text_empty_keywords_and_text() -> None:
+    assert keywords_match_text("любой текст", [])
+    assert not keywords_match_text("", ["ИИ"])
+    assert matched_keywords_text("", ["ИИ"]) == []
+
+
+def test_exclusions_present_text() -> None:
+    assert exclusions_present_text("Ремонт и модернизация", ["ремонт"])
+    assert not exclusions_present_text("Разработка ИИ", ["ремонт"])
+    assert not exclusions_present_text("любой текст", [])
+    assert not exclusions_present_text("", ["ремонт"])
 
 
 def _region_record(region: str) -> dict[str, str]:
