@@ -1442,6 +1442,26 @@ requirements:
       - tests/unit/test_geo_region_filter.py
       - src/analysis_service/tests/test_geo_verdict.py
 
+  # ===== Функциональные требования (группа 11: фоновая индексация по ОКПД2) =====
+  - id: FR-11.3
+    type: FR
+    title: Транслятор DSL ключевых слов в Postgres tsquery
+    stakeholder: DevOps / SRE
+    stage: "3, 4"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/parser/filtering_tsquery.py
+    tests:
+      - tests/unit/test_filtering_tsquery.py
+      - tests/integration/test_filtering_tsquery_parity.py
+    notes: >-
+      Конфигурация to_tsvector — simple (не russian): DSL не делает лингвистический
+      стемминг, только символьное усечение/точное слово — 'simple' даёт точное
+      соответствие семантике клиентского движка (parser/filtering.py). Нужен
+      для мгновенного «горячего» пересбора закупок из проиндексированного
+      диапазона ОКПД2 (см. также FR-11.1, FR-11.2, FR-11.4).
+
   # ===== Бизнес-правила =====
   - id: BR-01
     type: BR
