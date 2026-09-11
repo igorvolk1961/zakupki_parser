@@ -1553,6 +1553,22 @@ requirements:
       - tests/unit/test_user_options.py
       - tests/unit/test_scheduler_recovery.py
     notes: один активный аккаунт; триал включает все опции; гейт платных операций и сохранение профиля без компетенций по аккаунту
+  - id: BR-10
+    type: BR
+    title: Устойчивое определение принадлежности закупки диапазону ОКПД2
+    stakeholder: DevOps / SRE
+    stage: "3, 4"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/okpd.py#okpd_code_covered_by_prefixes
+    tests:
+      - tests/unit/test_okpd_prefixes.py
+    notes: >-
+      Сравнение по иерархии нормализованного кода (не подстрокой сырой строки
+      okpd2_codes) — код "26.62.11" (раздел 26) не должен ложно совпасть с
+      префиксом "62". Используется системным индексным профилем (FR-11.1) и
+      гибридным роутингом «горячего» пересбора (US-11.1).
 
   # ===== Нефункциональные требования =====
   - id: NFR-COST-1

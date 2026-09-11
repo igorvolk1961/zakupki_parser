@@ -70,6 +70,69 @@ def normalize_okpd_codes(codes: Sequence[str | None] | None) -> list[str]:
     return out
 
 
+def okpd_code_covered_by_prefixes(code: str, prefixes: Sequence[str]) -> bool:
+    """True, если нормализованный код ОКПД2 входит в один из префиксов.
+
+    Сравнение — по цифрам нормализованного кода (иерархия ОКПД2: раздел.группа.
+    класс…), а НЕ подстрокой сырой строки — код ``26.62.11`` (раздел 26) не должен
+    ложно совпасть с префиксом ``62``. Некорректные (невалидные по формату)
+    ``code``/``prefixes`` игнорируются (не поднимают исключение).
+    """
+    try:
+        digits = _digits(normalize_okpd_code(code))
+    except ValueError:
+        return False
+    for raw_prefix in prefixes:
+        try:
+            prefix_digits = _digits(normalize_okpd_code(str(raw_prefix)))
+        except ValueError:
+            continue
+        if prefix_digits and digits.startswith(prefix_digits):
+            return True
+    return False
+
+
+def normalize_okpd2_field(raw_codes: str | None) -> str | None:
+    """Нормализует сырую многозначную строку ОКПД2 закупки в каноническую строку.
+
+    Используется для ``procurement_search_index.okpd2_normalized`` (денормализация
+    для удобства фильтрации/отображения индекса) — не для проверки «входит ли в
+    диапазон префиксов»: для этого используйте ``any_okpd_code_covered_by_prefixes``
+    по исходному значению (устойчивее к иерархии кодов, см. её докстринг).
+    """
+    if not raw_codes:
+        return None
+    normalized: list[str] = []
+    for part in re.split(r"[,;\n]+", raw_codes):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            code = normalize_okpd_code(part)
+        except ValueError:
+            continue
+        if code not in normalized:
+            normalized.append(code)
+    return ", ".join(normalized) if normalized else None
+
+
+def any_okpd_code_covered_by_prefixes(raw_codes: str | None, prefixes: Sequence[str]) -> bool:
+    """True, если хотя бы один код из сырой многозначной строки ОКПД2 закупки.
+
+    входит в ``prefixes``. ``raw_codes`` — значение ``Procurement.okpd2_codes``
+    (свободный текст площадки, коды могут быть перечислены через запятую/точку с
+    запятой/перевод строки); каждый элемент разбирается независимо, невалидные
+    пропускаются.
+    """
+    if not raw_codes or not prefixes:
+        return False
+    for part in re.split(r"[,;\n]+", raw_codes):
+        part = part.strip()
+        if part and okpd_code_covered_by_prefixes(part, prefixes):
+            return True
+    return False
+
+
 def parse_tree_html(html: str) -> dict[str, Any]:
     """Разбирает снимок выбранных ветвей ОКПД2 в маппинг код→путь и путь→имя."""
     code_to_path: dict[str, str] = {}
