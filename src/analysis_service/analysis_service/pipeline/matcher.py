@@ -211,7 +211,7 @@ def _experience_verdict(
             qtext,
             VERDICT_ABSOLUTE,
             MARKERS[VERDICT_ABSOLUTE],
-            "Требуется подтверждение опыта на площадке (ПП РФ 2571) — в профиле нет",
+            "Требуется подтверждение опыта на площадке (ПП 2571) — в профиле нет",
             _excerpt(block),
             facts,
         )

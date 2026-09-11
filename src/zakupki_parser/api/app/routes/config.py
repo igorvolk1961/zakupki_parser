@@ -566,6 +566,10 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                         "tz_verify_ssl",
                     ),
                 ),
+                (
+                    "Геокодирование",
+                    ("geo_base_url",),
+                ),
             ),
         ),
         _ServiceConfig(

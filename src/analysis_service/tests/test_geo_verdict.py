@@ -10,7 +10,7 @@ from analysis_service.worker import AnalysisWorker
 
 from scoring_common.geo.centers import GeoPoint
 
-_MOSCOW = GeoPoint(55.7558, 37.6173)
+_CENTER = GeoPoint(55.7558, 37.6173)
 _SPB = GeoPoint(59.9343, 30.3351)
 
 
@@ -39,7 +39,7 @@ class _StubParser:
         self.procurement_geo = procurement_geo or {
             "delivery_lat": None,
             "delivery_lon": None,
-            "region": "Москва",
+            "region": "Регион",
         }
         self.put_calls: list[tuple[str, Any]] = []
         self.put_profile_calls: list[tuple[int, list[str], list[dict[str, float]]]] = []
@@ -65,7 +65,7 @@ class _StubParser:
         self, procurement_id: int, lat: float, lon: float
     ) -> dict[str, Any]:
         self.put_calls.append(("procurement", procurement_id))
-        return {"delivery_lat": lat, "delivery_lon": lon, "region": "Москва"}
+        return {"delivery_lat": lat, "delivery_lon": lon, "region": "Регион"}
 
 
 def _worker(geocoder: _StubGeocoder, parser: _StubParser) -> AnalysisWorker:
@@ -78,32 +78,32 @@ def _worker(geocoder: _StubGeocoder, parser: _StubParser) -> AnalysisWorker:
 
 async def test_geo_verdict_within_and_caches() -> None:
     """Центры перегеокодируются (пустой кэш) и сохраняются; too_far=False."""
-    geo = _StubGeocoder({"москва": _MOSCOW})
-    parser = _StubParser(regions=["Москва"], max_km=400.0)
+    geo = _StubGeocoder({"регион": _CENTER})
+    parser = _StubParser(regions=["Регион"], max_km=400.0)
     w = _worker(geo, parser)
-    record = {"region": "Москва"}
+    record = {"region": "Регион"}
     verdict = await w._geo_verdict(record, 1618, 21)  # type: ignore[attr-defined]
     assert verdict is not None
     assert verdict["too_far"] is False
     assert verdict["max_distance_km"] == 400.0
-    assert verdict["region"] == "Москва"
-    assert parser.put_profile_calls == [(21, ["Москва"], [{"lat": 55.7558, "lon": 37.6173}])]
+    assert verdict["region"] == "Регион"
+    assert parser.put_profile_calls == [(21, ["Регион"], [{"lat": 55.7558, "lon": 37.6173}])]
     assert parser.put_calls == [("procurement", 1618)]
 
 
 async def test_geo_verdict_reuses_procurement_coords() -> None:
     """Координаты закупки уже в БД — не перегеокодируем (треб. 1)."""
-    geo = _StubGeocoder({"москва": _MOSCOW})
+    geo = _StubGeocoder({"регион": _CENTER})
     parser = _StubParser(
-        regions=["Москва"],
+        regions=["Регион"],
         max_km=400.0,
-        procurement_geo={"delivery_lat": 55.7558, "delivery_lon": 37.6173, "region": "Москва"},
+        procurement_geo={"delivery_lat": 55.7558, "delivery_lon": 37.6173, "region": "Регион"},
     )
     w = _worker(geo, parser)
-    verdict = await w._geo_verdict({"region": "Москва"}, 1618, 21)  # type: ignore[attr-defined]
+    verdict = await w._geo_verdict({"region": "Регион"}, 1618, 21)  # type: ignore[attr-defined]
     assert verdict is not None
     assert verdict["too_far"] is False
-    assert geo.calls == ["москва"]  # только центр региона, место поставки НЕ геокодировалось
+    assert geo.calls == ["регион"]  # только центр региона, место поставки НЕ геокодировалось
     assert parser.put_calls == []  # сохранение координат закупки не потребовалось
 
 
@@ -111,13 +111,13 @@ async def test_geo_verdict_reuses_profile_center_cache() -> None:
     """Набор регионов не изменился — кэш центров используется (треб. 2)."""
     geo = _StubGeocoder({})
     parser = _StubParser(
-        regions=["Москва"],
+        regions=["Регион"],
         max_km=400.0,
-        profile_cache={"regions": ["Москва"], "centers": [{"lat": 55.7558, "lon": 37.6173}]},
-        procurement_geo={"delivery_lat": 55.7558, "delivery_lon": 37.6173, "region": "Москва"},
+        profile_cache={"regions": ["Регион"], "centers": [{"lat": 55.7558, "lon": 37.6173}]},
+        procurement_geo={"delivery_lat": 55.7558, "delivery_lon": 37.6173, "region": "Регион"},
     )
     w = _worker(geo, parser)
-    verdict = await w._geo_verdict({"region": "Москва"}, 1618, 21)  # type: ignore[attr-defined]
+    verdict = await w._geo_verdict({"region": "Регион"}, 1618, 21)  # type: ignore[attr-defined]
     assert verdict is not None
     assert verdict["too_far"] is False
     assert geo.calls == []  # геокодер не вызывался вовсе (кэш профиля + кэш закупки)
@@ -126,20 +126,20 @@ async def test_geo_verdict_reuses_profile_center_cache() -> None:
 
 def test_geo_address_messages_placeholder_substituted() -> None:
     """Из промптов извлекается место поставки: address в системном, ТЗ в пользовательском."""
-    system, user = build_geo_address_messages("Место поставки: г. Москва")
+    system, user = build_geo_address_messages("Место поставки: г. Регион")
     assert "address" in system
-    assert "Место поставки: г. Москва" in user
+    assert "Место поставки: г. Регион" in user
 
 
 async def test_geo_verdict_none_without_constraint() -> None:
     """Нет дистанции — гео-проверка не применима (None)."""
-    w = _worker(_StubGeocoder({}), _StubParser(regions=["Москва"], max_km=None))
-    assert await w._geo_verdict({"region": "Москва"}, 1, 1) is None  # type: ignore[attr-defined]
+    w = _worker(_StubGeocoder({}), _StubParser(regions=["Регион"], max_km=None))
+    assert await w._geo_verdict({"region": "Регион"}, 1, 1) is None  # type: ignore[attr-defined]
 
 
 async def test_geo_verdict_none_when_region_far_but_geocoder_unavailable() -> None:
     """Геокодер не знает регионов — fail-open (None), закупка не теряется."""
     geo = _StubGeocoder({})
-    parser = _StubParser(regions=["Москва"], max_km=400.0)
+    parser = _StubParser(regions=["Регион"], max_km=400.0)
     w = _worker(geo, parser)
-    assert await w._geo_verdict({"region": "Москва"}, 1618, 21) is None  # type: ignore[attr-defined]
+    assert await w._geo_verdict({"region": "Регион"}, 1618, 21) is None  # type: ignore[attr-defined]

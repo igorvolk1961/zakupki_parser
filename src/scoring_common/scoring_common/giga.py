@@ -27,9 +27,11 @@ from scoring_common.costing import embedding_cost_usd, embedding_input_tokens
 from scoring_common.langfuse import start_observation
 
 # Общие дефолты настроек Giga. Единый источник, чтобы у scoring_service и
-# analysis_service не расходились модель/эндпоинты (риск дрейфа).
-GIGA_BASE_URL = "https://gigachat.devices.sberbank.ru/api/v1"
-GIGA_AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+# analysis_service не расходились модель/эндпоинты (риск дрейфа). Рабочие
+# эндпоинты задаются в config.yaml сервисов (giga_base_url/giga_auth_url);
+# здесь — нейтральные значения на случай отсутствия конфига.
+GIGA_BASE_URL = "https://gigachat.devices.sberbank.example/api/v1"
+GIGA_AUTH_URL = "https://ngw.devices.sberbank.example:9443/api/v2/oauth"
 GIGA_EMBEDDINGS_MODEL = "EmbeddingsGigaR"
 GIGA_AUTH_SCOPE = "GIGACHAT_API_PERS"
 GIGA_DEFAULT_TIMEOUT_SECONDS = 30.0

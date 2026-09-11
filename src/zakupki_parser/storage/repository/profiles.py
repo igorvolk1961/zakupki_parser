@@ -79,7 +79,7 @@ class ProfileMixin(RepositoryMixin):
     DEFAULT_PROFILE_NAME = "default"
 
     CONFIRMATION_TYPES_SEED = [
-        ("platform", "Через электронную площадку (ПП РФ 2571)"),
+        ("platform", "Через электронную площадку (ПП 2571)"),
         ("documents", "Сканы договоров/актов"),
         ("registry", "Выписка из реестра контрактов"),
     ]

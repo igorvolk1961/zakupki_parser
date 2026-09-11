@@ -123,13 +123,16 @@ class TestMaxBackend:
             captured["json"] = request.content
             return httpx.Response(200, json={"message": {"id": 1}})
 
-        cfg = MaxConfig(enabled=True, chat_id="123456789012345678", token="SECRET")
+        cfg = MaxConfig(
+            enabled=True,
+            chat_id="123456789012345678",
+            token="SECRET",
+            base_url="https://max.example",
+        )
         backend = MaxBackend(cfg)
         await backend.send(_RECORD, transport=httpx.MockTransport(handler))
 
-        assert captured["url"] == (
-            "https://platform-api2.max.ru/messages?chat_id=123456789012345678"
-        )
+        assert captured["url"] == "https://max.example/messages?chat_id=123456789012345678"
         assert captured["headers"]["Authorization"] == "SECRET"
         payload = json.loads(captured["json"])
         assert payload["format"] == "html"

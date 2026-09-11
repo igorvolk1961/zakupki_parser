@@ -22,6 +22,7 @@ notifications:
     enabled: true
     chat_id: '-77593707840894'
     timeout_seconds: 10.0
+    base_url: "https://platform-api2.max.ru"
     insecure_tls: true
   webhook:
     enabled: false

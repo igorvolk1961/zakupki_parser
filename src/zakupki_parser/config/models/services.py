@@ -96,11 +96,12 @@ class ScoringServiceConfig(_BaseConfig):
     # Ветка векторной близости (Giga Embedder) — включена по факту запуска (.env).
     giga_enabled: bool = Field(default=True, description="Включить ветку векторной близости")
     giga_base_url: str = Field(
-        default="https://gigachat.devices.sberbank.ru/api/v1", description="Базовый URL Giga"
+        default="https://gigachat.devices.sberbank.example/api/v1", description="Базовый URL Giga"
     )
     giga_embeddings_model: str = Field(default="EmbeddingsGigaR", description="Модель эмбеддингов")
     giga_auth_url: str = Field(
-        default="https://ngw.devices.sberbank.ru:9443/api/v2/oauth", description="URL OAuth Giga"
+        default="https://ngw.devices.sberbank.example:9443/api/v2/oauth",
+        description="URL OAuth Giga",
     )
     giga_auth_scope: str = Field(default="GIGACHAT_API_PERS", description="Scope OAuth Giga")
     giga_timeout_seconds: float = Field(default=30.0, gt=0, description="Таймаут эмбеддингов (сек)")
@@ -138,11 +139,12 @@ class AnalysisServiceConfig(_BaseConfig):
     # используется (нет скоринга по мотивам).
     giga_enabled: bool = Field(default=True, description="Включить ветку векторной близости")
     giga_base_url: str = Field(
-        default="https://gigachat.devices.sberbank.ru/api/v1", description="Базовый URL Giga"
+        default="https://gigachat.devices.sberbank.example/api/v1", description="Базовый URL Giga"
     )
     giga_embeddings_model: str = Field(default="EmbeddingsGigaR", description="Модель эмбеддингов")
     giga_auth_url: str = Field(
-        default="https://ngw.devices.sberbank.ru:9443/api/v2/oauth", description="URL OAuth Giga"
+        default="https://ngw.devices.sberbank.example:9443/api/v2/oauth",
+        description="URL OAuth Giga",
     )
     giga_auth_scope: str = Field(default="GIGACHAT_API_PERS", description="Scope OAuth Giga")
     giga_timeout_seconds: float = Field(default=30.0, gt=0, description="Таймаут эмбеддингов (сек)")
@@ -188,6 +190,13 @@ class AnalysisServiceConfig(_BaseConfig):
         default=30.0, gt=0, description="Таймаут скачивания ТЗ (сек)"
     )
     tz_verify_ssl: bool = Field(default=False, description="Проверять SSL при скачивании файла ТЗ")
+
+    # Геокодирование (место поставки). Рабочий домен провайдера хранится здесь
+    # и в config.yaml, чтобы settings.py не содержал гео-домена.
+    geo_base_url: str = Field(
+        default="https://suggestions.dadata.example/suggestions/api/4_1/rs/suggest/address",
+        description="Базовый URL геокодера (DaData «Подсказки»)",
+    )
 
 
 class MarginServiceConfig(_BaseConfig):

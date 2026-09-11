@@ -137,7 +137,7 @@ class SearchFilterConfig(BaseModel):
         default=None,
         description=(
             "имя плейсхолдера offset в шаблонах query_params (например skip для "
-            "mos.ru, где пагинация take/skip внутри параметра queryDto). При задан "
+            "mos.example, где пагинация take/skip внутри параметра queryDto). При задан "
             "URL перестраивается с новым offset на каждой странице (вместо "
             "инкремента плоского параметра)"
         ),

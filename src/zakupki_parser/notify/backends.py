@@ -47,11 +47,10 @@ class TelegramBackend:
 class MaxBackend:
     """Отправляет карточку закупки в канал мессенджера MAX через Bot API.
 
-    Эндпоинт: ``POST https://platform-api2.max.ru/messages?chat_id={chat_id}``.
-    Токен передаётся в заголовке ``Authorization`` (не в query). Формат — HTML.
+    Эндпоинт: ``POST {base_url}/messages?chat_id={chat_id}`` (base_url — из
+    config_ops.yaml). Токен передаётся в заголовке ``Authorization`` (не в query).
+    Формат — HTML.
     """
-
-    _BASE_URL = "https://platform-api2.max.ru"
 
     def __init__(self, cfg: MaxConfig) -> None:
         self._cfg = cfg
@@ -73,7 +72,7 @@ class MaxBackend:
             "disable_link_preview": True,
         }
         headers = {"Authorization": self._token}
-        url = f"{self._BASE_URL}/messages?chat_id={self._chat_id}"
+        url = f"{self._cfg.base_url}/messages?chat_id={self._chat_id}"
         verify = not self._cfg.insecure_tls
         async with httpx.AsyncClient(
             timeout=self._timeout, transport=transport, verify=verify

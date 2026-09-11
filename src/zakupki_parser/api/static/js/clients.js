@@ -39,7 +39,7 @@ let compMode = "structured"; // "structured" | "raw"
 let compExclusions = [];
 // Обязательные системные проверки ТЗ (read-only; источник — analysis_service).
 const SYSTEM_QUESTIONS_UI = [
-  { id: "sys:exp_2571", text: "Опыт исполнения контрактов (ПП РФ 2571)" },
+  { id: "sys:exp_2571", text: "Опыт исполнения контрактов (ПП 2571)" },
   { id: "sys:minprom_registry", text: "Реестр Минпромторга" },
   { id: "sys:license_sro", text: "Лицензии / СРО / допуски" },
 ];

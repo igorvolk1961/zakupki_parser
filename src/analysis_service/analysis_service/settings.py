@@ -129,7 +129,9 @@ class Settings(BaseSettings):
     # Провайдер/доступ — как у парсера ранее; ключ читается из env ``ANALYSIS_GEO_API_KEY``.
     geo_enabled: bool = False
     geo_provider: str = "dadata"
-    geo_base_url: str = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address"
+    # Нейтральный default; рабочий URL провайдера задаётся в config.yaml
+    # (geo_base_url) или env ANALYSIS_GEO_BASE_URL.
+    geo_base_url: str = "https://suggestions.dadata.example/suggestions/api/4_1/rs/suggest/address"
     geo_min_result_quality: int = Field(default=1, ge=0, le=4)
     geo_timeout_seconds: float = Field(default=10.0, gt=0)
     geo_max_retries: int = Field(default=2, ge=0)

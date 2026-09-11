@@ -368,14 +368,12 @@ def test_matcher_license_rules() -> None:
 def test_resolve_license_kind_aliases() -> None:
     assert resolve_license_kind({"license_code": "mchs"}) == "mchs"
     assert (
-        resolve_license_kind(
-            {"license_name": "Лицензия МЧС России на монтаж пожарной сигнализации"}
-        )
+        resolve_license_kind({"license_name": "Лицензия МЧС на монтаж пожарной сигнализации"})
         == "mchs"
     )
-    assert resolve_license_kind({"authority": "ФСБ России (криптографические средства)"}) == "fsb"
+    assert resolve_license_kind({"authority": "ФСБ (криптографические средства)"}) == "fsb"
     assert (
-        resolve_license_kind({"license_name": "Лицензия ФСБ России на работы с гостайной"})
+        resolve_license_kind({"license_name": "Лицензия ФСБ на работы с гостайной"})
         == "fsb_gostayna"
     )
     assert (

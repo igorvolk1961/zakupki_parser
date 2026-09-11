@@ -44,7 +44,7 @@ class GeocodingConfig(BaseModel):
         default=None,
         description=(
             "базовый URL сервиса. Для DaData: "
-            "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address; "
+            "https://suggestions.dadata.example/suggestions/api/4_1/rs/suggest/address; "
             "для Nominatim: https://nominatim.openstreetmap.org. Пусто — модуль не активен"
         ),
     )
@@ -148,7 +148,7 @@ class _BaseGeocoder:
 
 
 class DadataGeocoder(_BaseGeocoder):
-    """DaData «Подсказки»: детализация адресов РФ до дома (ФИАС/ГАР)."""
+    """DaData «Подсказки»: детализация адресов страны до дома (ФИАС/ГАР)."""
 
     def __init__(
         self,

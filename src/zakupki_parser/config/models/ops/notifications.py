@@ -50,6 +50,10 @@ class MaxConfig(_BaseConfig):
         default=None, description="числовой id канала (int64), из подписки на события"
     )
     timeout_seconds: float = Field(default=10.0, ge=0)
+    base_url: str = Field(
+        default="https://platform-api2.max.example",
+        description="базовый URL Bot API MAX; рабочий — в config_ops.yaml",
+    )
     insecure_tls: bool = Field(
         default=True,
         description=(

@@ -1,3 +1,4 @@
+configs/config_ops.yaml
 configs/config_parser.yaml
 configs/dom/b2b_center.yaml
 configs/dom/etpgpb.yaml
@@ -9,14 +10,6 @@ configs/dom/roseltorg_44fz.yaml
 configs/dom/zakupki_gov_223fz.yaml
 configs/dom/zakupki_gov_44fz.yaml
 configs/dom/zakupki_mos.yaml
-data/OpenCompetition14933737-3-requirements.md
-data/export/procurements.csv
-data/logs/parser.log.1
-data/logs/parser.log.2
-data/out/score_csv_report copy.json
-data/out/score_csv_report.json
-data/session/storage.json
-data/tz_process.md
 docker/docker-compose.yml
 docker/liquibase/changelog/db.changelog-1.10.yaml
 docker/liquibase/changelog/db.changelog-1.20.yaml
@@ -24,31 +17,13 @@ docker/liquibase/changelog/db.changelog-1.21.yaml
 docker/liquibase/changelog/db.changelog-1.41.yaml
 docker/liquibase/changelog/db.changelog-1.50.yaml
 docs/references/ecopattern-profile.json
-docs/system_analysis/traceability/requirements-registry.yaml
 scripts/delete_max_messages.py
 scripts/get_max_chat_id.py
 scripts/test_max_chat.py
-src/analysis_service/analysis_service/pipeline/matcher.py
-src/analysis_service/analysis_service/pipeline/prompts/batch_system.md
 src/analysis_service/analysis_service/pipeline/prompts/geo_address_system.md
-src/analysis_service/analysis_service/pipeline/system_questions.py
-src/analysis_service/analysis_service/settings.py
 src/analysis_service/config.yaml
-src/analysis_service/tests/test_geo_verdict.py
-src/analysis_service/tests/test_rag.py
-src/scoring_common/scoring_common/geo/geocoder.py
-src/scoring_common/scoring_common/giga.py
-src/scoring_common/scoring_common/law_requirements.py
-src/scoring_common/scoring_common/requirements.py
 src/scoring_common/scoring_common/resources/44фз-28-12-2025-требования-к-участникам.json
-src/scoring_common/tests/test_tables.py
 src/scoring_service/config.yaml
-src/zakupki_parser/api/static/js/clients.js
-src/zakupki_parser/config/models/dom/search.py
-src/zakupki_parser/config/models/parser.py
-src/zakupki_parser/config/models/services.py
-src/zakupki_parser/notify/backends.py
-src/zakupki_parser/storage/repository/profiles.py
 tests/configs/config_dom.yaml
 tests/configs/config_parser.yaml
 tests/fixtures/b2b_delivery_address.html
@@ -88,5 +63,4 @@ tests/unit/test_metrics_journal.py
 tests/unit/test_organization.py
 tests/unit/test_profile_json.py
 tests/unit/test_scheduler_parallel.py
-tests/unit/test_telegram_notify.py
 tests/unit/test_url_filter.py

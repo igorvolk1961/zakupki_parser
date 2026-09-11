@@ -36,7 +36,7 @@ class BrowserConfig(BaseModel):
     viewport_width: int = Field(default=1366, ge=320)
     viewport_height: int = Field(default=768, ge=240)
     locale: str = Field(default="ru-RU")
-    timezone: str = Field(default="Europe/Moscow")
+    timezone: str = Field(default="UTC")
     disable_webdriver_flag: bool = Field(default=True)
     persist_session: bool = Field(default=True)
     session_dir: str = Field(default="data/session")
@@ -44,7 +44,7 @@ class BrowserConfig(BaseModel):
         default=False,
         description=(
             "игнорировать ошибки SSL-сертификата (нужно для площадок с "
-            "некорректным/корпоративным сертификатом, напр. zakupki.gov.ru)"
+            "некорректным/корпоративным сертификатом, напр. zakupki.gov.example)"
         ),
     )
     delay_between_actions_seconds: tuple[float, float] = Field(

@@ -40,11 +40,11 @@
 
 Пояснения к полям:
 - experience_2571.facts.confirmation:
-  - platform — подтверждение на электронной площадке (ПП РФ № 2571);
+  - platform — подтверждение на электронной площадке (ПП № 2571);
   - documents — сканы договоров/актов;
   - registry — выписка из реестра контрактов;
   - evaluation_only — опыт упоминается только в критериях оценки;
-- experience_2571.facts.ref_2571 — true, если в тексте есть ссылка на ПП РФ № 2571;
+- experience_2571.facts.ref_2571 — true, если в тексте есть ссылка на ПП № 2571;
 - minprom_registry.not_established_note — true, если в том же разделе есть пометка
      «не установлено» или аналогичная по смыслу (тогда required=false);
 - license_sro.facts.kind:

@@ -55,6 +55,11 @@ tz_download_timeout: 30.0
 # отдают самоподписанный промежуточный сертификат — для локальной разработки отключено.
 tz_verify_ssl: false
 
+# Геокодирование места поставки (провайдер DaData «Подсказки»). Рабочий домен
+# живёт здесь, а не в settings.py (там нейтральный .example default); ключ —
+# ANALYSIS_GEO_API_KEY в .env. Пусто/нейтральный URL — модуль не активен.
+geo_base_url: "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address"
+
 # Логирование (собственный блок; сервис в изолированном контейнере управляет
 # своим логом). file: null — логи в консоль/stdout (их собирает оркестратор);
 # для файла с ротацией укажите путь (например, data/logs/analysis_service.log).

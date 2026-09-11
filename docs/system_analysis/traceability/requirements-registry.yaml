@@ -1474,7 +1474,7 @@ requirements:
       - tests/unit/test_cascade.py
   - id: BR-03
     type: BR
-    title: Валидация опыта (ПП РФ 2571)
+    title: Валидация опыта (ПП 2571)
     stakeholder: Предметный эксперт (SME) / Эксперт по закупкам
     stage: "5"
     status: implemented

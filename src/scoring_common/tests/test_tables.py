@@ -20,7 +20,7 @@ def test_split_trailing_marker_number_independent() -> None:
         "Лот № 1:",
         "Не применяются",
     ]
-    assert _split_trailing_marker(["14.1", "…(ПП РФ № 2571): Не требуются"])[2] == "Не требуются"
+    assert _split_trailing_marker(["14.1", "…(ПП № 2571): Не требуются"])[2] == "Не требуются"
 
 
 def test_split_trailing_marker_keeps_standalone_value() -> None:

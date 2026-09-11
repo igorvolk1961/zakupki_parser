@@ -90,7 +90,6 @@ _KEYWORDS: dict[str, tuple[str, ...]] = {
         "запрет иностранн",
         "происхождени продукци",
         "не установлено",
-        "реестр российск",
     ),
 }
 _PRIORITY = {"licenses": 0, "experience": 1, "minprom": 2}
