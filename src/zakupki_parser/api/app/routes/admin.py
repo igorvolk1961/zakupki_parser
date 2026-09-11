@@ -64,10 +64,12 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         token = websocket.query_params.get("token")
         payload = decode_token(token or "", state.cfg.ops.auth.secret or "")
         if payload is None:
+            logger.info("WebSocket отклонён: недействительный или истёкший токен")
             await websocket.close(code=1008)
             return
         user = await _repo().get_user(payload["sub"])
         if user is None or user.status == "blocked":
+            logger.info("WebSocket отклонён: пользователь недоступен или заблокирован")
             await websocket.close(code=1008)
             return
         await websocket.accept()

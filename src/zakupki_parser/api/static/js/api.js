@@ -3,7 +3,7 @@
 // Сетевой слой: fetch-обёртки с авторизацией, токен и канал живых обновлений (WS).
 import { $ } from "./utils.js";
 import { state } from "./store.js";
-import { showLogin } from "./auth.js";
+import { showLogin, renderAuth } from "./auth.js";
 import { canAccessBase } from "./roles.js";
 import { pollProc } from "./procurements.js";
 import { pollCustomers } from "./customers.js";
@@ -100,11 +100,33 @@ export function scheduleRefresh() {
   }, 500);
 }
 
+// Переподключение канала обновлений после разрыва. Соединение могло закрыться
+// из-за недействительного/просроченного токена (сервер отклоняет /ws с 403 без
+// внятного кода — браузер видит лишь аварийное закрытие). Перед повтором
+// проверяем сессию через /api/auth/me: при 401/403 сбрасываем токен и просим
+// войти, иначе переподключения с тем же токеном повторяли бы 403 бесконечно.
+async function revalidateThenReconnect() {
+  try {
+    const r = await fetch("/api/auth/me", { headers: authHeaders() });
+    if (r.status === 401 || r.status === 403) {
+      setToken(null);
+      state.authUser = null;
+      state.authRequired = true;
+      renderAuth();
+      showLogin();
+      return;
+    }
+  } catch (err) {
+    /* сервер ещё недоступен — повторим попытку по таймеру */
+  }
+  if (authToken()) setTimeout(connectWS, 3000);
+}
+
 export function connectWS() {
-  // При включённой авторизации без токена не подключаемся: иначе сервер
-  // отклоняет каждый запрос (403) и клиент спамит в лог.
+  // Авторизация на сервере всегда включена: без токена handshake заведомо
+  // отклоняется (403/1008) и клиент шумит в лог — не подключаемся вовсе.
   const t = authToken();
-  if (state.authRequired && !t) return;
+  if (!t) return;
   // Не плодим дубликаты соединений (повторный вход, переподключение).
   if (
     state.wsSocket &&
@@ -113,14 +135,13 @@ export function connectWS() {
   )
     return;
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  const url = `${proto}://${location.host}/ws` + (t ? "?token=" + encodeURIComponent(t) : "");
+  const url = `${proto}://${location.host}/ws?token=` + encodeURIComponent(t);
   const ws = new WebSocket(url);
   state.wsSocket = ws;
   ws.onmessage = scheduleRefresh;
   ws.onclose = () => {
     state.wsSocket = null;
-    // Переподключаемся только если всё ещё есть токен (вход выполнен).
-    if (authToken()) setTimeout(connectWS, 3000);
+    if (authToken()) revalidateThenReconnect();
   };
   ws.onerror = () => {
     try {
