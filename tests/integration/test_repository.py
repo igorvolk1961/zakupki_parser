@@ -994,3 +994,131 @@ async def test_rebuild_profile_results_keeps_score_without_rescore(db: Database)
     assert row.fit_score == 0.9
     assert row.score_method == "fit"
     assert row.comp_hash == competencies_hash(COMP_JSON)
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_instant_match_via_document_index(db: Database) -> None:
+    """Мгновенный путь §6 плана индексации: subject не совпал, но текст документов
+    (procurement_search_index) — да; закупка из проиндексированного диапазона ОКПД2
+    получает оценку без обращения к площадкам."""
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-idx", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "competencies": COMP_JSON,
+            "target_etp": ["zakupki_mos"],
+            "okpd_codes": ["62"],
+            "keywords": ["роботизированн*"],
+        },
+        user.id,
+    )
+    matched = await _save_proc(
+        repo,
+        "RB-IDX-1",
+        subject="Оказание клининговых услуг",
+        okpd2_codes="62.01.11",
+        nmck=100.0,
+    )
+    await repo.save_index_result(
+        matched, "indexed", document_text="Приложение: роботизированный манипулятор"
+    )
+    # В диапазоне ОКПД2, но текст документов не совпал — не должна попасть.
+    not_matched = await _save_proc(
+        repo,
+        "RB-IDX-2",
+        subject="Оказание клининговых услуг",
+        okpd2_codes="62.01.11",
+        nmck=100.0,
+    )
+    await repo.save_index_result(not_matched, "indexed", document_text="клининговый инвентарь")
+    # Вне диапазона ОКПД2 индексного профиля (окпд 71) — не должна попасть, даже
+    # если бы текст совпал (в данном тесте у неё вообще нет индекса).
+    out_of_range = await _save_proc(
+        repo,
+        "RB-IDX-3",
+        subject="Оказание клининговых услуг",
+        okpd2_codes="71.20",
+        nmck=100.0,
+    )
+
+    stats = await repo.rebuild_profile_results(
+        profile, ["роботизированн*"], [], indexing_okpd2_prefixes=["62"]
+    )
+
+    assert stats["created"] == 1
+    a = await repo.get_score(matched, profile.id)
+    assert a is not None
+    assert a.matched_keywords == ["роботизированн*"]
+    assert (await repo.get_score(not_matched, profile.id)) is None
+    assert (await repo.get_score(out_of_range, profile.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_document_exclusion_blocks_match(db: Database) -> None:
+    """Слово-исключение, найденное только в тексте документа, тоже отбрасывает закупку."""
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-idx-excl", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "competencies": COMP_JSON,
+            "target_etp": ["zakupki_mos"],
+            "okpd_codes": ["62"],
+            "keywords": ["роботизированн*"],
+            "exclusion_words": ["демонтаж"],
+        },
+        user.id,
+    )
+    pid = await _save_proc(
+        repo,
+        "RB-IDX-EXCL",
+        subject="Оказание клининговых услуг",
+        okpd2_codes="62.01.11",
+        nmck=100.0,
+    )
+    await repo.save_index_result(
+        pid,
+        "indexed",
+        document_text="Демонтаж и роботизированный манипулятор в комплекте",
+    )
+
+    stats = await repo.rebuild_profile_results(
+        profile, ["роботизированн*"], ["демонтаж"], indexing_okpd2_prefixes=["62"]
+    )
+
+    assert stats["created"] == 0
+    assert (await repo.get_score(pid, profile.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_no_okpd_codes_skips_index_path(db: Database) -> None:
+    """Профиль без ОКПД2-фильтра — индексный путь не применяется (полностью старый)."""
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-idx-noscope", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "competencies": COMP_JSON,
+            "target_etp": ["zakupki_mos"],
+            "keywords": ["роботизированн*"],
+        },
+        user.id,
+    )
+    pid = await _save_proc(
+        repo,
+        "RB-IDX-NOSCOPE",
+        subject="Оказание клининговых услуг",
+        okpd2_codes="62.01.11",
+        nmck=100.0,
+    )
+    await repo.save_index_result(
+        pid, "indexed", document_text="Приложение: роботизированный манипулятор"
+    )
+
+    # indexing_okpd2_prefixes не передан скедулером для профиля без okpd_codes —
+    # здесь явно проверяем поведение репозитория при отсутствии параметра.
+    stats = await repo.rebuild_profile_results(profile, ["роботизированн*"], [])
+
+    assert stats["created"] == 0
+    assert (await repo.get_score(pid, profile.id)) is None

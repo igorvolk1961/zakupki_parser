@@ -681,6 +681,24 @@ requirements:
     tests:
       - tests/unit/test_scheduler_recovery.py
 
+  - id: US-11.1
+    type: US
+    title: Мгновенный «горячий» пересбор для закупок из проиндексированного диапазона ОКПД2
+    stakeholder: Тендеролог (user), Аналитик
+    stage: "3, 4"
+    status: implemented
+    adr: ADR-2
+    code:
+      - src/zakupki_parser/storage/repository/procurements.py#rebuild_profile_results
+      - src/zakupki_parser/scheduler.py#_build_system_index_ctx
+    tests:
+      - tests/integration/test_repository.py
+      - tests/unit/test_scheduler_parallel.py
+    notes: >-
+      Смена профиля фильтрации отдаёт результат по закупкам заданного диапазона
+      ОКПД2 (IndexingConfig.okpd2_prefixes) мгновенно из предвычисленного
+      поискового индекса, без живого повторного обхода площадок (см. Группу 11).
+
   # ===== Функциональные требования =====
   - id: FR-1.1
     type: FR

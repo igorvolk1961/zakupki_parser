@@ -601,14 +601,25 @@ class Scheduler:
         ``ProcurementRepository.rebuild_profile_results``). При ``rescore`` у
         устаревших по компетенциям результатов сбрасывается скор — recovery
         поставит повторный fit.
+
+        Мгновенный путь «горячего» пересбора (§6 плана индексации): если включена
+        фоновая индексация (``IndexingConfig``), передаём список проиндексированных
+        префиксов ОКПД2 — закупки, не совпавшие по ``subject``, дополнительно
+        проверяются по тексту документов (``procurement_search_index``) прямо в БД,
+        без обращения к площадкам. Для профиля без ``okpd_codes`` оптимизация не
+        применяется (см. ``rebuild_profile_results`` — фильтр по ОКПД2 всё равно
+        обязателен, чтобы не индексировать закупки вне доступного профилю диапазона).
         """
         if self._repository is None:
             return
+        indexing = self._cfg.service.indexing
+        use_index = indexing.enabled and bool(ctx.profile.okpd_codes)
         stats = await self._repository.rebuild_profile_results(
             ctx.profile,
             ctx.keywords,
             ctx.exclusion_words,
             rescore=rescore,
+            indexing_okpd2_prefixes=list(indexing.okpd2_prefixes) if use_index else None,
         )
         logger.info(
             "Перестройка результатов профиля %s: %s",

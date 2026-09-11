@@ -6,7 +6,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
-from sqlalchemy import and_, case, delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, func, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,8 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from zakupki_parser.config.models import SCORE_METHOD_STAGES
+from zakupki_parser.okpd import any_okpd_code_covered_by_prefixes
+from zakupki_parser.parser.filtering_tsquery import TS_CONFIG, compile_keywords_to_tsquery
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import (
     Customer,
@@ -22,6 +24,7 @@ from zakupki_parser.storage.db import (
     ProcedureTypeMapping,
     Procurement,
     ProcurementEvaluation,
+    ProcurementSearchIndex,
     ProcurementWorkItem,
 )
 from zakupki_parser.storage.repository.base import (
@@ -905,6 +908,7 @@ class ProcurementMixin(RepositoryMixin):
         exclusion_words: list[str],
         *,
         rescore: bool = False,
+        indexing_okpd2_prefixes: list[str] | None = None,
     ) -> dict[str, int]:
         """Перестраивает per-profile результаты сбора после изменения профиля.
 
@@ -932,6 +936,14 @@ class ProcurementMixin(RepositoryMixin):
         Повторная постановка в очередь выполняется recovery (``find_unscored``),
         поэтому метод сам постановку не делает. Возвращает статистику
         ``{created, updated, removed, reset}``.
+
+        ``indexing_okpd2_prefixes`` (``IndexingConfig.okpd2_prefixes``, план фоновой
+        индексации) — если задан, закупки, не совпавшие по словам с ``subject``, ДО-
+        полнительно проверяются по тексту документов (``procurement_search_index.
+        search_tsv``, tsquery-транслятор ``parser/filtering_tsquery.py``) — мгновенно,
+        без обращения к площадкам. Список совпавших слов для такого случая не
+        восстанавливается детально (текст документов не выгружается в Python) —
+        записывается весь позитивный список ключевых слов профиля.
         """
         from zakupki_parser.parser.filtering import (
             exclusions_present,
@@ -948,12 +960,31 @@ class ProcurementMixin(RepositoryMixin):
         nmck_max = profile.nmck_max
         comp_hash = competencies_hash(profile.competencies)
 
+        # Индексный путь (§6 плана фоновой индексации): если заданы проиндексиро-
+        # ванные префиксы ОКПД2, компилируем tsquery один раз на профиль — SQL-запрос
+        # ниже присоединит procurement_search_index и посчитает совпадение по тексту
+        # документов ПРЯМО В БАЗЕ (текст документов в Python не выгружается).
+        pos_tsquery = compile_keywords_to_tsquery(keywords) if indexing_okpd2_prefixes else None
+        neg_tsquery = (
+            compile_keywords_to_tsquery(exclusion_words) if indexing_okpd2_prefixes else None
+        )
+
         def matched_list(proc: Any) -> list[str] | None:
             """Список совпавших слов, если закупка в области захвата, иначе None."""
             record = {"subject": proc.subject or ""}
-            if keywords and not keywords_match(record, keywords):
+            subject_ok = not keywords or keywords_match(record, keywords)
+            doc_ok = False
+            if not subject_ok and indexing_okpd2_prefixes:
+                doc_ok = bool(
+                    getattr(proc, "doc_pos_match", False)
+                ) and any_okpd_code_covered_by_prefixes(proc.okpd2_codes, indexing_okpd2_prefixes)
+            if not subject_ok and not doc_ok:
                 return None
-            if exclusions_present(record, exclusion_words):
+            if subject_ok:
+                if exclusions_present(record, exclusion_words):
+                    return None
+            elif getattr(proc, "doc_neg_match", False):
+                # doc_ok путь: слово-исключение нашлось в тексте документов (SQL).
                 return None
             # Регион отсекаем только когда он уже известен: неизвестный регион
             # (досборка деталей BR-08) фильтром не отбрасывается, как на сборе.
@@ -964,10 +995,8 @@ class ProcurementMixin(RepositoryMixin):
             ):
                 return None
             # Коды ОКПД2 / диапазон НМЦК — серверные критерии области захвата.
-            if okpd:
-                codes = proc.okpd2_codes or ""
-                if not codes or not any(code.lower() in codes.lower() for code in okpd):
-                    return None
+            if okpd and not any_okpd_code_covered_by_prefixes(proc.okpd2_codes, okpd):
+                return None
             if nmck_min is not None or nmck_max is not None:
                 value = proc.nmck
                 if value is None:
@@ -976,7 +1005,11 @@ class ProcurementMixin(RepositoryMixin):
                     return None
                 if nmck_max is not None and value > nmck_max:
                     return None
-            return matched_keywords(record, keywords)
+            if subject_ok:
+                return matched_keywords(record, keywords)
+            # doc_ok путь: точный список совпавших слов не восстанавливаем (текст
+            # документов не в Python) — отдаём весь позитивный список профиля.
+            return list(keywords)
 
         created = 0
         updated = 0
@@ -1001,6 +1034,31 @@ class ProcurementMixin(RepositoryMixin):
                 Procurement.nmck,
                 Procurement.okpd2_codes,
             )
+            if indexing_okpd2_prefixes:
+                doc_pos_expr = (
+                    ProcurementSearchIndex.search_tsv.op("@@")(
+                        func.to_tsquery(TS_CONFIG, pos_tsquery)
+                    )
+                    if pos_tsquery is not None
+                    else literal(True)
+                )
+                doc_neg_expr = (
+                    ProcurementSearchIndex.search_tsv.op("@@")(
+                        func.to_tsquery(TS_CONFIG, neg_tsquery)
+                    )
+                    if neg_tsquery is not None
+                    else literal(False)
+                )
+                stmt = stmt.add_columns(
+                    doc_pos_expr.label("doc_pos_match"),
+                    doc_neg_expr.label("doc_neg_match"),
+                ).outerjoin(
+                    ProcurementSearchIndex,
+                    and_(
+                        ProcurementSearchIndex.procurement_id == Procurement.id,
+                        ProcurementSearchIndex.status == "indexed",
+                    ),
+                )
             if target_etp:
                 stmt = stmt.where(Procurement.platform_id.in_(target_etp))
 
