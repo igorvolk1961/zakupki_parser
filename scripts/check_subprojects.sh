@@ -18,6 +18,7 @@ SUBPROJECTS=(
   src/pwin_service
   src/margin_service
   src/analysis_service
+  src/indexing_service
 )
 
 if [[ "$MODE" != "lint" && "$MODE" != "test" ]]; then
