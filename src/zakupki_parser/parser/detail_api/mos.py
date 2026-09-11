@@ -1,4 +1,4 @@
-"""Детали mos.ru: GET /newapi/api/Need/Get?needId= — ОКПД2, файлы (FileStorage)."""
+"""Детали mos.example: GET /newapi/api/Need/Get?needId= — ОКПД2, файлы (FileStorage)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ async def _mos_details(
     list_vars: dict[str, Any],
     api_fields: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
-    """Детали mos.ru: GET /newapi/api/Need/Get?needId= — ОКПД2, файлы (FileStorage).
+    """Детали mos.example: GET /newapi/api/Need/Get?needId= — ОКПД2, файлы (FileStorage).
 
     ИНН заказчика отдаёт уже API списка (в list_vars['inn']), здесь не дублируется.
     """

@@ -70,7 +70,7 @@ async def _tender_223_details(
         "status": (ci.get("stage") or {}).get("title") or "",
         "nmck": _amount(ci.get("price")),
     }
-    # Регион — commonInfo.customerOkato («Москва, г»), fallback regionOkato
+    # Регион — commonInfo.customerOkato («регион, г»), fallback regionOkato
     # (проверено 2026-09-04 на живом API /api-gateway/etp/procedure/{номер}/{лот}).
     region = ci.get("customerOkato") or ci.get("regionOkato") or None
     if region:

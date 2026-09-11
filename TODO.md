@@ -47,9 +47,9 @@
       `parser/lister.py:extract_total_results`, `repository.count`, ранний `return` в
       `run()` для relevance-режима). Осталось: верифицировать
       селектор счётчика для каждой площадки (`zp capture-fixture`) и включить в
-      `configs/dom/<platform_id>.yaml` (у zakupki.mos.ru — закомментирован).
+      `configs/dom/<platform_id>.yaml` (у zakupki.mos.example — закомментирован).
 - [ ] **Верифицировать DOM-шаги фильтров** (`config_dom.yaml -> filters`) для площадок
-      с панелью фильтров (для zakupki.mos.ru реализован и проверен URL-фильтр
+      с панелью фильтров (для zakupki.mos.example реализован и проверен URL-фильтр
       `search`, DOM-шаги не нужны).
 - [ ] **`fetch-tree` — автоматический сбор маппинга ОКПД2 (код → путь)**:
       открыть дерево ОКПД2 площадки, развернуть все узлы, снять `value` чекбоксов
@@ -95,7 +95,7 @@
       использует `explicit and self._multi_run` вместо повторного вывода условия.
 
 ## Развитие
-- [ ] **ЕИС (zakupki.gov.ru)** — уточнить:
+- [ ] **ЕИС (zakupki.gov.example)** — уточнить:
   - файлы 223-ФЗ (путь `notice223/documents.html?purchaseNoticeNumber=…` — отличается от 44-ФЗ);
   - детальные поля `common-info.html` по типам извещений (ezt20/ea20/zk20/ok504…);
   - `kpgz_codes`/`advance` на детальных страницах;
@@ -148,7 +148,7 @@
       деталей серверно-рендерятся (data-slot-селекторы в `configs/dom/fabrikant.yaml` проверены),
       но разделы «Код по ОКПД2» и «Документы по закупке» догружаются клиентом. Проверить на живой
       странице (`zp capture-fixture`/`zp run-once`): подобрать селекторы `okpd2_code`/`okpd2_name`
-      и `detail.files` (сейчас `a[href*='zakupki.gov.ru/{44fz,223fz}/filestore']`).
+      и `detail.files` (сейчас `a[href*='zakupki.gov.example/{44fz,223fz}/filestore']`).
 - [ ] **fabrikant: полный маппинг ОКПД2 `code_to_id`** — фильтр по ОКПД2 работает через внутренние
       opaque-id площадки (`okpd2[]`); маппинг в `configs/codes/fabrikant_okpd2_tree.json` частичный
       (62, 62.01–62.09). Собрать полное дерево (`fetch-tree`) и проверить резолв.
@@ -157,7 +157,7 @@
 - [ ] **fabrikant: детальные страницы коммерческих типов** — `v2/trades/procedure/`,
       `trades/atom/PriceRequest|ProposalRequest|PriceMonitoring` имеют иную разметку (без
       `field-label`/`field-text`); извлечение nmck/customer/inn/status полноценно только для 44-ФЗ
-      (`44.fabrikant.ru`). Добавить селекторы для коммерческих деталей.
+      (`44.fabrikant.example`). Добавить селекторы для коммерческих деталей.
 - [ ] Ротация прокси и пул IP в `config_parser.yaml` (при появлении инфраструктуры).
 - [ ] Авторизация (личный кабинет) для закрытых разделов.
 - [ ] Загрузка отчётов в XLSX/CSV по требованию (формат для заказчиков).

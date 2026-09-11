@@ -1,18 +1,18 @@
 # MAX-подписчик: настройка и проверка
 
 Доставка уведомлений о новых закупках в канал мессенджера **MAX** через
-официальный Bot API. MAX — российский мессенджер (ранее VK Макс), доступный из
-РФ без прокси, поэтому он подходит как альтернатива Telegram, если
+официальный Bot API. MAX — локальный мессенджер (ранее VK Макс), доступный из
+страны без прокси, поэтому он подходит как альтернатива Telegram, если
 `api.telegram.org` недостижим.
 
-> Документация MAX Bot API: <https://dev.max.ru/docs-api>.
+> Документация MAX Bot API: <https://dev.max.example/docs-api>.
 >
 > Бэкенд MAX реализован в парсере (`MaxBackend`), подключён к диспетчеру
 > `Notifier` и конфигу `notifications.max`.
 
 ## Принцип работы
 
-- Эндпоинт: `https://platform-api2.max.ru/messages`
+- Эндпоинт: `https://platform-api2.max.example/messages`
 - Аутентификация: токен в заголовке `Authorization: <token>` (не в query!).
 - Отправка в канал: `POST /messages?chat_id={chat_id}` + тело
   `{"text": "...", "format": "html"}`.
@@ -24,9 +24,9 @@
 ## 1. Создать бота и получить токен
 
 1. Откройте мини-приложение **«MAX для бизнеса»** (или
-   [business.max.ru](https://business.max.ru/self)).
+   [business.max.example](https://business.max.example/self)).
 2. Пройдите верификацию профиля (требуется **юрлицо / ИП / самозанятый,
-   резидент РФ**).
+   локальный резидент**).
 3. Раздел **Чат-боты** → **Перейти** → **Расширенные настройки** → **Настроить**.
 4. Скопируйте `access_token` (в альтернативе — команда **«Получить токен»**
    в боте «MAX для бизнеса»).
@@ -98,7 +98,7 @@
 export ZAKUPKI_MAX_TOKEN="<access_token>"
 export ZAKUPKI_MAX_CHAT_ID="<chat_id>"
 
-curl -X POST "https://platform-api2.max.ru/messages?chat_id=$ZAKUPKI_MAX_CHAT_ID" \
+curl -X POST "https://platform-api2.max.example/messages?chat_id=$ZAKUPKI_MAX_CHAT_ID" \
   -H "Authorization: $ZAKUPKI_MAX_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "<b>Тест</b>: проверка доставки", "format": "html", "disable_link_preview": true}'
@@ -134,7 +134,7 @@ uv run zp --configs configs run-once
 ## 7. Ограничения и особенности
 
 - **2 сообщения/сек в один чат** — при потоке новых закупок делайте задержку.
-- Лимит платформы ~**30 запросов/сек** на `platform-api2.max.ru`.
+- Лимит платформы ~**30 запросов/сек** на `platform-api2.max.example`.
 - `text` — до **4000 символов** (текущая карточка короче, но учитывайте).
 - Для каналов поле `notify` должно быть `true` (или отсутствовать) — посты в
   каналы без push не отправляются.

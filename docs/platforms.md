@@ -10,7 +10,7 @@
 
 | platform_id | Площадка | Закон/раздел | Селекторы | Статус | `enabled` |
 |---|---|---|---|---|---|
-| `zakupki_mos` | Портал поставщиков Москвы | единый реестр (муниципальные) | ✅ верифицированы | работает | **вкл** |
+| `zakupki_mos` | Региональный портал поставщиков | единый реестр (муниципальные) | ✅ верифицированы | работает | **вкл** |
 | `zakupki_gov_44fz` | ЕИС | 44-ФЗ | ✅ (из ранее работающего конфига) | включить после проверки | выкл |
 | `zakupki_gov_223fz` | ЕИС | 223-ФЗ | ⚠️ список ✅; детали/файлы — TODO | требуются доработки | выкл |
 | `b2b_center` | B2B-Center | коммерческие (все законы) | ✅ список+детали (снимок); ✅ слова «или» в f_keyword | готов к тесту | выкл |
@@ -25,7 +25,7 @@
 
 | Площадка | Тип рендера | URL-фильтр `search` | ОКПД2 | Ключевые слова | Сортировка | Стоп-порог по дате |
 |---|---|---|---|---|---|---|
-| zakupki_mos | SPA (styled) | **API** Query (`old.zakupki.mos.ru/api/Cssp/Purchase/Query`, queryDto: take/skip) | ✅ `okpdPaths` (дерево) | ✅ `nameLike` | дата `publishDate desc` | да |
+| zakupki_mos | SPA (styled) | **API** Query (`old.zakupki.mos.example/api/Cssp/Purchase/Query`, queryDto: take/skip) | ✅ `okpdPaths` (дерево) | ✅ `nameLike` | дата `publishDate desc` | да |
 | zakupki_gov_44fz | сервер | query-параметры | ✅ `okpd2Ids`+`okpd2IdsWithNested` | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | zakupki_gov_223fz | сервер | query-параметры | ✅ (через lot-list) | ✅ `searchString` | дата `UPDATE_DATE` | да |
 | b2b_center | сервер | `f_keyword=`+`searching`/`trade`/`show`+`order_by`/`order_dir` | ❌ анонимно нет (после регистрации) | ✅ `f_keyword=` (богатый синтаксис; слова по «И») | дата | да |
@@ -99,7 +99,7 @@
 
 ### Механизмы движка, добавленные под новые ЭТП
 - **URL-пагинация** `page_param`/`page_size` — переход по `page=N` вместо клика по кнопке
-  (b2b_center, etpgpb, lot_online_44). Используется и для zakupki.mos.ru: Semantic UI рендерит
+  (b2b_center, etpgpb, lot_online_44). Используется и для zakupki.mos.example: Semantic UI рендерит
   стрелку «следующая» даже на последней странице, поэтому конец пагинации определяем по
   `page_size` (полная страница = 10), а не по `next_page` (иначе — вечный цикл).
 - **Вложенные array-параметры** — `procedure[stage][0]=accepting` и т.п. передаются как есть.
@@ -115,7 +115,7 @@
   `search` фильтрует только с `sort=by_relevance`).
 - **API-детали** `detail.api_format` — детали закупки (ОКПД2/позиции/заказчик с ИНН/файлы) читаются
   из открытого JSON API площадки без открытия страницы (etpgpb: `/api/v2/procedures/{kind}/{id}/`;
-  lot-online 44: двухшаговый JSON-RPC `/etp_back/api/get`; mos.ru: `/newapi/api/Need/Get` +
+  lot-online 44: двухшаговый JSON-RPC `/etp_back/api/get`; mos.example: `/newapi/api/Need/Get` +
   FileStorage). Оркестратор не открывает вкладку деталей и не резолвит ИНН через DOM.
   Реализация — `parser/detail_api.py`.
 - **Пропуск уже сохранённых закупок** — оркестратор грузит номера площадки из БД и не открывает
@@ -136,7 +136,7 @@
 
 ### Особенности fabrikant
 - Селекторы построены на стабильных `data-slot`-атрибутах shadcn (карточки серверно-рендерятся,
-  css-хешей нет). Список и детальная страница 44-ФЗ (`44.fabrikant.ru/44/procedure/…`) верифицированы
+  css-хешей нет). Список и детальная страница 44-ФЗ (`44.fabrikant.example/44/procedure/…`) верифицированы
   (снимок 2026-08-14): number, reg_number, purchase_type, subject, law, publication_date, deadline,
   nmck, customer/inn (ИНН прямо со страницы), status.
 - Фильтры и пагинация — через URL: `query` (слова), `okpd2[]` (внутренние opaque-id, коды
@@ -144,7 +144,7 @@
   `price_from`/`price_to` (панель «Расширенный поиск»; имена параметров сняты с SPA и
   подтверждены на живом сайте 2026-08-24, массив-параметры в bracket-форме
   `okpd2[]=`/`statuses[]=`), `page_number` (10/стр). Поэтому используется URL-механизм
-  `search` (как на zakupki.mos.ru). Список — вкладка `/procedure/search/purchases`
+  `search` (как на zakupki.mos.example). Список — вкладка `/procedure/search/purchases`
   (закупки; корневой `/search` включает «Мониторинг цен»).
 - **Сортировка — по дате публикации** (`sort_order=date_publication&sort_direction=desc`,
   дефолт площадки; проверил 2026-08-17). Релевантности в списке сортировки НЕТ — только
@@ -202,7 +202,7 @@
 см. `parser/filtering.py`.
 
 Статус по площадкам (что проверено на живых страницах 2026-09-04):
-- **mos.ru** — `regionName` карточки в API списка (регион закупки), ✅ уровень списка.
+- **mos.example** — `regionName` карточки в API списка (регион закупки), ✅ уровень списка.
 - **etpgpb** — `region`/`regions`/`lot_regions` в `attributes` API списка и деталей
   (лот в нескольких регионах), ✅ уровень списка + детали.
 - **tender.lot-online (223-ФЗ)** — `customerOkato`/`regionOkato` в реестре indexer и в
@@ -212,14 +212,14 @@
 - **roseltorg** — «место поставки» на деталях не показывается (проверено 2026-09-04,
   JSON-LD `seller.address` = только `addressCountry`); регион заказчика
   структурирован в карточке выдачи (`div.search-results__region`, «Регион заказчика»,
-  напр. «77. г. Москва», код субъекта отрезается regex) — ✅ уровень списка
+  напр. «77. г. <город>», код субъекта отрезается regex) — ✅ уровень списка
   (первый регион; мультирегиональные лоты «ещё N» — TODO).
 - **fabrikant (44-ФЗ)** — Next.js деталь: место поставки — таблица с колонками
   «Страна | Субъект | Район | Город | Место поставки» (значение может быть в «Субъект» или
   в «Место поставки»), у заказчика есть «Адрес местонахождения» (fallback). Селекторы НЕ сняты —
   TODO (capture-fixture).
 - **fabrikant (v2/trades, коммерч.)** — SSR-деталь: блок «Место поставки»
-  (`form-group-element-lot_delivery_place-*`: `region` = «Субъект РФ\Регион», `state` = округ,
+  (`form-group-element-lot_delivery_place-*`: `region` = «Субъект\Регион», `state` = округ,
   `okato` = код ОКАТО). Регион = `lot_delivery_place-region`; селекторы НЕ сняты — TODO.
 - **lot-online (gz, 44-ФЗ)** — в реестре `/etp_back/procedure/list` и в `lotInfo` JSON-RPC
   региона нет (проверено 2026-09-04); «Место поставки» есть только на DOM-странице

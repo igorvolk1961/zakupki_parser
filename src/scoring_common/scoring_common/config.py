@@ -1,7 +1,7 @@
 """Модели коэффициентов каскада скоринга и YAML-источник настроек.
 
 ``PwinCoefficients`` — калиброванные коэффициенты модели вероятности победы
-(из ``docs/references/Модель P(win) для IT-закупок России...pdf``).
+(из ``docs/references/Модель P(win) для IT-закупок...pdf``).
 """
 
 from __future__ import annotations

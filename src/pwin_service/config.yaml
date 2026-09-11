@@ -23,7 +23,7 @@ queue_poll_seconds: 2.0
 jobs_retry_key: "pwin:jobs_retries"
 
 # Коэффициенты модели P(win) = base_pwin × k_smp × k_license × k_large × k_procedure
-# (калибровка из docs/references/Модель P(win) для IT-закупок России...pdf)
+# (калибровка из docs/references/Модель P(win) для IT-закупок...pdf)
 base_pwin: 0.4
 k_smp: 1.5
 k_license_present: 3.0

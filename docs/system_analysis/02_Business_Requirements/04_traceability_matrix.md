@@ -74,7 +74,7 @@
 | :-- | :------- | :----------- | :-- | :---------- | :--- | :----- |
 | BR-01 | Частота парсинга и кэширование | US-2.1, US-2.5 | NFR-COST-2, NFR-PERF-2 | PROCUREMENT | 3, 4 | 🟡 |
 | BR-02 | Первичный скоринг Fit и пост-фильтрация | US-1.1, US-2.2–2.4, US-3.1, US-5.3 | NFR-PERF-1, NFR-COST-1/3 | KEYWORD, PROCUREMENT_EVALUATION | 3 | ✅ |
-| BR-03 | Валидация опыта (ПП РФ 2571) | US-4.2, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
+| BR-03 | Валидация опыта (ПП 2571) | US-4.2, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
 | BR-04 | Реестр Минпромторга («не установлено») | US-4.3, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
 | BR-05 | Жизненный цикл аккаунта | US-7.2–7.5, US-10.6 | — | USER (trial_end_at), SUBSCRIPTION (цель) | 6 | 🟡 (trial/аккаунты-опции реализованы; freeze/удаление — цель) |
 | BR-06 | Обработка ошибок (DLQ) | US-8.3 | NFR-REL-2, NFR-FT-1/3/4 | PROCUREMENT | 4, 10 | 🟡 |

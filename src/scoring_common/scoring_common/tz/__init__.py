@@ -150,7 +150,7 @@ def extract_text(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -
     name = _normalize(ref.name)
     if sep:
         # Запись внутри архива: формат определяем по содержимому (URL может быть
-        # глухим, без расширения — например etp.gpb.ru ``/file/get/.../name/<hash>``).
+        # глухим, без расширения — например etp.gpb.example ``/file/get/.../name/<hash>``).
         return _extract_archive_member(url, inner, timeout=timeout, verify_ssl=verify_ssl)
     if name.endswith(".7z"):
         return _extract_from_7z(ref, timeout=timeout, verify_ssl=verify_ssl)

@@ -92,7 +92,7 @@ def test_extract_from_7z_finds_tz_by_name(monkeypatch) -> None:
 
 
 def test_find_tz_in_blind_archive_url(monkeypatch) -> None:
-    """ТЗ внутри 7z-архива, URL которого без расширения (как на etp.gpb.ru).
+    """ТЗ внутри 7z-архива, URL которого без расширения (как на etp.gpb.example).
 
     У ЭТП URL скачивания может быть «глухим» (``/file/get/.../name/<hash>``) без
     ``.7z``/``.zip`` в самом URL: формат архива должен определяться по содержимому,

@@ -392,7 +392,7 @@ class CrawlMixin(OrchestratorState):
                 break
 
             # Пагинация: либо перестройка URL с новым offset (api_offset_param —
-            # take/skip внутри JSON-параметра, mos.ru), либо инкремент плоского
+            # take/skip внутри JSON-параметра, mos.example), либо инкремент плоского
             # параметра (page/offset) в текущем URL.
             page_index += 1
             if search.api_offset_param:

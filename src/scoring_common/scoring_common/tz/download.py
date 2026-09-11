@@ -14,7 +14,7 @@ from scoring_common.tz.files import _MAX_FILE_BYTES
 
 logger = logging.getLogger(__name__)
 
-# Браузерный User-Agent: файлы ЭТП (например, etp.gpb.ru ``/file/get``) отдают
+# Браузерный User-Agent: файлы ЭТП (например, etp.gpb.example ``/file/get``) отдают
 # ПУСТОЕ тело (200, 0 байт) на запрос без User-Agent (анти-бот), поэтому без него
 # архив скачивается как b"" и листинг/извлечение ТЗ не находит файл.
 _UA = (
@@ -23,7 +23,7 @@ _UA = (
 )
 
 # Проверяем сертификат по СИСТЕМНОМУ хранилищу (как curl/браузер), а не по
-# certifi-metadata: на ЭТП/Russian-host часто встречается TLS-перехват (VPN/
+# certifi-metadata: на ЭТП/target-host часто встречается TLS-перехват (VPN/
 # корпоративный прокси) с самоподписанным промежуточным сертификатом, которому
 # certifi не доверяет, а системный trust (и Playwright-парсер) — доверяет.
 _SSL_CONTEXT = ssl.create_default_context()

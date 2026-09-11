@@ -138,7 +138,7 @@ class OrganizationConfig(BaseModel):
     href этой ссылки — URL страницы организации. ИНН получается:
       - прямо из href через ``inn_from_link_regex`` (ЕИС 223-ФЗ: ``inn=(\\d{10,12})``), или
       - переходом на страницу организации и извлечением по ``inn_page_selector``
-        (mos.ru ``/companyProfile/customer/{id}``, ЕИС 44-ФЗ).
+        (mos.example ``/companyProfile/customer/{id}``, ЕИС 44-ФЗ).
     Если настроен только ``customer_link_selector`` без способа получения ИНН — ИНН
     остаётся nullable (закупка сохраняется, ИНН дозаполняется позже).
     """

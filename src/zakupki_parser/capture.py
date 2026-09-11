@@ -16,7 +16,7 @@ from zakupki_parser.config.loader import load_config
 _LIST_MARKER = "PublicListStyles__PublicListContainer"
 # Начало детальной карточки — стабильный id контейнера (после шапки/баннеров).
 _DETAIL_MARKER = 'id="procedure-page-layout__main-info"'
-# Конец детального региона — футер (страница mos.ru содержит огромный хвост данных).
+# Конец детального региона — футер (страница mos.example содержит огромный хвост данных).
 _DETAIL_END_MARKER = "О портале"
 
 

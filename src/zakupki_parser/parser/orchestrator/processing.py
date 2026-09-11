@@ -75,7 +75,7 @@ class RecordProcessingMixin(OrchestratorState):
         early_subject = str(list_vars.get("subject") or "")
         # Ранняя клиентская фильтрация (R9) — только для одиночного профиля: subject
         # уже есть в карточке списка, применяем слова ДО запроса деталей, чтобы не
-        # тратить лимиты API площадки на заведомо неподходящие закупки (mos.ru 402).
+        # тратить лимиты API площадки на заведомо неподходящие закупки (mos.example 402).
         # Для мультипрофильного обхода ранний фильтр невозможен: запись нужна каждому
         # профилю, слова применяются после получения записи (цикл по ctxs ниже).
         if early_subject and not multi and ctxs:
@@ -114,7 +114,7 @@ class RecordProcessingMixin(OrchestratorState):
         #    Здесь фиксируем в БД контекст запроса деталей (api_fields: need_id и т.п.),
         #    чтобы set_score мог повторить запрос без переоткрытия детальной страницы,
         #    и сразу переходим к записи по данным УРОВНЯ СПИСКА, чтобы сбой API деталей
-        #    (напр. mos.ru 402) не блокировал скоринг и не валил проход.
+        #    (напр. mos.example 402) не блокировал скоринг и не валил проход.
         record: dict[str, Any] = {**list_vars}
         record["url"] = (
             detail_url
@@ -123,7 +123,7 @@ class RecordProcessingMixin(OrchestratorState):
         )
         record["platform_id"] = self._platform_id
 
-        # ИНН заказчика (ADR-4). Если ИНН отдаёт уже API списка (например mos.ru) —
+        # ИНН заказчика (ADR-4). Если ИНН отдаёт уже API списка (например mos.example) —
         # сохраняем как есть. Прочие источники (API деталей) — в досборке в set_score.
         if list_vars.get("inn"):
             record["inn"] = list_vars["inn"]

@@ -16,8 +16,8 @@ def build_api_list_url(
 
     Если API-эндпоинт не задан или поиск выключен — возвращается обычный
     ``list_path`` (DOM-листер). ``offset`` — плейсхолдер ``{offset}`` в шаблонах
-    query_params (пагинация take/skip, например mos.ru). Эндпоинт может быть
-    абсолютным (API на другом хосте, например old.zakupki.mos.ru). ``keywords`` —
+    query_params (пагинация take/skip, например mos.example). Эндпоинт может быть
+    абсолютным (API на другом хосте, например old.zakupki.mos.example). ``keywords`` —
     позитивные слова профиля для серверной предфильтрации (см. ``build_query``).
     """
     search = platform.search

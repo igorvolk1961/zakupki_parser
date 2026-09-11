@@ -50,7 +50,7 @@ def build_query(
     уходит либо в ``filter_json`` (по JSON-пути), либо в плоский query-параметр,
     либо в оба места. Не заданные критерии в запрос не попадают. ``offset`` —
     значение плейсхолдера ``{offset}`` в шаблонах ``query_params`` (пагинация
-    take/skip, например mos.ru). ``keywords`` — позитивные слова профиля: если у
+    take/skip, например mos.example). ``keywords`` — позитивные слова профиля: если у
     площадки задан ``search.keyword_query_param``, они собираются в строку
     ``(фраза) или слово`` и подставляются в этот параметр (серверная предфильтрация,
     R9; финальная фильтрация по словам остаётся клиентской).
@@ -162,7 +162,7 @@ def build_query(
 
     parts: list[str] = []
     # Плейсхолдер offset в шаблонах query_params: по умолчанию {offset}, либо
-    # имя параметра пагинации (api_offset_param, например {skip} у mos.ru).
+    # имя параметра пагинации (api_offset_param, например {skip} у mos.example).
     offset_placeholder = "{" + (search.api_offset_param or "offset") + "}"
     for key, template in search.query_params.items():
         param_values = template if isinstance(template, list) else [template]

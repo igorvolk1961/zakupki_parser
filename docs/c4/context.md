@@ -14,7 +14,7 @@ flowchart LR
         P["Собирает закупки через Playwright,<br/>сохраняет в БД, оповещает<br/>+ FastAPI web-приложение"]
     end
 
-    Z["Платформы закупок<br/>zakupki.mos.ru, ЕИС, ЭТП"]
+    Z["Платформы закупок<br/>zakupki.mos.example, ЕИС, ЭТП"]
     TR["Scoring Transport<br/>gateway скоринга (ingest + возврат)"]
     RS[("Redis<br/>очереди заданий и результатов стадий")]
     SF["Scoring Service (Fit)<br/>LLM-скоринг: Fit → Judge → refine → ТЗ → Giga"]

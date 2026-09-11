@@ -246,7 +246,7 @@ def _extract_archive_member(
     """Текст записи внутри архива, когда формат архива не виден из URL.
 
     URL скачивания членов архива у ЭТП может быть глухим — без расширения
-    (например, etp.gpb.ru ``/file/get/t/.../name/<hash>``), поэтому формат
+    (например, etp.gpb.example ``/file/get/t/.../name/<hash>``), поэтому формат
     определяем по содержимому (7z -> zip), а не по имени файла.
     """
     raw = _download(url, timeout=timeout, verify_ssl=verify_ssl)

@@ -1,6 +1,6 @@
 """Модуль расчёта вероятности победы P(win).
 
-Модель из исследования ``docs/references/Модель P(win) для IT-закупок России...pdf``:
+Модель из исследования ``docs/references/Модель P(win) для IT-закупок...pdf``:
 
     P(win) = base_pwin × k_smp × k_license × k_large × k_procedure
 

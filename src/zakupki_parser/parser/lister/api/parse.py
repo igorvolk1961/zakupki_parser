@@ -166,7 +166,7 @@ def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _parse_mos_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Item реестра mos.ru (Query API): needId, заказчик с ИНН прямо в списке."""
+    """Item реестра mos.example (Query API): needId, заказчик с ИНН прямо в списке."""
     customers = item.get("customers") or []
     customer = customers[0] if customers else {}
     creator = item.get("purchaseCreator") or {}
@@ -208,7 +208,7 @@ def _parse_tender_223_item(item: dict[str, Any]) -> dict[str, Any]:
         # Платформа 223-ФЗ по определению (как в DOM-карточке).
         "law": "223-ФЗ",
         # Регион заказчика прямо в реестре indexer (проверено 2026-09-04 на живом
-        # API): customerOkato («Москва, г», «Свердловская, обл»), fallback regionOkato.
+        # API): customerOkato («регион, г», «Свердловская, обл»), fallback regionOkato.
         "region": str(item.get("customerOkato") or item.get("regionOkato") or ""),
         "publication_date": _dt_parts(item.get("publicationDate")),
         "deadline": _dt_parts(item.get("demandEndDate")),

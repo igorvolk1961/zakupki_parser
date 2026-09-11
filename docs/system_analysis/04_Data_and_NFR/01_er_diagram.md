@@ -231,7 +231,7 @@ erDiagram
   и `profile_experience` — дочерние таблицы профиля (FK `ON DELETE CASCADE`, как
   `keywords`). Тип лицензии — справочник `license_types` (сид: набор для ИТ-компании);
   тип подтверждения опыта — справочник `experience_confirmation_types` (сид BR-03:
-  `platform` — через площадку ПП РФ 2571, `documents` — сканы договоров/актов,
+  `platform` — через площадку ПП 2571, `documents` — сканы договоров/актов,
   `registry` — выписка из реестра контрактов). `profile_experience.import_independent` —
   nullable boolean соответствия требованию Минпромторга об импортонезависимости
   (NULL — неизвестно/не применимо). CRUD — вложенные эндпоинты

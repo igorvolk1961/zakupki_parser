@@ -7,7 +7,7 @@
 ```mermaid
 graph TD
     subgraph External["Внешний мир"]
-        ETP["ЭТП: ЕИС, Портал Москвы, Роселторг,<br>Фабрикант, B2B-Center, ЭТП ГПБ, lot-online"]
+        ETP["ЭТП: ЕИС, Региональный портал, Роселторг,<br>Фабрикант, B2B-Center, ЭТП ГПБ, lot-online"]
         LLM["LLM: DeepSeek, Giga (эмбеддинги)"]
         NOTIFY["Каналы уведомлений:<br>Telegram, Max, Webhook"]
         OBS["LangFuse: тресы, метрики, стоимость"]
