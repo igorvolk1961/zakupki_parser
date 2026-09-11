@@ -28,6 +28,7 @@ from zakupki_parser.storage.db.profile import (
     ProfileExperience,
     ProfileLicense,
 )
+from zakupki_parser.storage.db.search_index import ProcurementSearchIndex
 from zakupki_parser.storage.db.user import User
 from zakupki_parser.storage.db.work import ProcurementWorkItem
 
@@ -44,6 +45,7 @@ __all__ = [
     "ProcedureTypeMapping",
     "Procurement",
     "ProcurementEvaluation",
+    "ProcurementSearchIndex",
     "ProcurementWorkItem",
     "Profile",
     "ProfileExperience",

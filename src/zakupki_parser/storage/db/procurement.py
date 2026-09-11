@@ -23,6 +23,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from zakupki_parser.storage.db.base import Base
 from zakupki_parser.storage.db.evaluation import ProcurementEvaluation
+from zakupki_parser.storage.db.search_index import ProcurementSearchIndex
 
 if TYPE_CHECKING:
     from zakupki_parser.storage.db.customer import Customer
@@ -217,5 +218,11 @@ class Procurement(Base):
         viewonly=True,
     )
     evaluations: Mapped[list[ProcurementEvaluation]] = relationship(
+        back_populates="procurement_rel", cascade="all, delete-orphan"
+    )
+    # Поисковый индекс (описание+документы, фоновая индексация по ОКПД2) —
+    # один-к-одному, может отсутствовать (закупка вне проиндексированного диапазона
+    # или индексация ещё не выполнена).
+    search_index_rel: Mapped[ProcurementSearchIndex | None] = relationship(
         back_populates="procurement_rel", cascade="all, delete-orphan"
     )
