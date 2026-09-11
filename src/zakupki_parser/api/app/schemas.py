@@ -91,6 +91,24 @@ class RequirementsIn(BaseModel):
     structure: dict[str, Any]
 
 
+class IndexResultIn(BaseModel):
+    """Результат фоновой индексации закупки (``indexing_service``, стадия ``index``).
+
+    ``okpd2_normalized`` НЕ принимается от сервиса — вычисляется парсером из
+    актуального ``procurements.okpd2_codes`` (см. ``save_index_result``).
+    """
+
+    status: str
+    document_text: str | None = None
+    content_hash: str | None = None
+    error_message: str | None = None
+
+
+class IndexResultOut(BaseModel):
+    procurement_id: int
+    status: str
+
+
 class ProcurementListOut(BaseModel):
     total: int
     items: list[ProcurementOut]

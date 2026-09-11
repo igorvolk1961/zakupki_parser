@@ -24,6 +24,8 @@ from zakupki_parser.api.app.schemas import (
     AcceptWorkByUrlIn,
     AcceptWorkIn,
     ExportIn,
+    IndexResultIn,
+    IndexResultOut,
     ProcurementDetailOut,
     ProcurementGeoIn,
     ProcurementGeoOut,
@@ -628,6 +630,32 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if await _repo().save_requirements(procurement_id, body.structure) is False:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return RequirementsOut(found=bool(body.structure), requirements=body.structure)
+
+    @router.post(
+        "/api/procurements/{procurement_id}/index-result",
+        response_model=IndexResultOut,
+        dependencies=[Depends(require_internal)],
+    )
+    async def set_procurement_index_result(
+        procurement_id: int, body: IndexResultIn
+    ) -> IndexResultOut:
+        """Сохранить результат фоновой индексации закупки (indexing_service, IndexingConfig).
+
+        Внутренний эндпоинт (стадия ``index``, вне каскада Fit/P(win)/Margin —
+        см. ``scoring_transport.consumers.results``): upsert в
+        ``procurement_search_index`` (find-or-create по ``procurement_id``,
+        ``save_index_result``).
+        """
+        ok = await _repo().save_index_result(
+            procurement_id,
+            body.status,
+            document_text=body.document_text,
+            content_hash=body.content_hash,
+            error_message=body.error_message,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return IndexResultOut(procurement_id=procurement_id, status=body.status)
 
     @router.post(
         "/api/procurements/{procurement_id}/score",

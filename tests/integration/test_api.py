@@ -630,6 +630,102 @@ def test_procurement_requirements_post_404(api_client: tuple[TestClient, Path]) 
     assert resp.status_code == 404
 
 
+def _seed_procurement(number: str, okpd2_codes: str | None = None) -> int:
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": number,
+                    "platform_id": "zakupki_mos",
+                    "subject": "Индексация: посев",
+                    "files_json": [],
+                    "okpd2_codes": okpd2_codes,
+                }
+            )
+            rows, _ = await repo.list_procurements(number=number)
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    return asyncio.run(_seed())
+
+
+def test_procurement_index_result_post_internal(api_client: tuple[TestClient, Path]) -> None:
+    """POST /index-result (внутренний, indexing_service) — upsert в procurement_search_index."""
+    client, _ = api_client
+    proc_id = _seed_procurement("IDX-POST", okpd2_codes="71.20, 62.01.11")
+
+    resp = client.post(
+        f"/api/procurements/{proc_id}/index-result",
+        json={
+            "status": "indexed",
+            "document_text": "текст технического задания",
+            "content_hash": "abc123",
+        },
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"procurement_id": proc_id, "status": "indexed"}
+
+
+def test_procurement_index_result_post_404(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.post(
+        "/api/procurements/999999/index-result",
+        json={"status": "indexed"},
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 404
+
+
+def test_procurement_index_result_error_preserves_previous_document_text(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Повторный error-результат (транзиентный сбой) не затирает document_text."""
+    client, _ = api_client
+    proc_id = _seed_procurement("IDX-PRESERVE")
+
+    ok = client.post(
+        f"/api/procurements/{proc_id}/index-result",
+        json={"status": "indexed", "document_text": "успешно извлечённый текст"},
+        headers=INTERNAL_HEADERS,
+    )
+    assert ok.status_code == 200
+
+    err = client.post(
+        f"/api/procurements/{proc_id}/index-result",
+        json={"status": "error", "error_message": "boom"},
+        headers=INTERNAL_HEADERS,
+    )
+    assert err.status_code == 200
+    assert err.json()["status"] == "error"
+
+    async def _read_document_text() -> str | None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            async with db.session() as session:
+                from sqlalchemy import select
+
+                from zakupki_parser.storage.db import ProcurementSearchIndex
+
+                row = (
+                    await session.execute(
+                        select(ProcurementSearchIndex).where(
+                            ProcurementSearchIndex.procurement_id == proc_id
+                        )
+                    )
+                ).scalar_one()
+                return row.document_text
+        finally:
+            await db.dispose()
+
+    assert asyncio.run(_read_document_text()) == "успешно извлечённый текст"
+
+
 def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     body = client.get("/api/config/threshold").json()

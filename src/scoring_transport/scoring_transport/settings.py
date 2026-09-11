@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     margin_results_key: str = "margin:results"
     analysis_jobs_key: str = "analysis:jobs"
     analysis_results_key: str = "analysis:results"
+    # Фоновая индексация закупок+документов по ОКПД2 (indexing_service, IndexingConfig).
+    # НЕ часть каскада Fit/P(win)/Margin (нет score/profile_id) — отдельная стадия,
+    # результат которой парсер возвращает в POST /api/procurements/{id}/index-result.
+    index_jobs_key: str = "index:jobs"
+    index_results_key: str = "index:results"
     result_timeout_seconds: float = 5.0
 
     # Парсер закупок (REST)

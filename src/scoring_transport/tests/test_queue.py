@@ -38,6 +38,27 @@ async def test_results_keys_include_analysis(queue) -> None:
     assert queue._settings.analysis_results_key in queue._results_keys()
 
 
+async def test_enqueue_stage_index_routes_to_index_queue(queue) -> None:
+    await queue.enqueue(11, 10.0, stage="index")
+    assert queue._client is not None
+    assert await queue._client.zscore(queue._settings.index_jobs_key, "proc:11:pf:0") == 10.0
+    assert await queue._client.zscore(queue._settings.jobs_key, "proc:11:pf:0") is None
+
+
+async def test_results_keys_include_index(queue) -> None:
+    assert queue._settings.index_results_key in queue._results_keys()
+
+
+async def test_pop_result_from_index_queue(queue) -> None:
+    assert queue._client is not None
+    await queue._client.lpush(
+        queue._settings.index_results_key,
+        json.dumps({"procurement_id": 11, "stage": "index", "status": "indexed"}),
+    )
+    payload = await queue.pop_result(timeout=0.1)
+    assert payload == {"procurement_id": 11, "stage": "index", "status": "indexed"}
+
+
 async def test_pop_result_roundtrip(queue) -> None:
     assert queue._client is not None
     await queue._client.lpush(queue._settings.results_key, json.dumps({"a": 1}))

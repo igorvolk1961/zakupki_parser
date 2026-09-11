@@ -1500,6 +1500,27 @@ requirements:
       пользовательскими профилями: пустые ключевые слова -> по семантике R9
       («пустой список — фильтра нет») сохраняются ВСЕ закупки диапазона,
       независимо от совпадения с чьими-либо ключевыми словами.
+  - id: FR-11.2
+    type: FR
+    title: Фоновая индексация текста документов закупки (indexing_service)
+    stakeholder: DevOps / SRE
+    stage: "3, 4"
+    status: implemented
+    adr: "-"
+    code:
+      - src/indexing_service
+      - src/zakupki_parser/storage/db/search_index.py
+      - src/zakupki_parser/storage/repository/search_index.py
+      - src/zakupki_parser/api/app/routes/procurements.py#set_procurement_index_result
+      - docker/liquibase/changelog/db.changelog-1.57.yaml
+    tests:
+      - src/indexing_service/tests/test_worker.py
+      - tests/integration/test_api.py
+    notes: >-
+      indexing_service не водит браузер (Playwright — только внутри парсера):
+      files_json дозагружается парсером при персисте закупки индексным профилем
+      (processing.py#_enqueue_index_job), сервис только скачивает/извлекает
+      текст документов (scoring_common.tz) и возвращает результат.
   - id: FR-11.3
     type: FR
     title: Транслятор DSL ключевых слов в Postgres tsquery
@@ -1518,6 +1539,21 @@ requirements:
       соответствие семантике клиентского движка (parser/filtering.py). Нужен
       для мгновенного «горячего» пересбора закупок из проиндексированного
       диапазона ОКПД2 (см. также FR-11.1, FR-11.2, FR-11.4).
+  - id: FR-11.4
+    type: FR
+    title: Стадия index транспорта скоринга (вне каскада Fit/P(win)/Margin)
+    stakeholder: DevOps / SRE
+    stage: "3, 4"
+    status: implemented
+    adr: ADR-9
+    code:
+      - src/scoring_transport/scoring_transport/consumers/results.py
+      - src/scoring_transport/scoring_transport/broker/redis_queue.py
+      - src/scoring_common/scoring_common/parser_api.py#post_index_result
+    tests:
+      - src/scoring_transport/tests/test_results_consumer.py
+      - src/scoring_transport/tests/test_queue.py
+      - src/scoring_transport/tests/test_app.py
 
   # ===== Бизнес-правила =====
   - id: BR-01

@@ -251,3 +251,56 @@ class ParserApiClient:
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
             return data
+
+    async def post_index_result(
+        self,
+        procurement_id: int,
+        status: str,
+        okpd2_normalized: str | None = None,
+        document_text: str | None = None,
+        content_hash: str | None = None,
+        error_message: str | None = None,
+        retry_max: int = 3,
+        retry_backoff: float = 2.0,
+        internal_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Вернуть результат фоновой индексации закупки в парсер (с ретраями/backoff).
+
+        Внутренний эндпоинт парсера (``POST /api/procurements/{id}/index-result``,
+        только конвейеру — ``X-Internal-Token``): пишет/обновляет строку
+        ``procurement_search_index`` (``indexing_service``, ``IndexingConfig``).
+        ``status`` — ``indexed`` (текст извлечён успешно) или ``error`` (сбой
+        скачивания/извлечения — ``error_message``, повтор на следующей итерации).
+        Не профильная стадия (нет ``score``/``profile_id`` — индекс общий на закупку).
+        """
+        url = f"{self._base}/api/procurements/{procurement_id}/index-result"
+        payload: dict[str, Any] = {"status": status}
+        if okpd2_normalized is not None:
+            payload["okpd2_normalized"] = okpd2_normalized
+        if document_text is not None:
+            payload["document_text"] = document_text
+        if content_hash is not None:
+            payload["content_hash"] = content_hash
+        if error_message is not None:
+            payload["error_message"] = error_message
+        headers = self._headers(internal_token)
+        last_exc: Exception | None = None
+        for attempt in range(retry_max):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                    resp.raise_for_status()
+                    data: dict[str, Any] = resp.json()
+                    return data
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                logger.warning(
+                    "POST /index-result для %s не удался (попытка %d/%d): %s",
+                    procurement_id,
+                    attempt + 1,
+                    retry_max,
+                    exc,
+                )
+                await asyncio.sleep(retry_backoff * (attempt + 1))
+        assert last_exc is not None
+        raise last_exc

@@ -44,7 +44,10 @@ class ScoringJobRequest(BaseModel):
 
     procurement_id: int
     profile_id: int = Field(
-        description="профиль, по компетенциям которого считается скор (BR-07)",
+        description=(
+            "профиль, по компетенциям которого считается скор (BR-07); для stage=index "
+            "не используется (не профильная стадия) — передайте 0"
+        ),
     )
     priority: float | None = Field(
         default=None,
@@ -52,7 +55,7 @@ class ScoringJobRequest(BaseModel):
     )
     stage: str = Field(
         default="fit",
-        description="стадия: fit | pwin | margin | analysis",
+        description="стадия: fit | pwin | margin | analysis | index",
     )
 
 

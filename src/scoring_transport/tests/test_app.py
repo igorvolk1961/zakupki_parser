@@ -94,6 +94,16 @@ def test_ingest_stage_pwin() -> None:
     assert queue.enqueued == [(42, 0.7, "pwin", 1)]
 
 
+def test_ingest_stage_index() -> None:
+    client, queue = _make_app()
+    resp = client.post(
+        "/api/scoring/jobs",
+        json={"procurement_id": 42, "priority": 0.3, "stage": "index", "profile_id": 0},
+    )
+    assert resp.status_code == 202
+    assert queue.enqueued == [(42, 0.3, "index", 0)]
+
+
 def test_health() -> None:
     client, _ = _make_app()
     resp = client.get("/health")
