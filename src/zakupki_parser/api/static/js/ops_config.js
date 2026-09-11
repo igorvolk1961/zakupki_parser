@@ -129,6 +129,12 @@ const SERVICES = [
     configPath: "services/margin/config",
     schemaPath: "services/margin",
   },
+  {
+    key: "index",
+    label: "Индексация",
+    configPath: "services/index/config",
+    schemaPath: "services/index",
+  },
 ];
 
 // Модальное окно секретов (.env): закрывается и при «Сохранить», и при «Отмена».

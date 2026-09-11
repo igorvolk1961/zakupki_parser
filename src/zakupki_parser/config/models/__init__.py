@@ -60,6 +60,7 @@ from zakupki_parser.config.models.service import (
 )
 from zakupki_parser.config.models.services import (
     AnalysisServiceConfig,
+    IndexingServiceConfig,
     MarginServiceConfig,
     PwinServiceConfig,
     ScoringServiceConfig,
@@ -103,6 +104,7 @@ __all__ = [
     "TelegramConfig",
     "WebhookConfig",
     "AnalysisServiceConfig",
+    "IndexingServiceConfig",
     "MarginServiceConfig",
     "PwinServiceConfig",
     "ScoringServiceConfig",

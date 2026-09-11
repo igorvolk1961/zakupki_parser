@@ -268,3 +268,47 @@ class PwinServiceConfig(_BaseConfig):
     max_pwin_cap: float = Field(
         default=0.95, ge=0, le=1, description="Кап P(win) — защита от переоценки"
     )
+
+
+class IndexingServiceConfig(_BaseConfig):
+    """Несекретная конфигурация indexing_service (src/indexing_service/config.yaml).
+
+    Фоновая индексация закупок+документов по ОКПД2 (стадия ``index``, вне
+    каскада Fit/P(win)/Margin) — см. ``IndexingConfig`` (config_service.yaml)
+    и ``docs/external-service-contract.md``.
+    """
+
+    parser_api_url: str = Field(default="http://localhost:8000", description="URL REST API парсера")
+    parser_retry_backoff_seconds: float = Field(
+        default=5.0, ge=0, description="Пауза при недоступности парсера (сек)"
+    )
+    redis_url: str = Field(default="redis://localhost:6379/0", description="URL Redis")
+    jobs_key: str = Field(default="index:jobs", description="Ключ очереди задач")
+    results_key: str = Field(default="index:results", description="Ключ результатов")
+    processing_key: str = Field(default="index:processing", description="Ключ обработки")
+    processing_meta_key: str = Field(
+        default="index:processing_meta", description="Ключ метаданных обработки"
+    )
+    processing_ttl_seconds: int = Field(default=600, ge=1, description="TTL аренды задачи (сек)")
+    processing_recovery_priority: float = Field(
+        default=0.0, description="Приоритет восстановления зависших задач"
+    )
+    queue_poll_seconds: float = Field(default=2.0, gt=0, description="Период опроса очереди (сек)")
+    jobs_retry_key: str = Field(default="index:jobs_retries", description="Ключ счётчика ретраев")
+
+    max_files_per_procurement: int = Field(
+        default=20, ge=1, description="Макс. число файлов закупки для извлечения текста"
+    )
+    max_document_chars: int = Field(
+        default=200_000, ge=1000, description="Макс. суммарная длина извлечённого текста"
+    )
+    download_timeout_seconds: float = Field(
+        default=30.0, gt=0, description="Таймаут скачивания одного файла (сек)"
+    )
+    verify_ssl: bool = Field(default=False, description="Проверять SSL-сертификат при скачивании")
+    max_concurrent_downloads: int = Field(
+        default=2, ge=1, description="Лимит одновременных скачиваний файлов"
+    )
+    download_delay_seconds: float = Field(
+        default=1.0, ge=0, description="Пауза между файлами одной закупки (своя «вежливость»)"
+    )

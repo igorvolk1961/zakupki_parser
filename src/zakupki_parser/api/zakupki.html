@@ -545,6 +545,7 @@
       <button id="svc-tab-analysis" title="config.yaml сервиса анализа документов">Анализ документов</button>
       <button id="svc-tab-pwin" title="config.yaml сервиса P(win)">P(win)</button>
       <button id="svc-tab-margin" title="config.yaml сервиса Margin">Margin</button>
+      <button id="svc-tab-index" title="config.yaml сервиса фоновой индексации">Индексация</button>
     </div>
     <div id="svc-pane-scoring">
       <div class="panel">
@@ -603,6 +604,20 @@
       </div>
       <div id="svc-margin-form"></div>
       <textarea id="svc-margin-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    </div>
+    <div id="svc-pane-index" style="display:none;">
+      <div class="panel">
+        <div class="panel-title" title="src/indexing_service/config.yaml">Индексация (indexing_service)</div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <button class="primary" id="svc-index-save" title="Сохранить конфигурацию indexing_service. Изменения применяются при следующем старте сервиса.">Сохранить</button>
+          <button id="svc-index-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
+          <button id="svc-index-env-toggle" title="Показать/скрыть секреты (.env)">Секреты (.env)</button>
+          <button id="svc-index-reload">Отменить изменения</button>
+          <span id="svc-index-status" class="muted"></span>
+        </div>
+      </div>
+      <div id="svc-index-form"></div>
+      <textarea id="svc-index-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
     </div>
   </div>
   <div id="view-cfgops" style="display:none;">

@@ -49,6 +49,7 @@ from zakupki_parser.api.app.schemas import PlatformOut, PlatformsListOut, Prompt
 from zakupki_parser.api.app.state import AppState
 from zakupki_parser.config.models import (
     AnalysisServiceConfig,
+    IndexingServiceConfig,
     LoggingConfig,
     MarginServiceConfig,
     OpsConfig,
@@ -381,6 +382,18 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
                 label = scoring_labels.get(sub["key"])
                 if label:
                     sub["label"] = label
+        elif field.get("key") == "indexing" and field.get("kind") == "object":
+            field["stack"] = True
+            field["label"] = "Фоновая индексация по ОКПД2"
+            indexing_labels = {
+                "enabled": "Включить фоновую индексацию",
+                "okpd2_prefixes": "Коды ОКПД2 (префиксы)",
+                "excluded_platforms": "Площадки без индексации",
+            }
+            for sub in field["fields"]:
+                label = indexing_labels.get(sub["key"])
+                if label:
+                    sub["label"] = label
         elif field.get("key") == "deduplicate_requests":
             field["label"] = "Объединять одинаковые обходы"
             field["description"] = (
@@ -644,6 +657,44 @@ SERVICE_CONFIGS: dict[str, _ServiceConfig] = {
                     ),
                 ),
                 ("Пайплайн", ("margin_rate", "score_round_digits")),
+            ),
+        ),
+        _ServiceConfig(
+            name="index",
+            dir="indexing_service",
+            model=IndexingServiceConfig,
+            secrets=frozenset({"parser_internal_token"}),
+            title="Индексация",
+            module="indexing_service",
+            worker_cmd="worker",
+            parser_env="INDEX_PARSER_API_URL",
+            log_name="indexing_service",
+            groups=(
+                ("Парсер закупок", ("parser_api_url", "parser_retry_backoff_seconds")),
+                (
+                    "Redis-очередь",
+                    (
+                        "redis_url",
+                        "jobs_key",
+                        "results_key",
+                        "processing_key",
+                        "processing_meta_key",
+                        "processing_ttl_seconds",
+                        "processing_recovery_priority",
+                        "queue_poll_seconds",
+                        "jobs_retry_key",
+                    ),
+                ),
+                (
+                    "Извлечение текста документов",
+                    (
+                        "max_files_per_procurement",
+                        "max_document_chars",
+                        "download_timeout_seconds",
+                        "verify_ssl",
+                    ),
+                ),
+                ("Вежливость", ("max_concurrent_downloads", "download_delay_seconds")),
             ),
         ),
     )
@@ -1039,6 +1090,7 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         ("analysis", "Анализ документов"),
         ("pwin", "P(win)"),
         ("margin", "Margin"),
+        ("index", "Индексация"),
     )
 
     def _log_path(key: str) -> Path:
