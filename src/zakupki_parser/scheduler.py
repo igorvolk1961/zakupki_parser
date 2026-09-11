@@ -20,9 +20,14 @@ from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
-from zakupki_parser.storage.db import Database
+from zakupki_parser.storage.db import Database, Profile
 from zakupki_parser.storage.repository import ProcurementRepository
 from zakupki_parser.storage.repository.accounts import effective_options
+
+# id системного «индексного» профиля (IndexingConfig, _build_system_index_ctx):
+# не персистится в БД (autoincrement выдаёт только положительные id), отрицательное
+# значение гарантированно не совпадёт ни с одним реальным Profile.id.
+SYSTEM_INDEX_PROFILE_ID = -1
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +290,68 @@ class Scheduler:
     async def _gather_profile_ctxs(
         self, only_ids: set[int] | None = None
     ) -> list[ProfileRunContext]:
+        """Профили пользователей + системный «индексный» профиль (если включён).
+
+        Системный профиль (``IndexingConfig``, без владельца-пользователя, не
+        хранится в БД) добавляется только в РЕГУЛЯРНЫЙ обход (``only_ids is None``)
+        — в целевой внеочередной обход конкретных изменённых профилей
+        (``only_ids`` задан, ``_run_refresh_pass``) не попадает: он не привязан к
+        какому-либо редактируемому пользователем профилю и не должен провоцировать
+        собственный ``full_window=True`` пересбор по чужому триггеру.
+        """
+        ctxs = await self._gather_user_profile_ctxs(only_ids=only_ids)
+        if only_ids is None:
+            index_ctx = self._build_system_index_ctx()
+            if index_ctx is not None:
+                ctxs.append(index_ctx)
+        return ctxs
+
+    def _build_system_index_ctx(self) -> ProfileRunContext | None:
+        """Синтетический «индексный» профиль (фоновая индексация по ОКПД2).
+
+        Не привязан к пользователю: не хранится в БД, не виден в UI/API, участвует
+        только в обходе площадок наравне с пользовательскими профилями. Пустые
+        ``keywords``/``exclusion_words`` — по семантике R9 («пустой список — фильтра
+        нет») сохраняются ВСЕ закупки указанного диапазона ОКПД2 (см.
+        ``RecordProcessingMixin._process_list_record``), независимо от того, совпали
+        ли они с чьими-либо ключевыми словами. ``scoring_allowed=False`` и пустые
+        keywords гарантируют, что LLM-скоринг по этому контексту не запускается —
+        только сохранение записи (для последующей индексации документов, см.
+        ``indexing_service``).
+        """
+        indexing = self._cfg.service.indexing
+        if not indexing.enabled or not indexing.okpd2_prefixes:
+            return None
+        excluded = set(indexing.excluded_platforms)
+        target_etp = [pid for pid in self._cfg.dom.platforms if pid not in excluded]
+        if not target_etp:
+            return None
+        profile = Profile(
+            id=SYSTEM_INDEX_PROFILE_ID,
+            user_id=None,
+            name="__system_index__",
+            enabled=True,
+            is_active=False,
+            target_etp=target_etp,
+            target_laws=[],
+            target_regions=[],
+            okpd_codes=list(indexing.okpd2_prefixes),
+            competencies="",
+            questions=[],
+        )
+        return ProfileRunContext(
+            profile=profile,
+            keywords=[],
+            exclusion_words=[],
+            target_regions=[],
+            scoring_allowed=False,
+            search_in_documents=False,
+            is_system_index=True,
+        )
+
+    async def _gather_user_profile_ctxs(
+        self, only_ids: set[int] | None = None
+    ) -> list[ProfileRunContext]:
         """Включённые профили незаблокированных пользователей + слова (BR-07).
 
         Пустой список — профилей нет: обходы не строятся (dev-режим).
@@ -339,6 +406,7 @@ class Scheduler:
                 scoring_allowed=(
                     p.user_id in scoring_ids and self._profile_has_valid_competencies(p)
                 ),
+                search_in_documents=bool(p.search_in_documents),
             )
             for p in profiles
         ]

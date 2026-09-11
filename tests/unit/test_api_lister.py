@@ -706,9 +706,12 @@ class _FakeProfile:
     target_etp: list[str] = []
 
 
-def _ctx(keywords: list[str]) -> ProfileRunContext:
+def _ctx(keywords: list[str], *, search_in_documents: bool = False) -> ProfileRunContext:
     return ProfileRunContext(
-        profile=cast(Profile, _FakeProfile()), keywords=keywords, exclusion_words=[]
+        profile=cast(Profile, _FakeProfile()),
+        keywords=keywords,
+        exclusion_words=[],
+        search_in_documents=search_in_documents,
     )
 
 
@@ -1036,3 +1039,235 @@ async def test_process_list_record_scoring_allowed_pushes(app_config: AppConfig)
     assert repo.recorded and repo.recorded[0][:2] == (101, 7)
     assert transport.enqueued == [(101, 7)]
     assert repo.queued == [(101, 7)]
+
+
+class _IndexProfile:
+    id = -1
+    target_etp: list[str] = []
+    competencies = ""
+
+
+class _IndexRepo:
+    """Фейковый репозиторий: только update_details (нужен индексному профилю)."""
+
+    def __init__(self) -> None:
+        self.updated_details: list[tuple[int, dict[str, Any]]] = []
+
+    async def update_details(self, procurement_id: int, data: dict[str, Any]) -> bool:
+        self.updated_details.append((procurement_id, dict(data)))
+        return True
+
+
+class _IndexTransport:
+    """Записывает enqueue-вызовы с указанием стадии (для проверки stage=index)."""
+
+    def __init__(self) -> None:
+        self.enqueued: list[tuple[int, str, int | None]] = []
+
+    async def enqueue(
+        self,
+        procurement_id: int,
+        priority: float,
+        stage: str = "fit",
+        profile_id: int | None = None,
+    ) -> None:
+        self.enqueued.append((procurement_id, stage, profile_id))
+
+
+def _index_ctx() -> ProfileRunContext:
+    """Синтетический системный индексный профиль (IndexingConfig): keywords всегда пусты."""
+    return ProfileRunContext(
+        profile=cast(Profile, _IndexProfile()),
+        keywords=[],
+        exclusion_words=[],
+        scoring_allowed=False,
+        is_system_index=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_index_ctx_fetches_details_and_enqueues(
+    app_config: AppConfig,
+) -> None:
+    """Индексный профиль: закупка сохраняется всегда (пустые keywords), детали
+    площадки дособираются, задание ставится в очередь stage=index."""
+    cfg = app_config.model_copy(deep=True)
+    repo = _IndexRepo()
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=repo,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    transport = _IndexTransport()
+    recorder._transport = transport  # type: ignore[assignment]  # noqa: SLF001
+    recorder._profile_ctxs = [_index_ctx()]  # noqa: SLF001
+
+    async def _fake_extract_details(
+        page: Any,
+        platform: Any,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
+        return (
+            {"okpd2_codes": "62.01.11", "subject": list_vars.get("subject")},
+            [{"name": "tz.pdf", "url": "https://mos.example/tz.pdf"}],
+            None,
+        )
+
+    with patch(
+        "zakupki_parser.parser.orchestrator.processing.extract_details",
+        _fake_extract_details,
+    ):
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "IDX1", "id": "500", "subject": "Оказание клининговых услуг"},
+            detail_url="https://zakupki.mos.ru/need/500",
+            number="IDX1",
+        )
+    assert (known, number, saved) == (False, "IDX1", True)
+    assert len(recorder.persisted) == 1
+    assert repo.updated_details and repo.updated_details[0][0] == 500
+    assert repo.updated_details[0][1]["files_json"] == [
+        {"name": "tz.pdf", "url": "https://mos.example/tz.pdf"}
+    ]
+    assert transport.enqueued == [(500, "index", 0)]
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_index_ctx_skips_enqueue_when_not_newly_saved(
+    app_config: AppConfig,
+) -> None:
+    """Уже известная закупка (saved=False) — детали не дособираются повторно."""
+    cfg = app_config.model_copy(deep=True)
+    repo = _IndexRepo()
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=repo,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+
+    async def _never_persist(record: dict[str, Any]) -> bool:
+        return False
+
+    recorder._persist = _never_persist  # type: ignore[method-assign]  # noqa: SLF001
+    transport = _IndexTransport()
+    recorder._transport = transport  # type: ignore[assignment]  # noqa: SLF001
+    recorder._profile_ctxs = [_index_ctx()]  # noqa: SLF001
+
+    with patch("zakupki_parser.parser.orchestrator.processing.extract_details") as fake_extract:
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "IDX2", "id": "501", "subject": "Оказание клининговых услуг"},
+            detail_url="https://zakupki.mos.ru/need/501",
+            number="IDX2",
+        )
+    assert (known, number, saved) == (False, "IDX2", False)
+    fake_extract.assert_not_called()
+    assert transport.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_search_in_documents_matches_via_fallback(
+    app_config: AppConfig,
+) -> None:
+    """search_in_documents=True: ключевое слово только в документе — закупка сохраняется.
+
+    Live-фоллбэк (дозагрузка деталей+файлов, scoring_common.tz) мокается напрямую —
+    тест проверяет интеграцию с матчингом/персистом, а не сеть/Playwright.
+    """
+    recorder = _make_real_recorder(app_config, _make_api_platform())
+    recorder._profile_ctxs = [_ctx(["роботизированн*"], search_in_documents=True)]  # noqa: SLF001
+    with patch.object(
+        recorder,
+        "_live_fallback_document_text",
+        return_value="Приложение 1: поставка роботизированного манипулятора",
+    ) as fallback:
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "D1", "subject": "Оказание клининговых услуг"},
+            detail_url="https://etpgpb.ru/procedures/etp/D1/",
+            number="D1",
+        )
+    assert (known, number, saved) == (False, "D1", True)
+    assert len(recorder.persisted) == 1
+    fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_search_in_documents_false_skips_fallback(
+    app_config: AppConfig,
+) -> None:
+    """search_in_documents=False (по умолчанию): фоллбэк не вызывается, запись отбрасывается."""
+    recorder = _make_real_recorder(app_config, _make_api_platform())
+    recorder._profile_ctxs = [_ctx(["роботизированн*"])]  # noqa: SLF001
+    with patch.object(
+        recorder, "_live_fallback_document_text", return_value="роботизированный манипулятор"
+    ) as fallback:
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "D2", "subject": "Оказание клининговых услуг"},
+            detail_url="https://etpgpb.ru/procedures/etp/D2/",
+            number="D2",
+        )
+    assert (known, number, saved) == (False, "D2", False)
+    assert recorder.persisted == []
+    fallback.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_search_in_documents_fallback_still_no_match(
+    app_config: AppConfig,
+) -> None:
+    """search_in_documents=True, но слова нет и в документе — закупка не сохраняется."""
+    recorder = _make_real_recorder(app_config, _make_api_platform())
+    recorder._profile_ctxs = [_ctx(["роботизированн*"], search_in_documents=True)]  # noqa: SLF001
+    with patch.object(
+        recorder, "_live_fallback_document_text", return_value="Приложение: клининговый инвентарь"
+    ):
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "D3", "subject": "Оказание клининговых услуг"},
+            detail_url="https://etpgpb.ru/procedures/etp/D3/",
+            number="D3",
+        )
+    assert (known, number, saved) == (False, "D3", False)
+    assert recorder.persisted == []
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_search_in_documents_fallback_called_once_per_record(
+    app_config: AppConfig,
+) -> None:
+    """Фоллбэк вызывается не более одного раза на запись даже при нескольких профилях."""
+    recorder = _make_real_recorder(app_config, _make_api_platform())
+    recorder._profile_ctxs = [  # noqa: SLF001
+        _ctx(["роботизированн*"], search_in_documents=True),
+        _ctx(["манипулятор*"], search_in_documents=True),
+    ]
+    with patch.object(
+        recorder,
+        "_live_fallback_document_text",
+        return_value="Приложение: роботизированный манипулятор",
+    ) as fallback:
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "D4", "subject": "Оказание клининговых услуг"},
+            detail_url="https://etpgpb.ru/procedures/etp/D4/",
+            number="D4",
+        )
+    assert (known, number, saved) == (False, "D4", True)
+    assert len(recorder.persisted) == 2
+    fallback.assert_awaited_once()

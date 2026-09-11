@@ -10,18 +10,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from playwright.async_api import Page
 
+from scoring_common.tz import extract_text_cached
+from scoring_common.tz.files import collect_files
+from zakupki_parser.parser.detail import extract_details
 from zakupki_parser.parser.filtering import (
     exclusions_present,
+    exclusions_present_text,
     keywords_match,
-    matched_keywords,
+    keywords_match_text,
+    matched_keywords_text,
     region_match,
+    subject_of,
 )
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.orchestrator.state import OrchestratorState
@@ -29,9 +36,150 @@ from zakupki_parser.parser.orchestrator.state import OrchestratorState
 # Имя логгера сохранено прежним (категория модуля orchestrator).
 logger = logging.getLogger("zakupki_parser.parser.orchestrator.orchestrator")
 
+# Live-фоллбэк поиска по документам (Profile.search_in_documents, вне
+# проиндексированного диапазона ОКПД2) намеренно нарушает BR-08: дозагружает
+# детали площадки (files_json) для записей, не прошедших фильтр по subject.
+# Ограничения — защита от неконтролируемого роста нагрузки на площадку и памяти
+# на один патологический пакет документов (архив с сотнями файлов).
+_LIVE_FALLBACK_MAX_FILES = 20
+_LIVE_FALLBACK_MAX_CHARS = 200_000
+_LIVE_FALLBACK_CONCURRENCY = 2
+_live_fallback_semaphore = asyncio.Semaphore(_LIVE_FALLBACK_CONCURRENCY)
+
 
 class RecordProcessingMixin(OrchestratorState):
     """Обработка одной записи из списка (детали, фильтр, запись, пуш в скоринг)."""
+
+    @staticmethod
+    def _record_priority(record: dict[str, Any], now: datetime | None = None) -> float:
+        """Приоритет очереди — время обновления/публикации закупки (ZPOPMAX берёт большее)."""
+        ts = record.get("update_date") or record.get("publication_date")
+        if isinstance(ts, datetime):
+            return ts.timestamp()
+        if isinstance(ts, str):
+            with contextlib.suppress(ValueError):
+                return datetime.fromisoformat(ts).timestamp()
+        return (now or datetime.now(UTC)).timestamp()
+
+    async def _enqueue_index_job(
+        self,
+        page: Page,
+        record: dict[str, Any],
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+    ) -> None:
+        """Дособирает детали площадки и ставит задание фоновой индексации документов.
+
+        Вызывается один раз на закупку — при первом сохранении синтетическим
+        индексным профилем (IndexingConfig, §1 плана индексации). Файлы
+        (``files_json``) нужны воркеру ``indexing_service``, который сам по себе
+        НЕ водит браузер (архитектурная граница: Playwright — только внутри
+        парсера, см. ``docs/external-service-contract.md`) — поэтому детали
+        дособираются здесь же, с уже открытой страницей текущего обхода, а не
+        отдельным запросом из indexing_service.
+        """
+        details = await self._fetch_platform_details(
+            page, list_vars, detail_url, api_fields, context="Индексный профиль"
+        )
+        if details is not None and self._repository is not None:
+            detail_vars, files, api_inn = details
+            data = dict(record.get("detail_json") or {})
+            data.update({k: v for k, v in detail_vars.items() if v is not None})
+            if files:
+                data["files_json"] = files
+            if api_inn and not data.get("inn"):
+                data["inn"] = api_inn
+            data["detail_json"] = json_safe(data)
+            try:
+                await self._repository.update_details(int(record["id"]), data)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Индексный профиль: не удалось сохранить детали закупки %s: %s",
+                    record.get("number"),
+                    exc,
+                )
+        if self._transport is None:
+            return
+        try:
+            await self._transport.enqueue(
+                int(record["id"]),
+                self._record_priority(record, self._now),
+                stage="index",
+                profile_id=0,
+            )
+            logger.info(
+                "Закупка %s поставлена в очередь фоновой индексации документов",
+                record.get("number"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Не удалось поставить задание индексации закупки %s: %s",
+                record.get("number"),
+                exc,
+            )
+
+    async def _fetch_platform_details(
+        self,
+        page: Page,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+        *,
+        context: str,
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str | None] | None:
+        """Дозагрузка деталей площадки (``extract_details`` — тот же общий интерфейс,
+        что использует обработчик ``POST /score``, BR-08) с уже открытой страницей
+        обхода листинга — переиспользуется live-фоллбэком поиска по документам
+        (§1б плана индексации) и синтетическим индексным профилем (§1/1а). ``None``
+        при сбое (не роняет обход — запись остаётся на уровне списка).
+        """
+        try:
+            return await extract_details(page, self._platform, list_vars, detail_url, api_fields)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("%s: не удалось дособрать детали площадки: %s", context, exc)
+            return None
+
+    async def _live_fallback_document_text(
+        self,
+        page: Page,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+    ) -> str | None:
+        """Текст документов закупки для live-фоллбэка (``Profile.search_in_documents``).
+
+        Дозагружает детали площадки ради ``files_json`` (``_fetch_platform_details``),
+        затем скачивает и извлекает текст вложений (``scoring_common.tz``, тот же
+        модуль, что уже используют ``analysis_service`` и просмотр ТЗ в карточке
+        закупки). Ограничено числом файлов/суммарной длиной текста
+        (см. ``_LIVE_FALLBACK_*``) и семафором конкурентности — своя «вежливость»
+        отдельно от обычного обхода листинга (``Delayer``), которой у дозагрузки
+        деталей/файлов сегодня нет.
+        """
+        details = await self._fetch_platform_details(
+            page, list_vars, detail_url, api_fields, context="Live-фоллбэк поиска в документах"
+        )
+        if details is None:
+            return None
+        _detail_vars, files, _inn = details
+        if not files:
+            return None
+        refs = collect_files({"files_json": files})[:_LIVE_FALLBACK_MAX_FILES]
+        if not refs:
+            return None
+        texts: list[str] = []
+        total_chars = 0
+        async with _live_fallback_semaphore:
+            for ref in refs:
+                text = await asyncio.to_thread(extract_text_cached, ref, 30.0)
+                if not text:
+                    continue
+                texts.append(text)
+                total_chars += len(text)
+                if total_chars >= _LIVE_FALLBACK_MAX_CHARS:
+                    break
+        return "\n".join(texts) if texts else None
 
     async def _process_list_record(
         self,
@@ -78,36 +226,43 @@ class RecordProcessingMixin(OrchestratorState):
         # тратить лимиты API площадки на заведомо неподходящие закупки (mos.example 402).
         # Для мультипрофильного обхода ранний фильтр невозможен: запись нужна каждому
         # профилю, слова применяются после получения записи (цикл по ctxs ниже).
+        early_applied = False
         if early_subject and not multi and ctxs:
             first = ctxs[0]
-            if not keywords_match(list_vars, first.keywords):
+            if keywords_match(list_vars, first.keywords):
+                if exclusions_present(list_vars, first.exclusion_words):
+                    logger.info(
+                        "Закупка %s отброшена: слова-исключения в описании",
+                        number,
+                    )
+                    return False, number, False
+                # Регион (клиентская пост-фильтрация, как R9) — ТОЛЬКО если регион уже
+                # есть на уровне списка: для площадок, где регион дособирается с деталями
+                # (BR-08), отброс до досборки деталей некорректен. Отсекаем по строковому
+                # соответствию целевых регионов всегда, когда они заданы; дистанция
+                # (max_region_distance_km) на сборе не применяется — она проверяется
+                # только на этапе анализа (геокодер на сборе не вызывается).
+                if (
+                    first.target_regions
+                    and list_vars.get("region")
+                    and not region_match(list_vars, first.target_regions)
+                ):
+                    logger.info(
+                        "Закупка %s отброшена: регион вне целевых профиля",
+                        number,
+                    )
+                    return False, number, False
+                early_applied = True
+            elif not first.search_in_documents:
                 logger.info(
                     "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
                     number,
                 )
                 return False, number, False
-            if exclusions_present(list_vars, first.exclusion_words):
-                logger.info(
-                    "Закупка %s отброшена: слова-исключения в описании",
-                    number,
-                )
-                return False, number, False
-            # Регион (клиентская пост-фильтрация, как R9) — ТОЛЬКО если регион уже
-            # есть на уровне списка: для площадок, где регион дособирается с деталями
-            # (BR-08), отброс до досборки деталей некорректен. Отсекаем по строковому
-            # соответствию целевых регионов всегда, когда они заданы; дистанция
-            # (max_region_distance_km) на сборе не применяется — она проверяется
-            # только на этапе анализа (геокодер на сборе не вызывается).
-            if (
-                first.target_regions
-                and list_vars.get("region")
-                and not region_match(list_vars, first.target_regions)
-            ):
-                logger.info(
-                    "Закупка %s отброшена: регион вне целевых профиля",
-                    number,
-                )
-                return False, number, False
+            # else: subject не совпал, но у (единственного) профиля включён поиск по
+            # документам («искать ключевые слова в документах») — решение откладывается
+            # до сборки полной записи и live-фоллбэка в цикле по ctxs ниже
+            # (early_applied остаётся False).
 
         # 3) детали ПЕРЕНЕСЕНЫ в обработчик POST /score (BR-08): детали площадки
         #    догружаются ПОСЛЕ получения результата скоринга, ПЕРЕД записью скора в БД.
@@ -144,18 +299,35 @@ class RecordProcessingMixin(OrchestratorState):
         # Клиентская фильтрация (R9) и запись — ВЕЕРОМ по профилям текущего обхода.
         # Для одиночного профиля ранний фильтр уже применён к subject из карточки;
         # для группы профилей фильтруем каждого по полной (уровень списка) записи.
-        early_applied = bool(early_subject and not multi and ctxs)
         saved_any = False
         pushed_scoring: set[tuple[int, int]] = set()
+        # Текст документов закупки для live-фоллбэка — дозагружается ЛЕНИВО и не
+        # более одного раза на запись (общий для всех ctx в веере), чтобы несколько
+        # профилей с search_in_documents не плодили повторные обращения к площадке.
+        document_text: str | None = None
+        document_text_fetched = False
         for ctx in ctxs:
+            match_text = subject_of(record)
             if not early_applied:
-                if not keywords_match(record, ctx.keywords):
+                matched = keywords_match_text(match_text, ctx.keywords)
+                if not matched and ctx.search_in_documents:
+                    if not document_text_fetched:
+                        document_text = await self._live_fallback_document_text(
+                            page, list_vars, detail_url, api_fields
+                        )
+                        document_text_fetched = True
+                    if document_text:
+                        match_text = (
+                            f"{match_text}\n{document_text}" if match_text else document_text
+                        )
+                        matched = keywords_match_text(match_text, ctx.keywords)
+                if not matched:
                     logger.info(
                         "Закупка %s отброшена: нет совпадений с ключевыми словами профиля",
                         number,
                     )
                     continue
-                if exclusions_present(record, ctx.exclusion_words):
+                if exclusions_present_text(match_text, ctx.exclusion_words):
                     logger.info(
                         "Закупка %s отброшена: слова-исключения в описании",
                         number,
@@ -189,13 +361,29 @@ class RecordProcessingMixin(OrchestratorState):
                 if self._known_numbers is not None:
                     self._known_numbers.add(str(number))
 
+            # 9-тер) синтетический индексный профиль (IndexingConfig, §1/1а плана
+            # индексации): keywords всегда пусты, поэтому блок 9-бис/скоринга ниже
+            # для него не выполняется ("if hit:" никогда не True). Вместо этого — при
+            # первом сохранении закупки в этом диапазоне ОКПД2 — дособираем детали
+            # площадки (files_json, нужен indexing_service) и ставим задание на
+            # фоновую индексацию документов. Гейт на saved: закупка обрабатывается
+            # инкрементальным обходом обычно один раз, повторный заход по уже
+            # известной закупке не должен дублировать дозагрузку/постановку задания.
+            if (
+                saved
+                and ctx.is_system_index
+                and self._repository is not None
+                and record.get("id") is not None
+            ):
+                await self._enqueue_index_job(page, record, list_vars, detail_url, api_fields)
+
             # 9-бис) ключевые слова, по которым закупка отобрана профилем (R9):
             # они записываются в procurement_evaluations.matched_keywords ещё до
             # внешнего скоринга (оценка find-or-create обновляется стадиями каскада).
             # Записываем и для уже существующих закупок (saved=False) — важно в
             # мультипрофильном обходе: новый профиль оценивает общую закупку.
             if self._repository is not None and ctx is not None and record.get("id") is not None:
-                hit = matched_keywords(record, ctx.keywords)
+                hit = matched_keywords_text(match_text, ctx.keywords)
                 if hit:
                     # Хэш канонического содержания компетенций профиля (BR-07):
                     # ключ дедупликации скоринга — профили с идентичным содержанием
@@ -269,13 +457,7 @@ class RecordProcessingMixin(OrchestratorState):
                                         ctx.profile.id,
                                     )
                                 continue
-                            ts = record.get("update_date") or record.get("publication_date")
-                            priority = self._now.timestamp()
-                            if isinstance(ts, datetime):
-                                priority = ts.timestamp()
-                            elif isinstance(ts, str):
-                                with contextlib.suppress(ValueError):
-                                    priority = datetime.fromisoformat(ts).timestamp()
+                            priority = self._record_priority(record)
                             try:
                                 await self._transport.enqueue(
                                     int(record["id"]), priority, profile_id=ctx.profile.id

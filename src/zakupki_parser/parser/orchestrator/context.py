@@ -32,6 +32,17 @@ class ProfileRunContext:
     # валидные компетенции. False — профиль участвует в МОНИТОРИНГЕ (сбор закупок и
     # matched_keywords), но задания на внешний скоринг по нему не ставятся.
     scoring_allowed: bool = True
+    # Искать ключевые слова также в тексте документов закупки, не только в subject
+    # (Profile.search_in_documents). Для закупок вне проиндексированного диапазона
+    # ОКПД2 включает live-фоллбэк в RecordProcessingMixin (дозагрузка деталей+файлов
+    # для записей, не прошедших фильтр по subject, — заметно медленнее).
+    search_in_documents: bool = False
+    # Синтетический системный «индексный» профиль (Scheduler._build_system_index_ctx,
+    # IndexingConfig) — не привязан к пользователю, не хранится в БД. keywords у него
+    # всегда пусты (сохраняет ВСЕ закупки заданного диапазона ОКПД2), поэтому блок
+    # LLM-скоринга/matched_keywords в RecordProcessingMixin по нему не выполняется;
+    # вместо этого сохранённая запись ставится в очередь фоновой индексации документов.
+    is_system_index: bool = False
 
 
 @dataclass

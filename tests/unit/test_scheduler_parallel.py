@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from zakupki_parser.options import paid_default_options
+from zakupki_parser.parser.orchestrator.context import ProfileRunContext
 from zakupki_parser.scheduler import Scheduler
-from zakupki_parser.storage.db import UserAccount
+from zakupki_parser.storage.db import Profile, UserAccount
 
 
 def _competencies_json() -> str:
@@ -572,6 +573,7 @@ def _profile(pid: int, uid: int, *, competencies: str | None = None) -> Any:
         target_laws=[],
         target_regions=[],
         max_region_distance_km=None,
+        search_in_documents=False,
     )
 
 
@@ -629,3 +631,161 @@ async def test_gather_scoring_allowed_needs_option_and_competencies(
     assert by_id[3].scoring_allowed is True
     # Опция есть, но компетенций нет -> профиль собирается без постановки на LLM.
     assert by_id[2].scoring_allowed is False
+
+
+def _indexing_scheduler(
+    app_config: Any, *, enabled: bool, okpd2_prefixes: list[str], excluded: list[str] | None = None
+) -> Scheduler:
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = enabled
+    cfg.service.indexing.okpd2_prefixes = okpd2_prefixes
+    if excluded is not None:
+        cfg.service.indexing.excluded_platforms = excluded
+    scheduler = Scheduler(cfg)
+    scheduler._repository = _GatherRepo([])  # type: ignore[assignment]  # noqa: SLF001
+    return scheduler
+
+
+@pytest.mark.asyncio
+async def test_gather_adds_system_index_ctx_when_enabled(app_config: Any) -> None:
+    """Индексация включена и есть коды ОКПД2 -> системный профиль добавлен в обход."""
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=["62", "38"])
+
+    ctxs = await scheduler._gather_profile_ctxs()  # noqa: SLF001
+
+    assert len(ctxs) == 1
+    ctx = ctxs[0]
+    assert ctx.is_system_index is True
+    assert ctx.keywords == []
+    assert ctx.exclusion_words == []
+    assert ctx.scoring_allowed is False
+    assert ctx.profile.id < 0
+    assert ctx.profile.user_id is None
+    assert ctx.profile.okpd_codes == ["62", "38"]
+    # Тестовый DOM-конфиг не содержит b2b_center — обе площадки идут в target_etp.
+    assert set(ctx.profile.target_etp) == set(app_config.dom.platforms)
+
+
+@pytest.mark.asyncio
+async def test_gather_skips_system_index_ctx_when_disabled(app_config: Any) -> None:
+    scheduler = _indexing_scheduler(app_config, enabled=False, okpd2_prefixes=["62"])
+    assert await scheduler._gather_profile_ctxs() == []  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_gather_skips_system_index_ctx_when_no_prefixes(app_config: Any) -> None:
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=[])
+    assert await scheduler._gather_profile_ctxs() == []  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_gather_system_index_ctx_excludes_configured_platforms(app_config: Any) -> None:
+    platform_ids = list(app_config.dom.platforms)
+    excluded = platform_ids[:1]
+    scheduler = _indexing_scheduler(
+        app_config, enabled=True, okpd2_prefixes=["62"], excluded=excluded
+    )
+
+    ctxs = await scheduler._gather_profile_ctxs()  # noqa: SLF001
+
+    assert len(ctxs) == 1
+    assert set(ctxs[0].profile.target_etp) == set(platform_ids) - set(excluded)
+
+
+@pytest.mark.asyncio
+async def test_gather_system_index_ctx_absent_when_all_platforms_excluded(app_config: Any) -> None:
+    scheduler = _indexing_scheduler(
+        app_config,
+        enabled=True,
+        okpd2_prefixes=["62"],
+        excluded=list(app_config.dom.platforms),
+    )
+    assert await scheduler._gather_profile_ctxs() == []  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_gather_profile_ctxs_only_ids_excludes_system_index(app_config: Any) -> None:
+    """Целевой внеочередной обход (only_ids) — системный профиль в него не попадает."""
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=["62"])
+    assert await scheduler._gather_profile_ctxs(only_ids=set()) == []  # noqa: SLF001
+
+
+class _RebuildRepo:
+    """Записывает аргументы вызова rebuild_profile_results (без реальной БД)."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def rebuild_profile_results(
+        self,
+        profile: Any,
+        keywords: list[str],
+        exclusion_words: list[str],
+        *,
+        rescore: bool = False,
+        indexing_okpd2_prefixes: list[str] | None = None,
+    ) -> dict[str, int]:
+        self.calls.append(
+            {
+                "profile_id": profile.id,
+                "rescore": rescore,
+                "indexing_okpd2_prefixes": indexing_okpd2_prefixes,
+            }
+        )
+        return {"created": 0, "updated": 0, "removed": 0, "reset": 0}
+
+
+def _rebuild_ctx(*, okpd_codes: list[str] | None) -> ProfileRunContext:
+    profile = SimpleNamespace(id=42, okpd_codes=okpd_codes or [])
+    return ProfileRunContext(profile=cast(Profile, profile), keywords=["слово"], exclusion_words=[])
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_passes_prefixes_when_enabled_and_scoped(
+    app_config: Any,
+) -> None:
+    """Индексация включена + у профиля есть ОКПД2 — префиксы уходят в репозиторий."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = True
+    cfg.service.indexing.okpd2_prefixes = ["62", "38"]
+    scheduler = Scheduler(cfg)
+    repo = _RebuildRepo()
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+
+    await scheduler._rebuild_profile_results(  # noqa: SLF001
+        _rebuild_ctx(okpd_codes=["62.01"])
+    )
+
+    assert repo.calls == [
+        {"profile_id": 42, "rescore": False, "indexing_okpd2_prefixes": ["62", "38"]}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_skips_prefixes_when_disabled(app_config: Any) -> None:
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = False
+    cfg.service.indexing.okpd2_prefixes = ["62"]
+    scheduler = Scheduler(cfg)
+    repo = _RebuildRepo()
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+
+    await scheduler._rebuild_profile_results(_rebuild_ctx(okpd_codes=["62.01"]))  # noqa: SLF001
+
+    assert repo.calls[0]["indexing_okpd2_prefixes"] is None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_skips_prefixes_when_profile_has_no_okpd(
+    app_config: Any,
+) -> None:
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = True
+    cfg.service.indexing.okpd2_prefixes = ["62"]
+    scheduler = Scheduler(cfg)
+    repo = _RebuildRepo()
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+
+    await scheduler._rebuild_profile_results(_rebuild_ctx(okpd_codes=[]))  # noqa: SLF001
+
+    assert repo.calls[0]["indexing_okpd2_prefixes"] is None

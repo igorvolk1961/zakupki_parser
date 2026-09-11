@@ -52,6 +52,7 @@ from zakupki_parser.config.models.score import (
     ScoreConfig,
 )
 from zakupki_parser.config.models.service import (
+    IndexingConfig,
     ScoringConfig,
     SearchCriteria,
     ServiceConfig,
@@ -91,6 +92,7 @@ __all__ = [
     "SCORE_METHOD_PWIN",
     "SCORE_METHOD_SIM",
     "SCORE_METHOD_STAGES",
+    "IndexingConfig",
     "ScoreConfig",
     "ScoringConfig",
     "SearchCriteria",
