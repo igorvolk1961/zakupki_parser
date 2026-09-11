@@ -362,6 +362,7 @@ function fillProfileForm(p) {
   $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
+  $("#pf-search-in-documents").checked = p ? !!p.search_in_documents : false;
   profileOkpd.length = 0;
   (p ? p.okpd_codes || [] : []).forEach((c) => profileOkpd.push(c));
   renderTags(profileOkpd, "#pf-okpd-tags");
@@ -1072,6 +1073,7 @@ function profileFormData() {
   return {
     name: $("#pf-name").value.trim(),
     enabled: $("#pf-enabled").checked,
+    search_in_documents: $("#pf-search-in-documents").checked,
     okpd_codes: profileOkpd.slice(),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),

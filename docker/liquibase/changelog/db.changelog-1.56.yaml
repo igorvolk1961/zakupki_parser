@@ -1,0 +1,9 @@
+databaseChangeLog:
+- changeSet:
+    id: 58
+    author: zakupki-parser
+    comment: 'Профильная опция «искать ключевые слова в документах»: profiles.search_in_documents (BOOLEAN NOT NULL DEFAULT false) — матчинг ключевых слов также по тексту документов закупки (ТЗ и приложения), не только по subject.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS search_in_documents BOOLEAN NOT NULL DEFAULT false;

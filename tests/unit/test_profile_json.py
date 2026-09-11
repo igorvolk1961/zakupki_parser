@@ -81,6 +81,7 @@ def test_parse_roundtrip_json() -> None:
         "target_regions": ["Москва", "Московская область"],
         "max_region_distance_km": 100.0,
         "questions": [{"id": "q1", "text": "Нужна лицензия?"}],
+        "search_in_documents": True,
     }
     seed = parse_profile_json(serialize_profile_json(profile))
     assert seed["name"] == "bbk-it"
@@ -100,6 +101,12 @@ def test_parse_roundtrip_json() -> None:
     assert seed["target_laws"] == []
     assert seed["target_regions"] == ["Москва", "Московская область"]
     assert seed["max_region_distance_km"] == 100.0
+    assert seed["search_in_documents"] is True
+
+
+def test_parse_search_in_documents_defaults_to_false() -> None:
+    seed = parse_profile_json(serialize_profile_json({"name": "x", "competencies": "{}"}))
+    assert seed["search_in_documents"] is False
 
 
 def test_parse_structured_competencies_stored_compact() -> None:

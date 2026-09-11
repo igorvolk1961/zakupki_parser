@@ -463,6 +463,10 @@ class ProfileIn(BaseModel):
     okpd_codes: list[str] | None = None
     nmck_min: float | None = None
     nmck_max: float | None = None
+    # Искать ключевые слова также в тексте документов закупки (ТЗ и приложения),
+    # не только в subject. Вне проиндексированного диапазона ОКПД2 заметно
+    # замедляет сбор (см. Profile.search_in_documents).
+    search_in_documents: bool | None = None
     licenses: list[LicenseIn] | None = None
     experience: list[ExperienceIn] | None = None
 
@@ -516,6 +520,7 @@ class ProfileOut(BaseModel):
     okpd_codes: list[str]
     nmck_min: float | None = None
     nmck_max: float | None = None
+    search_in_documents: bool = False
     created_at: datetime
     updated_at: datetime
     # Факты профиля для сопоставления с фактами ТЗ (только в active_client).

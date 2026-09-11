@@ -74,6 +74,14 @@ class Profile(Base):
     okpd_codes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     nmck_min: Mapped[float | None] = mapped_column(Float)
     nmck_max: Mapped[float | None] = mapped_column(Float)
+    # Искать ключевые слова профиля также в тексте документов закупки (ТЗ и
+    # приложения), не только в subject. Для закупок из проиндексированного
+    # диапазона ОКПД2 (indexing_okpd2_prefixes) ответ мгновенный (search_tsv);
+    # вне диапазона — живой фоллбэк при обходе (дозагрузка деталей+файлов на
+    # каждую запись, не прошедшую фильтр по subject) — заметно медленнее.
+    search_in_documents: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     competencies: Mapped[str] = mapped_column(Text, nullable=False)
     questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

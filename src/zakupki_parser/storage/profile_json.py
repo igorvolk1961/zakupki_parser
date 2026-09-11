@@ -182,6 +182,7 @@ def serialize_profile_json(profile: dict[str, Any]) -> str:
             "max_region_distance_km": profile.get("max_region_distance_km"),
             "keywords": profile.get("keywords") or [],
             "exclusion_words": profile.get("exclusion_words") or [],
+            "search_in_documents": bool(profile.get("search_in_documents") or False),
             "questions": profile.get("questions") or [],
             "licenses": _serialize_licenses(profile.get("licenses") or []),
             "experience": _serialize_experience(profile.get("experience") or []),
@@ -303,6 +304,7 @@ def parse_profile_json(content: str) -> dict[str, Any]:
         "okpd_codes": _as_str_list(src.get("okpd_codes")),
         "nmck_min": _as_float(src.get("nmck_min")),
         "nmck_max": _as_float(src.get("nmck_max")),
+        "search_in_documents": _as_bool(src.get("search_in_documents")) or False,
     }
     # Факты BR-03: ключ задан явно — импортируем (полная замена), иначе не трогаем.
     licenses = _fact_entries(src.get("licenses"), _LICENSE_FIELDS)
