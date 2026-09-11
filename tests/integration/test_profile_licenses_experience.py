@@ -318,7 +318,9 @@ def test_tenant_isolation_and_cascade() -> None:
             profile_a = await repo.upsert_profile(
                 {"name": "A1", "competencies": COMP_JSON}, user_a.id
             )
-            await repo.upsert_profile({"name": "A2", "competencies": COMP_JSON}, user_a.id)
+            profile_a2 = await repo.upsert_profile(
+                {"name": "A2", "competencies": COMP_JSON}, user_a.id
+            )
             profile_b = await repo.upsert_profile(
                 {"name": "B", "competencies": COMP_JSON}, user_b.id
             )
@@ -341,6 +343,8 @@ def test_tenant_isolation_and_cascade() -> None:
             assert await repo.list_licenses(profile_b.id) == []
             assert await repo.list_experience(profile_b.id) == []
             # Удаление профиля каскадно удаляет лицензии и опыт (FK ON DELETE CASCADE).
+            # Активный профиль удалить нельзя (FR-1.3): сначала активируем второй.
+            await repo.set_active_profile(user_a.id, profile_a2.id)
             await repo.delete_profile(user_a.id, profile_a.id)
             async with db.session() as session:
                 licenses = (

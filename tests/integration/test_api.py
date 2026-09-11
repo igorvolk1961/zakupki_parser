@@ -1314,13 +1314,15 @@ def test_active_context_creates_default_profile(api_client: tuple[TestClient, Pa
     asyncio.run(_profile_created())
 
 
-def test_active_context_does_not_resurrect_disabled_profiles(
+def test_active_context_uses_disabled_profile(
     api_client: tuple[TestClient, Path],
 ) -> None:
-    """Все профили отключены: активный контекст не создаёт новый, а даёт 409.
+    """Выключенный профиль выбирается активным контекстом (FR-1.3).
 
-    Иначе молчаливое создание default-профиля вернуло бы пользователя в обход
-    парсера (`enabled=true`), хотя он осознанно отключил все свои профили.
+    Активность профиля не зависит от ``enabled``: отключённый от постоянного
+    мониторинга профиль можно использовать для ручной обработки «в работе».
+    Если у пользователя есть хотя бы один профиль, активный контекст разрешается
+    всегда (первый по id), 409 не возвращается.
     """
     client, _ = api_client
 
@@ -1342,7 +1344,6 @@ def test_active_context_does_not_resurrect_disabled_profiles(
                 },
                 user.id,
             )
-            assert await repo.get_active_profile(user.id) is None
             return user.id
         finally:
             await db.dispose()
@@ -1352,9 +1353,9 @@ def test_active_context_does_not_resurrect_disabled_profiles(
     headers = {"Authorization": f"Bearer {token}"}
 
     resp = client.get("/api/procurements/work", headers=headers)
-    assert resp.status_code == 409
+    assert resp.status_code == 200
 
-    async def _still_disabled() -> None:
+    async def _active_is_disabled_profile() -> None:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
@@ -1362,8 +1363,10 @@ def test_active_context_does_not_resurrect_disabled_profiles(
             rows, total = await repo.list_profiles(user_id)
             assert total == 1
             assert rows[0].name == "disabled-only"
-            assert await repo.get_active_profile(user_id) is None
+            active = await repo.get_active_profile(user_id)
+            assert active is not None
+            assert active.name == "disabled-only"
         finally:
             await db.dispose()
 
-    asyncio.run(_still_disabled())
+    asyncio.run(_active_is_disabled_profile())

@@ -34,7 +34,7 @@ import {
   openWorkCard,
 } from "./work.js";
 import { loadMetrics } from "./metrics.js";
-import { loadProfiles, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
+import { loadProfiles, loadActiveProfileSelector, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
 import { loadAccount } from "./account.js";
 import { loadMonitor, loadPromptList, monitorDirty, promptDirty } from "./config.js";
 import {
@@ -60,8 +60,11 @@ import { ALL_TABS, canAccessBase, switchTo, updateRolesUI } from "./roles.js";
 // При уходе с формы редактирования профиля с несохранёнными изменениями
 // предупреждаем: «Отмена» — confirmDialog ниже, закрытие страницы — beforeunload.
 const TAB_LOADERS = {
-  proc: null,
-  work: loadWork,
+  proc: loadActiveProfileSelector,
+  work: () => {
+    loadActiveProfileSelector();
+    loadWork();
+  },
   cust: loadCustomers,
   profiles: loadProfiles,
   account: loadAccount,
@@ -195,6 +198,7 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
   if (canAccessBase()) {
     try {
       await loadPlatforms();
+      await loadActiveProfileSelector();
       await loadProc();
       await loadCustomers();
       await loadWork();

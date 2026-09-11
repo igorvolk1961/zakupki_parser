@@ -181,20 +181,15 @@ class ProfileMixin(RepositoryMixin):
     async def get_active_profile(self, user_id: int) -> Profile | None:
         """Активный профиль пользователя (per-user состояние).
 
-        Приоритет: 1) ``is_active=true``; 2) профиль ``default``; 3) первый включённый.
-        Один запрос (ORDER BY + LIMIT 1). Полностью отключённые профили, не
-        являющиеся default, не возвращаются.
+        Приоритет: 1) ``is_active=true``; 2) профиль ``default``; 3) первый по id.
+        Активность не зависит от ``enabled``: выключенный профиль (не участвует в
+        постоянном мониторинге) может быть выбран активным для ручной обработки
+        закупок «в работе». Если у пользователя есть хотя бы один профиль,
+        возвращается один из них (инвариант FR-1.3), иначе ``None``.
         """
         stmt = (
             select(Profile)
-            .where(
-                Profile.user_id == user_id,
-                or_(
-                    Profile.is_active.is_(True),
-                    Profile.name == self.DEFAULT_PROFILE_NAME,
-                    Profile.enabled.is_(True),
-                ),
-            )
+            .where(Profile.user_id == user_id)
             .order_by(
                 Profile.is_active.desc(),
                 (Profile.name == self.DEFAULT_PROFILE_NAME).desc(),
@@ -714,12 +709,10 @@ class ProfileMixin(RepositoryMixin):
             if "nmck_max" in data:
                 profile.nmck_max = data["nmck_max"]
             # Профиль становится активным: явно (is_active=true) или по умолчанию
-            # для профиля «default» (per-user состояние, BR-07).
+            # для профиля «default» (per-user состояние, BR-07). Активность не
+            # зависит от enabled: выключенный от мониторинга профиль тоже может
+            # быть выбран активным для ручной работы.
             wants_active = data.get("is_active")
-            if profile.enabled is False:
-                # Отключённый профиль не может быть активным.
-                profile.is_active = False
-                wants_active = False
             if wants_active or (wants_active is None and name == self.DEFAULT_PROFILE_NAME):
                 await session.execute(
                     update(Profile).where(Profile.user_id == user_id).values(is_active=False)
@@ -730,6 +723,17 @@ class ProfileMixin(RepositoryMixin):
                 # flush() выполняет INSERT новой строки — гонка на (user_id, name)
                 # всплывает здесь, а не на commit() (см. except ниже).
                 await session.flush()
+                # Инвариант FR-1.3: если у пользователя есть профили, среди них
+                # всегда есть активный. Сохраняемый профиль становится активным,
+                # когда активного нет (первый профиль, все прежние неактивны и т.п.).
+                if not profile.is_active:
+                    active_count = await session.scalar(
+                        select(func.count())
+                        .select_from(Profile)
+                        .where(Profile.user_id == user_id, Profile.is_active.is_(True))
+                    )
+                    if not active_count:
+                        profile.is_active = True
                 # Ключевые слова — полная замена в той же транзакции.
                 if wants_keywords:
                     await session.execute(delete(Keyword).where(Keyword.profile_id == profile.id))

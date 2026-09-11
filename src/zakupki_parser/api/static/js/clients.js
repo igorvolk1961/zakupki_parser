@@ -7,6 +7,7 @@ import { api, apiJSON, apiErrorDetail } from "./api.js";
 import { confirmDialog, confirmDialogAsync } from "./dialogs.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
+import { loadWork } from "./work.js";
 
 let profileEditorId = null;
 let profileEditorName = "";
@@ -75,6 +76,71 @@ let experienceEditorId = null;
 let licenseTypeFilter = "";
 // Временные id для новых записей лицензий/опыта в форме (до сохранения профиля).
 let localEntrySeq = 0;
+// Кэш профилей для выпадающего списка выбора активного профиля (вкладки
+// «Закупки» и «В работе»). Активным может быть и выключенный профиль.
+let profilesCache = [];
+
+function activeProfileFrom(items) {
+  // Порядок совпадает с get_active_profile: активный -> default -> первый по id.
+  return (
+    items.find((p) => p.is_active) ||
+    items.find((p) => p.name === "default") ||
+    items[0] ||
+    null
+  );
+}
+
+// Заполняет все селекторы .active-profile-select текущим списком профилей.
+// Активный профиль — выбранный; если ни один не отмечен (легаси-данные),
+// выбирается первый (бэкенд использует тот же приоритет — FR-1.3).
+function renderActiveProfileSelectors() {
+  const selects = document.querySelectorAll("select.active-profile-select");
+  if (!selects.length) return;
+  const active = activeProfileFrom(profilesCache);
+  selects.forEach((sel) => {
+    sel.innerHTML = "";
+    if (!profilesCache.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "— нет профилей —";
+      sel.appendChild(opt);
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    profilesCache.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = String(p.id);
+      // Выключенные профили доступны для выбора: активность не зависит от
+      // участия в постоянном мониторинге.
+      opt.textContent = p.enabled ? p.name : `${p.name} (выключен)`;
+      if (active && p.id === active.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  });
+}
+
+async function loadActiveProfileSelector() {
+  try {
+    const list = await api("clients", { limit: 500 });
+    profilesCache = list.items || [];
+    renderActiveProfileSelectors();
+  } catch (err) {
+    /* базовая вкладка недоступна/нет сети — оставляем текущее состояние */
+  }
+}
+
+async function onActiveProfileChange(event) {
+  const sel = event.target;
+  const id = Number(sel.value);
+  if (!id) return;
+  sel.disabled = true;
+  try {
+    await switchClient(id);
+  } finally {
+    sel.disabled = false;
+  }
+}
 
 function renderProfiles(list) {
   const wrap = $("#profiles");
@@ -137,7 +203,9 @@ async function loadProfiles() {
   try {
     const list = await api("clients", { limit: 500 });
     profilesTotal = list.total;
+    profilesCache = list.items || [];
     renderProfiles(list);
+    renderActiveProfileSelectors();
   } catch (err) {
     $("#profiles").innerHTML = `<p class="muted">Не удалось загрузить профили: ${escapeHtml(err.message)}</p>`;
   }
@@ -281,13 +349,6 @@ function setProfileStatus(msg) {
   $("#profile-status").textContent = msg;
 }
 
-// Отключённый профиль не может быть активным: снимаем и блокируем «активный».
-function syncEnabledActiveState() {
-  const enabled = $("#pf-enabled").checked;
-  $("#pf-active").disabled = !enabled;
-  if (!enabled) $("#pf-active").checked = false;
-}
-
 function fillProfileForm(p) {
   profileEditorName = p ? p.name : "";
   profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
@@ -301,8 +362,6 @@ function fillProfileForm(p) {
   $("#profile-editor-name").textContent = p ? `#${p.id} «${p.name}»` : "новый";
   $("#pf-name").value = p ? p.name : "";
   $("#pf-enabled").checked = p ? p.enabled : true;
-  $("#pf-active").checked = p ? p.is_active : false;
-  syncEnabledActiveState();
   profileOkpd.length = 0;
   (p ? p.okpd_codes || [] : []).forEach((c) => profileOkpd.push(c));
   renderTags(profileOkpd, "#pf-okpd-tags");
@@ -1013,7 +1072,6 @@ function profileFormData() {
   return {
     name: $("#pf-name").value.trim(),
     enabled: $("#pf-enabled").checked,
-    is_active: $("#pf-active").checked,
     okpd_codes: profileOkpd.slice(),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),
@@ -1297,13 +1355,15 @@ async function switchClient(profileId) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
-    if (!r.ok) throw new Error(await r.text());
+    if (!r.ok) throw new Error(await apiErrorDetail(r));
     await loadProfiles();
     await loadProc();
+    await loadWork();
     await loadCustomers();
     await loadPlatforms();
   } catch (e) {
     alert("Не удалось переключить профиль: " + e.message);
+    renderActiveProfileSelectors();
   }
 }
 
@@ -1313,6 +1373,7 @@ function profileFormDirty() {
 
 export {
   loadProfiles,
+  loadActiveProfileSelector,
   switchClient,
   openProfileEditor,
   closeProfileEditor,
@@ -1379,8 +1440,11 @@ $("#pf-comp-list").addEventListener("click", (e) => {
 $("#pf-comp-structured").addEventListener("input", wordCounts);
 $("#pf-comp-structured").addEventListener("change", syncEntryFormState);
 $("#pf-enabled").addEventListener("change", () => {
-  syncEnabledActiveState();
   syncEntryFormState();
+});
+// Выбор активного профиля на вкладках «Закупки» и «В работе» (единый класс).
+document.querySelectorAll("select.active-profile-select").forEach((sel) => {
+  sel.addEventListener("change", onActiveProfileChange);
 });
 // Изменения полей профиля (имя, ОКПД2, НМЦК, чекбоксы, чипы слов/вопросов)
 // пересчитывают доступность кнопок «Добавить лицензию/опыт».

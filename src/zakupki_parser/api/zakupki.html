@@ -116,6 +116,11 @@
   <div id="view-proc">
     <div class="split">
       <div class="proc-list">
+        <div class="toolbar" style="margin:0 0 8px;">
+          <label title="Активный профиль — контекст поиска, скоринга, анализа и работы «в работе». Активным может быть и выключенный профиль.">Активный профиль:
+            <select id="proc-profile" class="active-profile-select"></select>
+          </label>
+        </div>
         <label class="sort-toggle">Сортировка:
           <select id="proc-sort">
             <option value="fit_score" selected>По релевантности (fit-score)</option>
@@ -185,6 +190,9 @@
     <div class="panel">
       <div class="panel-title">Закупки «в работе»</div>
       <div class="toolbar" style="margin-bottom:0;">
+        <label title="Активный профиль для приёма закупок «в работе». Активным может быть и выключенный профиль." style="display:flex;align-items:center;gap:6px;white-space:nowrap;">Активный профиль
+          <select id="work-profile" class="active-profile-select"></select>
+        </label>
         <label title="URL закупки на ЭТП (не из результатов поиска)" style="display:flex;align-items:center;gap:6px;flex:1;white-space:nowrap;">URL закупки на ЭТП
           <input type="text" id="work-url" placeholder="https://…" spellcheck="false" style="flex:1;" title="URL закупки на платформе ЭТП. Если закупка уже сохранена парсером — она появится в списке «в работе»; иначе создаётся запись-снимок по URL">
         </label>
@@ -275,8 +283,7 @@
         <div class="profile-form">
           <label title="Название профиля (клиента)">Имя <input id="pf-name"></label>
           <div class="profile-checks">
-            <label title="Профиль участвует в обработке. Отключённый профиль не выбирается активным и не используется в поиске/скоринге."><input type="checkbox" id="pf-enabled"> включён</label>
-            <label title="Активный профиль — тот, по которому работают парсер и скоринг: его ключевые слова, компетенции, ОКПД2 и площадки применяются к поиску. Активным может быть только один профиль; если активный не отмечен, используется профиль по умолчанию либо первый включённый."><input type="checkbox" id="pf-active"> активный</label>
+            <label title="Профиль участвует в постоянном мониторинге и поиске. Отключённый профиль не обходится парсером, но его можно выбрать активным на странице «Закупки» для ручной обработки «в работе»."><input type="checkbox" id="pf-enabled"> включён</label>
           </div>
           <label title="Коды ОКПД2 (Enter — добавить, × — удалить), по которым площадка ищет закупки. Формат: цифры, разделённые точками (например, 62.02 или 62.02.20.110)">ОКПД2
             <div class="tag-input" id="pf-okpd-tags">

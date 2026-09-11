@@ -8,7 +8,7 @@
 // Записи-снимки по URL, для которых закупки ещё нет в базе парсера (или она
 // удалена при очистке БД), показываются отдельным блоком ниже.
 import { $, escapeHtml, fmtDate, fmtMoney, fitCell } from "./utils.js";
-import { api, apiJSON } from "./api.js";
+import { api, apiJSON, apiErrorDetail } from "./api.js";
 import { openDetail } from "./procurements.js";
 
 const WORK_LIMIT = 1000;
@@ -130,8 +130,8 @@ export async function addWorkByUrl() {
       body: JSON.stringify({ url }),
     });
     if (!r.ok) {
-      const text = await r.text();
-      workStatus("не удалось принять по URL: " + (text || "ошибка"), true);
+      const detail = await apiErrorDetail(r);
+      workStatus("не удалось принять по URL: " + (detail || "ошибка"), true);
       return;
     }
     input.value = "";
