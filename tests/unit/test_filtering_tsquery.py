@@ -85,3 +85,14 @@ def test_compile_keywords_skips_degenerate_expressions() -> None:
     # Вырожденное выражение (пустая проксимити-группа) не попадает в OR-объединение.
     assert compile_keywords_to_tsquery(["ИИ", "( )~1"]) == "'ИИ'"
     assert compile_keywords_to_tsquery(["( )~1"]) is None
+
+
+def test_compile_word_with_apostrophe_is_escaped() -> None:
+    # Одинарная кавычка внутри токена (бренд «О'КЕЙ») должна экранироваться
+    # удвоением — иначе результат ломает синтаксис квотированной лексемы tsquery
+    # (`to_tsquery` падает с "syntax error in tsquery" на неэкранированном вводе).
+    assert compile_keyword_to_tsquery("О'КЕЙ") == "'О''КЕЙ'"
+
+
+def test_compile_stem_with_apostrophe_is_escaped() -> None:
+    assert compile_keyword_to_tsquery("О'КЕЙ*") == "'О''КЕЙ':*"

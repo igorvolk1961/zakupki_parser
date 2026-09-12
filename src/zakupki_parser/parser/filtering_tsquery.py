@@ -43,11 +43,21 @@ TS_CONFIG = "simple"
 
 
 def _tsquery_lexeme(token: str) -> str:
-    """Один токен DSL -> лексема tsquery (квотирована — токен может содержать дефис)."""
+    """Один токен DSL -> лексема tsquery (квотирована — токен может содержать дефис).
+
+    Одинарная кавычка внутри токена (например, бренд «О'КЕЙ») экранируется
+    удвоением (``'`` -> ``''``) — как того требует синтаксис квотированной
+    лексемы tsquery; без этого ``to_tsquery`` падает с ``syntax error in tsquery``
+    на каждой перестройке результатов профиля (см. code review).
+    """
     if token.endswith("*"):
         stem = token[:-1]
-        return f"'{stem}':*"
-    return f"'{token}'"
+        return f"'{_escape_lexeme(stem)}':*"
+    return f"'{_escape_lexeme(token)}'"
+
+
+def _escape_lexeme(text: str) -> str:
+    return text.replace("'", "''")
 
 
 def _tsquery_proximity(inner: str, distance: int) -> str | None:
