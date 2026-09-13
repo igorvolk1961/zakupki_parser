@@ -6,7 +6,7 @@ import json
 import urllib.parse
 from datetime import UTC, datetime
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from playwright.async_api import Page
@@ -1074,6 +1074,27 @@ class _IndexTransport:
         self.enqueued.append((procurement_id, stage, profile_id))
 
 
+class _FlakyIndexTransport:
+    """Падает первые ``fail_times`` вызовов (транзиентная перегрузка), потом отвечает."""
+
+    def __init__(self, fail_times: int) -> None:
+        self.fail_times = fail_times
+        self.calls = 0
+        self.enqueued: list[tuple[int, str, int | None]] = []
+
+    async def enqueue(
+        self,
+        procurement_id: int,
+        priority: float,
+        stage: str = "fit",
+        profile_id: int | None = None,
+    ) -> None:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError("transient overload")
+        self.enqueued.append((procurement_id, stage, profile_id))
+
+
 def _index_ctx() -> ProfileRunContext:
     """Синтетический системный индексный профиль (IndexingConfig): keywords всегда пусты."""
     return ProfileRunContext(
@@ -1138,6 +1159,103 @@ async def test_process_list_record_index_ctx_fetches_details_and_enqueues(
         {"name": "tz.pdf", "url": "https://mos.example/tz.pdf"}
     ]
     assert transport.enqueued == [(500, "index", 0)]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_index_job_retries_transient_failure_then_succeeds(
+    app_config: AppConfig,
+) -> None:
+    """Транзиентный сбой постановки задания индексации не теряет закупку навсегда —
+    задание ставится после 2 неудачных попыток (обратные вызовы scoring_transport
+    могут словить временную перегрузку парсера под многоплощадочным обходом)."""
+    cfg = app_config.model_copy(deep=True)
+    repo = _IndexRepo()
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=repo,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    transport = _FlakyIndexTransport(fail_times=2)
+    recorder._transport = transport  # type: ignore[assignment]  # noqa: SLF001
+    recorder._profile_ctxs = [_index_ctx()]  # noqa: SLF001
+
+    async def _fake_extract_details(
+        page: Any,
+        platform: Any,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
+        return ({"okpd2_codes": "62.01.11", "subject": list_vars.get("subject")}, [], None)
+
+    with (
+        patch(
+            "zakupki_parser.parser.orchestrator.processing.extract_details",
+            _fake_extract_details,
+        ),
+        patch("zakupki_parser.parser.orchestrator.processing.asyncio.sleep", AsyncMock()),
+    ):
+        await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "IDX3", "id": "502", "subject": "Оказание клининговых услуг"},
+            detail_url="https://zakupki.mos.ru/need/502",
+            number="IDX3",
+        )
+    assert transport.calls == 3
+    assert transport.enqueued == [(502, "index", 0)]
+
+
+@pytest.mark.asyncio
+async def test_enqueue_index_job_gives_up_after_max_retries(app_config: AppConfig) -> None:
+    """Постоянный сбой (не только транзиентный) — 3 попытки, потом WARNING, без падения."""
+    cfg = app_config.model_copy(deep=True)
+    repo = _IndexRepo()
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=repo,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    transport = _FlakyIndexTransport(fail_times=99)
+    recorder._transport = transport  # type: ignore[assignment]  # noqa: SLF001
+    recorder._profile_ctxs = [_index_ctx()]  # noqa: SLF001
+
+    async def _fake_extract_details(
+        page: Any,
+        platform: Any,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
+        return ({"okpd2_codes": "62.01.11", "subject": list_vars.get("subject")}, [], None)
+
+    with (
+        patch(
+            "zakupki_parser.parser.orchestrator.processing.extract_details",
+            _fake_extract_details,
+        ),
+        patch("zakupki_parser.parser.orchestrator.processing.asyncio.sleep", AsyncMock()),
+    ):
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "IDX4", "id": "503", "subject": "Оказание клининговых услуг"},
+            detail_url="https://zakupki.mos.ru/need/503",
+            number="IDX4",
+        )
+    assert (known, number, saved) == (False, "IDX4", True)  # закупка сохранена, несмотря на сбой
+    assert transport.calls == 3
+    assert transport.enqueued == []
 
 
 @pytest.mark.asyncio

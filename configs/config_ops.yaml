@@ -6,7 +6,8 @@ db:
   enabled: true
   connect_timeout_seconds: 5.0
   pool_min: 1
-  pool_max: 5
+  pool_max: 10
+  max_overflow: 10
   retry_max_attempts: 3
   retry_backoff_seconds: 1.0
 auth:

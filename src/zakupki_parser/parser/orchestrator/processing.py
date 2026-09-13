@@ -101,23 +101,35 @@ class RecordProcessingMixin(OrchestratorState):
                 )
         if self._transport is None:
             return
-        try:
-            await self._transport.enqueue(
-                int(record["id"]),
-                self._record_priority(record, self._now),
-                stage="index",
-                profile_id=0,
-            )
-            logger.info(
-                "Закупка %s поставлена в очередь фоновой индексации документов",
-                record.get("number"),
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Не удалось поставить задание индексации закупки %s: %s",
-                record.get("number"),
-                exc,
-            )
+        # 3 попытки с паузой: постановка задания индексации может транзиентно
+        # упасть под нагрузкой (несколько площадок обходятся параллельно —
+        # scoring_transport обратным вызовом GET /api/procurements/{id} может
+        # словить временную перегрузку парсера). Без ретрая единственная
+        # неудача НАВСЕГДА теряла бы индексацию этой закупки — recovery-прохода
+        # для стадии index (в отличие от fit/pwin/margin) нет.
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            if attempt:
+                await asyncio.sleep(1.0 * attempt)
+            try:
+                await self._transport.enqueue(
+                    int(record["id"]),
+                    self._record_priority(record, self._now),
+                    stage="index",
+                    profile_id=0,
+                )
+                logger.info(
+                    "Закупка %s поставлена в очередь фоновой индексации документов",
+                    record.get("number"),
+                )
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+        logger.warning(
+            "Не удалось поставить задание индексации закупки %s (3 попытки): %s",
+            record.get("number"),
+            last_exc,
+        )
 
     async def _fetch_platform_details(
         self,

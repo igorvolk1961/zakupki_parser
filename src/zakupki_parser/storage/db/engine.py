@@ -26,7 +26,7 @@ class Database:
         self._engine = create_async_engine(
             self._cfg.dsn,
             pool_size=self._cfg.pool_max,
-            max_overflow=0,
+            max_overflow=self._cfg.max_overflow,
             pool_pre_ping=True,
             connect_args={
                 "timeout": self._cfg.connect_timeout_seconds,
