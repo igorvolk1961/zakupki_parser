@@ -9,7 +9,8 @@
 #      пока модель коэффициентов не отлажена — PWIN_USE_STUB);
 #   5. margin_service — воркер стадии Margin (Margin = НМЦК × margin_rate);
 #   6. analysis_service — воркер RAG-анализа стоп-условий ТЗ (on-demand);
-#   7. scoring_transport — gateway скоринга (ingest + возврат результата);
+#   7. indexing_service — воркер фоновой индексации закупок+документов по ОКПД2;
+#   8. scoring_transport — gateway скоринга (ingest + возврат результата);
 #
 # Каждый сервис пишет в собственный файл лога (data/logs/<сервис>.log);
 # парсер пишет в data/logs/parser.log (config_log.yaml).
@@ -66,20 +67,22 @@ scoring_process_pids() {
         pgrep -f "pwin_service worker" 2>/dev/null
         pgrep -f "margin_service worker" 2>/dev/null
         pgrep -f "analysis_service worker" 2>/dev/null
+        pgrep -f "indexing_service worker" 2>/dev/null
         # Также ловим uv-обёртки "uv run python -m ... worker" (родителей python).
         pgrep -f "uv run python -m scoring_service worker" 2>/dev/null
         pgrep -f "uv run python -m pwin_service worker" 2>/dev/null
         pgrep -f "uv run python -m margin_service worker" 2>/dev/null
         pgrep -f "uv run python -m analysis_service worker" 2>/dev/null
+        pgrep -f "uv run python -m indexing_service worker" 2>/dev/null
         pgrep -f "uv run python -m scoring_transport serve" 2>/dev/null
     else
         # Windows (Git Bash): pgrep отсутствует — ищем python-процессы по
         # командной строке через PowerShell (скоринг-транспорт/воркеры + uv).
         powershell -NoProfile -Command \
-            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -match 'scoring_(transport serve|service worker)|pwin_service worker|margin_service worker|analysis_service worker' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -match 'scoring_(transport serve|service worker)|pwin_service worker|margin_service worker|analysis_service worker|indexing_service worker' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null
         # uv-обёртки — отдельный процесс (uv.exe/uv), ищем по командной строке.
         powershell -NoProfile -Command \
-            "Get-CimInstance Win32_Process -Filter \"Name='uv.exe'\" | Where-Object { \$_.CommandLine -match 'scoring_service|pwin_service|margin_service|scoring_transport|analysis_service' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null
+            "Get-CimInstance Win32_Process -Filter \"Name='uv.exe'\" | Where-Object { \$_.CommandLine -match 'scoring_service|pwin_service|margin_service|scoring_transport|analysis_service|indexing_service' } | ForEach-Object { \$_.ProcessId }" 2>/dev/null
     fi
 }
 
@@ -382,6 +385,14 @@ echo "Запуск analysis_service (воркер RAG-анализа ТЗ)..."
 ( cd "$ROOT_DIR/src/analysis_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
     ANALYSIS_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
     uv run python -m analysis_service.cli worker ) > "$LOG_DIR/analysis_service.log" 2>&1 &
+BGPIDS+=($!)
+
+# --- indexing_service (воркер фоновой индексации закупок+документов по ОКПД2) ---
+echo "Запуск indexing_service (воркер фоновой индексации)..."
+( cd "$ROOT_DIR/src/indexing_service" && PYTHONPATH="$SCORING_PYTHONPATH" \
+    INDEX_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
+    INDEX_PARSER_INTERNAL_TOKEN="$TRANSPORT_AUTH_TOKEN" \
+    uv run python -m indexing_service worker ) > "$LOG_DIR/indexing_service.log" 2>&1 &
 BGPIDS+=($!)
 
 # --- scoring_transport ------------------------------------------------------
