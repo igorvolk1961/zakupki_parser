@@ -19,6 +19,11 @@ function updateControls() {
   // Панель парсера и клиентская выгрузка CSV по ролям управляются в roles.js
   // (updateRolesUI): парсер — только devops, выгрузка — базовые вкладки.
   $("#db-clear").disabled = state.parserRunning;
+  // Полный перезапуск процесса (os.execv) убил бы Playwright/браузер резко,
+  // если сейчас идёт обход площадок — недоступно, пока мониторинг запущен
+  // (бэкенд тоже проверяет это и отдаёт 409, но кнопка не должна провоцировать).
+  const restartProcessBtn = $("#parser-restart-process");
+  if (restartProcessBtn) restartProcessBtn.disabled = state.parserRunning;
 }
 
 async function refreshParserStatus() {

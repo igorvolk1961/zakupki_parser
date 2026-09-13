@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import sys
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -145,6 +147,38 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
             _spawn_parser(state)
         logger.info("Перезапущен парсер по команде из web-интерфейса")
         return {"status": "restarting"}
+
+    @router.post(
+        "/api/parser/restart-process",
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def restart_parser_process() -> dict[str, Any]:
+        """Полный перезапуск процесса `zp serve` (не только цикла мониторинга).
+
+        В отличие от ``/api/parser/restart`` (перезапускает только внутреннюю
+        asyncio-задачу обхода в ТОМ ЖЕ процессе — код, загруженный при старте,
+        не меняется), здесь процесс полностью заменяет себя (``os.execv``,
+        тот же PID) и заново импортирует весь код с диска — единственный способ
+        подхватить изменения кода самого парсера со страницы конфига, без
+        доступа к командной строке.
+
+        Недоступно, пока идёт обход площадок (``state.parser_task`` активна) —
+        Playwright/браузер будет убит резко, без штатного закрытия.
+        """
+        if state.parser_task is not None and not state.parser_task.done():
+            raise HTTPException(
+                status_code=409, detail="Остановите мониторинг площадок перед перезапуском процесса"
+            )
+        logger.info("Полный перезапуск процесса парсера (os.execv) по команде из web-интерфейса")
+
+        async def _delayed_execv() -> None:
+            # Пауза даёт uvicorn время отправить HTTP-ответ до замены процесса.
+            await asyncio.sleep(0.3)
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+
+        asyncio.create_task(_delayed_execv())
+        return {"status": "restarting_process"}
 
     @router.post("/api/db/clear", include_in_schema=False, dependencies=[Depends(require_devops)])
     async def clear_db(body: ClearDbIn | None = None) -> dict[str, Any]:

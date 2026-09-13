@@ -352,6 +352,49 @@ if (parserRestartBtn) {
   });
 }
 
+// Полный перезапуск процесса zp serve (os.execv) — подхватывает изменения кода
+// самого парсера. Недоступно, пока идёт обход площадок (кнопка блокируется в
+// updateControls, но подтверждаем ещё раз здесь на случай гонки с поллингом).
+const parserRestartProcessBtn = document.getElementById("parser-restart-process");
+if (parserRestartProcessBtn) {
+  parserRestartProcessBtn.addEventListener("click", async () => {
+    if (parserRestartProcessBtn.disabled) return;
+    parserRestartProcessBtn.disabled = true;
+    const ok = await confirmDialogAsync(
+      "Полностью перезапустить процесс парсера? Все активные соединения (в т.ч. это окно) " +
+        "оборвутся на несколько секунд, пока процесс поднимается заново.",
+    );
+    if (!ok) {
+      parserRestartProcessBtn.disabled = false;
+      return;
+    }
+    const statusEl = document.getElementById("parser-restart-status");
+    if (statusEl) statusEl.textContent = "перезапуск процесса…";
+    try {
+      const r = await apiJSON("/api/parser/restart-process", { method: "POST" });
+      if (r.status === 401) return;
+      if (r.status === 409) {
+        if (statusEl) statusEl.textContent = "Остановите мониторинг площадок перед перезапуском процесса";
+        return;
+      }
+      if (!r.ok) {
+        if (statusEl) statusEl.textContent = "не удалось перезапустить процесс";
+        return;
+      }
+      if (statusEl) {
+        statusEl.textContent = "процесс перезапускается — обновите страницу через несколько секунд";
+      }
+    } catch (err) {
+      // Обрыв соединения — ожидаемое поведение самого перезапуска, не ошибка.
+      if (statusEl) {
+        statusEl.textContent = "процесс перезапускается — обновите страницу через несколько секунд";
+      }
+    } finally {
+      parserRestartProcessBtn.disabled = false;
+    }
+  });
+}
+
 export function servicesDirty() {
   return serviceUIs.some((s) => s.isDirty());
 }

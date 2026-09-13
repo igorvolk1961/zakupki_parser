@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import shutil
+import time
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -224,6 +225,41 @@ def test_parser_stop_when_idle(api_client: tuple[TestClient, Path]) -> None:
     resp = client.post("/api/parser/stop")
     assert resp.status_code == 200
     assert resp.json()["status"] == "idle"
+
+
+def test_restart_process_requires_idle_monitoring(api_client: tuple[TestClient, Path]) -> None:
+    """Полный рестарт процесса недоступен, пока идёт обход площадок (409)."""
+    client, _ = api_client
+
+    class _FakeRunningTask:
+        def done(self) -> bool:
+            return False
+
+    state = cast(Any, client.app).state.parser
+    state.parser_task = _FakeRunningTask()
+    try:
+        resp = client.post("/api/parser/restart-process")
+        assert resp.status_code == 409
+    finally:
+        state.parser_task = None
+
+
+def test_restart_process_schedules_execv_when_idle(
+    monkeypatch: pytest.MonkeyPatch, api_client: tuple[TestClient, Path]
+) -> None:
+    """При простое запрос принимается и (с небольшой задержкой) вызывает os.execv."""
+    calls: list[list[str]] = []
+
+    def fake_execv(path: str, argv: list[str]) -> None:
+        calls.append(argv)
+
+    monkeypatch.setattr("zakupki_parser.api.app.routes.admin.os.execv", fake_execv)
+    client, _ = api_client
+    resp = client.post("/api/parser/restart-process")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "restarting_process"
+    time.sleep(0.6)
+    assert len(calls) == 1
 
 
 def test_db_clear_when_idle(api_client: tuple[TestClient, Path]) -> None:
