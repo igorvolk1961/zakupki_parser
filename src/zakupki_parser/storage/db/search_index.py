@@ -16,6 +16,7 @@ from sqlalchemy import (
     Computed,
     DateTime,
     ForeignKey,
+    Index,
     Text,
     UniqueConstraint,
     func,
@@ -34,17 +35,31 @@ class ProcurementSearchIndex(Base):
     """Индекс одной закупки: сырой текст описания+документов и tsvector для поиска.
 
     Один-к-одному с ``procurements`` (``UniqueConstraint`` на ``procurement_id``).
-    ``search_tsv`` — генерируемая Postgres-колонка (``GENERATED ALWAYS AS ... STORED``,
-    DDL — в Liquibase-миграции, НЕ здесь): приложение её не пишет, только читает/
-    матчит через GIN-индекс (``parser/filtering_tsquery.py``). ``status`` — жизненный
-    цикл индексации одной закупки: ``pending`` (запись создана, файлы ещё не
-    обработаны) -> ``indexed`` (текст извлечён, ``search_tsv`` актуален) | ``error``
-    (сбой скачивания/извлечения — ``error_message``, повтор на следующей итерации).
+    ``search_tsv`` — генерируемая Postgres-колонка (``GENERATED ALWAYS AS ... STORED``).
+    ``status`` — жизненный цикл индексации одной закупки: ``pending`` (запись
+    создана, файлы ещё не обработаны) -> ``indexed`` (текст извлечён, ``search_tsv``
+    актуален) | ``error`` (сбой скачивания/извлечения — ``error_message``, повтор
+    на следующей итерации).
+
+    Индексы объявлены и здесь, и в Liquibase-миграции (db.changelog-1.57.yaml) —
+    та же DDL продублирована намеренно: инцидент (2026-09) показал, что
+    ``Base.metadata.drop_all/create_all`` (интеграционные тесты; по ошибке был
+    применён и к реальной БД) пересоздаёт схему ТОЛЬКО из этой модели — Liquibase
+    в такой ситуации считает changeset уже применённым и не переисполняет его,
+    так что не объявленные здесь индексы (в т.ч. GIN на ``search_tsv`` — без него
+    полнотекстовый поиск скатывается на Seq Scan) молча пропадают.
     """
 
     __tablename__ = "procurement_search_index"
     __table_args__ = (
         UniqueConstraint("procurement_id", name="uq_procurement_search_index_procurement"),
+        Index("ix_procurement_search_index_procurement", "procurement_id"),
+        Index("ix_procurement_search_index_okpd2", "okpd2_normalized"),
+        Index(
+            "ix_procurement_search_index_search_tsv",
+            "search_tsv",
+            postgresql_using="gin",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
