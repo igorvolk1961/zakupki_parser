@@ -107,6 +107,7 @@
       <button id="tab-prompts">Промпты</button>
       <button id="tab-refs">Справочники</button>
       <button id="tab-services">Сервисы</button>
+      <button id="tab-monitoring" title="Очереди, наполнение индекса, ресурсы хоста">Мониторинг</button>
       <button id="tab-cfgops">Конфигурация</button>
       <button id="tab-logcfg">Управление логами</button>
       <button id="tab-logs">Логи</button>
@@ -618,6 +619,21 @@
       </div>
       <div id="svc-index-form"></div>
       <textarea id="svc-index-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    </div>
+  </div>
+  <div id="view-monitoring" style="display:none;">
+    <div id="mon-error" class="muted" style="color:var(--danger,#c0392b);"></div>
+    <div class="panel">
+      <div class="panel-title" title="Redis-очереди каскада скоринга (Fit/P(win)/Margin/Анализ/Индексация)">Очереди</div>
+      <div id="mon-queues"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title" title="Наполнение фонового индекса по ОКПД2 (procurement_search_index)">Индекс</div>
+      <div id="mon-index"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title" title="Ресурсы хоста, на котором работает процесс парсера">Ресурсы</div>
+      <div id="mon-resources"></div>
     </div>
   </div>
   <div id="view-cfgops" style="display:none;">

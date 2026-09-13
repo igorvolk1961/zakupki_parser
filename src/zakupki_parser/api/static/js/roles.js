@@ -15,6 +15,7 @@ export const TAB_MONITOR = "monitor";
 export const TAB_PROMPTS = "prompts";
 export const TAB_REFS = "refs";
 export const TAB_SERVICES = "services";
+export const TAB_MONITORING = "monitoring";
 export const TAB_CFGOPS = "cfgops";
 export const TAB_LOGCFG = "logcfg";
 export const TAB_LOGS = "logs";
@@ -26,7 +27,7 @@ export const TAB_SETS = {
   // (user/analyst); admin/devops профилей не имеют, поэтому без кабинета.
   admin: [TAB_USERS],
   analyst: [...TAB_BASE, TAB_METRICS, TAB_MONITOR, TAB_PROMPTS, TAB_REFS, TAB_ACCOUNT],
-  devops: [TAB_PARSER, TAB_SERVICES, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS],
+  devops: [TAB_PARSER, TAB_SERVICES, TAB_MONITORING, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS],
 };
 
 export const ALL_TABS = [
@@ -42,6 +43,7 @@ export const ALL_TABS = [
   TAB_PROMPTS,
   TAB_REFS,
   TAB_SERVICES,
+  TAB_MONITORING,
   TAB_CFGOPS,
   TAB_LOGCFG,
   TAB_LOGS,

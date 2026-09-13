@@ -228,6 +228,10 @@
   #view-metrics table th, #view-metrics table td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); }
   #view-metrics table th { color: var(--muted); font-weight:600; white-space:nowrap; }
   #view-metrics table td { white-space:nowrap; }
+  /* Вкладка «Мониторинг»: те же компактные таблицы, что и у «Метрик». */
+  #view-monitoring table { width:100%; border-collapse:collapse; font-size:13px; }
+  #view-monitoring table th, #view-monitoring table td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); }
+  #view-monitoring table th { color: var(--muted); font-weight:600; white-space:nowrap; }
   /* Вкладки: базовые — слева, ролевые — справа (объединение ролей пользователя). */
   .tabs-bar { justify-content: space-between; align-items:center; flex-wrap:wrap; }
   .tabs-group { display:flex; gap:6px; flex-wrap:wrap; }
