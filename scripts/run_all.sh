@@ -49,6 +49,20 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
     source "$ROOT_DIR/.env"
     set +a
 fi
+
+# Локальный HTTP(S)-прокси (окружение разработчика/песочница) не должен
+# перехватывать service-to-service вызовы на 127.0.0.1 (scoring_transport ->
+# парсер за карточкой закупки, воркеры -> parser_api_url и т.п.) — иначе
+# запрос уходит в прокси, который может ответить произвольным кодом (включая
+# пустой 503), никак не связанным с самим парсером; расследовать такой сбой
+# по логам парсера невозможно, там нет никакого следа запроса. httpx НЕ
+# всегда корректно применяет CIDR-нотацию (127.0.0.0/8) в NO_PROXY, и если
+# NO_PROXY/no_proxy заданы ОБА с разным содержимым — используется только один
+# (какой именно, не гарантировано), поэтому явно нормализуем: один регистр,
+# явный литерал 127.0.0.1 (не только диапазон).
+NO_PROXY_HOSTS="127.0.0.1,localhost,127.0.0.0/8,::1${NO_PROXY:+,$NO_PROXY}${no_proxy:+,$no_proxy}"
+unset NO_PROXY
+export no_proxy="$NO_PROXY_HOSTS"
 TRANSPORT_AUTH_TOKEN="${TRANSPORT_AUTH_TOKEN:-${ZAKUPKI_INTERNAL_TOKEN:-}}"
 
 CMD="${1:-up}"
@@ -401,6 +415,7 @@ echo "Запуск scoring_transport на :$PORT_TRANSPORT..."
     && PYTHONPATH="$SCORING_PYTHONPATH" \
     TRANSPORT_PARSER_API_URL="http://127.0.0.1:$PORT_PARSER" \
     TRANSPORT_AUTH_TOKEN="$TRANSPORT_AUTH_TOKEN" \
+    TRANSPORT_PARSER_INTERNAL_TOKEN="$TRANSPORT_AUTH_TOKEN" \
     uv run python -m scoring_transport serve --host 127.0.0.1 --port "$PORT_TRANSPORT" ) \
     > "$LOG_DIR/scoring_transport.log" 2>&1 &
 BGPIDS+=($!)
