@@ -227,7 +227,8 @@ const serviceUIs = SERVICES.map((s) => {
 
 // Парсер — шестая под-вкладка «Сервисы» (svc-tab-parser/svc-pane-parser), но не
 // часть serviceUIs: у него нет общих кнопок ▶/■/⟳ restart (svc-parser-*) — только
-// свой уникальный ⟳⟳ «Перезапустить процесс» (parser-restart-process, ниже).
+// свой уникальный «⟳ Перезагрузить» (parser-restart-process, ниже; в отличие от
+// сиблингов — это полный рестарт процесса zp serve, а не subprocess-цикл).
 const parserPane = {
   key: "parser",
   view: parserView,
