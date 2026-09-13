@@ -1122,3 +1122,24 @@ async def test_rebuild_profile_results_no_okpd_codes_skips_index_path(db: Databa
 
     assert stats["created"] == 0
     assert (await repo.get_score(pid, profile.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_index_status_counts(db: Database) -> None:
+    """Наполнение фонового индекса (devops-мониторинг): breakdown по status + всего закупок."""
+    repo = ProcurementRepository(db)
+    indexed_1 = await _save_proc(repo, "IDX-COUNT-1")
+    indexed_2 = await _save_proc(repo, "IDX-COUNT-2")
+    errored = await _save_proc(repo, "IDX-COUNT-3")
+    not_indexed = await _save_proc(repo, "IDX-COUNT-4")
+    assert not_indexed is not None  # закупка есть, но ещё не проиндексирована
+
+    await repo.save_index_result(indexed_1, "indexed", document_text="a")
+    await repo.save_index_result(indexed_2, "indexed", document_text="b")
+    await repo.save_index_result(errored, "error", error_message="boom")
+
+    counts = await repo.index_status_counts()
+
+    assert counts["indexed"] == 2
+    assert counts["error"] == 1
+    assert counts["total_procurements"] == 4

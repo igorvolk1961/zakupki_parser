@@ -8,7 +8,12 @@
 
 from __future__ import annotations
 
+import logging
+from typing import Any
+
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class ScoringTransportClient:
@@ -64,3 +69,30 @@ class ScoringTransportClient:
             self._client = httpx.AsyncClient(timeout=self._timeout)
         resp = await self._client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
+
+    async def queue_status(
+        self, transport: httpx.AsyncBaseTransport | None = None
+    ) -> dict[str, Any]:
+        """Глубина очередей всех стадий каскада (devops-мониторинг, GET /api/status/queues).
+
+        Best-effort, как и ``enqueue``: недоступность транспорта не бросает —
+        вкладка мониторинга должна показать «транспорт недоступен», а не упасть.
+        """
+        url = f"{self._base}/api/status/queues"
+        headers = self._headers()
+        try:
+            if transport is not None:
+                async with httpx.AsyncClient(timeout=self._timeout, transport=transport) as client:
+                    resp = await client.get(url, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+            else:
+                if self._client is None:
+                    self._client = httpx.AsyncClient(timeout=self._timeout)
+                resp = await self._client.get(url, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось получить статус очередей транспорта: %s", exc)
+            return {"available": False}
+        return {"available": True, **data}

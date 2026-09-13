@@ -11,6 +11,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from zakupki_parser.okpd import normalize_okpd2_field
@@ -83,3 +84,59 @@ class SearchIndexMixin(RepositoryMixin):
             await session.commit()
         logger.info("Результат индексации закупки %s сохранён (status=%s)", procurement_id, status)
         return True
+
+    async def index_status_counts(self) -> dict[str, int]:
+        """Наполнение фонового индекса (devops-мониторинг, вкладка «Мониторинг»).
+
+        Точный breakdown только по ``procurement_search_index.status`` (то, что
+        реально обработано воркером indexing_service) плюс общий счётчик
+        ``procurements`` для контекста. «В очереди»/«ещё не поставлено» здесь
+        намеренно не пересчитывается отдельным SQL по ОКПД2-префиксам — это
+        дублировало бы уже решённый риск подстрокового совпадения (BR-10,
+        ``any_okpd_code_covered_by_prefixes``) в сыром SQL; прокси для «сколько
+        сейчас в работе» — глубина очереди ``index`` (``ScoringTransportClient.
+        queue_status``).
+        """
+        async with self._db.session() as session:
+            status_rows = (
+                await session.execute(
+                    select(ProcurementSearchIndex.status, func.count())
+                    .select_from(ProcurementSearchIndex)
+                    .group_by(ProcurementSearchIndex.status)
+                )
+            ).all()
+            total_procurements = await session.scalar(select(func.count()).select_from(Procurement))
+        counts: dict[str, int] = {str(status): int(count) for status, count in status_rows}
+        counts["total_procurements"] = int(total_procurements or 0)
+        return counts
+
+    async def recent_index_errors(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Последние ошибки фоновой индексации (devops-мониторинг, вкладка «Мониторинг»).
+
+        Только строки ``status='error'``, самые свежие по ``updated_at`` первыми —
+        чтобы не лазить в БД/лог вручную ради текста конкретной ошибки.
+        """
+        async with self._db.session() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        ProcurementSearchIndex.procurement_id,
+                        Procurement.number,
+                        ProcurementSearchIndex.error_message,
+                        ProcurementSearchIndex.updated_at,
+                    )
+                    .join(Procurement, Procurement.id == ProcurementSearchIndex.procurement_id)
+                    .where(ProcurementSearchIndex.status == "error")
+                    .order_by(ProcurementSearchIndex.updated_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+        return [
+            {
+                "procurement_id": pid,
+                "number": number,
+                "error_message": error_message,
+                "updated_at": updated_at.isoformat() if updated_at else None,
+            }
+            for pid, number, error_message, updated_at in rows
+        ]

@@ -74,3 +74,45 @@ async def test_transport_client_omits_bearer_when_unset() -> None:
     await client.enqueue(42, 900.0, transport=transport)
 
     assert captured["auth"] == ""
+
+
+@pytest.mark.asyncio
+async def test_queue_status_returns_available_with_depths() -> None:
+    payload = {"queues": {"fit": {"jobs": 1, "results": 0}}}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "http://localhost:8200/api/status/queues"
+        return httpx.Response(200, json=payload)
+
+    transport = httpx.MockTransport(_handler)
+    client = ScoringTransportClient("http://localhost:8200")
+    result = await client.queue_status(transport=transport)
+
+    assert result == {"available": True, "queues": {"fit": {"jobs": 1, "results": 0}}}
+
+
+@pytest.mark.asyncio
+async def test_queue_status_best_effort_on_failure() -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    transport = httpx.MockTransport(_handler)
+    client = ScoringTransportClient("http://localhost:8200")
+    result = await client.queue_status(transport=transport)
+
+    assert result == {"available": False}
+
+
+@pytest.mark.asyncio
+async def test_queue_status_sends_bearer_token() -> None:
+    captured: dict[str, str] = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured["auth"] = request.headers.get("Authorization", "")
+        return httpx.Response(200, json={"queues": {}})
+
+    transport = httpx.MockTransport(_handler)
+    client = ScoringTransportClient("http://localhost:8200", auth_token="t0ken")
+    await client.queue_status(transport=transport)
+
+    assert captured["auth"] == "Bearer t0ken"

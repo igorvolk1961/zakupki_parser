@@ -1466,3 +1466,38 @@ def test_active_context_uses_disabled_profile(
             await db.dispose()
 
     asyncio.run(_active_is_disabled_profile())
+
+
+def test_monitoring_requires_devops(
+    api_client: tuple[TestClient, Path], analyst_headers: dict[str, str]
+) -> None:
+    """Вкладка «Мониторинг» — только devops (см. plan «radiant-crunching-lemon»).
+
+    ``analyst_headers`` — токен реального пользователя с ролями analyst/user (без
+    devops) в БД: ``require_user`` перечитывает роли из БД по ``sub`` токена, так
+    что важен фактический набор ролей пользователя, а не то, что записано в payload.
+    """
+    client, _ = api_client
+    resp = client.get("/api/devops/monitoring", headers=analyst_headers)
+    assert resp.status_code == 403
+
+
+def test_monitoring_returns_queues_index_and_resources(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Без настроенного scoring_transport — best-effort «недоступен», а не 500."""
+    client, _ = api_client
+    resp = client.get("/api/devops/monitoring")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["queues"] == {"available": False}
+    # ``enabled``/``okpd2_prefixes`` зависят от текущего configs/config_service.yaml
+    # (не фиксируем конкретное значение — только форму ответа).
+    assert isinstance(body["index"]["enabled"], bool)
+    assert isinstance(body["index"]["counts"], dict)
+    # Не фиксируем пустой список: api_client — module-scoped, другие тесты в этом
+    # файле (например, test_procurement_index_result_error_preserves_previous_
+    # document_text) могли оставить свои status='error' строки в общей БД.
+    assert isinstance(body["index"]["recent_errors"], list)
+    assert 0.0 <= body["resources"]["memory"]["percent"] <= 100.0
+    assert body["resources"]["disk"]["total"] > 0

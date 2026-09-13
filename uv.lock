@@ -2292,6 +2292,15 @@ wheels = [
 ]
 
 [[package]]
+name = "types-psutil"
+version = "7.2.2.20260906"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/0a/f48b9b0ab5ba8599fd117309e345152bf82c756c72be2ff0f635780c2792/types_psutil-7.2.2.20260906.tar.gz", hash = "sha256:93abf22cf9a62b915f724e433bde702995ac274865425fd4a76d1d9b5828da1a", size = 27396, upload-time = "2026-09-06T06:35:24.499Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/8d/81a86107486e1c23f5ca21bea1e9e5b18a50754242e7a0b82f41f9ae8384/types_psutil-7.2.2.20260906-py3-none-any.whl", hash = "sha256:db00baf7f96c3f63421c4d3d68d373923094a0dfddf13e922c5c5fbc42488159", size = 33383, upload-time = "2026-09-06T06:35:23.575Z" },
+]
+
+[[package]]
 name = "types-pyyaml"
 version = "6.0.12.20260724"
 source = { registry = "https://pypi.org/simple" }
@@ -2594,6 +2603,7 @@ dependencies = [
     { name = "httpx" },
     { name = "markitdown", extra = ["docx", "pdf", "xlsx"] },
     { name = "playwright" },
+    { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -2612,6 +2622,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "pytest-docker" },
     { name = "ruff" },
+    { name = "types-psutil" },
     { name = "types-pyyaml" },
 ]
 
@@ -2622,6 +2633,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "markitdown", extras = ["docx", "pdf", "xlsx"], specifier = ">=0.1.7" },
     { name = "playwright", specifier = ">=1.45" },
+    { name = "psutil", specifier = ">=6.0" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic-settings", specifier = ">=2.2" },
     { name = "python-dotenv", specifier = ">=1.0" },
@@ -2640,5 +2652,6 @@ dev = [
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "pytest-docker", specifier = ">=3.0" },
     { name = "ruff", specifier = ">=0.5" },
+    { name = "types-psutil", specifier = ">=6.0" },
     { name = "types-pyyaml", specifier = ">=6.0" },
 ]
