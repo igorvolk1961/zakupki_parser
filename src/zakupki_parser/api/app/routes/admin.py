@@ -39,8 +39,18 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
         """Простое web-приложение MVP (читает данные через API)."""
         # Без кеширования: браузер всегда получает свежую версию HTML (ранее
         # кешированная промежуточная версия показывала устаревший интерфейс).
+        # token_storage (config_ops.yaml -> auth) — куда фронт кладёт bearer-токен
+        # (api.js): подмешиваем инлайн-скриптом ДО модульных <script> (main.js и
+        # т.п.), т.к. authToken()/setToken() читают его при первом же вызове.
+        # Значение — литерал из Literal["local","session"] (не пользовательский
+        # ввод), экранирование не требуется.
+        html = ZAKUPKI_HTML.read_text(encoding="utf-8").replace(
+            "<head>",
+            f'<head>\n<script>window.__TOKEN_STORAGE__="{state.cfg.ops.auth.token_storage}";</script>',
+            1,
+        )
         return HTMLResponse(
-            ZAKUPKI_HTML.read_text(encoding="utf-8"),
+            html,
             headers={"Cache-Control": "no-store"},
         )
 

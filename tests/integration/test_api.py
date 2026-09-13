@@ -387,6 +387,10 @@ def test_index_page_served(api_client: tuple[TestClient, Path]) -> None:
     assert resp.headers["content-type"].startswith("text/html")
     assert "Парсер закупок" in resp.text
     assert 'src="/static/js/main.js"' in resp.text
+    # token_storage (config_ops.yaml -> auth) подмешивается ДО модульных
+    # <script> — api.js читает window.__TOKEN_STORAGE__ синхронно при загрузке.
+    assert 'window.__TOKEN_STORAGE__="local"' in resp.text
+    assert resp.text.index("__TOKEN_STORAGE__") < resp.text.index('src="/static/js/main.js"')
 
 
 def test_list_and_get(api_client: tuple[TestClient, Path], inserted_id: int) -> None:

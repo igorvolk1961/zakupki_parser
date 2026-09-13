@@ -11,12 +11,23 @@ import { pollWork } from "./work.js";
 
 export const TOKEN_KEY = "zp_token";
 
+// Где хранить bearer-токен: настраивается на сервере (config_ops.yaml ->
+// auth.token_storage), подмешивается инлайн-скриптом в <head> (см.
+// routes/admin.py::index) ДО загрузки этого модуля.
+// - "local" (по умолчанию) — localStorage, общий на все вкладки одного origin:
+//   сессия переживает закрытие вкладки/браузера, но вход в одной вкладке
+//   переключает и все остальные (общее хранилище).
+// - "session" — sessionStorage, изолирован по вкладке: можно одновременно
+//   работать под разными пользователями/ролями в разных вкладках одного
+//   браузера, но сессия не переживает закрытие вкладки.
+const _tokenBackend = window.__TOKEN_STORAGE__ === "session" ? sessionStorage : localStorage;
+
 export function authToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  return _tokenBackend.getItem(TOKEN_KEY);
 }
 
 export function setToken(t) {
-  t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY);
+  t ? _tokenBackend.setItem(TOKEN_KEY, t) : _tokenBackend.removeItem(TOKEN_KEY);
 }
 
 export function authHeaders(extra) {

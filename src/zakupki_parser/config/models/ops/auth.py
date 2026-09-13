@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field, model_validator
 
 from zakupki_parser.config.models.ops.base import _BaseConfig
@@ -31,6 +33,17 @@ class AuthConfig(_BaseConfig):
         ),
     )
     token_ttl_seconds: int = Field(default=12 * 3600, ge=60, description="время жизни токена (сек)")
+    token_storage: Literal["local", "session"] = Field(
+        default="local",
+        description=(
+            "где браузер хранит bearer-токен: 'local' (localStorage, общий на все "
+            "вкладки одного origin — сессия переживает закрытие вкладки/браузера "
+            "до истечения token_ttl_seconds) или 'session' (sessionStorage, "
+            "изолирован по вкладке — можно одновременно быть залогинены разными "
+            "пользователями/ролями в разных вкладках одного браузера, но сессия "
+            "не переживает закрытие вкладки)"
+        ),
+    )
 
     @model_validator(mode="after")
     def _require_secrets(self) -> AuthConfig:

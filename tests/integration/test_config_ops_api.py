@@ -125,7 +125,7 @@ def test_ops_schema_hides_secrets(ops_client: TestClient) -> None:
     schema = {f["key"]: f for f in body["schema"]}
     assert {"auth", "db", "notifications", "export_dir"} <= set(schema)
     auth_keys = {f["key"] for f in schema["auth"]["fields"]}
-    assert auth_keys == {"token_ttl_seconds"}
+    assert auth_keys == {"token_ttl_seconds", "token_storage"}
 
 
 def test_ops_put_updates_yaml(ops_client: TestClient) -> None:
