@@ -14,6 +14,8 @@ dependencies = [
     "markitdown[docx,pdf,xlsx]>=0.1.7",
     # Чтение 7z-архивов закупок (Закупочная_документация.7z и т.п.).
     "py7zr>=0.20",
+    # S3/MinIO-клиент общего L2-кэша извлечённого текста (tz/object_cache.py).
+    "boto3>=1.34",
 ]
 
 [dependency-groups]
@@ -59,7 +61,7 @@ files = ["."]
 exclude = ["tests"]
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "yaml.*", "py7zr.*"]
+module = ["redis.*", "yaml.*", "py7zr.*", "boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

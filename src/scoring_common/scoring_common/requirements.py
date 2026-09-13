@@ -33,7 +33,7 @@ from typing import Any
 
 from scoring_common.law_requirements import annotate_requirements
 from scoring_common.tables import _MARKER_VALUE_RE, pdf_to_markdown_tables
-from scoring_common.tz import extract_text
+from scoring_common.tz import extract_text_cached
 from scoring_common.tz.archives import _archive_inner_names
 from scoring_common.tz.download import _download
 from scoring_common.tz.files import FileRef, collect_files, is_archive
@@ -166,7 +166,7 @@ def enumerate_document_refs(
 def _extract_doc_text(ref: FileRef, timeout: float, verify_ssl: bool) -> str | None:
     """Извлечь текст документа (best-effort: сбой одного файла не роняет остальные)."""
     try:
-        text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
+        text = extract_text_cached(ref, timeout=timeout, verify_ssl=verify_ssl)
         return clean_text(text) if text else None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Не удалось извлечь текст документа %s: %s", ref.name, exc)

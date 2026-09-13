@@ -37,12 +37,18 @@ class SearchIndexMixin(RepositoryMixin):
 
         ``okpd2_normalized`` вычисляется здесь же из актуального ``procurements.
         okpd2_codes`` (не принимается от indexing_service — сервис не имеет доступа
-        к БД, но не должен и держать копию логики нормализации). Повторный вызов
-        со ``status="error"`` (транзиентный сбой скачивания) НЕ затирает
-        ``document_text``/``content_hash`` предыдущего успешного результата —
-        обновляются только явно переданные поля. Возвращает False, если закупка
-        с таким id не найдена (сервис не ставит задание индексации несуществующей
-        закупке, но результат мог прийти после её удаления).
+        к БД, но не должен и держать копию логики нормализации). ``document_text``
+        приходит от indexing_service по HTTP как и раньше (полный извлечённый
+        текст документов), но НЕ сохраняется в БД — только используется здесь,
+        в момент вызова, чтобы построить ``search_tsv`` через
+        ``func.to_tsvector('simple', ...)`` (та же postgres-функция, что раньше
+        стояла в ``GENERATED``-выражении колонки — токенизация не меняется, только
+        точка вычисления). Повторный вызов со ``status="error"`` (транзиентный сбой
+        скачивания) НЕ затирает ``search_tsv``/``subject_snapshot``/``content_hash``
+        предыдущего успешного результата — обновляются только явно переданные поля.
+        Возвращает False, если закупка с таким id не найдена (сервис не ставит
+        задание индексации несуществующей закупке, но результат мог прийти после
+        её удаления).
         """
         async with self._db.session() as session:
             procurement = await session.get(Procurement, procurement_id)
@@ -54,7 +60,6 @@ class SearchIndexMixin(RepositoryMixin):
                 "procurement_id": procurement_id,
                 "okpd2_normalized": okpd2_normalized,
                 "status": status,
-                "document_text": document_text,
                 "content_hash": content_hash,
                 "error_message": error_message,
             }
@@ -64,7 +69,14 @@ class SearchIndexMixin(RepositoryMixin):
                 "error_message": error_message,
             }
             if document_text is not None:
-                update_values["document_text"] = document_text
+                subject_snapshot = procurement.subject
+                search_tsv_expr = func.to_tsvector(
+                    "simple", f"{subject_snapshot or ''} {document_text}"
+                )
+                insert_values["subject_snapshot"] = subject_snapshot
+                insert_values["search_tsv"] = search_tsv_expr
+                update_values["subject_snapshot"] = subject_snapshot
+                update_values["search_tsv"] = search_tsv_expr
             if content_hash is not None:
                 update_values["content_hash"] = content_hash
             if status == "indexed":

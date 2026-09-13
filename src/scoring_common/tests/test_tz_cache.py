@@ -56,6 +56,67 @@ def test_extract_text_cached_archive_members_are_distinct(monkeypatch) -> None:
         clear_tz_text_cache()
 
 
+def test_extract_text_cached_l2_hit_skips_extraction(monkeypatch) -> None:
+    """L1-промах, L2-хит (S3): extract_text вообще не вызывается, L1 прогревается."""
+    clear_tz_text_cache()
+    calls = _calls(monkeypatch)
+    monkeypatch.setattr("scoring_common.tz.get_cached_text", lambda key: "из S3-кэша")
+    ref = FileRef("ТЗ.docx", "http://x/tz.docx")
+    try:
+        assert extract_text_cached(ref) == "из S3-кэша"
+        assert calls == []
+        # L1 прогрет значением из L2 — второй вызов не идёт даже в get_cached_text.
+        monkeypatch.setattr(
+            "scoring_common.tz.get_cached_text",
+            lambda key: (_ for _ in ()).throw(AssertionError("L2 не должен вызываться повторно")),
+        )
+        assert extract_text_cached(ref) == "из S3-кэша"
+        assert calls == []
+    finally:
+        clear_tz_text_cache()
+
+
+def test_extract_text_cached_l2_miss_extracts_and_writes_through(monkeypatch) -> None:
+    """L1/L2-промах: извлекаем как обычно и пишем результат в L2 (write-through)."""
+    clear_tz_text_cache()
+    calls = _calls(monkeypatch)
+    monkeypatch.setattr("scoring_common.tz.get_cached_text", lambda key: None)
+    puts: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "scoring_common.tz.put_cached_text", lambda key, text: puts.append((key, text))
+    )
+    ref = FileRef("ТЗ.docx", "http://x/tz.docx")
+    try:
+        assert extract_text_cached(ref) == "text:http://x/tz.docx"
+        assert calls == [("http://x/tz.docx", "ТЗ.docx")]
+        assert puts == [("http://x/tz.docx", "text:http://x/tz.docx")]
+    finally:
+        clear_tz_text_cache()
+
+
+def test_extract_text_cached_oversized_text_not_written_to_l2(monkeypatch) -> None:
+    """Слишком большой текст не пишется ни в L1 (уже проверено выше), ни в L2."""
+    old_cap = tz._TZ_TEXT_MAX_CHARS_PER_ENTRY
+    tz._TZ_TEXT_MAX_CHARS_PER_ENTRY = 10
+    clear_tz_text_cache()
+    monkeypatch.setattr("scoring_common.tz.get_cached_text", lambda key: None)
+    puts: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "scoring_common.tz.put_cached_text", lambda key, text: puts.append((key, text))
+    )
+    monkeypatch.setattr(
+        "scoring_common.tz.extract_text",
+        lambda ref, timeout=30.0, verify_ssl=True: "X" * 100,
+    )
+    ref = FileRef("ТЗ.docx", "http://x/tz.docx")
+    try:
+        assert extract_text_cached(ref) == "X" * 100
+        assert puts == []
+    finally:
+        clear_tz_text_cache()
+        tz._TZ_TEXT_MAX_CHARS_PER_ENTRY = old_cap
+
+
 def test_extract_text_cached_does_not_cache_failure(monkeypatch) -> None:
     """Неуспех извлечения (None) НЕ кэшируется: следующий запрос пробует заново."""
     clear_tz_text_cache()

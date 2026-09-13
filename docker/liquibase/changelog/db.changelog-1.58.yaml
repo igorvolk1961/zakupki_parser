@@ -1,0 +1,14 @@
+databaseChangeLog:
+- changeSet:
+    id: 60
+    author: zakupki-parser
+    comment: 'procurement_search_index: search_tsv перестаёт быть GENERATED ALWAYS AS STORED (Postgres ALTER ... DROP EXPRESSION — конвертирует колонку в обычную, сохраняя уже вычисленные значения) и становится обычной колонкой, которую SearchIndexMixin.save_index_result пишет явно через func.to_tsvector(''simple'', ...) в момент успешной индексации (тот же механизм токенизации, что был в GENERATED-выражении). document_text удаляется: подтверждено (grep по репозиторию), что он нигде не читался, кроме этого GENERATED-выражения — хранить сырой текст всех документов закупки в OLTP-таблице (TOAST) было избыточно. Текст по-прежнему извлекается indexing_service и приходит по HTTP как раньше, просто не персистится.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_search_index
+              ALTER COLUMN search_tsv DROP EXPRESSION IF EXISTS;
+          ALTER TABLE procurement_search_index
+              DROP COLUMN IF EXISTS document_text;
+          COMMENT ON COLUMN procurement_search_index.search_tsv IS 'Обычная колонка (не GENERATED) — пишется явно из SearchIndexMixin.save_index_result через to_tsvector(''simple'', ...) в момент успешной индексации; сырой document_text не хранится.';

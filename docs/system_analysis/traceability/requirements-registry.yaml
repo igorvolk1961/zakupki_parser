@@ -817,6 +817,7 @@ requirements:
       - src/zakupki_parser/scoring.py#enqueue
       - src/zakupki_parser/api/app/routes/procurements.py#set_score
       - src/scoring_service/scoring_service/worker.py
+      - src/scoring_common/scoring_common/tz/object_cache.py
     tests:
       - tests/unit/test_scoring.py
       - tests/unit/test_cascade.py
@@ -831,6 +832,7 @@ requirements:
       - src/scoring_common/tests/test_extractors.py
       - src/scoring_common/tests/test_text.py
       - src/scoring_common/tests/test_tz_cache.py
+      - src/scoring_common/tests/test_object_cache.py
   - id: FR-2.5
     type: FR
     title: Дедупликация по (number, platform_id)

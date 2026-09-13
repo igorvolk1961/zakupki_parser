@@ -221,18 +221,28 @@ def test_extract_requirements_from_table_rows(monkeypatch) -> None:
 
 
 @pytest.fixture
-def _fake_extract_text(monkeypatch) -> None:
-    """Подмена извлечения текста: возвращает текст по имени файла (без сети)."""
+def _fake_extract_text(monkeypatch):
+    """Подмена извлечения текста: возвращает текст по имени файла (без сети).
 
+    ``extract_requirements`` теперь ходит через ``extract_text_cached`` (общий
+    L1/L2-кэш, см. ``tz/object_cache.py``) — L1 живёт в модульном состоянии
+    ``scoring_common.tz`` и переживает границы теста, поэтому кэш сбрасывается
+    до/после, иначе тесты с одинаковым ``(url, name)`` (напр. ``req.pdf``)
+    получили бы текст, закэшированный предыдущим тестом.
+    """
+    from scoring_common.tz import clear_tz_text_cache
+
+    clear_tz_text_cache()
     docs: dict[str, str] = {}
 
     def fake(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
         return docs.get(ref.name)
 
-    monkeypatch.setattr("scoring_common.requirements.extract_text", fake)
+    monkeypatch.setattr("scoring_common.requirements.extract_text_cached", fake)
     # Table-путь не должен ходить в сеть в юнит-тестах.
     monkeypatch.setattr("scoring_common.requirements._download", lambda *a, **k: None)
-    return docs
+    yield docs
+    clear_tz_text_cache()
 
 
 def test_extract_requirements_by_heading(_fake_extract_text: dict[str, str]) -> None:

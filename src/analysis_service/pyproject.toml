@@ -18,6 +18,8 @@ dependencies = [
     # scoring_common подключается через PYTHONPATH (не как пакет), поэтому его
     # зависимости в venv analysis_service не резолвятся автоматически.
     "py7zr>=0.20",
+    # Через scoring_common.tz.object_cache: S3/MinIO L2-кэш извлечённого текста.
+    "boto3>=1.34",
 ]
 
 [dependency-groups]
@@ -55,7 +57,7 @@ exclude = ["tests"]
 mypy_path = [".", "../scoring_common"]
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "yaml.*", "py7zr.*"]
+module = ["redis.*", "yaml.*", "py7zr.*", "boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

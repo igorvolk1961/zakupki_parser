@@ -45,6 +45,7 @@ from scoring_common.tz.files import (
     is_archive,
     is_tz,
 )
+from scoring_common.tz.object_cache import get_cached_text, put_cached_text
 from scoring_common.tz.text import clean_text
 
 # TTL кэша извлечённого текста ТЗ: файлы закупки за час не меняются, повторно
@@ -170,14 +171,22 @@ def extract_text_cached(
     ttl: float = _TZ_TEXT_TTL_SECONDS,
     verify_ssl: bool = True,
 ) -> str | None:
-    """``extract_text`` с TTL-кэшем: успешно извлечённый текст не переизвлекается.
+    """``extract_text`` с двухуровневым кэшем: успешно извлечённый текст не переизвлекается.
 
-    Ключ — ``(ref.url, ref.name)``: для записей внутри архива ``ref.url`` уже
-    содержит ``#внутренний_путь``, так что разные записи одного zip не мешают
-    друг другу. Кэшируется только успех: неуспех (``None``) не кэшируется и
+    L1 — в памяти процесса (этот TTL): ``(ref.url, ref.name)`` -> текст.
+    L2 — S3/MinIO (``object_cache``, TTL — lifecycle-правило бакета, по умолчанию
+    выключен), общий для ВСЕХ процессов (indexing_service/scoring_service/
+    analysis_service/API) — L1-промах сначала проверяет L2 прежде, чем реально
+    скачивать и конвертировать файл; L2-недоступность тихо игнорируется (см.
+    ``object_cache`` — там же обоснование best-effort).
+
+    Ключ — ``(ref.url, ref.name)`` (L1) / ``ref.url`` (L2, для записей внутри
+    архива уже содержит ``#внутренний_путь``, различать по ``name`` доп. не
+    нужно). Кэшируется только успех: неуспех (``None``) не кэшируется и
     перепробуется при следующем обращении (транзиентный/чинимый случай).
-    Кэш ограничен: LRU по числу записей + суммарный бюджет символов; очень
-    большие тексты (``_TZ_TEXT_MAX_CHARS_PER_ENTRY``) отдаются, но не кэшируются.
+    L1 ограничен: LRU по числу записей + суммарный бюджет символов; очень
+    большие тексты (``_TZ_TEXT_MAX_CHARS_PER_ENTRY``) отдаются, но не кэшируются
+    ни в L1, ни в L2 (та же защита от неограниченного роста памяти/хранилища).
     """
     key = (ref.url, ref.name)
     now = time.monotonic()
@@ -187,6 +196,13 @@ def extract_text_cached(
             # Актуальная запись: поднимаем в конец (LRU-порядок).
             _tz_text_cache.move_to_end(key)
             return cached[1]
+    cached_remote = get_cached_text(ref.url)
+    if cached_remote is not None:
+        with _tz_text_lock:
+            _tz_text_cache[key] = (time.monotonic(), cached_remote)
+            _tz_text_cache.move_to_end(key)
+            _prune_tz_text_cache(time.monotonic(), ttl=ttl)
+        return cached_remote
     text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
     if text is None:
         # Неуспех извлечения не кэшируем: он бывает транзиентным (сбой конвертера,
@@ -195,6 +211,7 @@ def extract_text_cached(
         return None
     if len(text) > _TZ_TEXT_MAX_CHARS_PER_ENTRY:
         return text  # слишком большой текст кэшировать не будем (безопасность памяти)
+    put_cached_text(ref.url, text)
     with _tz_text_lock:
         _tz_text_cache[key] = (time.monotonic(), text)
         _tz_text_cache.move_to_end(key)
@@ -245,14 +262,14 @@ def resolve_tz_content(
     ref = find_tz_reference(record, timeout=timeout, verify_ssl=verify_ssl)
     if ref is None:
         return None, None
-    raw = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
+    raw = extract_text_cached(ref, timeout=timeout, verify_ssl=verify_ssl)
     text = clean_text(raw) if raw else ""
     if not text:
         return ref, None
     if not _has_executor_duties(text):
         desc_ref = find_description_reference(record, timeout=timeout, verify_ssl=verify_ssl)
         if desc_ref is not None and desc_ref.url != ref.url:
-            raw_desc = extract_text(desc_ref, timeout=timeout, verify_ssl=verify_ssl)
+            raw_desc = extract_text_cached(desc_ref, timeout=timeout, verify_ssl=verify_ssl)
             desc_text = clean_text(raw_desc) if raw_desc else ""
             if desc_text:
                 ref = desc_ref

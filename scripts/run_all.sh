@@ -43,6 +43,10 @@ PORT_TRANSPORT="${PORT_TRANSPORT:-8200}"
 # Внутренний service-to-service секрет (ZAKUPKI_INTERNAL_TOKEN) — Bearer-токен
 # авторизации scoring_transport (serve без токена не стартует). Он же уходит от
 # парсера при автопуше заданий. Берём из .env, если он там задан.
+#
+# set -a экспортирует ВСЁ из .env автоматически — этим же путём (без отдельного
+# кода ниже) до всех дочерних процессов доходят и TZ_CACHE_* (L2-кэш текста
+# документов в S3/MinIO, scoring_common.tz.object_cache; см. .env.example).
 if [[ -f "$ROOT_DIR/.env" ]]; then
     set -a
     # shellcheck disable=SC1091

@@ -528,7 +528,7 @@ def test_procurement_requirements_extract_and_persist(
 ) -> None:
     """GET /requirements извлекает требования из документа и персистит в БД.
 
-    Подменяется только извлечение текста (extract_requirements->extract_text),
+    Подменяется только извлечение текста (extract_requirements->extract_text_cached),
     чтобы не ходить в сеть. Повторный запрос читает уже сохранённую структуру.
     """
     from scoring_common.tz.files import FileRef
@@ -560,7 +560,7 @@ def test_procurement_requirements_extract_and_persist(
     def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
         return "# Требования к участнику\n\nТребуется лицензия МЧС на монтаж."
 
-    monkeypatch.setattr("scoring_common.requirements.extract_text", fake_extract)
+    monkeypatch.setattr("scoring_common.requirements.extract_text_cached", fake_extract)
 
     body = client.get(f"/api/procurements/{req_id}/requirements").json()
     assert body["found"] is True
@@ -609,7 +609,7 @@ def test_procurement_requirements_empty_object(
     def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
         return "Описание предмета закупки и условия оплаты."
 
-    monkeypatch.setattr("scoring_common.requirements.extract_text", fake_extract)
+    monkeypatch.setattr("scoring_common.requirements.extract_text_cached", fake_extract)
 
     body = client.get(f"/api/procurements/{req_id}/requirements").json()
     assert body["found"] is False
@@ -724,7 +724,12 @@ def test_procurement_index_result_post_404(api_client: tuple[TestClient, Path]) 
 def test_procurement_index_result_error_preserves_previous_document_text(
     api_client: tuple[TestClient, Path],
 ) -> None:
-    """Повторный error-результат (транзиентный сбой) не затирает document_text."""
+    """Повторный error-результат (транзиентный сбой) не затирает search_tsv.
+
+    ``document_text`` больше не персистится (см. ``save_index_result``) — прежний
+    успешный результат теперь проверяется через уже построенный ``search_tsv``
+    (вычисляется explicit ``to_tsvector('simple', ...)`` в момент индексации).
+    """
     client, _ = api_client
     proc_id = _seed_procurement("IDX-PRESERVE")
 
@@ -743,7 +748,7 @@ def test_procurement_index_result_error_preserves_previous_document_text(
     assert err.status_code == 200
     assert err.json()["status"] == "error"
 
-    async def _read_document_text() -> str | None:
+    async def _read_search_tsv() -> str | None:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
@@ -759,11 +764,13 @@ def test_procurement_index_result_error_preserves_previous_document_text(
                         )
                     )
                 ).scalar_one()
-                return row.document_text
+                return row.search_tsv
         finally:
             await db.dispose()
 
-    assert asyncio.run(_read_document_text()) == "успешно извлечённый текст"
+    search_tsv = asyncio.run(_read_search_tsv())
+    assert search_tsv is not None
+    assert "извлечённый" in search_tsv
 
 
 def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> None:

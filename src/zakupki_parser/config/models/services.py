@@ -300,7 +300,7 @@ class IndexingServiceConfig(_BaseConfig):
         default=20, ge=1, description="Макс. число файлов закупки для извлечения текста"
     )
     max_document_chars: int = Field(
-        default=200_000, ge=1000, description="Макс. суммарная длина извлечённого текста"
+        default=2_000_000, ge=1000, description="Макс. суммарная длина извлечённого текста"
     )
     download_timeout_seconds: float = Field(
         default=30.0, gt=0, description="Таймаут скачивания одного файла (сек)"
