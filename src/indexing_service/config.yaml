@@ -1,0 +1,50 @@
+# Конфигурация сервиса фоновой индексации (indexing_service).
+#
+# Значения можно переопределить переменными окружения `INDEX_*`
+# (например, `INDEX_MAX_CONCURRENT_DOWNLOADS=4`). Приоритет:
+# аргументы > env `INDEX_*` > `.env` > этот YAML > значения по умолчанию.
+# Путь к файлу можно изменить env `INDEX_CONFIG_FILE`.
+
+# Парсер закупок (REST, без прямого доступа к БД)
+parser_api_url: "http://localhost:8000"
+# Пауза перед повторной обработкой задачи при недоступности парсера (сек).
+parser_retry_backoff_seconds: 5.0
+
+# Redis-очередь (та же, что у scoring_transport)
+redis_url: "redis://localhost:6379/0"
+jobs_key: "index:jobs"
+results_key: "index:results"
+processing_key: "index:processing"
+processing_meta_key: "index:processing_meta"
+processing_ttl_seconds: 600
+processing_recovery_priority: 0.0
+queue_poll_seconds: 2.0
+# Счётчик ретраев задач (HASH).
+jobs_retry_key: "index:jobs_retries"
+
+# Извлечение текста документов (scoring_common.tz): ограничения — защита от
+# неконтролируемого роста нагрузки/памяти на один патологический пакет
+# документов (архив с сотнями файлов), см. риски плана индексации.
+max_files_per_procurement: 20
+max_document_chars: 200000
+download_timeout_seconds: 30.0
+# Площадки за TLS-перехватом отдают самоподписанный сертификат — по умолчанию
+# выключено (как у scoring_service/analysis_service, см. tz_verify_ssl).
+verify_ssl: false
+
+# Своя «вежливость» — дозагрузка деталей/файлов сегодня не ограничена никаким
+# Delayer (см. риск №3 плана индексации): собственный лимит конкурентности +
+# пауза между файлами одной закупки, независимо от парсера/analysis_service.
+max_concurrent_downloads: 2
+download_delay_seconds: 1.0
+
+# Логирование (собственный блок; сервис в изолированном контейнере управляет
+# своим логом). file: null — логи в консоль/stdout (их собирает оркестратор);
+# для файла с ротацией укажите путь (например, data/logs/indexing_service.log).
+logging:
+  level: INFO
+  format: "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
+  file: null
+  file_level: DEBUG
+  console: true
+  truncate_on_start: false
