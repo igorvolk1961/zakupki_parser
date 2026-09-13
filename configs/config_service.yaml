@@ -33,3 +33,9 @@ scoring:
   min_fit_score: 0.0
   score_round_digits: 2
   tz_download_timeout: 30.0
+indexing:
+  enabled: true
+  okpd2_prefixes:
+  - '62.2'
+  excluded_platforms:
+  - b2b_center
