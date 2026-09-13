@@ -1236,6 +1236,66 @@ def test_config_get_redacts_and_put_saves(tmp_path: Path, analyst_headers: dict[
     os.environ.pop("ZAKUPKI_DB_DSN", None)
 
 
+def test_devops_indexing_config_get_put_and_role_gate(tmp_path: Path) -> None:
+    """Devops-редактор фоновой индексации: GET/PUT только indexing:, без секретов
+    и без затирания остальных полей config_service.yaml (sites/scoring)."""
+    from zakupki_parser.api.app import create_app
+
+    cfgdir = tmp_path / "configs"
+    shutil.copytree(Path(__file__).resolve().parents[2] / "tests" / "configs", cfgdir)
+    os.environ["ZAKUPKI_DB_DSN"] = TEST_DSN
+    app = create_app(str(cfgdir))
+    with TestClient(app) as client:
+
+        async def _seed_users() -> tuple[int, int]:
+            db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+            await db.connect()
+            try:
+                repo = ProcurementRepository(db)
+                devops_user = await repo.create_user("devops-idx", "h", [ROLE_DEVOPS])
+                analyst_user = await repo.create_user("analyst-idx", "h", [ROLE_ANALYST, ROLE_USER])
+                return devops_user.id, analyst_user.id
+            finally:
+                await db.dispose()
+
+        devops_id, analyst_id = asyncio.run(_seed_users())
+        devops_headers = {
+            "Authorization": f"Bearer {create_token(devops_id, [ROLE_DEVOPS], AUTH_SECRET, 3600)}"
+        }
+        analyst_headers_local = {
+            "Authorization": (
+                f"Bearer {create_token(analyst_id, [ROLE_ANALYST, ROLE_USER], AUTH_SECRET, 3600)}"
+            )
+        }
+
+        # Аналитик не может дёргать devops-эндпоинт (403), даже зная его.
+        r = client.get("/api/devops/indexing-config", headers=analyst_headers_local)
+        assert r.status_code == 403
+
+        cfg = client.get("/api/devops/indexing-config", headers=devops_headers).json()
+        assert "enabled" in cfg and "okpd2_prefixes" in cfg and "excluded_platforms" in cfg
+
+        r = client.put(
+            "/api/devops/indexing-config",
+            json={"enabled": True, "okpd2_prefixes": ["62.2"], "excluded_platforms": []},
+            headers=devops_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["okpd2_prefixes"] == ["62.2"]
+
+        saved = (cfgdir / "config_service.yaml").read_text(encoding="utf-8")
+        assert "62.2" in saved
+        assert "sites:" in saved  # остальные поля не затёрты
+
+        bad = client.put(
+            "/api/devops/indexing-config",
+            json={"okpd2_prefixes": "not-a-list"},
+            headers=devops_headers,
+        )
+        assert bad.status_code == 422
+    os.environ.pop("ZAKUPKI_DB_DSN", None)
+
+
 def test_export_csv_download(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     """CSV отдаётся файлом: только активные релевантные закупки (fit_score >= порога)."""
     client, _ = api_client

@@ -5,6 +5,7 @@
 // открыта (по образцу авто-обновления «Логов», см. logs.js).
 import { $, escapeHtml, fmtDT } from "./utils.js";
 import { api } from "./api.js";
+import { createConfigView } from "./config_view.js";
 
 const STAGE_LABELS = {
   fit: "Fit",
@@ -15,6 +16,18 @@ const STAGE_LABELS = {
 };
 
 let monitoringTimer = null;
+let indexingConfigDirty = false;
+let indexingConfigLoaded = false;
+
+// Настройки фоновой индексации (enabled/okpd2_prefixes/excluded_platforms) —
+// редактируемая форма (не часть авто-обновляемой сводки выше: пере-рендер
+// innerHTML каждые 10с стёр бы незасохранённый ввод). Грузится один раз при
+// первой активации вкладки, как и остальные config-view панели приложения.
+const indexingConfigView = createConfigView("mon-indexing", "devops/indexing-config", {
+  onDirty: (v) => {
+    indexingConfigDirty = v;
+  },
+});
 
 function renderQueues(queues) {
   if (!queues || queues.available === false) {
@@ -40,7 +53,6 @@ function renderIndex(index) {
     .filter(([k]) => k !== "total_procurements")
     .map(([status, n]) => `<tr><td>${escapeHtml(status)}</td><td>${n}</td></tr>`)
     .join("");
-  const prefixes = (index.okpd2_prefixes || []).join(", ") || "—";
   const errors = index.recent_errors || [];
   const errorRows = errors
     .map(
@@ -49,7 +61,6 @@ function renderIndex(index) {
     )
     .join("");
   return `
-    <div>Индексация: <b>${index.enabled ? "включена" : "выключена"}</b> (коды ОКПД2: ${escapeHtml(prefixes)})</div>
     <table>
       <thead><tr><th>Статус индекса</th><th>Закупок</th></tr></thead>
       <tbody>${statusRows || '<tr><td colspan="2" class="muted">нет данных</td></tr>'}</tbody>
@@ -100,6 +111,10 @@ async function loadMonitoring() {
     const msg = e && e.message ? e.message : String(e);
     $("#mon-error").textContent = `ошибка загрузки: ${msg}`;
   }
+  if (!indexingConfigLoaded) {
+    await indexingConfigView.load();
+    indexingConfigLoaded = true;
+  }
   if (!monitoringTimer) {
     monitoringTimer = setInterval(() => {
       const v = document.getElementById("view-monitoring");
@@ -107,6 +122,10 @@ async function loadMonitoring() {
       loadMonitoring();
     }, 10000);
   }
+}
+
+export function monitoringDirty() {
+  return indexingConfigDirty;
 }
 
 export { loadMonitoring };

@@ -49,6 +49,7 @@ from zakupki_parser.api.app.schemas import PlatformOut, PlatformsListOut, Prompt
 from zakupki_parser.api.app.state import AppState
 from zakupki_parser.config.models import (
     AnalysisServiceConfig,
+    IndexingConfig,
     IndexingServiceConfig,
     LoggingConfig,
     MarginServiceConfig,
@@ -1030,6 +1031,73 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         Значение берётся из config_ops.yaml (notifications.notify_min_fit_score).
         """
         return {"notify_min_fit_score": state.cfg.ops.notifications.notify_min_fit_score}
+
+    @router.get(
+        "/api/devops/indexing-config",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def get_indexing_config() -> dict[str, Any]:
+        """Текущие параметры фоновой индексации (devops-вкладка «Мониторинг»).
+
+        Дублирует ``service.indexing`` из ``config_service.yaml`` — та же
+        настройка, что и в форме «Параметры мониторинга» (analyst), но доступна
+        devops напрямую: объём/включённость фоновой индексации — операционный
+        параметр (нагрузка на площадки, риск квот вроде HTTP 402), а не правило
+        оценки закупок.
+        """
+        return state.cfg.service.indexing.model_dump()
+
+    @router.put(
+        "/api/devops/indexing-config",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def put_indexing_config(request: Request) -> dict[str, Any]:
+        """Сохраняет параметры фоновой индексации (только ``indexing:``).
+
+        Валидирует и пишет ПОЛНЫЙ ``ServiceConfig`` (новый ``indexing`` +
+        текущие остальные поля без изменений), чтобы не затереть
+        sites/scoring/search_criteria — их редактирует analyst отдельно
+        («Параметры мониторинга»).
+        """
+        body = await _read_payload(request)
+        try:
+            new_indexing = IndexingConfig.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=_errors_to_jsonable(exc)) from exc
+        new_service = state.cfg.service.model_copy(update={"indexing": new_indexing})
+        target = Path(state.configs_dir) / "config_service.yaml"
+        _write_yaml(target, _service_config_public(new_service))
+        state.cfg.service = new_service
+        logger.info("Сохранены параметры фоновой индексации (devops): %s", new_indexing)
+        return new_indexing.model_dump()
+
+    @router.get(
+        "/api/devops/indexing-config/schema",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def get_indexing_config_schema() -> dict[str, Any]:
+        """Схема формы параметров фоновой индексации (devops)."""
+        return {"schema": build_schema(IndexingConfig)}
+
+    @router.get(
+        "/api/devops/indexing-config/raw",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(require_devops)],
+    )
+    async def get_indexing_config_raw() -> dict[str, Any]:
+        """Сырой YAML параметров фоновой индексации («Текстовый режим»)."""
+        return {
+            "yaml": yaml.safe_dump(
+                state.cfg.service.indexing.model_dump(), allow_unicode=True, sort_keys=False
+            )
+        }
 
     @router.get(
         "/api/config/scoring",
