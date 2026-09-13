@@ -61,6 +61,29 @@ class TransportQueue:
             self._settings.index_results_key,
         ]
 
+    async def queue_depths(self) -> dict[str, dict[str, int]]:
+        """Глубина очередей всех стадий каскада (для devops-мониторинга).
+
+        ``jobs`` — задачи, ожидающие обработки (``ZCARD``, задачи стоят в
+        приоритетном ZSET, см. ``enqueue``); ``results`` — недо-потреблённые
+        результаты (``LLEN``, в норме ~0 — рост означает, что consumer транспорта
+        не успевает их разбирать, см. ``pop_result``/``ResultsConsumer``).
+        """
+        assert self._client is not None
+        stages = {
+            "fit": (self._settings.jobs_key, self._settings.results_key),
+            "pwin": (self._settings.pwin_jobs_key, self._settings.pwin_results_key),
+            "margin": (self._settings.margin_jobs_key, self._settings.margin_results_key),
+            "analysis": (self._settings.analysis_jobs_key, self._settings.analysis_results_key),
+            "index": (self._settings.index_jobs_key, self._settings.index_results_key),
+        }
+        depths: dict[str, dict[str, int]] = {}
+        for stage, (jobs_key, results_key) in stages.items():
+            jobs = await self._client.zcard(jobs_key)
+            results = await self._client.llen(results_key)
+            depths[stage] = {"jobs": int(jobs), "results": int(results)}
+        return depths
+
     async def pop_result(self, timeout: float | None = None) -> dict[str, Any] | None:
         """Взять результат (BRPOP), вернуть payload или None.
 

@@ -79,3 +79,20 @@ async def test_pop_result_from_analysis_queue(queue) -> None:
 async def test_pop_result_empty_timeout(queue) -> None:
     payload = await queue.pop_result(timeout=0.1)
     assert payload is None
+
+
+async def test_queue_depths_empty(queue) -> None:
+    depths = await queue.queue_depths()
+    assert set(depths) == {"fit", "pwin", "margin", "analysis", "index"}
+    assert all(v == {"jobs": 0, "results": 0} for v in depths.values())
+
+
+async def test_queue_depths_reflects_jobs_and_results(queue) -> None:
+    await queue.enqueue(1, 5.0, profile_id=1)
+    await queue.enqueue(2, 5.0, stage="index")
+    assert queue._client is not None
+    await queue._client.lpush(queue._settings.results_key, json.dumps({"a": 1}))
+    depths = await queue.queue_depths()
+    assert depths["fit"] == {"jobs": 1, "results": 1}
+    assert depths["index"] == {"jobs": 1, "results": 0}
+    assert depths["pwin"] == {"jobs": 0, "results": 0}

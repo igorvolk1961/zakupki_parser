@@ -54,6 +54,12 @@ class _FakeQueue:
         await asyncio.sleep(0.005)
         return None
 
+    async def queue_depths(self) -> dict[str, dict[str, int]]:
+        return {
+            stage: {"jobs": 0, "results": 0}
+            for stage in ("fit", "pwin", "margin", "analysis", "index")
+        }
+
 
 def _make_app() -> tuple[TestClient, _FakeQueue]:
     settings = Settings(parser_api_url="http://parser", redis_url="redis://fake")
@@ -177,6 +183,32 @@ class _AuthErrorParser:
         raise httpx.HTTPStatusError(
             "Unauthorized", request=req, response=httpx.Response(401, request=req)
         )
+
+
+def test_queue_status() -> None:
+    client, _ = _make_app()
+    resp = client.get("/api/status/queues")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body["queues"]) == {"fit", "pwin", "margin", "analysis", "index"}
+    assert body["queues"]["index"] == {"jobs": 0, "results": 0}
+
+
+def test_queue_status_requires_token_when_set() -> None:
+    settings = Settings(
+        parser_api_url="http://parser", redis_url="redis://fake", auth_token="t0ken"
+    )
+    app_module.ParserApiClient = _FakeParser  # type: ignore[assignment]
+    fake_queue = _FakeQueue(settings)
+    app_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
+    results_module.TransportQueue = lambda s: fake_queue  # type: ignore[assignment]
+    client = TestClient(app_module.create_app(settings))
+
+    assert client.get("/api/status/queues").status_code == 401
+    assert (
+        client.get("/api/status/queues", headers={"Authorization": "Bearer t0ken"}).status_code
+        == 200
+    )
 
 
 def test_ingest_502_includes_upstream_status() -> None:

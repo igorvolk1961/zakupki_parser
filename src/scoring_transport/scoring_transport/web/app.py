@@ -71,6 +71,10 @@ class HealthOut(BaseModel):
     parser_api: str
 
 
+class QueueDepthsOut(BaseModel):
+    queues: dict[str, dict[str, int]]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
 
@@ -102,6 +106,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health", response_model=HealthOut)
     async def health() -> HealthOut:
         return HealthOut(status="ok", parser_api=settings.parser_api_url)
+
+    @app.get(
+        "/api/status/queues",
+        response_model=QueueDepthsOut,
+        dependencies=[Depends(auth)],
+    )
+    async def queue_status() -> QueueDepthsOut:
+        """Глубина очередей всех стадий каскада (devops-мониторинг, см. QueueDepthsOut)."""
+        return QueueDepthsOut(queues=await queue.queue_depths())
 
     @app.post(
         "/api/scoring/jobs",
