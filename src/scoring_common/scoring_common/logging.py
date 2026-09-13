@@ -82,6 +82,26 @@ def reset_run_context(token: contextvars.Token[tuple[str, int] | None] | None) -
         _RUN_CONTEXT.reset(token)
 
 
+class _HttpxRequestDowngradeFilter(logging.Filter):
+    """Понижает уровень записи httpx-логгера с INFO до DEBUG (не отсекает совсем).
+
+    httpx логирует каждый запрос отдельной INFO-строкой ("HTTP Request: ... 200
+    OK") — при периодическом опросе (например, devops-вкладка «Мониторинг», раз
+    в 10с) это забивает лог на уровне INFO. В отличие от ``logger.setLevel``
+    (который не пропустил бы запись вообще ни в один обработчик, включая файл
+    с ``file_level: DEBUG``), фильтр меняет ``levelno``/``levelname`` самой
+    записи — она по-прежнему проходит и остаётся доступна в файле лога при
+    ``file_level: DEBUG``, просто не засоряет консоль/файл на уровне INFO.
+    Уровни WARNING/ERROR (реальные сбои) фильтр не трогает.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno == logging.INFO:
+            record.levelno = logging.DEBUG
+            record.levelname = "DEBUG"
+        return True
+
+
 class _RunContextFilter(logging.Filter):
     """Дописывает ``[<площадка>#<итерация>]`` к имени логгера в контексте обхода.
 
@@ -168,3 +188,10 @@ def setup_logging(cfg: LoggingSettings) -> None:
     logging.getLogger("asyncio").setLevel(logging.WARNING)
     # Access-логи запросов (INFO) не пишем — только значимые события.
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    # httpx: понижаем уровень ЗАПИСИ (INFO -> DEBUG), не отсекаем логгер целиком —
+    # см. _HttpxRequestDowngradeFilter. setup_logging может вызываться повторно
+    # (restart парсера) — фильтры логгера, в отличие от root.handlers, сами не
+    # очищаются, поэтому чистим явно, чтобы не копить дубликаты.
+    httpx_logger = logging.getLogger("httpx")
+    httpx_logger.filters.clear()
+    httpx_logger.addFilter(_HttpxRequestDowngradeFilter())
