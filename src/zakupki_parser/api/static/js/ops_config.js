@@ -262,6 +262,64 @@ serviceUIs.forEach((s) => {
   if (restartBtn) restartBtn.addEventListener("click", () => restartService(s, restartBtn));
 });
 
+// Пуск/остановка фонового сервиса (вариант A): для сервисов, которые не подняты
+// автоматически (run_all.sh поднимает всё разом; docker-compose — только с
+// restart: unless-stopped). Индикатор "запущен/остановлен" опрашивается при
+// каждой активации вкладки сервиса и после каждого действия.
+async function serviceAction(service, action, triggerBtn) {
+  if (triggerBtn) triggerBtn.disabled = true;
+  const statusEl = document.getElementById("svc-" + service.key + "-status");
+  const verb = action === "start" ? "запуск…" : "остановка…";
+  if (statusEl) statusEl.textContent = verb;
+  try {
+    const r = await apiJSON("/api/services/" + service.key + "/" + action, { method: "POST" });
+    if (r.status === 401) return;
+    if (!r.ok) {
+      if (statusEl) statusEl.textContent = "не удалось выполнить: " + action;
+      return;
+    }
+    const res = await r.json();
+    if (statusEl) {
+      statusEl.textContent =
+        res.status === "already_running"
+          ? "уже запущен (PID " + (res.pids || []).join(", ") + ")"
+          : action === "start"
+            ? "запущен (PID " + (res.pid ?? "—") + ")"
+            : "остановлен (завершено: " + (res.terminated ?? 0) + ")";
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "Ошибка: " + err.message;
+  } finally {
+    if (triggerBtn) triggerBtn.disabled = false;
+    await refreshServiceRunningState(service);
+  }
+}
+
+async function refreshServiceRunningState(service) {
+  const pill = document.getElementById("svc-" + service.key + "-running");
+  const startBtn = document.getElementById("svc-" + service.key + "-start");
+  const stopBtn = document.getElementById("svc-" + service.key + "-stop");
+  try {
+    const res = await api("services/" + service.key + "/status");
+    if (pill) {
+      pill.textContent = res.running ? "запущен" : "остановлен";
+      pill.classList.toggle("active", res.running);
+      pill.classList.toggle("inactive", !res.running);
+    }
+    if (startBtn) startBtn.disabled = res.running;
+    if (stopBtn) stopBtn.disabled = !res.running;
+  } catch (err) {
+    if (pill) pill.textContent = "";
+  }
+}
+
+serviceUIs.forEach((s) => {
+  const startBtn = document.getElementById("svc-" + s.key + "-start");
+  const stopBtn = document.getElementById("svc-" + s.key + "-stop");
+  if (startBtn) startBtn.addEventListener("click", () => serviceAction(s, "start", startBtn));
+  if (stopBtn) stopBtn.addEventListener("click", () => serviceAction(s, "stop", stopBtn));
+});
+
 // Перезапуск парсера (вкладка «Парсер»): после успеха обновляем статус в шапке.
 const parserRestartBtn = document.getElementById("parser-restart");
 if (parserRestartBtn) {
@@ -328,6 +386,7 @@ async function activateService(key, forceReload = false) {
     if (!target.isDirty()) await target.view.load();
     target._loaded = true;
   }
+  await refreshServiceRunningState(target);
 }
 
 export function loadOpsConfig() {

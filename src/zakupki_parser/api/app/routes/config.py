@@ -909,6 +909,38 @@ def _register_service_config_routes(
             """
             return await asyncio.to_thread(_restart_service, state, svc)
 
+        @router.post(
+            f"{prefix}/stop",
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def stop_service() -> dict[str, Any]:
+            """Останавливает фоновый сервис (без повторного запуска).
+
+            Для сервисов, которые не поднимаются автоматически (run_all.sh
+            запускает все сразу; docker-compose — только с ``restart:
+            unless-stopped``) — явная остановка отдельного сервиса devops-панелью.
+            """
+            return await asyncio.to_thread(_stop_service, svc)
+
+        @router.post(
+            f"{prefix}/start",
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def start_service() -> dict[str, Any]:
+            """Запускает фоновый сервис (не создаёт дубликат, если уже запущен)."""
+            return await asyncio.to_thread(_start_service, state, svc)
+
+        @router.get(
+            f"{prefix}/status",
+            include_in_schema=False,
+            dependencies=[Depends(require)],
+        )
+        async def service_status() -> dict[str, Any]:
+            """Запущен ли сейчас сервис (по PID, вариант A: subprocess)."""
+            return await asyncio.to_thread(_service_status, svc)
+
     for svc in SERVICE_CONFIGS.values():
         _register_one(svc)
 
@@ -942,6 +974,41 @@ def _restart_service(state: AppState, svc: _ServiceConfig) -> dict[str, Any]:
         "terminated": terminated,
         "pid": pid,
     }
+
+
+def _stop_service(svc: _ServiceConfig) -> dict[str, Any]:
+    """Останавливает фоновый сервис (вариант A: subprocess), без перезапуска."""
+    pids = find_worker_pids(svc.module, svc.worker_cmd)
+    terminated = terminate_pids(pids)
+    logger.info("Остановлен сервис %s (%s): завершено %s", svc.title, svc.name, terminated)
+    return {"status": "stopped", "service": svc.name, "terminated": terminated}
+
+
+def _start_service(state: AppState, svc: _ServiceConfig) -> dict[str, Any]:
+    """Запускает фоновый сервис (вариант A: subprocess); не плодит дубликаты."""
+    existing = find_worker_pids(svc.module, svc.worker_cmd)
+    if existing:
+        return {"status": "already_running", "service": svc.name, "pids": existing}
+    root = Path(state.configs_dir).resolve().parent
+    port = int(getattr(state, "parser_port", 8000) or 8000)
+    log_path = root / "data" / "logs" / f"{svc.log_name}.log"
+    pid = launch_worker(
+        project_root=root,
+        service_dir=svc.dir,
+        module=svc.module,
+        cmd=svc.worker_cmd,
+        parser_env=svc.parser_env,
+        parser_url=f"http://127.0.0.1:{port}",
+        log_path=log_path,
+    )
+    logger.info("Запущен сервис %s (%s): PID %s", svc.title, svc.name, pid)
+    return {"status": "started", "service": svc.name, "pid": pid}
+
+
+def _service_status(svc: _ServiceConfig) -> dict[str, Any]:
+    """Запущен ли сейчас сервис (по PID, вариант A: subprocess)."""
+    pids = find_worker_pids(svc.module, svc.worker_cmd)
+    return {"service": svc.name, "running": bool(pids), "pids": pids}
 
 
 def build_config_router(ctx: ApiContext) -> APIRouter:

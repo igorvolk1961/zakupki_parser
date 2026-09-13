@@ -16,6 +16,9 @@ from pydantic import BaseModel
 from zakupki_parser.api.app.routes.config import (
     SERVICE_CONFIGS,
     _service_paths,
+    _service_status,
+    _start_service,
+    _stop_service,
     _strip_secrets,
     _validate_env_content,
 )
@@ -109,3 +112,62 @@ def test_service_configs_have_restart_launch_metadata() -> None:
         assert svc.worker_cmd, f"service {svc.name}: пустой worker_cmd"
         assert svc.parser_env, f"service {svc.name}: пустой parser_env"
         assert svc.log_name, f"service {svc.name}: пустой log_name"
+
+
+def test_service_status_reports_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "zakupki_parser.api.app.routes.config.find_worker_pids", lambda module, cmd: [111, 222]
+    )
+    result = _service_status(SERVICE_CONFIGS["scoring"])
+    assert result == {"service": "scoring", "running": True, "pids": [111, 222]}
+
+
+def test_service_status_reports_stopped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "zakupki_parser.api.app.routes.config.find_worker_pids", lambda module, cmd: []
+    )
+    result = _service_status(SERVICE_CONFIGS["scoring"])
+    assert result == {"service": "scoring", "running": False, "pids": []}
+
+
+def test_stop_service_terminates_found_pids(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "zakupki_parser.api.app.routes.config.find_worker_pids", lambda module, cmd: [111, 222]
+    )
+    terminated_calls: list[list[int]] = []
+
+    def fake_terminate(pids: list[int]) -> int:
+        terminated_calls.append(pids)
+        return len(pids)
+
+    monkeypatch.setattr("zakupki_parser.api.app.routes.config.terminate_pids", fake_terminate)
+    result = _stop_service(SERVICE_CONFIGS["scoring"])
+    assert result == {"status": "stopped", "service": "scoring", "terminated": 2}
+    assert terminated_calls == [[111, 222]]
+
+
+def test_start_service_launches_when_not_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "zakupki_parser.api.app.routes.config.find_worker_pids", lambda module, cmd: []
+    )
+    monkeypatch.setattr("zakupki_parser.api.app.routes.config.launch_worker", lambda **kwargs: 4242)
+    state = cast(Any, types.SimpleNamespace(configs_dir="/repo/configs", parser_port=8000))
+    result = _start_service(state, SERVICE_CONFIGS["scoring"])
+    assert result == {"status": "started", "service": "scoring", "pid": 4242}
+
+
+def test_start_service_does_not_duplicate_running_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Уже запущенный сервис не должен получить дубликат-процесс."""
+    monkeypatch.setattr(
+        "zakupki_parser.api.app.routes.config.find_worker_pids", lambda module, cmd: [999]
+    )
+
+    def fail_if_called(**kwargs: Any) -> int:
+        raise AssertionError("launch_worker не должен вызываться для уже запущенного сервиса")
+
+    monkeypatch.setattr("zakupki_parser.api.app.routes.config.launch_worker", fail_if_called)
+    state = cast(Any, types.SimpleNamespace(configs_dir="/repo/configs", parser_port=8000))
+    result = _start_service(state, SERVICE_CONFIGS["scoring"])
+    assert result == {"status": "already_running", "service": "scoring", "pids": [999]}
