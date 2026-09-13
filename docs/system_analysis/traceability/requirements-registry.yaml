@@ -1554,6 +1554,33 @@ requirements:
       - src/scoring_transport/tests/test_results_consumer.py
       - src/scoring_transport/tests/test_queue.py
       - src/scoring_transport/tests/test_app.py
+  - id: FR-11.5
+    type: FR
+    title: Devops-мониторинг фоновой индексации (очереди, индекс, ресурсы хоста)
+    stakeholder: DevOps / SRE
+    stage: "3, 4"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/routes/monitoring.py
+      - src/zakupki_parser/scoring.py#queue_status
+      - src/zakupki_parser/storage/repository/search_index.py#index_status_counts
+      - src/zakupki_parser/storage/repository/search_index.py#recent_index_errors
+      - src/scoring_transport/scoring_transport/broker/redis_queue.py#queue_depths
+      - src/scoring_transport/scoring_transport/web/app.py
+      - src/zakupki_parser/api/static/js/monitoring.js
+    tests:
+      - tests/integration/test_api.py
+      - tests/integration/test_repository.py
+      - tests/unit/test_scoring.py
+      - src/scoring_transport/tests/test_queue.py
+      - src/scoring_transport/tests/test_app.py
+    notes: >-
+      Отдельная devops-вкладка «Мониторинг»: глубина Redis-очередей всех стадий
+      каскада (fit/pwin/margin/analysis/index), наполнение procurement_search_index
+      (indexed/error + последние ошибки с текстом) и ресурсы хоста (CPU/RAM/диск,
+      psutil). Все три блока best-effort — недоступность транспорта/БД отражается
+      в соответствующем блоке ответа, а не роняет эндпоинт (см. FR-11.1..11.4).
 
   # ===== Бизнес-правила =====
   - id: BR-01
