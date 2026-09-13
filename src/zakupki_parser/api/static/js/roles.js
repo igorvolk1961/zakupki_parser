@@ -19,7 +19,6 @@ export const TAB_MONITORING = "monitoring";
 export const TAB_CFGOPS = "cfgops";
 export const TAB_LOGCFG = "logcfg";
 export const TAB_LOGS = "logs";
-export const TAB_PARSER = "parser";
 
 export const TAB_SETS = {
   user: [...TAB_BASE, TAB_ACCOUNT],
@@ -27,7 +26,9 @@ export const TAB_SETS = {
   // (user/analyst); admin/devops профилей не имеют, поэтому без кабинета.
   admin: [TAB_USERS],
   analyst: [...TAB_BASE, TAB_METRICS, TAB_MONITOR, TAB_PROMPTS, TAB_REFS, TAB_ACCOUNT],
-  devops: [TAB_PARSER, TAB_SERVICES, TAB_MONITORING, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS],
+  // Конфиг парсера теперь под-вкладкой «Сервисы» (svc-tab-parser), не отдельным
+  // верхним табом — см. ops_config.js.
+  devops: [TAB_SERVICES, TAB_MONITORING, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS],
 };
 
 export const ALL_TABS = [
@@ -36,7 +37,6 @@ export const ALL_TABS = [
   "cust",
   "profiles",
   TAB_ACCOUNT,
-  TAB_PARSER,
   TAB_METRICS,
   TAB_USERS,
   TAB_MONITOR,

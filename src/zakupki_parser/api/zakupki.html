@@ -100,7 +100,6 @@
       <button id="tab-account" title="Личный кабинет: аккаунты и опции">Личный кабинет</button>
     </div>
     <div class="tabs-group" id="tabs-roles">
-      <button id="tab-parser">Парсер</button>
       <button id="tab-users">Пользователи</button>
       <button id="tab-metrics">Метрики</button>
       <button id="tab-monitor">Параметры мониторинга</button>
@@ -547,6 +546,7 @@
       <button id="svc-tab-pwin" title="config.yaml сервиса P(win)">P(win)</button>
       <button id="svc-tab-margin" title="config.yaml сервиса Margin">Margin</button>
       <button id="svc-tab-index" title="config.yaml сервиса фоновой индексации">Индексация</button>
+      <button id="svc-tab-parser" title="config_parser.yaml">Парсер</button>
     </div>
     <div id="svc-pane-scoring">
       <div class="panel">
@@ -638,6 +638,20 @@
       <div id="svc-index-form"></div>
       <textarea id="svc-index-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
     </div>
+    <div id="svc-pane-parser" style="display:none;">
+      <div class="panel">
+        <div class="panel-title" title="config_parser.yaml">Парсер</div>
+        <div class="toolbar" style="margin-bottom:0;">
+          <button class="primary" id="parser-save" title="Сохранить конфигурацию парсера. Изменения применяются при следующем старте сервиса.">Сохранить</button>
+          <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
+          <button id="parser-reload">Отменить изменения</button>
+          <button class="ghost" id="parser-restart-process" title="Полный перезапуск процесса zp serve — подхватывает изменения кода. Недоступно во время обхода площадок.">⟳⟳ Перезапустить процесс</button>
+          <span id="parser-restart-status" class="muted"></span>
+        </div>
+      </div>
+      <div id="parser-form"></div>
+      <textarea id="parser-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
+    </div>
   </div>
   <div id="view-monitoring" style="display:none;">
     <div id="mon-error" class="muted" style="color:var(--danger,#c0392b);"></div>
@@ -717,21 +731,6 @@
       </div>
     </div>
     <div class="log-view" id="logs-view"><div class="muted">—</div></div>
-  </div>
-  <div id="view-parser" style="display:none;">
-    <div class="panel">
-      <div class="panel-title" title="config_parser.yaml">Парсер</div>
-      <div class="toolbar" style="margin-bottom:0;">
-        <button class="primary" id="parser-save" title="Сохранить конфигурацию парсера. Изменения применяются при следующем старте сервиса.">Сохранить</button>
-        <button id="parser-raw-toggle" title="Показать/скрыть сырой YAML">Текстовый режим</button>
-        <button id="parser-reload">Отменить изменения</button>
-        <button class="ghost" id="parser-restart" title="Перезапустить цикл мониторинга площадок (тот же процесс, код не перечитывается)">⟳ Перезагрузить</button>
-        <button class="ghost" id="parser-restart-process" title="Полный перезапуск процесса zp serve — подхватывает изменения кода. Недоступно во время обхода площадок.">⟳⟳ Перезапустить процесс</button>
-        <span id="parser-restart-status" class="muted"></span>
-      </div>
-    </div>
-    <div id="parser-form"></div>
-    <textarea id="parser-raw" spellcheck="false" style="display:none;width:100%;height:520px;font-family:ui-monospace,monospace;font-size:13px;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:12px;"></textarea>
   </div>
 </main>
 

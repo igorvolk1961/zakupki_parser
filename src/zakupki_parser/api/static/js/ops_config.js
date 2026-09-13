@@ -1,14 +1,14 @@
 "use strict";
 
-// Вкладки devops: «Сервисы» (конфиг + секреты .env каждого фонового сервиса),
-// «Конфигурация» (config_ops.yaml), «Управление логами» (config_log.yaml)
-// и «Парсер» (config_parser.yaml) — форма + текстовый режим.
+// Вкладки devops: «Сервисы» (конфиг + секреты .env каждого фонового сервиса,
+// включая парсер шестой под-вкладкой — config_parser.yaml), «Конфигурация»
+// (config_ops.yaml), «Управление логами» (config_log.yaml) — форма + текстовый
+// режим.
 import { api, apiJSON } from "./api.js";
 import { $ } from "./utils.js";
 import { createConfigView } from "./config_view.js";
 import { renderSchemaForm, collectSchemaValues } from "./form.js";
 import { confirmDialogAsync } from "./dialogs.js";
-import { refreshParserStatus } from "./admin.js";
 
 export let opsDirty = false;
 export let logDirty = false;
@@ -225,6 +225,16 @@ const serviceUIs = SERVICES.map((s) => {
   };
 });
 
+// Парсер — шестая под-вкладка «Сервисы» (svc-tab-parser/svc-pane-parser), но не
+// часть serviceUIs: у него нет общих кнопок ▶/■/⟳ restart (svc-parser-*) — только
+// свой уникальный ⟳⟳ «Перезапустить процесс» (parser-restart-process, ниже).
+const parserPane = {
+  key: "parser",
+  view: parserView,
+  isDirty: () => parserDirty,
+};
+const allPanes = [...serviceUIs, parserPane];
+
 // Перезапуск фонового сервиса скоринга (вариант A): подтверждение +
 // POST /api/services/<key>/restart. Статус показываем в соответствующей вкладке.
 async function restartService(service, triggerBtn) {
@@ -320,38 +330,6 @@ serviceUIs.forEach((s) => {
   if (stopBtn) stopBtn.addEventListener("click", () => serviceAction(s, "stop", stopBtn));
 });
 
-// Перезапуск парсера (вкладка «Парсер»): после успеха обновляем статус в шапке.
-const parserRestartBtn = document.getElementById("parser-restart");
-if (parserRestartBtn) {
-  parserRestartBtn.addEventListener("click", async () => {
-    if (parserRestartBtn.disabled) return;
-    parserRestartBtn.disabled = true;
-    const ok = await confirmDialogAsync(
-      "Перезапустить парсер? Текущий проход будет остановлен и запущен заново.",
-    );
-    if (!ok) {
-      parserRestartBtn.disabled = false;
-      return;
-    }
-    const statusEl = document.getElementById("parser-restart-status");
-    if (statusEl) statusEl.textContent = "перезапуск…";
-    try {
-      const r = await apiJSON("/api/parser/restart", { method: "POST" });
-      if (r.status === 401) return;
-      if (!r.ok) {
-        if (statusEl) statusEl.textContent = "не удалось перезапустить";
-        return;
-      }
-      if (statusEl) statusEl.textContent = "перезапуск отправлен";
-      await refreshParserStatus();
-    } catch (err) {
-      if (statusEl) statusEl.textContent = "Ошибка: " + err.message;
-    } finally {
-      parserRestartBtn.disabled = false;
-    }
-  });
-}
-
 // Полный перезапуск процесса zp serve (os.execv) — подхватывает изменения кода
 // самого парсера. Недоступно, пока идёт обход площадок (кнопка блокируется в
 // updateControls, но подтверждаем ещё раз здесь на случай гонки с поллингом).
@@ -403,8 +381,10 @@ let subTabsBound = false;
 
 export async function loadServicesConfig() {
   // Переключение под-вкладок: клик по сервису (привязываем один раз).
+  // allPanes = 5 фоновых сервисов + парсер (svc-tab-parser/svc-pane-parser) —
+  // у парсера нет ▶/■/⟳ restart (см. activateService), только своя форма.
   if (!subTabsBound) {
-    serviceUIs.forEach((s) => {
+    allPanes.forEach((s) => {
       const tabBtn = document.getElementById("svc-tab-" + s.key);
       if (!tabBtn) return;
       tabBtn.addEventListener("click", () => activateService(s.key));
@@ -416,20 +396,22 @@ export async function loadServicesConfig() {
 }
 
 async function activateService(key, forceReload = false) {
-  serviceUIs.forEach((s) => {
+  allPanes.forEach((s) => {
     const active = s.key === key;
     const tabBtn = document.getElementById("svc-tab-" + s.key);
     if (tabBtn) tabBtn.classList.toggle("active", active);
     const pane = document.getElementById("svc-pane-" + s.key);
     if (pane) pane.style.display = active ? "block" : "none";
   });
-  const target = serviceUIs.find((s) => s.key === key);
+  const target = allPanes.find((s) => s.key === key);
   if (!target) return;
   if (forceReload || !target._loaded) {
     if (!target.isDirty()) await target.view.load();
     target._loaded = true;
   }
-  await refreshServiceRunningState(target);
+  // Индикатор «запущен/остановлен» — только у настоящих фоновых сервисов
+  // (GET /api/services/<key>/status); у парсера нет такого эндпоинта.
+  if (target.key !== "parser") await refreshServiceRunningState(target);
 }
 
 export function loadOpsConfig() {

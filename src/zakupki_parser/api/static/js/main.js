@@ -41,7 +41,6 @@ import {
   loadServicesConfig,
   loadOpsConfig,
   loadLogConfig,
-  loadParserConfig,
   servicesDirty,
   opsDirty,
   logDirty,
@@ -93,9 +92,9 @@ const TAB_LOADERS = {
     // (loadLogFiles сам вызывает loadLogs после заполнения селектора).
     loadLogFiles();
   },
-  parser: () => {
-    if (!parserDirty) loadParserConfig();
-  },
+  // Парсер теперь шестая под-вкладка «Сервисы» (svc-tab-parser) — активируется
+  // и грузится внутри ops_config.js::activateService, отдельного верхнего
+  // таба/лоадера больше нет.
 };
 
 ALL_TABS.forEach((t) => {
