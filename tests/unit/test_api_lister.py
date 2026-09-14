@@ -1343,6 +1343,9 @@ async def test_process_list_record_index_ctx_skips_enqueue_when_details_fetch_fa
     индексации НЕ ставится (нет files_json/ОКПД2 — нечего/некорректно индексировать),
     и update_details не вызывается."""
     cfg = app_config.model_copy(deep=True)
+    # min_backoff=0/jitter=0 — сбой extract_details теперь тоже ретраится
+    # (run_with_retry), не должны спать наяву в юнит-тесте.
+    cfg.parser.retry = RetryConfig(max_attempts=3, min_backoff_seconds=0, jitter_seconds=0)
     repo = _IndexRepo()
     recorder = _PersistRecorder(
         cfg=cfg,
@@ -1382,6 +1385,64 @@ async def test_process_list_record_index_ctx_skips_enqueue_when_details_fetch_fa
     assert len(recorder.persisted) == 1
     assert repo.updated_details == []
     assert transport.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_index_ctx_retries_transient_details_fetch_failure(
+    app_config: AppConfig,
+) -> None:
+    """Транзиентный сбой API деталей (напр. lot-online: таймаут единичного POST
+    /etp_back/api/get) не теряет закупку для индексации навсегда — ``_fetch_platform_details``
+    ретраит через ``run_with_retry`` (тот же механизм, что уже используется для
+    запроса списка/пагинации), и задание индексации ставится после успешной
+    повторной попытки."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.parser.retry = RetryConfig(max_attempts=3, min_backoff_seconds=0, jitter_seconds=0)
+    repo = _IndexRepo()
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=repo,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    transport = _IndexTransport()
+    recorder._transport = transport  # type: ignore[assignment]  # noqa: SLF001
+    recorder._profile_ctxs = [_index_ctx()]  # noqa: SLF001
+
+    calls = 0
+
+    async def _flaky_extract_details(
+        page: Any,
+        platform: Any,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("Timeout 60000ms exceeded")
+        return ({"okpd2_codes": "62.01.11", "subject": list_vars.get("subject")}, [], None)
+
+    with patch(
+        "zakupki_parser.parser.orchestrator.processing.extract_details",
+        _flaky_extract_details,
+    ):
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "IDX5", "id": "504", "subject": "Оказание клининговых услуг"},
+            detail_url="https://zakupki.mos.ru/need/504",
+            number="IDX5",
+        )
+    assert calls == 2
+    assert (known, number, saved) == (False, "IDX5", True)
+    assert repo.updated_details and repo.updated_details[0][0] == 504
+    assert transport.enqueued == [(504, "index", 0)]
 
 
 @pytest.mark.asyncio

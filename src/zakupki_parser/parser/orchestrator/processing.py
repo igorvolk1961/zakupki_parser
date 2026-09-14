@@ -32,6 +32,7 @@ from zakupki_parser.parser.filtering import (
 )
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.parser.orchestrator.state import OrchestratorState
+from zakupki_parser.retry import run_with_retry
 
 # Имя логгера сохранено прежним (категория модуля orchestrator).
 logger = logging.getLogger("zakupki_parser.parser.orchestrator.orchestrator")
@@ -167,10 +168,23 @@ class RecordProcessingMixin(OrchestratorState):
         (``iter_container_records``/``goto_next_page`` — там пауза уже есть).
         На практике это выливалось в HTTP 402 с телом ``{"message":"Необходимо
         пройти проверку"}`` — антибот-проверка mos.example, а не лимит/квота.
+
+        Ретрай (``run_with_retry`` + ``self._site_cb``) — тот же механизм, что уже
+        используется для запроса списка/пагинации (``crawl.py``). Без него
+        единичный транзиентный сетевой таймаут API деталей (напр. lot-online:
+        ``APIRequestContext.post: Timeout 60000ms exceeded`` на
+        ``/etp_back/api/get``, ~15% запросов на практике) НАВСЕГДА терял
+        закупку для индексации — recovery-прохода для стадии index нет
+        (см. докстринг ``_enqueue_index_job``).
         """
         await self._delayer.sleep()
         try:
-            return await extract_details(page, self._platform, list_vars, detail_url, api_fields)
+            return await run_with_retry(
+                lambda: extract_details(page, self._platform, list_vars, detail_url, api_fields),
+                retry=self._cfg.parser.retry,
+                circuit=self._site_cb,
+                label=f"{context}: API деталей",
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("%s: не удалось дособрать детали площадки: %s", context, exc)
             return None
