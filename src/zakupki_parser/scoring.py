@@ -95,4 +95,9 @@ class ScoringTransportClient:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Не удалось получить статус очередей транспорта: %s", exc)
             return {"available": False}
-        return {"available": True, **data}
+        # ``data`` — {"queues": {"fit": {"jobs":.., "results":..}, ...}} (QueueDepthsOut).
+        # Разворачиваем вложенный ключ "queues" в плоский словарь стадий: monitoring.js
+        # (renderQueues) ожидает {available, fit: {...}, pwin: {...}, ...} на одном уровне,
+        # а не {available, queues: {...}} — иначе на вкладке «Мониторинг» вместо реальных
+        # стадий рендерится одна строка "queues" с v.jobs/v.results === undefined.
+        return {"available": True, **data.get("queues", {})}

@@ -88,7 +88,7 @@ async def test_queue_status_returns_available_with_depths() -> None:
     client = ScoringTransportClient("http://localhost:8200")
     result = await client.queue_status(transport=transport)
 
-    assert result == {"available": True, "queues": {"fit": {"jobs": 1, "results": 0}}}
+    assert result == {"available": True, "fit": {"jobs": 1, "results": 0}}
 
 
 @pytest.mark.asyncio
