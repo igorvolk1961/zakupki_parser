@@ -1608,3 +1608,10 @@ def test_monitoring_returns_queues_index_and_resources(
     assert isinstance(body["index"]["recent_errors"], list)
     assert 0.0 <= body["resources"]["memory"]["percent"] <= 100.0
     assert body["resources"]["disk"]["total"] > 0
+    # cycles/storage — форма ответа (значения зависят от истории проходов/локальной
+    # ФС окружения, где запущены тесты — не фиксируем конкретные числа).
+    assert "last" in body["cycles"]
+    assert "average" in body["cycles"]
+    assert isinstance(body["storage"]["file_storage_bytes"], int)
+    assert isinstance(body["storage"]["db_bytes"], int)
+    assert body["storage"]["db_bytes"] > 0

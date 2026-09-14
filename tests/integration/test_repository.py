@@ -1143,3 +1143,55 @@ async def test_index_status_counts(db: Database) -> None:
     assert counts["indexed"] == 2
     assert counts["error"] == 1
     assert counts["total_procurements"] == 4
+
+
+@pytest.mark.asyncio
+async def test_cycle_stats_summary_last_and_average(db: Database) -> None:
+    """Сводка проходов планировщика (devops-мониторинг): «последний цикл» — самый
+    свежий по started_at, «в среднем» — по всем записанным regular-циклам;
+    refresh-циклы в среднее по kind=regular не попадают."""
+    repo = ProcurementRepository(db)
+    base = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+
+    async def _record(
+        offset_minutes: int, kind: str, received: int, saved: int, failed: int
+    ) -> None:
+        started = base + timedelta(minutes=offset_minutes)
+        await repo.record_cycle_stats(
+            iteration=offset_minutes,
+            kind=kind,
+            started_at=started,
+            finished_at=started + timedelta(seconds=30),
+            platforms_total=3,
+            platforms_failed=failed,
+            received=received,
+            saved=saved,
+        )
+
+    await _record(0, "regular", received=10, saved=4, failed=0)
+    await _record(10, "regular", received=20, saved=6, failed=1)
+    await _record(15, "refresh", received=999, saved=999, failed=99)
+
+    summary = await repo.cycle_stats_summary(kind="regular")
+
+    assert summary["last"] is not None
+    assert summary["last"]["received"] == 20
+    assert summary["last"]["saved"] == 6
+    assert summary["last"]["platforms_failed"] == 1
+
+    assert summary["average"] is not None
+    assert summary["average"]["sample_size"] == 2
+    assert summary["average"]["received"] == pytest.approx(15.0)
+    assert summary["average"]["saved"] == pytest.approx(5.0)
+    assert summary["average"]["platforms_failed"] == pytest.approx(0.5)
+    assert summary["average"]["duration_seconds"] == pytest.approx(30.0)
+
+
+@pytest.mark.asyncio
+async def test_cycle_stats_summary_empty(db: Database) -> None:
+    """Нет ни одного записанного цикла — «пусто», а не ошибка (свежая БД)."""
+    repo = ProcurementRepository(db)
+
+    summary = await repo.cycle_stats_summary(kind="regular")
+
+    assert summary == {"last": None, "average": None}

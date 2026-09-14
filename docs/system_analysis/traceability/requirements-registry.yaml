@@ -1564,7 +1564,7 @@ requirements:
       - src/scoring_transport/tests/test_app.py
   - id: FR-11.5
     type: FR
-    title: Devops-мониторинг фоновой индексации (очереди, индекс, ресурсы хоста)
+    title: Devops-мониторинг фоновой индексации (очереди, индекс, циклы, хранилище, ресурсы хоста)
     stakeholder: DevOps / SRE
     stage: "3, 4"
     status: implemented
@@ -1577,18 +1577,29 @@ requirements:
       - src/scoring_transport/scoring_transport/broker/redis_queue.py#queue_depths
       - src/scoring_transport/scoring_transport/web/app.py
       - src/zakupki_parser/api/static/js/monitoring.js
+      - src/zakupki_parser/storage/db/cycle_stats.py
+      - src/zakupki_parser/storage/repository/cycle_stats.py
+      - src/zakupki_parser/storage/repository/db_stats.py
+      - src/zakupki_parser/scheduler.py#_record_cycle_stats
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#run
     tests:
       - tests/integration/test_api.py
       - tests/integration/test_repository.py
       - tests/unit/test_scoring.py
+      - tests/unit/test_scheduler_parallel.py
       - src/scoring_transport/tests/test_queue.py
       - src/scoring_transport/tests/test_app.py
     notes: >-
       Отдельная devops-вкладка «Мониторинг»: глубина Redis-очередей всех стадий
       каскада (fit/pwin/margin/analysis/index), наполнение procurement_search_index
-      (indexed/error + последние ошибки с текстом) и ресурсы хоста (CPU/RAM/диск,
-      psutil). Все три блока best-effort — недоступность транспорта/БД отражается
-      в соответствующем блоке ответа, а не роняет эндпоинт (см. FR-11.1..11.4).
+      (indexed/error + последние ошибки с текстом), сводка циклов обхода
+      (parser_cycle_stats — получено/сохранено закупок, число площадок и сбоев
+      обращения к ним, длительность; «последний цикл» + «в среднем» по последним
+      regular-проходам, см. Scheduler._record_cycle_stats/_CycleAccumulator),
+      разбивка диска (файловое хранилище data/ vs БД, pg_database_size) и ресурсы
+      хоста (CPU/RAM/диск, psutil). Все блоки best-effort — недоступность
+      транспорта/БД отражается в соответствующем блоке ответа, а не роняет
+      эндпоинт (см. FR-11.1..11.4).
   - id: FR-11.6
     type: FR
     title: Детектор неожиданного краха браузера Playwright

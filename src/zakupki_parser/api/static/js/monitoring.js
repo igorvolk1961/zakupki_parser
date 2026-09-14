@@ -77,6 +77,46 @@ function renderIndex(index) {
     }`;
 }
 
+function fmtDuration(seconds) {
+  if (seconds == null) return "—";
+  const s = Math.round(seconds);
+  if (s < 60) return `${s} с`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m} мин ${rem} с`;
+}
+
+function renderCycles(cycles) {
+  const last = cycles && cycles.last;
+  const avg = cycles && cycles.average;
+  if (!last && !avg) {
+    return `<div class="muted">Ещё не завершился ни один цикл обхода</div>`;
+  }
+  const row = (label, l, a, fmt) => {
+    const f = fmt || ((v) => v);
+    return `<tr><td>${escapeHtml(label)}</td><td>${last ? f(l) : "—"}</td><td>${avg ? f(a) : "—"}</td></tr>`;
+  };
+  const round1 = (v) => (typeof v === "number" ? v.toFixed(1) : v);
+  return `
+    <table>
+      <thead><tr><th></th><th>Последний цикл</th><th>В среднем${avg ? ` (по ${avg.sample_size})` : ""}</th></tr></thead>
+      <tbody>
+        ${row("Закупок получено", last && last.received, avg && avg.received, round1)}
+        ${row("Закупок сохранено в БД", last && last.saved, avg && avg.saved, round1)}
+        ${row("Сбоев обращения к площадкам", last && last.platforms_failed, avg && avg.platforms_failed, round1)}
+        ${row("Длительность цикла", last && last.duration_seconds, avg && avg.duration_seconds, fmtDuration)}
+      </tbody>
+    </table>
+    ${last ? `<div class="muted">Последний цикл: ${escapeHtml(fmtDT(last.started_at))} — ${escapeHtml(fmtDT(last.finished_at))} (${last.platforms_total} площадок)</div>` : ""}`;
+}
+
+function renderStorage(storage) {
+  if (!storage) return `<div class="muted">нет данных</div>`;
+  return `
+    <div>Файловое хранилище (data/): ${fmtBytes(storage.file_storage_bytes)}</div>
+    <div>База данных: ${storage.db_bytes == null ? "—" : fmtBytes(storage.db_bytes)}</div>`;
+}
+
 function fmtBytes(n) {
   if (n == null) return "—";
   const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
@@ -106,6 +146,8 @@ async function loadMonitoring() {
     $("#mon-error").textContent = "";
     $("#mon-queues").innerHTML = renderQueues(data.queues);
     $("#mon-index").innerHTML = renderIndex(data.index);
+    $("#mon-cycles").innerHTML = renderCycles(data.cycles);
+    $("#mon-storage").innerHTML = renderStorage(data.storage);
     $("#mon-resources").innerHTML = renderResources(data.resources);
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);

@@ -1,0 +1,23 @@
+databaseChangeLog:
+- changeSet:
+    id: 61
+    author: zakupki-parser
+    comment: 'parser_cycle_stats: сводка одного прохода планировщика (Scheduler.run_once/_run_refresh_pass) — получено/сохранено закупок, число площадок и сбоев обращения к ним, длительность. Вкладка devops «Мониторинг» строит «последний цикл»/«в среднем» по kind=regular.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          CREATE TABLE IF NOT EXISTS parser_cycle_stats (
+              id BIGSERIAL PRIMARY KEY,
+              iteration INTEGER NOT NULL,
+              kind TEXT NOT NULL,
+              started_at TIMESTAMPTZ NOT NULL,
+              finished_at TIMESTAMPTZ NOT NULL,
+              duration_seconds DOUBLE PRECISION NOT NULL,
+              platforms_total INTEGER NOT NULL DEFAULT 0,
+              platforms_failed INTEGER NOT NULL DEFAULT 0,
+              received INTEGER NOT NULL DEFAULT 0,
+              saved INTEGER NOT NULL DEFAULT 0
+          );
+          CREATE INDEX IF NOT EXISTS ix_parser_cycle_stats_kind_started
+              ON parser_cycle_stats (kind, started_at);

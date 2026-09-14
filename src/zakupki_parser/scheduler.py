@@ -7,6 +7,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -30,6 +31,23 @@ from zakupki_parser.storage.repository.accounts import effective_options
 SYSTEM_INDEX_PROFILE_ID = -1
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _CycleAccumulator:
+    """Сводка одного прохода (``run_once``/``_run_refresh_pass``), devops-мониторинг.
+
+    Заполняется ``_process_platform`` по мере обработки площадок (может идти
+    параллельно, но инкременты — простые атомарные операции event loop'а,
+    без гонок между ``await``). ``platforms_failed`` считает и обычные сбои
+    (см. ``_process_platform``), и ``CircuitOpenError`` — сайт временно
+    недоступен тоже сбой обращения к площадке с точки зрения мониторинга.
+    """
+
+    platforms_total: int = 0
+    platforms_failed: int = 0
+    received: int = 0
+    saved: int = 0
 
 
 class Scheduler:
@@ -175,7 +193,43 @@ class Scheduler:
         """
         await self._recover_scoring_queue(iteration)
         ctxs = await self._gather_profile_ctxs()
-        await self._run_platform_pass(ctxs, iteration, full_window=False)
+        started_at = datetime.now(UTC)
+        cycle = await self._run_platform_pass(ctxs, iteration, full_window=False)
+        await self._record_cycle_stats(iteration, "regular", started_at, cycle)
+
+    async def _record_cycle_stats(
+        self,
+        iteration: int,
+        kind: str,
+        started_at: datetime,
+        cycle: _CycleAccumulator,
+    ) -> None:
+        """Пишет сводку прохода в ``parser_cycle_stats`` (devops-мониторинг).
+
+        Best-effort: сбой записи (БД временно недоступна) не должен ронять
+        планировщик — только предупреждение в лог, как и остальные devops-only
+        побочные записи в этом модуле (напр. recovery очереди скоринга).
+        Пустой проход (``platforms_total == 0`` — нет включённых профилей, dev-
+        окружение без пользователей) не пишется: это не цикл обработки, а его
+        отсутствие, и не должен разбавлять средние на вкладке «Мониторинг».
+        """
+        if self._repository is None or cycle.platforms_total == 0:
+            return
+        try:
+            await self._repository.record_cycle_stats(
+                iteration=iteration,
+                kind=kind,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                platforms_total=cycle.platforms_total,
+                platforms_failed=cycle.platforms_failed,
+                received=cycle.received,
+                saved=cycle.saved,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Не удалось сохранить сводку цикла (%s, итерация %d): %s", kind, iteration, exc
+            )
 
     async def _run_platform_pass(
         self,
@@ -183,7 +237,7 @@ class Scheduler:
         iteration: int = 0,
         *,
         full_window: bool = False,
-    ) -> None:
+    ) -> _CycleAccumulator:
         """Обход включённых площадок для набора профилей (общая часть прохода).
 
         Используется и регулярным ``run_once`` (все профили), и внеочередным
@@ -191,9 +245,14 @@ class Scheduler:
         ``full_window=True`` обход каждого профиля идёт по полному окну
         ``default_cutoff_days`` (история для нового профиля), а не от инкремента
         ``last_processed_date`` площадки.
+
+        Возвращает сводку прохода (devops-мониторинг, ``parser_cycle_stats``) —
+        вызывающий (``run_once``/``_run_refresh_pass``) дописывает временные метки
+        и персистит.
         """
+        cycle = _CycleAccumulator()
         if not ctxs or self._repository is None:
-            return
+            return cycle
         enabled_platforms = await self._repository.enabled_platform_ids()
 
         sem = asyncio.Semaphore(self._cfg.parser.max_concurrent_platforms)
@@ -208,7 +267,7 @@ class Scheduler:
             # Единый порядок захвата (глобальный -> доменный) исключает deadlock.
             async with sem, d_sem:
                 await self._process_platform(
-                    platform_id, profiles, iteration, full_window=full_window
+                    platform_id, profiles, iteration, full_window=full_window, cycle=cycle
                 )
 
         pending = []
@@ -226,6 +285,7 @@ class Scheduler:
             for result in results:
                 if isinstance(result, BaseException):
                     logger.error("Параллельная обработка площадки завершилась ошибкой: %s", result)
+        return cycle
 
     def _ordered_enabled_platforms(self, enabled: set[str]) -> list[str]:
         """Активные площадки в порядке config_service.yaml (конфиг — интерфейс)."""
@@ -252,8 +312,16 @@ class Scheduler:
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: _CycleAccumulator | None = None,
     ) -> None:
-        """Обрабатывает одну площадку для набора профилей."""
+        """Обрабатывает одну площадку для набора профилей.
+
+        ``cycle`` — накопитель сводки всего прохода (devops-мониторинг): успех
+        добавляет received/saved площадки, любой сбой (включая CircuitOpenError —
+        площадка временно недоступна) считается в ``platforms_failed``. Аргумент
+        опционален только ради обратной совместимости существующих тестов,
+        обращающихся к ``_process_platform`` напрямую без агрегации цикла.
+        """
         platform = self._cfg.dom.platforms.get(platform_id)
         if platform is None:
             logger.warning(
@@ -271,12 +339,19 @@ class Scheduler:
         # Контекст для логов: последующие записи этой площадки (и её подзадач)
         # автоматически получают префикс [platform#iteration] (см. logging_filter).
         token = set_run_context(platform_id, iteration)
+        if cycle is not None:
+            cycle.platforms_total += 1
         try:
-            await self._parse_platform(
+            stats = await self._parse_platform(
                 platform_id, platform, profiles, iteration, full_window=full_window
             )
+            if cycle is not None:
+                cycle.received += stats.get("received", 0)
+                cycle.saved += stats.get("saved", 0)
         except Exception as exc:  # noqa: BLE001
             logger.error("Ошибка обработки площадки %s: %s", platform_id, exc)
+            if cycle is not None:
+                cycle.platforms_failed += 1
         finally:
             reset_run_context(token)
         if self._on_update is not None:
@@ -581,7 +656,9 @@ class Scheduler:
             ", ".join(str(c.profile.id) for c in ctxs),
             iteration,
         )
-        await self._run_platform_pass(ctxs, iteration, full_window=True)
+        started_at = datetime.now(UTC)
+        cycle = await self._run_platform_pass(ctxs, iteration, full_window=True)
+        await self._record_cycle_stats(iteration, "refresh", started_at, cycle)
         # Сброшенный при перестройке скор пересчитываем сразу после обхода
         # (те же правила recovery: опция scoring владельца, TTL).
         await self._recover_scoring_queue(iteration)
@@ -697,7 +774,7 @@ class Scheduler:
         iteration: int = 0,
         *,
         full_window: bool = False,
-    ) -> None:
+    ) -> dict[str, int]:
         browser = BrowserManager(self._cfg.parser.browser)
         try:
             await browser.start()
@@ -716,7 +793,7 @@ class Scheduler:
                 on_record_saved=self._on_update,
             )
             try:
-                await orchestrator.run(page, profiles=profiles, full_window=full_window)
+                return await orchestrator.run(page, profiles=profiles, full_window=full_window)
             except CircuitOpenError:
                 raise
             except Exception as exc:  # noqa: BLE001

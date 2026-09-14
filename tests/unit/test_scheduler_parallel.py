@@ -94,6 +94,7 @@ def _install_tracked_process(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         nonlocal active, max_active
         active += 1
@@ -213,6 +214,7 @@ async def test_run_once_noop_without_profiles(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         called.append(platform_id)
 
@@ -225,6 +227,53 @@ async def test_run_once_noop_without_profiles(
     await scheduler.run_once()
 
     assert called == []
+
+
+@pytest.mark.asyncio
+async def test_run_once_records_cycle_stats(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_once агрегирует received/saved/сбои площадок цикла и пишет parser_cycle_stats
+    (devops-мониторинг, вкладка «Мониторинг»): один сбой площадки (p2) не портит
+    сводку остальных, только увеличивает platforms_failed."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    # Реальные platform_id из тестового config_dom.yaml — на этот раз _process_platform
+    # НЕ подменяется целиком (в отличие от остальных тестов файла), нужна его настоящая
+    # реализация (agrегация в cycle), а она резолвит platform_id через config_dom.yaml.
+    _patch_platforms(scheduler, monkeypatch, ["zakupki_mos", "zakupki_gov"])
+
+    async def fake_parse(
+        platform_id: str,
+        platform: object,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> dict[str, int]:
+        if platform_id == "zakupki_gov":
+            raise RuntimeError("boom")
+        return {"received": 5, "saved": 2, "known": 1}
+
+    recorded: list[dict[str, Any]] = []
+
+    class _RepoWithCycleStats(_FakeRepo):
+        async def record_cycle_stats(self, **kwargs: Any) -> None:
+            recorded.append(kwargs)
+
+    monkeypatch.setattr(scheduler, "_parse_platform", fake_parse)
+    scheduler._repository = _RepoWithCycleStats()  # type: ignore[assignment]  # noqa: SLF001
+
+    await scheduler.run_once(iteration=3)
+
+    assert len(recorded) == 1
+    stats = recorded[0]
+    assert stats["iteration"] == 3
+    assert stats["kind"] == "regular"
+    assert stats["platforms_total"] == 2
+    assert stats["platforms_failed"] == 1
+    assert stats["received"] == 5  # только zakupki_mos успешна
+    assert stats["saved"] == 2
+    assert stats["finished_at"] >= stats["started_at"]
 
 
 class _FakeProfileCtx:
@@ -251,6 +300,7 @@ async def test_run_once_regular_pass_uses_incremental_window(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         flags.append(full_window)
 
@@ -311,6 +361,7 @@ async def test_run_refresh_pass_processes_only_requested_profiles(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         calls.append(
             (platform_id, sorted(c.id for c in profiles), iteration, full_window)  # type: ignore[attr-defined]
@@ -352,6 +403,7 @@ async def test_run_refresh_pass_skips_profile_handled_this_cycle(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         calls.append(
             (platform_id, sorted(c.id for c in profiles), iteration, full_window)  # type: ignore[attr-defined]
@@ -396,6 +448,7 @@ async def test_run_refresh_pass_noop_when_profile_not_eligible(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         called.append(platform_id)
 
@@ -427,6 +480,7 @@ async def test_run_once_noop_without_platforms(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         called.append(platform_id)
 
@@ -451,6 +505,7 @@ async def test_run_refresh_pass_rebuilds_results_on_flag(
         iteration: int = 0,
         *,
         full_window: bool = False,
+        cycle: object = None,
     ) -> None:
         return None
 

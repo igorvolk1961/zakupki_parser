@@ -200,7 +200,7 @@ class Orchestrator(
         *,
         profiles: Sequence[ProfileRunContext] | None = None,
         full_window: bool = False,
-    ) -> None:
+    ) -> dict[str, int]:
         """Запускает проход по площадке на заданной ``page``.
 
         ``profiles`` — включённые профили незаблокированных пользователей,
@@ -214,6 +214,10 @@ class Orchestrator(
         режиме проход ведёт себя как мультипрофильный: известные закупки не
         пропускаются (слова профиля сопоставляются ретроспективно по всему окну),
         а не от инкремента ``last_processed_date`` площадки.
+
+        Возвращает ``_platform_stats`` (``received``/``saved``/``known``) — сводка
+        прохода этой площадки для агрегации цикла планировщика (devops-мониторинг,
+        см. ``Scheduler._process_platform``).
         """
         if not self._site_cb.allow_request():
             raise CircuitOpenError("Сайт недоступен (circuit open)")
@@ -293,6 +297,7 @@ class Orchestrator(
             self._platform_stats["known"],
         )
         self._site_cb.record_success()
+        return self._platform_stats
 
     def _platform_selects(self, ctx: ProfileRunContext) -> bool:
         """True, если профиль относится к этой площадке.
