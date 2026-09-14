@@ -160,7 +160,15 @@ class RecordProcessingMixin(OrchestratorState):
         обхода листинга — переиспользуется live-фоллбэком поиска по документам
         (§1б плана индексации) и синтетическим индексным профилем (§1/1а). ``None``
         при сбое (не роняет обход — запись остаётся на уровне списка).
+
+        Вежливая пауза (``self._delayer``) ПЕРЕД запросом — раньше её здесь не
+        было: индексный профиль (без фильтра по словам) дёргает детали каждой
+        записи подряд без паузы между запросами, в отличие от обхода списка
+        (``iter_container_records``/``goto_next_page`` — там пауза уже есть).
+        На практике это выливалось в HTTP 402 с телом ``{"message":"Необходимо
+        пройти проверку"}`` — антибот-проверка mos.example, а не лимит/квота.
         """
+        await self._delayer.sleep()
         try:
             return await extract_details(page, self._platform, list_vars, detail_url, api_fields)
         except Exception as exc:  # noqa: BLE001
