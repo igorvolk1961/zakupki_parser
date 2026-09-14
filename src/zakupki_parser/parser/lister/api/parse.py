@@ -104,11 +104,40 @@ def _etpgpb_regions(attrs: dict[str, Any]) -> str:
     return str(value).strip() if isinstance(value, str) else ""
 
 
+def _etpgpb_platform_id(attrs: dict[str, Any], detail_path: str | None) -> str | None:
+    """Устойчивый id закупки на площадке etpgpb (fallback номера + запрос деталей).
+
+    ``attrs['platform_id']`` отдаётся не всегда (та же непоследовательность API,
+    что и у ``registry_number`` — иногда null/отсутствует вместо ожидаемого
+    значения). Запасные источники, в порядке предпочтения: последний сегмент
+    ``platform_url``, затем ведущие цифры последнего сегмента ``detail_path``
+    (канонический путь ``/procedures/<kind>/<id>-<slug>/`` — тот же id, что
+    виден в URL закупки, напр. .../procedures/gaz/258908-zakupka-.../).
+    """
+    pid = attrs.get("platform_id")
+    if pid:
+        return str(pid)
+    platform_url = attrs.get("platform_url") or ""
+    if platform_url:
+        return platform_url.rstrip("/").split("/")[-1]
+    if detail_path:
+        last_segment = detail_path.rstrip("/").split("/")[-1]
+        m = re.match(r"(\d+)", last_segment)
+        # "0" — плейсхолдер отсутствующего id (реальные id площадки не бывают
+        # нулевыми), не настоящий номер.
+        if m and m.group(1) != "0":
+            return m.group(1)
+    return None
+
+
 def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
     """Item API etpgpb: атрибуты в ``attributes``."""
     attrs = item.get("attributes") or {}
     list_vars: dict[str, Any] = {}
     kind = str(attrs.get("kind") or "").lower()
+    # Путь детальной страницы: новый «ребрендинг»-путь (как в карточках), иначе старый.
+    # Считается ДО номера — нужен как один из запасных источников platform_id.
+    detail_path = attrs.get("rebranding_truncated_path") or attrs.get("truncated_path")
     reg = attrs.get("registry_number")
     # Номер — регистрационный/закупочный номер (бизнес-ключ, уникален в пределах
     # площадки). Внутренний id item'а номером НЕ является — его не подставляем.
@@ -123,12 +152,12 @@ def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
         # «Закупки.Газпром» (kind=gaz, тип «Маркетинговые исследования») номер
         # извещения не имеют вовсе (registry_number/procedure_number = null,
         # has_procedure_number = false, проверено 2026-08-31 на /api/v2/procedures/gaz/).
-        # Единственный стабильный уникальный идентификатор — platform_id
-        # (присутствует в каноническом URL /procedures/gaz/<platform_id>-…/: им же
-        # пользуется _api для запроса деталей), поэтому подставляем его. Значение
-        # неймспейсим префиксом kind, чтобы не коллизировать с реальным номером
-        # (registry_number) других процедур площадки (уникальность — number+platform_id).
-        pid = attrs.get("platform_id")
+        # Единственный стабильный уникальный идентификатор — platform_id (см.
+        # _etpgpb_platform_id — attrs['platform_id'] не всегда заполнен), поэтому
+        # подставляем его. Значение неймспейсим префиксом kind, чтобы не
+        # коллизировать с реальным номером (registry_number) других процедур
+        # площадки (уникальность — number+platform_id).
+        pid = _etpgpb_platform_id(attrs, detail_path)
         number = f"{kind}-{pid}" if pid else ""
     list_vars["number"] = number
     list_vars["subject"] = attrs.get("title")
@@ -146,25 +175,19 @@ def _parse_etpgpb_item(item: dict[str, Any]) -> dict[str, Any]:
     list_vars["purchase_type"] = attrs.get("custom_procedure_type_name") or attrs.get(
         "procedure_type_name"
     )
-    # Путь детальной страницы: новый «ребрендинг»-путь (как в карточках), иначе старый.
-    detail_path = attrs.get("rebranding_truncated_path") or attrs.get("truncated_path")
     list_vars["detail_path"] = detail_path
     # Поля для извлечения деталей через API (/api/v2/procedures/{kind}/{platform_id}/):
-    # kind — первый сегмент пути («etp»), platform_id — id площадки (атрибут или из
-    # platform_url). Берём тот же путь, что построил detail_url (rebranding или legacy
-    # truncated), чтобы детали не терялись у легаси-записей. Оркестратор забирает
-    # их из list_vars (ключ _api) до сборки записи.
+    # kind — первый сегмент пути («etp»), platform_id — тот же устойчивый id, что и
+    # у fallback номера (_etpgpb_platform_id). Берём тот же путь, что построил
+    # detail_url (rebranding или legacy truncated), чтобы детали не терялись у
+    # легаси-записей. Оркестратор забирает их из list_vars (ключ _api) до сборки записи.
     segments = [s for s in (detail_path or "").split("/") if s]
     api: dict[str, Any] = {}
     if len(segments) >= 3:
         api["kind"] = segments[1]
-    pid = attrs.get("platform_id")
-    if pid:
-        api["platform_id"] = str(pid)
-    else:
-        platform_url = attrs.get("platform_url") or ""
-        if platform_url:
-            api["platform_id"] = platform_url.rstrip("/").split("/")[-1]
+    api_pid = _etpgpb_platform_id(attrs, detail_path)
+    if api_pid:
+        api["platform_id"] = api_pid
     if api:
         list_vars["_api"] = api
     return list_vars

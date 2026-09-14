@@ -760,8 +760,38 @@ def test_parse_api_item_etpgpb_empty_string_registry_number_falls_back() -> None
     assert parse_api_item(item)["number"] == "gaz-258789"
 
 
-def test_parse_api_item_etpgpb_without_number_and_id() -> None:
-    """Нет registry_number и platform_id — number остаётся пустым (запись пропускается)."""
+def test_parse_api_item_etpgpb_empty_registry_number_and_missing_platform_id() -> None:
+    """registry_number="" И platform_id отсутствует — оба фолбэка мимо, но
+    detail_path спасает (реальный случай: закупка 258908, CRITICAL «без номера»).
+    """
+    item: dict[str, Any] = {
+        "id": "125",
+        "type": "procedure",
+        "attributes": {
+            "title": "Закупка в области: Услуги по подготовке компьютерных систем к эксплуатации",
+            "amount": "9183672.0",
+            "date_published": "2026-09-14T10:50:34.000+03:00",
+            "end_registration": "2026-09-22T09:30:00.000+03:00",
+            "stage": "accepting",
+            "kind": "gaz",
+            "registry_number": "",
+            "rebranding_truncated_path": (
+                "/procedures/gaz/258908-zakupka-v-oblasti-uslugi-po-podgotovke-"
+                "kompyuternyh-sistem-k-ekspluatatsii/"
+            ),
+        },
+    }
+    assert parse_api_item(item)["number"] == "gaz-258908"
+
+
+def test_parse_api_item_etpgpb_without_number_falls_back_to_detail_path_id() -> None:
+    """Нет registry_number И platform_id — number берётся из detail_path (ведущие цифры).
+
+    Реальный случай: attrs['platform_id'] отдаётся не всегда (как и
+    registry_number) — тот же item, что закупка 258908 из «Закупки.Газпром»,
+    но здесь id виден только в rebranding_truncated_path
+    (/procedures/etp/123-dveri/), не в отдельном атрибуте platform_id.
+    """
     item: dict[str, Any] = {
         "id": "123",
         "type": "procedure",
@@ -774,6 +804,25 @@ def test_parse_api_item_etpgpb_without_number_and_id() -> None:
             "stage": "accepting",
             "kind": "fz44",
             "rebranding_truncated_path": "/procedures/etp/123-dveri/",
+        },
+    }
+    assert parse_api_item(item)["number"] == "fz44-123"
+
+
+def test_parse_api_item_etpgpb_without_any_number_source_stays_empty() -> None:
+    """Нет registry_number, platform_id, platform_url и detail_path — number пустой
+    (запись пропускается) — единственный случай, когда взять номер неоткуда."""
+    item: dict[str, Any] = {
+        "id": "123",
+        "type": "procedure",
+        "attributes": {
+            "title": "Двери",
+            "amount": "0.0",
+            "date_published": "2026-08-17T16:48:00.000+03:00",
+            "end_registration": "2026-08-21T08:00:00.000+03:00",
+            "company_name": "ООО Тест",
+            "stage": "accepting",
+            "kind": "fz44",
         },
     }
     assert parse_api_item(item)["number"] == ""
