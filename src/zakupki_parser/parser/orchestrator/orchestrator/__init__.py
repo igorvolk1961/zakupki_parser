@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -150,10 +149,12 @@ class Orchestrator(
             # способ отличить эти два случая без живого доступа к площадке
             # (см. roseltorg_44fz — устойчивый паттерн «первые N настоящие,
             # остальные пустые», не похоже на гонку по времени).
-            with contextlib.suppress(Exception):
+            try:
                 cls = await container.get_attribute("class")
                 html = (await container.inner_html())[:400]
                 logger.debug("Пустой контейнер: class=%r html=%r", cls, html)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Пустой контейнер: не удалось прочитать class/html: %s", exc)
 
         # Объединение нескольких f_keyword-запросов (R9): одна закупка может попасть
         # в несколько батчей слов — повторную обработку пропускаем, чтобы не дособирать
