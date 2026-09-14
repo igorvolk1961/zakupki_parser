@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Any
 
 from playwright.async_api import Page
@@ -26,7 +27,14 @@ async def request_json(
     else:
         raise ValueError(f"Неизвестный метод запроса: {method}")
     if not resp.ok:
-        raise RuntimeError(f"{label} вернул HTTP {resp.status}")
+        # Тело ответа при ошибке (напр. 402/403) часто несёт реальную причину
+        # (квота, требуется авторизация и т.п.) — раньше отбрасывалось, в логе
+        # оставался только код статуса без объяснения (см. mos.example 402).
+        detail = ""
+        with suppress(Exception):
+            detail = (await resp.text())[:500]
+        suffix = f": {detail}" if detail else ""
+        raise RuntimeError(f"{label} вернул HTTP {resp.status}{suffix}")
     try:
         return await resp.json()
     except Exception as exc:  # noqa: BLE001

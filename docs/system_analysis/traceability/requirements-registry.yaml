@@ -763,6 +763,7 @@ requirements:
       - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py
       - src/zakupki_parser/parser/lister/query/okpd2.py
       - src/zakupki_parser/parser/lister/api/parse.py
+      - src/zakupki_parser/parser/lister/api/http.py#request_json
     tests:
       - tests/unit/test_api_lister.py
       - tests/unit/test_okpd.py
@@ -774,6 +775,7 @@ requirements:
       - tests/unit/test_customers.py
       - tests/unit/test_url_filter.py
       - tests/unit/test_detail_api.py
+      - tests/unit/test_lister_api_http.py
       - tests/unit/test_fabrikant_search.py
       - tests/unit/test_orchestrator_keywords.py
       - tests/integration/test_extractor.py
