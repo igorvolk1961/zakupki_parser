@@ -23,7 +23,7 @@ from zakupki_parser.parser.lister.query.keywords import (
     MAX_KEYWORD_QUERY_ENC_LEN,
     keyword_batches,
 )
-from zakupki_parser.parser.orchestrator.context import CrawlUnit, ProfileRunContext
+from zakupki_parser.parser.orchestrator.context import ContainerRead, CrawlUnit, ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -75,7 +75,7 @@ class OrchestratorState:
     async def _resolve_customer_inn(self, page: Page, customer_link: str | None) -> str | None:
         raise NotImplementedError
 
-    async def _process_container(self, page: Page, container: Locator) -> tuple[bool, Any, bool]:
+    async def _read_container(self, container: Locator) -> ContainerRead:
         raise NotImplementedError
 
     def _is_known(self, number: Any) -> bool:

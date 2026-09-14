@@ -27,6 +27,7 @@ from zakupki_parser.parser.lister import (
     setup_sort_and_filters,
 )
 from zakupki_parser.parser.lister.api import build_api_list_url, fetch_api_items, parse_api_item
+from zakupki_parser.parser.orchestrator.context import ContainerRead
 from zakupki_parser.parser.orchestrator.state import OrchestratorState
 from zakupki_parser.retry import run_with_retry
 
@@ -153,6 +154,13 @@ class CrawlMixin(OrchestratorState):
                 ),
                 None,
             )
+            # Двухфазный обход страницы (см. ContainerRead): сначала читаем ВСЕ
+            # контейнеры (быстро, только DOM), потом обрабатываем собранные записи
+            # (медленно — детали/БД/индексация). На SPA-площадках список может
+            # перерендериться за время долгой обработки одной записи — тогда
+            # Locator последующих контейнеров начинает указывать в никуда
+            # (Timeout при чтении), если обработка идёт вперемешку с чтением.
+            reads: list[ContainerRead] = []
             async for container in iter_container_records(page, self._platform, self._delayer):
                 page_total += 1
                 # Выход по порогу даты публикации (только если порог задан). Обрабатываем
@@ -170,7 +178,15 @@ class CrawlMixin(OrchestratorState):
                         )
                         reached_cutoff = True
                         break
-                known, number, saved = await self._process_container(page, container)
+                reads.append(await self._read_container(container))
+
+            for read in reads:
+                if read.list_vars is not None:
+                    known, number, saved = await self._process_list_record(
+                        page, read.list_vars, read.detail_url, read.number
+                    )
+                else:
+                    known, number, saved = read.known, read.number, read.saved
                 if number is not None and number != "":
                     page_numbers.append(number)
                 if known:

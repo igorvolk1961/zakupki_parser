@@ -20,7 +20,7 @@ from zakupki_parser.config.models import AppConfig, PlatformDom, SearchCriteria
 from zakupki_parser.notify import Notifier
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.orchestrator.activity import ActivityMixin
-from zakupki_parser.parser.orchestrator.context import CrawlUnit, ProfileRunContext
+from zakupki_parser.parser.orchestrator.context import ContainerRead, CrawlUnit, ProfileRunContext
 from zakupki_parser.parser.orchestrator.crawl import CrawlMixin
 from zakupki_parser.parser.orchestrator.persistence import PersistenceMixin
 from zakupki_parser.parser.orchestrator.processing import RecordProcessingMixin
@@ -122,15 +122,14 @@ class Orchestrator(
             and str(number) in self._known_numbers
         )
 
-    async def _process_container(
-        self,
-        page: Page,
-        container: Locator,
-    ) -> tuple[bool, Any, bool]:
-        """Обрабатывает один контейнер записи о закупке (DOM-листер).
+    async def _read_container(self, container: Locator) -> ContainerRead:
+        """Быстро читает один контейнер записи о закупке (DOM, без БД/сети).
 
-        Возвращает (известна ли запись как уже сохранённая в БД, номер закупки,
-        сохранена ли запись в БД на этом шаге).
+        Первая фаза двухфазного DOM-обхода (см. ``ContainerRead``) — только
+        чтение DOM, никакой дозагрузки деталей/записи в БД. ``list_vars is
+        None`` в результате означает, что запись уже разрешена (известна,
+        дубликат в этом обходе, нет ссылки на детали) и вторая фаза
+        (``_process_list_record``) ей не нужна.
         """
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
@@ -167,7 +166,7 @@ class Orchestrator(
                     "Закупка %s уже обработана в этом обходе (другая партия слов) — пропуск",
                     number,
                 )
-                return True, number, False
+                return ContainerRead(number=number, known=True)
 
         # Оптимизация повторного прохода: закупка уже в БД — детальную страницу
         # не открываем (upsert не обновляет известные записи, поведение не меняется).
@@ -175,17 +174,17 @@ class Orchestrator(
         # профилю (у другого профиля может ещё не быть оценки).
         if self._is_known(number) and not self._multi_run:
             logger.info("Закупка %s уже в БД — пропуск", number)
-            return True, number, False
+            return ContainerRead(number=number, known=True)
 
         # 2) ссылка на детальную страницу
         detail_link_loc = container.locator(self._platform.list_config.detail_link)
         if await detail_link_loc.count() == 0:
             logger.debug("Нет ссылки на детали, пропуск (number=%s)", number)
-            return False, number, False
+            return ContainerRead(number=number)
         detail_url = await detail_link_loc.first.get_attribute("href")
         if not detail_url:
             logger.debug("Ссылка на детали пустая (href), пропуск (number=%s)", number)
-            return False, number, False
+            return ContainerRead(number=number)
 
         # Номер всегда есть в карточке списка; если не извлёкся — это сбой селектора.
         # Дальше _process_list_record трактует отсутствие номера как критическую ошибку
@@ -193,7 +192,7 @@ class Orchestrator(
 
         if self._crawl_seen is not None and number is not None:
             self._crawl_seen.add(str(number))
-        return await self._process_list_record(page, list_vars, detail_url, number)
+        return ContainerRead(number=number, list_vars=list_vars, detail_url=detail_url)
 
     async def run(
         self,

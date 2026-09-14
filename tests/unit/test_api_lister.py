@@ -24,7 +24,7 @@ from zakupki_parser.config.models import (
 )
 from zakupki_parser.parser.lister.api import build_api_list_url, parse_api_item
 from zakupki_parser.parser.orchestrator import Orchestrator
-from zakupki_parser.parser.orchestrator.context import ProfileRunContext
+from zakupki_parser.parser.orchestrator.context import ContainerRead, ProfileRunContext
 from zakupki_parser.storage.db import Profile
 
 
@@ -334,6 +334,104 @@ def _make_lot_online_recorder(app_config: AppConfig, platform: PlatformDom) -> _
         db_cb=_OkCircuit(),
         now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
     )
+
+
+def _make_dom_platform() -> PlatformDom:
+    return PlatformDom(
+        name="dom-test",
+        url="https://dom.example",
+        list_path="/list",
+        list_config=DomListConfig(container=".card", detail_link="a", next_page=""),
+        detail=DomDetailConfig(),
+    )
+
+
+class _TwoPhaseRecorder(Orchestrator):
+    """Записывает порядок вызовов _read_container/_process_list_record."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.order: list[str] = []
+
+    async def _read_container(self, container: Any) -> ContainerRead:
+        self.order.append(f"read:{container}")
+        return ContainerRead(
+            number=container,
+            list_vars={"number": container},
+            detail_url=f"https://x/{container}",
+        )
+
+    async def _process_list_record(
+        self,
+        page: Page,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        number: Any,
+        api_fields: dict[str, Any] | None = None,
+    ) -> tuple[bool, Any, bool]:
+        self.order.append(f"process:{number}")
+        return False, number, True
+
+
+def _make_two_phase_recorder(app_config: AppConfig, platform: PlatformDom) -> _TwoPhaseRecorder:
+    cfg = app_config.model_copy(deep=True)
+    return _TwoPhaseRecorder(
+        cfg=cfg,
+        platform_id="dom-test",
+        platform=platform,
+        delayer=_FakeDelayer(),
+        repository=None,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+
+
+async def _fake_iter_containers(page: Any, platform: Any, delayer: Any) -> Any:
+    for c in ("1", "2", "3"):
+        yield c
+
+
+async def _noop(*args: Any, **kwargs: Any) -> None:
+    return None
+
+
+async def _no_next_page(*args: Any, **kwargs: Any) -> bool:
+    return False
+
+
+@pytest.mark.asyncio
+async def test_crawl_dom_reads_all_containers_before_processing_any(app_config: AppConfig) -> None:
+    """Двухфазный DOM-обход: ВСЕ контейнеры страницы читаются раньше, чем начинается
+    обработка хоть одного — защита от протухания Locator на живой SPA-странице
+    (см. ContainerRead, расследование roseltorg_44fz)."""
+    platform = _make_dom_platform()
+    recorder = _make_two_phase_recorder(app_config, platform)
+    with (
+        patch("zakupki_parser.parser.orchestrator.crawl.open_list_page", _noop),
+        patch("zakupki_parser.parser.orchestrator.crawl.setup_sort_and_filters", _noop),
+        patch(
+            "zakupki_parser.parser.orchestrator.crawl.iter_container_records",
+            _fake_iter_containers,
+        ),
+        patch("zakupki_parser.parser.orchestrator.crawl.next_page_exists", _no_next_page),
+    ):
+        await recorder._crawl_dom(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            cutoff=None,
+            criteria=SearchCriteria(okpd_codes=["62.02"]),
+            by_relevance=False,
+            retry_cfg=RetryConfig(),
+        )
+    assert recorder.order == [
+        "read:1",
+        "read:2",
+        "read:3",
+        "process:1",
+        "process:2",
+        "process:3",
+    ]
 
 
 @pytest.mark.asyncio

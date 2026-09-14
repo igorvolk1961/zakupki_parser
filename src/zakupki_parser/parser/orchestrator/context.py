@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from zakupki_parser.config.models import SearchCriteria
 from zakupki_parser.storage.db import Profile
@@ -43,6 +43,34 @@ class ProfileRunContext:
     # LLM-скоринга/matched_keywords в RecordProcessingMixin по нему не выполняется;
     # вместо этого сохранённая запись ставится в очередь фоновой индексации документов.
     is_system_index: bool = False
+
+
+@dataclass
+class ContainerRead:
+    """Результат быстрого чтения одного контейнера списка (DOM, без БД/сети).
+
+    Двухфазный DOM-обход страницы (см. ``CrawlMixin._crawl_dom``): сначала все
+    контейнеры страницы ЧИТАЮТСЯ (быстро, только DOM), потом собранные записи
+    ОБРАБАТЫВАЮТСЯ (медленно — дозагрузка деталей, запись в БД, постановка в
+    очередь индексации). Раньше обе фазы были слиты в одну: чтение контейнера
+    #2 могло случиться через много секунд после начала обработки контейнера #1
+    (детали+БД+индексация — не мгновенно), а список на SPA-площадке за это
+    время успевал перерендериться — ``Locator.nth(i)`` начинал указывать в
+    никуда (``Timeout ... exceeded`` при попытке прочитать атрибут/текст, см.
+    расследование расхождения получено/сохранено у roseltorg_44fz). Разделение
+    фаз минимизирует время между снимком списка контейнеров и их чтением.
+
+    ``list_vars is None`` — запись уже разрешена БЕЗ второй фазы (уже известна
+    в БД, уже обработана в этом обходе другим батчем слов, или нет ссылки на
+    детали) — тогда ``known``/``saved`` несут готовый результат. Иначе —
+    запись ждёт ``_process_list_record`` во второй фазе.
+    """
+
+    number: Any
+    known: bool = False
+    saved: bool = False
+    list_vars: dict[str, Any] | None = None
+    detail_url: str | None = None
 
 
 @dataclass
