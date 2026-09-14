@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,8 @@ from zakupki_parser.browser.delayer import Delayer
 from zakupki_parser.browser.stealth import apply_init_scripts
 from zakupki_parser.config.models import BrowserConfig
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -41,6 +44,9 @@ class BrowserManager:
         self._context: BrowserContext | None = None
         self._playwright: Playwright | None = None
         self.delayer = Delayer(cfg)
+        # True между началом и концом close() — отличает штатную остановку браузера
+        # от неожиданного отключения (креш Chromium), см. _on_browser_disconnected.
+        self._closing = False
 
     @property
     def session_dir(self) -> Path:
@@ -61,6 +67,7 @@ class BrowserManager:
         if self._cfg.chromium_executable_path:
             launch_kwargs["executable_path"] = self._cfg.chromium_executable_path
         self._browser = await pw.chromium.launch(**launch_kwargs)
+        self._browser.on("disconnected", self._on_browser_disconnected)
 
         context_kwargs: dict[str, Any] = {
             "locale": self._cfg.locale,
@@ -81,6 +88,25 @@ class BrowserManager:
         await apply_init_scripts(self._context, self._cfg.disable_webdriver_flag)
         await self.delayer.sleep()
 
+    def _on_browser_disconnected(self, browser: Browser) -> None:
+        """Реакция на событие Playwright ``disconnected`` у объекта браузера.
+
+        Срабатывает и при штатном ``close()`` (гасим через ``_closing``), и при
+        неожиданном крахе/зависании процесса Chromium — единственный на процесс
+        браузер общий для всех одновременных обходов площадок (см. ``scheduler.py``
+        ``max_concurrent_platforms``), поэтому его крах останавливает ВСЕ текущие
+        обходы разом, без отдельной ошибки на каждый. Пока это только диагностика
+        (лог), без авто-перезапуска — статистики по реальной частоте таких крашей
+        ещё нет, чтобы обосновать более сложное восстановление.
+        """
+        if self._closing:
+            logger.info("Браузер Chromium остановлен (штатное закрытие)")
+            return
+        logger.critical(
+            "Браузер Chromium неожиданно отключился (креш/зависание процесса) — "
+            "все текущие обходы площадок остановлены. Требуется перезапуск парсера."
+        )
+
     async def new_page(self) -> Page:
         if self._context is None:
             raise RuntimeError("Контекст браузера не инициализирован")
@@ -92,6 +118,7 @@ class BrowserManager:
             await self._context.storage_state(path=str(self.session_dir / "storage.json"))
 
     async def close(self) -> None:
+        self._closing = True
         if self._context is not None:
             with suppress(PlaywrightError):
                 await self._context.close()
@@ -103,3 +130,4 @@ class BrowserManager:
         self._context = None
         self._browser = None
         self._playwright = None
+        self._closing = False

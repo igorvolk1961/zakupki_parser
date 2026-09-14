@@ -635,6 +635,33 @@ def test_parse_api_item_etpgpb_without_number() -> None:
     assert parse_api_item(item)["number"] == "gaz-258116"
 
 
+def test_parse_api_item_etpgpb_empty_string_registry_number_falls_back() -> None:
+    """registry_number="" (не null) — тоже должен фолбэчиться на kind+platform_id.
+
+    Реальный случай: часть закупок «Газпром.Маркетинговые исследования» отдаёт
+    registry_number пустой строкой (не JSON null) — ``is not None`` пропускал бы
+    такое значение мимо fallback, оставляя number="" и роняя запись в
+    _process_list_record критической ошибкой «без номера».
+    """
+    item: dict[str, Any] = {
+        "id": "124",
+        "type": "procedure",
+        "attributes": {
+            "title": "Услуги консультативные в области компьютерных технологий прочие",
+            "amount": "12159691.2",
+            "date_published": "2026-09-10T17:05:32.000+03:00",
+            "end_registration": "2026-09-18T09:00:00.000+03:00",
+            "company_name": "ООО Тест",
+            "stage": "accepting",
+            "kind": "gaz",
+            "registry_number": "",
+            "platform_id": 258789,
+            "rebranding_truncated_path": "/procedures/gaz/258789-zakupka/",
+        },
+    }
+    assert parse_api_item(item)["number"] == "gaz-258789"
+
+
 def test_parse_api_item_etpgpb_without_number_and_id() -> None:
     """Нет registry_number и platform_id — number остаётся пустым (запись пропускается)."""
     item: dict[str, Any] = {
@@ -1159,6 +1186,55 @@ async def test_process_list_record_index_ctx_fetches_details_and_enqueues(
         {"name": "tz.pdf", "url": "https://mos.example/tz.pdf"}
     ]
     assert transport.enqueued == [(500, "index", 0)]
+
+
+@pytest.mark.asyncio
+async def test_process_list_record_index_ctx_skips_enqueue_when_details_fetch_fails(
+    app_config: AppConfig,
+) -> None:
+    """Сбой дозагрузки деталей площадки (напр. лимит запросов, HTTP 402) — задание
+    индексации НЕ ставится (нет files_json/ОКПД2 — нечего/некорректно индексировать),
+    и update_details не вызывается."""
+    cfg = app_config.model_copy(deep=True)
+    repo = _IndexRepo()
+    recorder = _PersistRecorder(
+        cfg=cfg,
+        platform_id="zakupki_mos",
+        platform=cfg.dom.platforms["zakupki_mos"],
+        delayer=_FakeDelayer(),
+        repository=repo,
+        notifier=None,
+        site_cb=_OkCircuit(),
+        db_cb=_OkCircuit(),
+        now=datetime(2026, 8, 18, 12, 0, tzinfo=UTC),
+    )
+    transport = _IndexTransport()
+    recorder._transport = transport  # type: ignore[assignment]  # noqa: SLF001
+    recorder._profile_ctxs = [_index_ctx()]  # noqa: SLF001
+
+    async def _failing_extract_details(
+        page: Any,
+        platform: Any,
+        list_vars: dict[str, Any],
+        detail_url: str | None,
+        api_fields: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
+        raise RuntimeError("API деталей вернул HTTP 402")
+
+    with patch(
+        "zakupki_parser.parser.orchestrator.processing.extract_details",
+        _failing_extract_details,
+    ):
+        known, number, saved = await recorder._process_list_record(  # noqa: SLF001
+            page=object(),  # type: ignore[arg-type]
+            list_vars={"number": "IDX2", "id": "501", "subject": "Оказание клининговых услуг"},
+            detail_url="https://zakupki.mos.ru/need/501",
+            number="IDX2",
+        )
+    assert (known, number, saved) == (False, "IDX2", True)
+    assert len(recorder.persisted) == 1
+    assert repo.updated_details == []
+    assert transport.enqueued == []
 
 
 @pytest.mark.asyncio

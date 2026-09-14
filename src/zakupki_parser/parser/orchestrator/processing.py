@@ -78,11 +78,26 @@ class RecordProcessingMixin(OrchestratorState):
         парсера, см. ``docs/external-service-contract.md`) — поэтому детали
         дособираются здесь же, с уже открытой страницей текущего обхода, а не
         отдельным запросом из indexing_service.
+
+        Если дособрать детали не удалось (``details is None`` — сбой площадки,
+        напр. лимит запросов), задание индексации НЕ ставится: без ``files_json``
+        indexing_service нечего извлекать, а запись осталась бы в поисковом
+        индексе с неполными/устаревшими ОКПД2-кодами уровня списка. Recovery-
+        прохода для стадии index нет (в отличие от fit/pwin/margin), так что
+        закупка при этом не переиндексируется автоматически позже — это
+        осознанный компромисс: лучше пропустить, чем засорить индекс.
         """
         details = await self._fetch_platform_details(
             page, list_vars, detail_url, api_fields, context="Индексный профиль"
         )
-        if details is not None and self._repository is not None:
+        if details is None:
+            logger.warning(
+                "Индексный профиль: закупка %s НЕ поставлена в очередь индексации — "
+                "не удалось дособрать детали площадки (ОКПД2/файлы недоступны)",
+                record.get("number"),
+            )
+            return
+        if self._repository is not None:
             detail_vars, files, api_inn = details
             data = dict(record.get("detail_json") or {})
             data.update({k: v for k, v in detail_vars.items() if v is not None})

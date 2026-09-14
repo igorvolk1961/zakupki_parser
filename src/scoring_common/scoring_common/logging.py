@@ -153,7 +153,18 @@ class LoggingSettings(BaseModel):
 def setup_logging(cfg: LoggingSettings) -> None:
     """Конфигурирует корневой логгер согласно ``cfg``."""
     root = logging.getLogger()
-    root.setLevel(cfg.level.upper())
+    # Уровень root — самый ПОДРОБНЫЙ (минимальный номер) из уровней включённых
+    # назначений (console/file): логгер отсекает запись ДО того, как её увидит
+    # хоть один handler, поэтому если поставить root на cfg.level ("INFO"),
+    # cfg.file_level="DEBUG" файлового handler'а становится мёртвым кодом — ни
+    # один logger.debug(...) в приложении никогда не дойдёт даже до проверки
+    # handler'ом, вне зависимости от его собственного setLevel. Handler'ы ниже
+    # получают СВОИ уровни (console=cfg.level, file=cfg.file_level) как и
+    # раньше — root лишь достаточно открыт, чтобы не отсекать раньше времени.
+    level_candidates: list[int] = [getattr(logging, cfg.level.upper())]
+    if cfg.file:
+        level_candidates.append(getattr(logging, cfg.file_level.upper()))
+    root.setLevel(min(level_candidates))
     root.handlers.clear()
 
     fmt = _ScrubbingFormatter(cfg.format)

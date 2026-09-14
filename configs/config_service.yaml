@@ -36,6 +36,6 @@ scoring:
 indexing:
   enabled: true
   okpd2_prefixes:
-  - '62.2'
+  - '62.02'
   excluded_platforms:
   - b2b_center

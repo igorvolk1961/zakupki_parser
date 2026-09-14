@@ -22,8 +22,54 @@ from zakupki_parser.parser.lister.query import build_list_url
 
 logger = logging.getLogger(__name__)
 
-# Фиксированная пауза после загрузки страницы: networkidle на этой SPA не наступает.
+# networkidle на этих SPA не наступает (аналитика/чат постоянно опрашивают сервер),
+# поэтому готовность списка не определить встроенным ожиданием навигации Playwright.
+# _READY_INITIAL_MS — грейс-период перед первой проверкой (дать SPA начать рендер);
+# _READY_POLL_MS — шаг опроса; _READY_MAX_MS — потолок ожидания (после него читаем
+# список как есть, что бы в нём ни было — не блокируем обход бесконечно).
+_READY_INITIAL_MS = 800
+_READY_POLL_MS = 300
+_READY_MAX_MS = 8000
+# Сохранено для обратной совместимости импортов/тестов, не используется как
+# единственный источник ожидания (см. _settle_after_navigation).
 SETTLE_MS = 3000
+
+
+async def _settle_after_navigation(page: Page, platform: PlatformDom) -> None:
+    """Ждёт, пока список закупок реально прогрузится, а не просто ``domcontentloaded``.
+
+    Раньше здесь была фиксированная пауза (``SETTLE_MS`` = 3с): под обычной
+    нагрузкой (один обход) этого хватало, но при параллельном обходе нескольких
+    площадок в одном процессе (см. ``scheduler.py`` — все площадки крутятся в
+    одном браузере) рендер SPA может не успеть за фиксированное время — контейнеры
+    записей (обёртки) уже в DOM, но их содержимое (ссылка на детали, номер) ещё
+    не подтянулось. Тогда обход читает пустые заглушки: ``number=''``, «нет ссылки
+    на детали» — закупка «получена», но не сохраняется, без явной причины в логе
+    (расследовано на реальном расхождении получено/сохранено у zakupki_gov_44fz).
+
+    Вместо фиксированной паузы — опрос: ждём, пока ПЕРВЫЙ контейнер списка (если
+    он есть) обзаведётся ссылкой на детали. Если контейнеров нет вовсе — страница
+    без результатов, ждать нечего, выходим сразу. Бюджет ожидания ограничен
+    ``_READY_MAX_MS``: по истечении читаем список как есть (не блокируем обход
+    навсегда, если площадка действительно тормозит дольше разумного).
+    """
+    await page.wait_for_timeout(_READY_INITIAL_MS)
+    detail_sel = platform.list_config.detail_link
+    if not detail_sel:
+        return
+    container = list_containers(page, platform).first
+    elapsed = _READY_INITIAL_MS
+    while elapsed < _READY_MAX_MS:
+        if await container.count() == 0:
+            return
+        if await container.locator(detail_sel).count() > 0:
+            return
+        await page.wait_for_timeout(_READY_POLL_MS)
+        elapsed += _READY_POLL_MS
+    logger.warning(
+        "Список не прогрузился за %d мс (первый контейнер без ссылки на детали) — читаем как есть",
+        elapsed,
+    )
 
 
 async def open_list_page(
@@ -35,8 +81,7 @@ async def open_list_page(
 ) -> None:
     url = build_list_url(platform, cutoff, criteria, keywords=keywords)
     await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    # networkidle на этой SPA не наступает (аналитика/чат), ждём фиксированно.
-    await page.wait_for_timeout(SETTLE_MS)
+    await _settle_after_navigation(page, platform)
     # Логируем путь без query: полный filter-URL (URL-encoded JSON) слишком длинный.
     logger.info("Открыта страница списка: %s", page.url.split("?", 1)[0])
 
@@ -76,7 +121,7 @@ async def setup_sort_and_filters(
         option = dropdown.first.locator(f'.menu .item:has(.text:text-is("{sort.option_text}"))')
         if await option.count() > 0:
             await option.first.click()
-            await page.wait_for_timeout(SETTLE_MS)
+            await _settle_after_navigation(page, platform)
             logger.info("Сортировка установлена: %s", sort.option_text)
         else:
             await page.keyboard.press("Escape")
@@ -190,7 +235,7 @@ async def goto_next_page(page: Page, platform: PlatformDom, delayer: Delayer) ->
     if lc.page_param:
         next_url = _increment_url_page(page.url, lc.page_param)
         await page.goto(next_url, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(SETTLE_MS)
+        await _settle_after_navigation(page, platform)
         await delayer.sleep()
         return True
     sel = lc.next_page
@@ -200,7 +245,7 @@ async def goto_next_page(page: Page, platform: PlatformDom, delayer: Delayer) ->
     if await locator.count() == 0:
         return False
     await locator.first.click()
-    await page.wait_for_timeout(SETTLE_MS)
+    await _settle_after_navigation(page, platform)
     await delayer.sleep()
     return True
 

@@ -135,6 +135,14 @@ class Orchestrator(
         # 1) list-vars
         list_vars = await extract_from_scope(container, self._platform.list_config.variables)
         number = list_vars.get("number")
+        # Диагностика (DEBUG): каждый контейнер до любой фильтрации — чтобы по логу
+        # можно было отличить «дошёл до этой точки, но отфильтрован дальше» от
+        # «вообще не дошёл» (расследование расхождения получено/сохранено).
+        logger.debug(
+            "Контейнер записи: number=%r subject=%r",
+            number,
+            list_vars.get("subject"),
+        )
 
         # Объединение нескольких f_keyword-запросов (R9): одна закупка может попасть
         # в несколько батчей слов — повторную обработку пропускаем, чтобы не дособирать
@@ -164,6 +172,7 @@ class Orchestrator(
             return False, number, False
         detail_url = await detail_link_loc.first.get_attribute("href")
         if not detail_url:
+            logger.debug("Ссылка на детали пустая (href), пропуск (number=%s)", number)
             return False, number, False
 
         # Номер всегда есть в карточке списка; если не извлёкся — это сбой селектора.
