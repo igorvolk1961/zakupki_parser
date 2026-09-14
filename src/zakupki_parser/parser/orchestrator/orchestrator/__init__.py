@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime, timedelta
@@ -138,11 +139,21 @@ class Orchestrator(
         # Диагностика (DEBUG): каждый контейнер до любой фильтрации — чтобы по логу
         # можно было отличить «дошёл до этой точки, но отфильтрован дальше» от
         # «вообще не дошёл» (расследование расхождения получено/сохранено).
-        logger.debug(
-            "Контейнер записи: number=%r subject=%r",
-            number,
-            list_vars.get("subject"),
-        )
+        subject = list_vars.get("subject")
+        logger.debug("Контейнер записи: number=%r subject=%r", number, subject)
+        if not number and not subject:
+            # Оба поля пусты — расследуем, ПОЧЕМУ: контейнер того же типа, что и
+            # у реальных записей (просто пока не дорендерился — гонка, уже
+            # чинится _settle_after_navigation), или это структурно ДРУГОЙ блок
+            # (напр. блок «похожих»/рекомендаций с тем же CSS-классом контейнера,
+            # но без карточки закупки внутри)? Класс + фрагмент HTML — единственный
+            # способ отличить эти два случая без живого доступа к площадке
+            # (см. roseltorg_44fz — устойчивый паттерн «первые N настоящие,
+            # остальные пустые», не похоже на гонку по времени).
+            with contextlib.suppress(Exception):
+                cls = await container.get_attribute("class")
+                html = (await container.inner_html())[:400]
+                logger.debug("Пустой контейнер: class=%r html=%r", cls, html)
 
         # Объединение нескольких f_keyword-запросов (R9): одна закупка может попасть
         # в несколько батчей слов — повторную обработку пропускаем, чтобы не дособирать
