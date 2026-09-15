@@ -1,0 +1,13 @@
+databaseChangeLog:
+- changeSet:
+    id: 62
+    author: zakupki-parser
+    comment: 'procurement_search_index: attempts (счётчик подряд идущих сбоев индексации) + индекс по status — база для recovery-прохода и Dead Letter Queue (status=dead_letter после IndexingConfig.max_attempts подряд идущих error, видна аналитику/devops на вкладке «Мониторинг»).'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_search_index
+              ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
+          CREATE INDEX IF NOT EXISTS ix_procurement_search_index_status
+              ON procurement_search_index (status);

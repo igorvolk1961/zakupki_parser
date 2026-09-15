@@ -908,7 +908,7 @@ class ProcurementMixin(RepositoryMixin):
         exclusion_words: list[str],
         *,
         rescore: bool = False,
-        indexing_okpd2_prefixes: list[str] | None = None,
+        use_document_index: bool = False,
     ) -> dict[str, int]:
         """Перестраивает per-profile результаты сбора после изменения профиля.
 
@@ -937,13 +937,21 @@ class ProcurementMixin(RepositoryMixin):
         поэтому метод сам постановку не делает. Возвращает статистику
         ``{created, updated, removed, reset}``.
 
-        ``indexing_okpd2_prefixes`` (``IndexingConfig.okpd2_prefixes``, план фоновой
-        индексации) — если задан, закупки, не совпавшие по словам с ``subject``, ДО-
-        полнительно проверяются по тексту документов (``procurement_search_index.
-        search_tsv``, tsquery-транслятор ``parser/filtering_tsquery.py``) — мгновенно,
-        без обращения к площадкам. Список совпавших слов для такого случая не
-        восстанавливается детально (текст документов не выгружается в Python) —
-        записывается весь позитивный список ключевых слов профиля.
+        ``use_document_index=True`` (план фоновой индексации, Stage B) — закупки,
+        не совпавшие по словам с ``subject``, ДОполнительно проверяются по тексту
+        документов (``procurement_search_index.search_tsv``, tsquery-транслятор
+        ``parser/filtering_tsquery.py``) — мгновенно, без обращения к площадкам.
+        Условие «эта конкретная закупка проиндексирована» проверяется САМИМ JOIN'ом
+        (``ProcurementSearchIndex.status == 'indexed'`` ниже) — НЕ по тому, входит
+        ли её код в текущий ``IndexingConfig.okpd2_prefixes`` (устаревшая, более
+        узкая и неверная проверка отсюда убрана: закупка могла быть проиндексирована
+        раньше, при другом диапазоне, и остаётся полноценно проиндексированной
+        независимо от того, что настроено сейчас — прошлая доп. проверка по
+        префиксам приводила к тому, что уже проиндексированные закупки вне ТЕКУЩЕГО
+        диапазона несправедливо не находились этим путём). Список совпавших слов
+        для такого случая не восстанавливается детально (текст документов не
+        выгружается в Python) — записывается весь позитивный список ключевых слов
+        профиля.
         """
         from zakupki_parser.parser.filtering import (
             exclusions_present,
@@ -960,24 +968,26 @@ class ProcurementMixin(RepositoryMixin):
         nmck_max = profile.nmck_max
         comp_hash = competencies_hash(profile.competencies)
 
-        # Индексный путь (§6 плана фоновой индексации): если заданы проиндексиро-
-        # ванные префиксы ОКПД2, компилируем tsquery один раз на профиль — SQL-запрос
-        # ниже присоединит procurement_search_index и посчитает совпадение по тексту
-        # документов ПРЯМО В БАЗЕ (текст документов в Python не выгружается).
-        pos_tsquery = compile_keywords_to_tsquery(keywords) if indexing_okpd2_prefixes else None
-        neg_tsquery = (
-            compile_keywords_to_tsquery(exclusion_words) if indexing_okpd2_prefixes else None
-        )
+        # Индексный путь (Stage B плана «индекс как основной механизм discovery»):
+        # если включён поиск по документам, компилируем tsquery один раз на профиль —
+        # SQL-запрос ниже присоединит procurement_search_index и посчитает совпадение
+        # по тексту документов ПРЯМО В БАЗЕ (текст документов в Python не выгружается).
+        pos_tsquery = compile_keywords_to_tsquery(keywords) if use_document_index else None
+        neg_tsquery = compile_keywords_to_tsquery(exclusion_words) if use_document_index else None
 
         def matched_list(proc: Any) -> list[str] | None:
             """Список совпавших слов, если закупка в области захвата, иначе None."""
             record = {"subject": proc.subject or ""}
             subject_ok = not keywords or keywords_match(record, keywords)
-            doc_ok = False
-            if not subject_ok and indexing_okpd2_prefixes:
-                doc_ok = bool(
-                    getattr(proc, "doc_pos_match", False)
-                ) and any_okpd_code_covered_by_prefixes(proc.okpd2_codes, indexing_okpd2_prefixes)
+            # doc_pos_match уже учитывает и «проиндексирована» (JOIN ниже гейтится
+            # status='indexed'), и «текст документов совпал по tsquery» — доп.
+            # проверка по текущим indexing.okpd2_prefixes здесь была бы лишней и
+            # неверной (см. докстринг метода).
+            doc_ok = (
+                not subject_ok
+                and use_document_index
+                and bool(getattr(proc, "doc_pos_match", False))
+            )
             if not subject_ok and not doc_ok:
                 return None
             if subject_ok:
@@ -1034,7 +1044,7 @@ class ProcurementMixin(RepositoryMixin):
                 Procurement.nmck,
                 Procurement.okpd2_codes,
             )
-            if indexing_okpd2_prefixes:
+            if use_document_index:
                 doc_pos_expr = (
                     ProcurementSearchIndex.search_tsv.op("@@")(
                         func.to_tsquery(TS_CONFIG, pos_tsquery)

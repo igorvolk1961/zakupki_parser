@@ -3,27 +3,38 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import psutil
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from zakupki_parser.api.app.deps import ApiContext
 
 logger = logging.getLogger(__name__)
 
 
+class IndexRetryOut(BaseModel):
+    procurement_id: int
+    requeued: bool
+
+
 def build_monitoring_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     state = ctx.state
     _repo = ctx._repo
-    require_devops = ctx.require_devops
+    require_analyst_or_devops = ctx.require_analyst_or_devops
 
     @router.get(
         "/api/devops/monitoring",
         include_in_schema=False,
-        dependencies=[Depends(require_devops)],
+        # require_analyst_or_devops (не только devops): вкладка теперь видна и
+        # аналитику (Dead Letter Queue фоновой индексации, ниже) — ничего из
+        # состава ответа (глубина очередей/ресурсы хоста/циклы обхода) не
+        # чувствительно, поэтому отдельный урезанный ответ для аналитика не нужен.
+        dependencies=[Depends(require_analyst_or_devops)],
     )
     async def monitoring() -> dict[str, Any]:
         """Сводка для вкладки «Мониторинг»: очереди каскада, наполнение индекса,
@@ -75,6 +86,56 @@ def build_monitoring_router(ctx: ApiContext) -> APIRouter:
             },
             "resources": resources,
         }
+
+    @router.get(
+        "/api/devops/index-dead-letter",
+        include_in_schema=False,
+        dependencies=[Depends(require_analyst_or_devops)],
+    )
+    async def index_dead_letter() -> dict[str, Any]:
+        """Dead Letter Queue фоновой индексации: записи, исчерпавшие ``max_attempts``.
+
+        Путь под ``/api/devops/...`` сохранён по аналогии с остальной вкладкой
+        «Мониторинг», но доступ — аналитику ИЛИ devops (``require_analyst_or_
+        devops``), а не только devops: аналитик разбирает причины (обычно битые/
+        недоступные файлы площадки), devops — эксплуатационная сторона.
+        """
+        if state.repository is None:
+            return {"entries": []}
+        return {"entries": await _repo().dead_letter_index_entries()}
+
+    @router.post(
+        "/api/devops/index-dead-letter/{procurement_id}/retry",
+        response_model=IndexRetryOut,
+        include_in_schema=False,
+        dependencies=[Depends(require_analyst_or_devops)],
+    )
+    async def retry_index_dead_letter(procurement_id: int) -> IndexRetryOut:
+        """Ручной повтор одной dead-letter записи: сброс attempts/status='pending' +
+        немедленная повторная постановка задания индексации.
+
+        ``_enqueue_index_job`` (обычный индексный обход) ставит задание индексации
+        только ОДИН раз — при первом сохранении закупки, поэтому сам по себе сброс
+        статуса в БД ничего не переиндексирует: закупка уже известна площадке и
+        обычный обход её больше не трогает. Recovery-проход
+        (``Scheduler._recover_index_queue``) тоже не подхватит — он смотрит только
+        ``status='error'``, а не ``'pending'``. Поэтому здесь enqueue делается явно.
+        """
+        ok = await _repo().reset_index_entry_for_retry(procurement_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Запись индекса не найдена")
+        if state.score_transport is not None:
+            try:
+                await state.score_transport.enqueue(
+                    procurement_id, datetime.now(UTC).timestamp(), stage="index", profile_id=0
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Не удалось поставить повторное задание индексации закупки %s: %s",
+                    procurement_id,
+                    exc,
+                )
+        return IndexRetryOut(procurement_id=procurement_id, requeued=True)
 
     return router
 

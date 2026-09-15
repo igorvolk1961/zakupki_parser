@@ -683,7 +683,7 @@ requirements:
 
   - id: US-11.1
     type: US
-    title: Мгновенный «горячий» пересбор для закупок из проиндексированного диапазона ОКПД2
+    title: Обнаружение закупок из индекса вместо живого обхода (Stage B/D плана «индекс как основной механизм discovery»)
     stakeholder: Тендеролог (user), Аналитик
     stage: "3, 4"
     status: implemented
@@ -691,13 +691,52 @@ requirements:
     code:
       - src/zakupki_parser/storage/repository/procurements.py#rebuild_profile_results
       - src/zakupki_parser/scheduler.py#_build_system_index_ctx
+      - src/zakupki_parser/scheduler.py#_split_ctxs_for_index_routing
+      - src/zakupki_parser/scheduler.py#_sync_profiles_via_index
+      - src/zakupki_parser/parser/orchestrator/context.py
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#_build_units
     tests:
       - tests/integration/test_repository.py
       - tests/unit/test_scheduler_parallel.py
+      - tests/unit/test_okpd_prefixes.py
     notes: >-
-      Смена профиля фильтрации отдаёт результат по закупкам заданного диапазона
-      ОКПД2 (IndexingConfig.okpd2_prefixes) мгновенно из предвычисленного
-      поискового индекса, без живого повторного обхода площадок (см. Группу 11).
+      Маршрутизация — ПО КОДУ ОКПД2, не по профилю целиком
+      (``_split_ctxs_for_index_routing``): у профиля с несколькими кодами
+      часть может быть покрыта ``IndexingConfig.okpd2_prefixes``, часть нет —
+      покрытые коды синхронизируются из БД (``_sync_profiles_via_index`` ->
+      ``rebuild_profile_results``, полный профиль — сам сверяет найденную
+      закупку с полным диапазоном), непокрытые получают живой обход, но
+      УЗКИЙ — только по остатку (``ProfileRunContext.crawl_okpd_codes``,
+      подхватывается ``Orchestrator._build_units`` ВМЕСТО ``profile.
+      okpd_codes`` при построении критериев обхода; сам ``profile`` не
+      меняется — матчинг/скоринг видят полный исходный диапазон). Профиль без
+      покрытых кодов вовсе — обычный живой обход без сужения, как до Stage D.
+      Системный индексный профиль (``is_system_index``) — всегда живым обходом
+      целиком, он и есть источник данных для индекса.
+
+      Применяется одинаково и к регулярному циклу (``run_once``), и к
+      внеочередному fast-start обходу при правке профиля (``_run_refresh_
+      pass``) — ДО этого фикса внеочередной обход ВСЕГДА делал полный живой
+      full-window обход после «горячего» пересбора, независимо от покрытия
+      индексом, что делало самый частый пользовательский путь (правка
+      профиля) самым медленным без реальных оснований: синхронизация из БД
+      уже даёт даже БОЛЕЕ полную ретроспективу для покрытых кодов (не
+      ограничена окном ``default_cutoff_days``, в отличие от живого обхода).
+
+      Первая версия этого фикса (до правки по итогам ревью) ошибочно
+      маршрутизировала ПО ПРОФИЛЮ ЦЕЛИКОМ (``all_okpd_codes_covered_by_
+      prefixes``, требовала ПОЛНОГО покрытия всех кодов профиля) — частично
+      покрытый профиль не получал вообще никакой оптимизации. Переделано на
+      маршрутизацию по коду по прямому указанию пользователя.
+
+      Stage B (2026-09): ``rebuild_profile_results`` раньше ДОПОЛНИТЕЛЬНО
+      проверял «код закупки входит в ТЕКУЩИЙ ``indexing.okpd2_prefixes``» — не
+      нужная и неверная проверка (закупка могла быть проиндексирована раньше,
+      при другом диапазоне, и остаётся полноценно проиндексированной
+      независимо от текущей настройки); убрана, единственное условие теперь —
+      ``procurement_search_index.status == 'indexed'`` для конкретной закупки
+      (через JOIN). Параметр переименован ``indexing_okpd2_prefixes: list[str]
+      | None`` -> ``use_document_index: bool``.
 
   # ===== Функциональные требования =====
   - id: FR-1.1
@@ -1521,14 +1560,36 @@ requirements:
       - src/zakupki_parser/storage/repository/search_index.py
       - src/zakupki_parser/api/app/routes/procurements.py#set_procurement_index_result
       - docker/liquibase/changelog/db.changelog-1.57.yaml
+      - docker/liquibase/changelog/db.changelog-1.60.yaml
+      - src/zakupki_parser/scheduler.py#_recover_index_queue
+      - src/zakupki_parser/api/app/routes/monitoring.py
+      - src/zakupki_parser/api/app/deps.py
+      - src/zakupki_parser/config/models/service.py#IndexingConfig
+      - src/zakupki_parser/api/static/js/monitoring.js
+      - src/zakupki_parser/api/static/js/roles.js
+      - src/zakupki_parser/api/zakupki.html
     tests:
       - src/indexing_service/tests/test_worker.py
       - tests/integration/test_api.py
+      - tests/integration/test_repository.py
+      - tests/unit/test_scheduler_recovery.py
     notes: >-
       indexing_service не водит браузер (Playwright — только внутри парсера):
       files_json дозагружается парсером при персисте закупки индексным профилем
       (processing.py#_enqueue_index_job), сервис только скачивает/извлекает
       текст документов (scoring_common.tz) и возвращает результат.
+
+      Retry + Dead Letter Queue (2026-09, Stage A плана «индекс как основной
+      механизм discovery»): ``procurement_search_index.attempts`` считает подряд
+      идущие ``status='error'`` (``save_index_result``); по достижении
+      ``IndexingConfig.max_attempts`` запись переводится в ``status='dead_letter'``
+      и recovery-проход (``Scheduler._recover_index_queue``, зеркало
+      ``_recover_scoring_queue``, до ``IndexingConfig.retry_ttl_seconds`` между
+      попытками) её больше не трогает — так закупка никогда не теряется
+      «навсегда» молча, а требует ручного разбора. DLQ видна и доступна для
+      ручного retry аналитику ИЛИ devops (``GET/POST /api/devops/
+      index-dead-letter...``, ``require_analyst_or_devops``) — доступ не только
+      devops, в отличие от остальной вкладки «Мониторинг».
   - id: FR-11.3
     type: FR
     title: Транслятор DSL ключевых слов в Postgres tsquery
@@ -1564,8 +1625,8 @@ requirements:
       - src/scoring_transport/tests/test_app.py
   - id: FR-11.5
     type: FR
-    title: Devops-мониторинг фоновой индексации (очереди, индекс, циклы, хранилище, ресурсы хоста)
-    stakeholder: DevOps / SRE
+    title: Devops/analyst-мониторинг фоновой индексации (очереди, индекс, циклы, хранилище, ресурсы хоста)
+    stakeholder: DevOps / SRE, Аналитик
     stage: "3, 4"
     status: implemented
     adr: "-"
@@ -1590,16 +1651,18 @@ requirements:
       - src/scoring_transport/tests/test_queue.py
       - src/scoring_transport/tests/test_app.py
     notes: >-
-      Отдельная devops-вкладка «Мониторинг»: глубина Redis-очередей всех стадий
-      каскада (fit/pwin/margin/analysis/index), наполнение procurement_search_index
-      (indexed/error + последние ошибки с текстом), сводка циклов обхода
-      (parser_cycle_stats — получено/сохранено закупок, число площадок и сбоев
-      обращения к ним, длительность; «последний цикл» + «в среднем» по последним
-      regular-проходам, см. Scheduler._record_cycle_stats/_CycleAccumulator),
-      разбивка диска (файловое хранилище data/ vs БД, pg_database_size) и ресурсы
-      хоста (CPU/RAM/диск, psutil). Все блоки best-effort — недоступность
-      транспорта/БД отражается в соответствующем блоке ответа, а не роняет
-      эндпоинт (см. FR-11.1..11.4).
+      Вкладка «Мониторинг» (require_analyst_or_devops, deps.py — расширена с
+      devops-only под Dead Letter Queue фоновой индексации, FR-11.2, ничего в
+      составе ответа не чувствительно для аналитика): глубина Redis-очередей всех
+      стадий каскада (fit/pwin/margin/analysis/index), наполнение
+      procurement_search_index (indexed/error + последние ошибки с текстом),
+      сводка циклов обхода (parser_cycle_stats — получено/сохранено закупок,
+      число площадок и сбоев обращения к ним, длительность; «последний цикл» +
+      «в среднем» по последним regular-проходам, см. Scheduler._record_cycle_
+      stats/_CycleAccumulator), разбивка диска (файловое хранилище data/ vs БД,
+      pg_database_size) и ресурсы хоста (CPU/RAM/диск, psutil). Все блоки
+      best-effort — недоступность транспорта/БД отражается в соответствующем
+      блоке ответа, а не роняет эндпоинт (см. FR-11.1..11.4).
   - id: FR-11.6
     type: FR
     title: Детектор неожиданного краха браузера Playwright

@@ -7,7 +7,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -18,6 +18,7 @@ from zakupki_parser.circuit import CircuitBreaker, CircuitOpenError
 from zakupki_parser.config.models import AppConfig, PlatformDom
 from zakupki_parser.logging_conf import reset_run_context, set_run_context, setup_logging
 from zakupki_parser.notify import Notifier
+from zakupki_parser.okpd import okpd_code_covered_by_prefixes
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
@@ -190,12 +191,104 @@ class Scheduler:
         распределяются по площадкам через ``_profile_on_platform`` (``target_etp``);
         одинаковые обходы (площадка + набор ОКПД2) дедуплицируются ``_build_units``
         (``deduplicate_requests``).
+
+        Stage D (план «индекс как основной механизм discovery»), маршрутизация
+        ПО КОДУ, не по профилю целиком (``_split_ctxs_for_index_routing``): код
+        профиля, покрытый ``IndexingConfig.okpd2_prefixes``, обслуживается
+        синхронизацией из БД (``_sync_profiles_via_index`` -> ``rebuild_profile_
+        results``, без обращения к площадке); код вне покрытия — обычным живым
+        обходом, но узким — только по непокрытым кодам ЭТОГО профиля
+        (``ProfileRunContext.crawl_okpd_codes``), а не по всему профилю. Профиль
+        без покрытых кодов вообще (или индексация выключена) обходится живьём
+        как раньше, без сужения. Системный индексный профиль всегда обходится
+        живьём целиком — он и наполняет ``procurements``/``procurement_search_
+        index``, на которых основана синхронизация остальных.
         """
         await self._recover_scoring_queue(iteration)
+        await self._recover_index_queue(iteration)
         ctxs = await self._gather_profile_ctxs()
+        index_sync_ctxs, live_ctxs = self._split_ctxs_for_index_routing(ctxs)
+        if index_sync_ctxs:
+            await self._sync_profiles_via_index(index_sync_ctxs)
         started_at = datetime.now(UTC)
-        cycle = await self._run_platform_pass(ctxs, iteration, full_window=False)
+        cycle = await self._run_platform_pass(live_ctxs, iteration, full_window=False)
         await self._record_cycle_stats(iteration, "regular", started_at, cycle)
+
+    def _split_ctxs_for_index_routing(
+        self, ctxs: list[ProfileRunContext]
+    ) -> tuple[list[ProfileRunContext], list[ProfileRunContext]]:
+        """Делит профили ПО КОДУ ОКПД2 на «синхронизировать из индекса» / «живой обход».
+
+        Возвращает ``(index_sync, live)``. Профиль может попасть в ОБЕ группы
+        одновременно — если часть его кодов покрыта ``IndexingConfig.
+        okpd2_prefixes``, а часть нет: в ``live`` тогда идёт КОПИЯ контекста
+        (``dataclasses.replace``) с ``crawl_okpd_codes``, суженным до
+        непокрытого остатка (см. ``ProfileRunContext.crawl_okpd_codes`` и
+        ``Orchestrator._build_units``) — сам ``profile`` не меняется, живой
+        обход просто просит у площадки меньше кодов, чем полный диапазон
+        профиля. Ничего не покрыто (или у профиля вообще нет кодов, или
+        индексация выключена) -> обычный живой обход без сужения, как до
+        Stage D. Системный индексный профиль (``is_system_index``) — всегда
+        только живой обход, целиком: он сам источник данных для индекса.
+        """
+        index_sync: list[ProfileRunContext] = []
+        live: list[ProfileRunContext] = []
+        indexing = self._cfg.service.indexing
+        for ctx in ctxs:
+            if ctx.is_system_index or not indexing.enabled:
+                live.append(ctx)
+                continue
+            codes = list(ctx.profile.okpd_codes or [])
+            if not codes:
+                live.append(ctx)
+                continue
+            covered = [
+                c for c in codes if okpd_code_covered_by_prefixes(c, indexing.okpd2_prefixes)
+            ]
+            uncovered = [c for c in codes if c not in covered]
+            if covered:
+                index_sync.append(ctx)
+            if not covered:
+                live.append(ctx)  # индекс не применим вовсе — обычный живой обход
+            elif uncovered:
+                live.append(replace(ctx, crawl_okpd_codes=uncovered))  # частичное покрытие
+            # covered и не uncovered: полностью покрыт — в live не попадает вовсе.
+        return index_sync, live
+
+    async def _sync_profiles_via_index(self, ctxs: list[ProfileRunContext]) -> None:
+        """Синхронизация профилей (или покрытой индексом части их кодов) из БД.
+
+        Тот же ``rebuild_profile_results``, что и «горячий» пересбор при правке
+        профиля (``_rebuild_profile_results``), но с ``rescore=False`` (это не
+        реакция на изменение компетенций — обычная синхронизация; сброс скора
+        при смене компетенций по-прежнему делает fast-start обход) и вызывается
+        на каждом регулярном цикле, а не только по событию правки. Передаётся
+        ПОЛНЫЙ ``ctx.profile`` (не суженный) — ``rebuild_profile_results`` сам
+        сверяет каждую найденную в БД закупку с полным диапазоном профиля,
+        сужение (``crawl_okpd_codes``) актуально только для живого обхода.
+        Сбой одного профиля не должен останавливать синхронизацию остальных.
+        """
+        if self._repository is None:
+            return
+        for ctx in ctxs:
+            try:
+                stats = await self._repository.rebuild_profile_results(
+                    ctx.profile,
+                    ctx.keywords,
+                    ctx.exclusion_words,
+                    rescore=False,
+                    use_document_index=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Синхронизация профиля %s через индекс не удалась: %s", ctx.profile.id, exc
+                )
+                continue
+            logger.info(
+                "Индекс: синхронизация профиля %s (покрытая индексом часть кодов): %s",
+                ctx.profile.id,
+                stats,
+            )
 
     async def _record_cycle_stats(
         self,
@@ -615,6 +708,17 @@ class Scheduler:
         повторно полным окном не обходится (кап на число полных обходов одного
         профиля за цикл) — запрос остаётся накопленным и снимается регулярным
         проходом либо следующим циклом внеочередных обходов.
+
+        Маршрутизация по коду (Stage D), как и в регулярном цикле
+        (``_split_ctxs_for_index_routing``): коды профиля, покрытые индексом,
+        синхронизируются из БД без обращения к площадке; живой full-window
+        обход запрашивается только по непокрытым кодам (или по всем, если
+        индекс профилю вообще не подходит). Раньше здесь ВСЕГДА следовал живой
+        обход по всем кодам сразу после «горячего» пересбора — избыточно для
+        уже полностью покрытых индексом профилей: он даёт даже более полную
+        ретроспективу (не ограничен окном ``default_cutoff_days``), чем
+        ограниченный по времени живой обход, так что для них повторный живой
+        проход не нужен вовсе.
         """
         if not self._refresh_ids:
             self._refresh_pending_since = None
@@ -650,6 +754,12 @@ class Scheduler:
                     ctx,
                     rescore=ctx.profile.id in rescore_ids and ctx.scoring_allowed,
                 )
+        index_sync_ctxs, live_ctxs = self._split_ctxs_for_index_routing(ctxs)
+        # Профили из rebuild_ids уже синхронизированы выше (_rebuild_profile_results
+        # сам делает use_document_index=True) — не дублируем синхронизацию для них.
+        remaining_sync = [c for c in index_sync_ctxs if c.profile.id not in rebuild_ids]
+        if remaining_sync:
+            await self._sync_profiles_via_index(remaining_sync)
         logger.info(
             "Внеочередной обход начинается: профилей %d (%s), итерация %d",
             len(ctxs),
@@ -657,7 +767,7 @@ class Scheduler:
             iteration,
         )
         started_at = datetime.now(UTC)
-        cycle = await self._run_platform_pass(ctxs, iteration, full_window=True)
+        cycle = await self._run_platform_pass(live_ctxs, iteration, full_window=True)
         await self._record_cycle_stats(iteration, "refresh", started_at, cycle)
         # Сброшенный при перестройке скор пересчитываем сразу после обхода
         # (те же правила recovery: опция scoring владельца, TTL).
@@ -679,13 +789,16 @@ class Scheduler:
         устаревших по компетенциям результатов сбрасывается скор — recovery
         поставит повторный fit.
 
-        Мгновенный путь «горячего» пересбора (§6 плана индексации): если включена
-        фоновая индексация (``IndexingConfig``), передаём список проиндексированных
-        префиксов ОКПД2 — закупки, не совпавшие по ``subject``, дополнительно
-        проверяются по тексту документов (``procurement_search_index``) прямо в БД,
-        без обращения к площадкам. Для профиля без ``okpd_codes`` оптимизация не
-        применяется (см. ``rebuild_profile_results`` — фильтр по ОКПД2 всё равно
-        обязателен, чтобы не индексировать закупки вне доступного профилю диапазона).
+        Мгновенный путь «горячего» пересбора (Stage B плана «индекс как основной
+        механизм discovery»): если включена фоновая индексация (``IndexingConfig``),
+        закупки, не совпавшие по ``subject``, дополнительно проверяются по тексту
+        документов (``procurement_search_index``) прямо в БД, без обращения к
+        площадкам — независимо от того, какой диапазон ОКПД2 сейчас настроен для
+        индексации (``rebuild_profile_results`` сам проверяет «эта закупка
+        проиндексирована», а не «её код в текущем диапазоне», см. его докстринг).
+        Для профиля без ``okpd_codes`` оптимизация не применяется — без серверного
+        ограничения диапазона доп. проверка по тексту документов была бы
+        неограниченно широкой (весь проиндексированный каталог).
         """
         if self._repository is None:
             return
@@ -696,7 +809,7 @@ class Scheduler:
             ctx.keywords,
             ctx.exclusion_words,
             rescore=rescore,
-            indexing_okpd2_prefixes=list(indexing.okpd2_prefixes) if use_index else None,
+            use_document_index=use_index,
         )
         logger.info(
             "Перестройка результатов профиля %s: %s",
@@ -765,6 +878,53 @@ class Scheduler:
                 "Recovery очереди скоринга: поставлено пар (закупка, профиль): %d",
                 len(items),
             )
+
+    async def _recover_index_queue(self, iteration: int = 0) -> None:
+        """Догоняющий повтор сбойных записей фоновой индексации (Dead Letter Queue, §Stage A).
+
+        Тот же паттерн, что ``_recover_scoring_queue``, применённый к стадии
+        ``index``: находит ``procurement_search_index.status='error'`` записи, не
+        трогавшиеся дольше ``IndexingConfig.retry_ttl_seconds``, и ставит их в
+        очередь индексации заново. Записи, исчерпавшие ``max_attempts``, уже
+        переведены в ``status='dead_letter'`` в ``save_index_result`` и сюда не
+        попадают — для них retry прекращён, требуется ручное вмешательство
+        (аналитик/devops, ``reset_index_entry_for_retry``).
+        """
+        indexing = self._cfg.service.indexing
+        if (
+            not indexing.enabled
+            or not self._cfg.score.scoring_transport_url
+            or self._repository is None
+        ):
+            return
+        transport = ScoringTransportClient(
+            self._cfg.score.scoring_transport_url,
+            auth_token=self._cfg.ops.auth.internal_token,
+        )
+        now = datetime.now(UTC)
+        updated_before = now - timedelta(seconds=indexing.retry_ttl_seconds)
+        for _ in range(10):  # не более 10 партий по 200 за цикл
+            items = await self._repository.retryable_index_errors(
+                limit=200, updated_before=updated_before
+            )
+            if not items:
+                return
+            for item in items:
+                ts = item["update_date"] or item["publication_date"]
+                priority = ts.timestamp() if ts is not None else now.timestamp()
+                try:
+                    await transport.enqueue(
+                        item["procurement_id"], priority, stage="index", profile_id=0
+                    )
+                    await self._repository.mark_index_retry_queued(item["procurement_id"], now)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Recovery очереди индексации прерван: закупка %s не поставлена (%s)",
+                        item["procurement_id"],
+                        exc,
+                    )
+                    return
+            logger.info("Recovery очереди индексации: повторно поставлено закупок: %d", len(items))
 
     async def _parse_platform(
         self,

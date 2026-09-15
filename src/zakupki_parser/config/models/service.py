@@ -146,6 +146,23 @@ class IndexingConfig(_BaseConfig):
             "профиль их не обходит, чтобы не тянуть площадку целиком без ОКПД2-скоупинга"
         ),
     )
+    max_attempts: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "сколько раз подряд повторяется сбойная индексация закупки (status='error') "
+            "через recovery-проход, прежде чем запись уходит в Dead Letter Queue "
+            "(status='dead_letter', видна аналитику/devops на вкладке «Мониторинг»)"
+        ),
+    )
+    retry_ttl_seconds: float = Field(
+        default=3600.0,
+        ge=1.0,
+        description=(
+            "минимальный интервал между повторными попытками одной и той же сбойной "
+            "закупки (recovery-проход не ставит её в очередь чаще этого срока)"
+        ),
+    )
 
 
 class ServiceConfig(_BaseConfig):

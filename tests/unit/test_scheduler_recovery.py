@@ -257,3 +257,103 @@ async def test_recover_skips_profiles_without_scoring_option(
 
     assert fake_transport.enqueued == []
     assert repo.marked == []
+
+
+class _FakeIndexRepo:
+    """Фейковый репозиторий для ``Scheduler._recover_index_queue`` (Stage A: DLQ)."""
+
+    def __init__(self, items: list[dict[str, Any]]) -> None:
+        self._items = items
+        self.touched: list[int] = []
+
+    async def retryable_index_errors(
+        self, *, limit: int, updated_before: datetime
+    ) -> list[dict[str, Any]]:
+        return [item for item in self._items if item["procurement_id"] not in self.touched][:limit]
+
+    async def mark_index_retry_queued(self, procurement_id: int, now: datetime) -> None:
+        self.touched.append(procurement_id)
+
+
+def _index_item(
+    pid: int,
+    *,
+    update_date: datetime | None = None,
+    publication_date: datetime | None = None,
+) -> dict[str, Any]:
+    return {"procurement_id": pid, "update_date": update_date, "publication_date": publication_date}
+
+
+@pytest.mark.asyncio
+async def test_recover_index_queue_requeues_error_entries(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сбойные записи индекса (status='error', готовые по TTL) ставятся в очередь
+    заново со stage='index' и отмечаются, чтобы не задваиваться в том же цикле."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = True
+    scheduler = Scheduler(cfg)
+    fake_transport = _FakeTransport()
+    repo = _FakeIndexRepo(
+        [
+            _index_item(1, publication_date=datetime(2026, 8, 10, 12, 0, tzinfo=UTC)),
+            _index_item(2, update_date=datetime(2026, 8, 15, 12, 0, tzinfo=UTC)),
+        ]
+    )
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    monkeypatch.setattr(
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
+    )
+
+    await scheduler._recover_index_queue()  # noqa: SLF001
+
+    assert [item[0] for item in fake_transport.enqueued] == [1, 2]
+    assert all(
+        stage == "index" and profile_id == 0 for _, _, stage, profile_id in fake_transport.enqueued
+    )
+    assert repo.touched == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_recover_index_queue_noop_when_indexing_disabled(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """IndexingConfig.enabled=False — recovery для стадии index не выполняется."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = False
+    scheduler = Scheduler(cfg)
+    fake_transport = _FakeTransport()
+    repo = _FakeIndexRepo([_index_item(1)])
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    monkeypatch.setattr(
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
+    )
+
+    await scheduler._recover_index_queue()  # noqa: SLF001
+
+    assert fake_transport.enqueued == []
+    assert repo.touched == []
+
+
+@pytest.mark.asyncio
+async def test_recover_index_queue_stops_on_transport_failure(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Сбой enqueue прерывает recovery индекса до следующего цикла (как у скоринга)."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = True
+    scheduler = Scheduler(cfg)
+    fake_transport = _FakeTransport(fail_on=0)
+    repo = _FakeIndexRepo([_index_item(1), _index_item(2)])
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    monkeypatch.setattr(
+        "zakupki_parser.scheduler.ScoringTransportClient",
+        lambda url, auth_token=None: fake_transport,
+    )
+
+    await scheduler._recover_index_queue()  # noqa: SLF001
+
+    assert fake_transport.enqueued == []
+    assert repo.touched == []

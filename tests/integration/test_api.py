@@ -773,6 +773,69 @@ def test_procurement_index_result_error_preserves_previous_document_text(
     assert "извлечённый" in search_tsv
 
 
+def test_index_dead_letter_requires_analyst_or_devops(
+    api_client: tuple[TestClient, Path], analyst_headers: dict[str, str]
+) -> None:
+    """DLQ-эндпоинт (Stage A) доступен аналитику ИЛИ devops — та же политика,
+    что и у остальной вкладки «Мониторинг» (см. test_monitoring_allows_analyst_
+    and_devops), а не более узкая."""
+    client, _ = api_client
+    resp_analyst = client.get("/api/devops/index-dead-letter", headers=analyst_headers)
+    assert resp_analyst.status_code == 200
+    resp_devops = client.get("/api/devops/index-dead-letter")  # дефолтный клиент — admin+devops
+    assert resp_devops.status_code == 200
+
+
+def test_index_dead_letter_lists_entry_after_max_attempts(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Повторные сбои индексации (по умолчанию 5 подряд, IndexingConfig.max_attempts)
+    переводят запись в dead_letter — она появляется в списке DLQ."""
+    client, _ = api_client
+    proc_id = _seed_procurement("IDX-DLQ-API")
+
+    for i in range(5):
+        resp = client.post(
+            f"/api/procurements/{proc_id}/index-result",
+            json={"status": "error", "error_message": f"boom-{i}"},
+            headers=INTERNAL_HEADERS,
+        )
+        assert resp.status_code == 200
+
+    dlq = client.get("/api/devops/index-dead-letter")
+    assert dlq.status_code == 200
+    entry = next(e for e in dlq.json()["entries"] if e["procurement_id"] == proc_id)
+    assert entry["attempts"] == 5
+    assert entry["error_message"] == "boom-4"
+
+
+def test_index_dead_letter_retry_resets_entry(api_client: tuple[TestClient, Path]) -> None:
+    """Ручной retry (аналитик/devops) сбрасывает dead-letter запись — она пропадает из DLQ."""
+    client, _ = api_client
+    proc_id = _seed_procurement("IDX-DLQ-RETRY")
+    for i in range(5):
+        client.post(
+            f"/api/procurements/{proc_id}/index-result",
+            json={"status": "error", "error_message": f"boom-{i}"},
+            headers=INTERNAL_HEADERS,
+        )
+    dlq_before = client.get("/api/devops/index-dead-letter").json()["entries"]
+    assert any(e["procurement_id"] == proc_id for e in dlq_before)
+
+    resp = client.post(f"/api/devops/index-dead-letter/{proc_id}/retry")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"procurement_id": proc_id, "requeued": True}
+    dlq_after = client.get("/api/devops/index-dead-letter").json()["entries"]
+    assert not any(e["procurement_id"] == proc_id for e in dlq_after)
+
+
+def test_index_dead_letter_retry_404_for_unknown(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.post("/api/devops/index-dead-letter/999999999/retry")
+    assert resp.status_code == 404
+
+
 def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     body = client.get("/api/config/threshold").json()
@@ -1575,10 +1638,13 @@ def test_active_context_uses_disabled_profile(
     asyncio.run(_active_is_disabled_profile())
 
 
-def test_monitoring_requires_devops(
+def test_monitoring_allows_analyst_and_devops(
     api_client: tuple[TestClient, Path], analyst_headers: dict[str, str]
 ) -> None:
-    """Вкладка «Мониторинг» — только devops (см. plan «radiant-crunching-lemon»).
+    """Вкладка «Мониторинг» — аналитик ИЛИ devops (изначально была devops-only,
+    см. plan «radiant-crunching-lemon»; расширена под Dead Letter Queue фоновой
+    индексации — Stage A плана «индекс как основной механизм discovery», ничего
+    из состава ответа не чувствительно для аналитика).
 
     ``analyst_headers`` — токен реального пользователя с ролями analyst/user (без
     devops) в БД: ``require_user`` перечитывает роли из БД по ``sub`` токена, так
@@ -1586,7 +1652,7 @@ def test_monitoring_requires_devops(
     """
     client, _ = api_client
     resp = client.get("/api/devops/monitoring", headers=analyst_headers)
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
 
 def test_monitoring_returns_queues_index_and_resources(

@@ -4,7 +4,7 @@
 // индекса по ОКПД2, ресурсы хоста. Автообновление раз в 10с, пока вкладка
 // открыта (по образцу авто-обновления «Логов», см. logs.js).
 import { $, escapeHtml, fmtDT } from "./utils.js";
-import { api } from "./api.js";
+import { api, apiJSON } from "./api.js";
 import { createConfigView } from "./config_view.js";
 
 const STAGE_LABELS = {
@@ -75,6 +75,34 @@ function renderIndex(index) {
     </table>`
         : ""
     }`;
+}
+
+function renderDeadLetter(entries) {
+  if (!entries || !entries.length) {
+    return `<div class="muted">Пусто — сбойных записей, исчерпавших повторы, нет</div>`;
+  }
+  const rows = entries
+    .map(
+      (e) => `<tr>
+        <td>${escapeHtml(e.number || String(e.procurement_id))}</td>
+        <td>${escapeHtml(e.subject || "")}</td>
+        <td>${e.attempts}</td>
+        <td>${escapeHtml(e.error_message || "")}</td>
+        <td>${escapeHtml(fmtDT(e.updated_at))}</td>
+        <td><button data-dlq-retry="${e.procurement_id}" title="Сбросить попытки и поставить закупку в очередь индексации заново">Повторить</button></td>
+      </tr>`
+    )
+    .join("");
+  return `
+    <table>
+      <thead><tr><th>Закупка</th><th>Тема</th><th>Попыток</th><th>Ошибка</th><th>Когда</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function retryDeadLetterEntry(procurementId) {
+  await apiJSON(`/api/devops/index-dead-letter/${procurementId}/retry`, { method: "POST" });
+  await loadMonitoring();
 }
 
 function fmtDuration(seconds) {
@@ -149,6 +177,8 @@ async function loadMonitoring() {
     $("#mon-cycles").innerHTML = renderCycles(data.cycles);
     $("#mon-storage").innerHTML = renderStorage(data.storage);
     $("#mon-resources").innerHTML = renderResources(data.resources);
+    const dlq = await api("devops/index-dead-letter");
+    $("#mon-dlq").innerHTML = renderDeadLetter(dlq.entries);
   } catch (e) {
     const msg = e && e.message ? e.message : String(e);
     $("#mon-error").textContent = `ошибка загрузки: ${msg}`;
@@ -165,6 +195,18 @@ async function loadMonitoring() {
     }, 10000);
   }
 }
+
+// Делегирование клика с #mon-dlq (контейнер стабилен, содержимое перерисовывается
+// каждые 10с — прямой listener на кнопке строки был бы потерян при пере-рендере).
+document.getElementById("mon-dlq")?.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-dlq-retry]");
+  if (!btn) return;
+  btn.disabled = true;
+  retryDeadLetterEntry(Number(btn.dataset.dlqRetry)).catch((err) => {
+    $("#mon-error").textContent = `ошибка повтора: ${err && err.message ? err.message : err}`;
+    btn.disabled = false;
+  });
+});
 
 export function monitoringDirty() {
   return indexingConfigDirty;

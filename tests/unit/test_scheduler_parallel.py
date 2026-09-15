@@ -68,6 +68,11 @@ def _patch_platforms(
     monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_ctxs)
     monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: list(platform_ids))
     monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+    # Тесты этого файла — про параллельность/домены обхода площадок, не про
+    # Stage D (маршрутизацию через индекс по коду): profile-заглушки (object())
+    # не несут is_system_index/profile.okpd_codes, поэтому отключаем
+    # разбиение — все ctx идут живым обходом, как было до Stage D.
+    monkeypatch.setattr(scheduler, "_split_ctxs_for_index_routing", lambda ctxs: ([], ctxs))
 
 
 def _install_tracked_process(
@@ -277,12 +282,20 @@ async def test_run_once_records_cycle_stats(
 
 
 class _FakeProfileCtx:
-    """Профиль-контекст для внеочередного обхода (нужны ``id`` и ``profile.id``)."""
+    """Профиль-контекст для внеочередного обхода (нужны ``id`` и ``profile.id``).
+
+    ``is_system_index=False``/``profile.okpd_codes=[]`` — чтобы
+    ``Scheduler._split_ctxs_for_index_routing`` (Stage D) естественно отправлял
+    такой профиль в живой обход БЕЗ сужения (нет кодов — индекс не применим),
+    не мешая тестам этого файла, которые не про маршрутизацию по коду.
+    """
 
     def __init__(self, profile_id: int) -> None:
         self.id = profile_id
-        self.profile = SimpleNamespace(id=profile_id)
+        self.profile = SimpleNamespace(id=profile_id, okpd_codes=[])
         self.scoring_allowed = True
+        self.is_system_index = False
+        self.crawl_okpd_codes = None
 
 
 @pytest.mark.asyncio
@@ -532,6 +545,98 @@ async def test_run_refresh_pass_rebuilds_results_on_flag(
 
 
 @pytest.mark.asyncio
+async def test_run_refresh_pass_skips_live_crawl_for_fully_covered_profile(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Правка профиля, полностью покрытого индексом: синхронизация из БД даёт более
+    полную ретроспективу, чем ограниченный окном живой обход — поэтому он вообще
+    не запускается (Stage D, было безусловно ВСЕГДА до этого фикса)."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = True
+    cfg.service.indexing.okpd2_prefixes = ["62"]
+    scheduler = _make_scheduler(cfg, max_concurrent=2)
+    ctx = _index_ctx(okpd_codes=["62.01"], profile_id=7)
+
+    async def fake_gather(only_ids: set[int] | None = None) -> list[ProfileRunContext]:
+        assert only_ids == {7}
+        return [ctx]
+
+    live_calls: list[int] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: list[ProfileRunContext],
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+        cycle: object = None,
+    ) -> None:
+        live_calls.extend(c.profile.id for c in profiles)
+
+    sync_calls: list[int] = []
+
+    async def fake_sync(ctxs: list[ProfileRunContext]) -> None:
+        sync_calls.extend(c.profile.id for c in ctxs)
+
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather)
+    monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: ["p1"])
+    monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+    monkeypatch.setattr(scheduler, "_sync_profiles_via_index", fake_sync)
+
+    scheduler.request_profile_refresh(7)  # без rebuild — обычная запрошенная правка
+    await scheduler._run_refresh_pass(iteration=1)  # noqa: SLF001
+
+    assert sync_calls == [7]
+    assert live_calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_pass_narrows_live_crawl_for_partially_covered_profile(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Частичное покрытие при правке профиля: синхронизация из БД ПЛЮС живой обход,
+    но только по непокрытому остатку кодов — не по всему профилю."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = True
+    cfg.service.indexing.okpd2_prefixes = ["62"]
+    scheduler = _make_scheduler(cfg, max_concurrent=2)
+    ctx = _index_ctx(okpd_codes=["62.01", "71.20"], profile_id=7)
+
+    async def fake_gather(only_ids: set[int] | None = None) -> list[ProfileRunContext]:
+        return [ctx]
+
+    live_calls: list[tuple[int, list[str] | None]] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: list[ProfileRunContext],
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+        cycle: object = None,
+    ) -> None:
+        live_calls.extend((c.profile.id, c.crawl_okpd_codes) for c in profiles)
+
+    sync_calls: list[int] = []
+
+    async def fake_sync(ctxs: list[ProfileRunContext]) -> None:
+        sync_calls.extend(c.profile.id for c in ctxs)
+
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather)
+    monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: ["p1"])
+    monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+    monkeypatch.setattr(scheduler, "_sync_profiles_via_index", fake_sync)
+
+    scheduler.request_profile_refresh(7)
+    await scheduler._run_refresh_pass(iteration=1)  # noqa: SLF001
+
+    assert sync_calls == [7]
+    assert live_calls == [(7, ["71.20"])]
+
+
+@pytest.mark.asyncio
 async def test_run_service_wakes_on_refresh_keeps_regular_cadence(
     app_config: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -778,13 +883,13 @@ class _RebuildRepo:
         exclusion_words: list[str],
         *,
         rescore: bool = False,
-        indexing_okpd2_prefixes: list[str] | None = None,
+        use_document_index: bool = False,
     ) -> dict[str, int]:
         self.calls.append(
             {
                 "profile_id": profile.id,
                 "rescore": rescore,
-                "indexing_okpd2_prefixes": indexing_okpd2_prefixes,
+                "use_document_index": use_document_index,
             }
         )
         return {"created": 0, "updated": 0, "removed": 0, "reset": 0}
@@ -796,10 +901,10 @@ def _rebuild_ctx(*, okpd_codes: list[str] | None) -> ProfileRunContext:
 
 
 @pytest.mark.asyncio
-async def test_rebuild_profile_results_passes_prefixes_when_enabled_and_scoped(
+async def test_rebuild_profile_results_uses_document_index_when_enabled_and_scoped(
     app_config: Any,
 ) -> None:
-    """Индексация включена + у профиля есть ОКПД2 — префиксы уходят в репозиторий."""
+    """Индексация включена + у профиля есть ОКПД2 — use_document_index=True."""
     cfg = app_config.model_copy(deep=True)
     cfg.service.indexing.enabled = True
     cfg.service.indexing.okpd2_prefixes = ["62", "38"]
@@ -811,13 +916,13 @@ async def test_rebuild_profile_results_passes_prefixes_when_enabled_and_scoped(
         _rebuild_ctx(okpd_codes=["62.01"])
     )
 
-    assert repo.calls == [
-        {"profile_id": 42, "rescore": False, "indexing_okpd2_prefixes": ["62", "38"]}
-    ]
+    assert repo.calls == [{"profile_id": 42, "rescore": False, "use_document_index": True}]
 
 
 @pytest.mark.asyncio
-async def test_rebuild_profile_results_skips_prefixes_when_disabled(app_config: Any) -> None:
+async def test_rebuild_profile_results_skips_document_index_when_disabled(
+    app_config: Any,
+) -> None:
     cfg = app_config.model_copy(deep=True)
     cfg.service.indexing.enabled = False
     cfg.service.indexing.okpd2_prefixes = ["62"]
@@ -827,11 +932,11 @@ async def test_rebuild_profile_results_skips_prefixes_when_disabled(app_config: 
 
     await scheduler._rebuild_profile_results(_rebuild_ctx(okpd_codes=["62.01"]))  # noqa: SLF001
 
-    assert repo.calls[0]["indexing_okpd2_prefixes"] is None
+    assert repo.calls[0]["use_document_index"] is False
 
 
 @pytest.mark.asyncio
-async def test_rebuild_profile_results_skips_prefixes_when_profile_has_no_okpd(
+async def test_rebuild_profile_results_skips_document_index_when_profile_has_no_okpd(
     app_config: Any,
 ) -> None:
     cfg = app_config.model_copy(deep=True)
@@ -843,4 +948,206 @@ async def test_rebuild_profile_results_skips_prefixes_when_profile_has_no_okpd(
 
     await scheduler._rebuild_profile_results(_rebuild_ctx(okpd_codes=[]))  # noqa: SLF001
 
-    assert repo.calls[0]["indexing_okpd2_prefixes"] is None
+    assert repo.calls[0]["use_document_index"] is False
+
+
+# ===== Stage D: маршрутизация discovery через индекс ПО КОДУ ОКПД2 =====
+
+
+def _index_ctx(
+    *, okpd_codes: list[str] | None, is_system_index: bool = False, profile_id: int = 1
+) -> ProfileRunContext:
+    profile = SimpleNamespace(id=profile_id, okpd_codes=okpd_codes or [])
+    return ProfileRunContext(
+        profile=cast(Profile, profile),
+        keywords=["слово"],
+        exclusion_words=[],
+        is_system_index=is_system_index,
+    )
+
+
+@pytest.mark.asyncio
+async def test_split_ctxs_fully_covered_goes_to_index_sync_only(app_config: Any) -> None:
+    """Все коды профиля покрыты индексом — только синхронизация из БД, живой обход не нужен."""
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=["62", "38"])
+    ctx = _index_ctx(okpd_codes=["62.01", "38.11"])
+
+    index_sync, live = scheduler._split_ctxs_for_index_routing([ctx])  # noqa: SLF001
+
+    assert index_sync == [ctx]
+    assert live == []
+
+
+@pytest.mark.asyncio
+async def test_split_ctxs_partially_covered_goes_to_both_with_narrowed_live_codes(
+    app_config: Any,
+) -> None:
+    """Частичное покрытие: синхронизация из БД ПЛЮС узкий живой обход только по
+    непокрытым кодам (не по всему профилю) — маршрутизация по коду, не по профилю."""
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=["62"])
+    ctx = _index_ctx(okpd_codes=["62.01", "71.20"])
+
+    index_sync, live = scheduler._split_ctxs_for_index_routing([ctx])  # noqa: SLF001
+
+    assert index_sync == [ctx]  # полный профиль — rebuild_profile_results сам сверяет область
+    assert len(live) == 1
+    live_ctx = live[0]
+    assert live_ctx is not ctx  # копия, исходный ctx не мутирован
+    assert live_ctx.profile is ctx.profile
+    assert live_ctx.crawl_okpd_codes == ["71.20"]
+    assert ctx.crawl_okpd_codes is None
+
+
+@pytest.mark.asyncio
+async def test_split_ctxs_not_covered_at_all_goes_to_live_unmodified(app_config: Any) -> None:
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=["62"])
+    ctx = _index_ctx(okpd_codes=["71.20"])
+
+    index_sync, live = scheduler._split_ctxs_for_index_routing([ctx])  # noqa: SLF001
+
+    assert index_sync == []
+    assert live == [ctx]
+    assert live[0].crawl_okpd_codes is None
+
+
+@pytest.mark.asyncio
+async def test_split_ctxs_without_okpd_codes_goes_to_live_unmodified(app_config: Any) -> None:
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=["62"])
+    ctx = _index_ctx(okpd_codes=[])
+
+    index_sync, live = scheduler._split_ctxs_for_index_routing([ctx])  # noqa: SLF001
+
+    assert index_sync == []
+    assert live == [ctx]
+
+
+@pytest.mark.asyncio
+async def test_split_ctxs_indexing_disabled_goes_to_live_unmodified(app_config: Any) -> None:
+    scheduler = _indexing_scheduler(app_config, enabled=False, okpd2_prefixes=["62"])
+    ctx = _index_ctx(okpd_codes=["62.01"])
+
+    index_sync, live = scheduler._split_ctxs_for_index_routing([ctx])  # noqa: SLF001
+
+    assert index_sync == []
+    assert live == [ctx]
+
+
+@pytest.mark.asyncio
+async def test_split_ctxs_system_index_profile_always_live_unmodified(app_config: Any) -> None:
+    """Системный индексный профиль всегда идёт живым обходом целиком — он и есть
+    источник индекса."""
+    scheduler = _indexing_scheduler(app_config, enabled=True, okpd2_prefixes=["62"])
+    ctx = _index_ctx(okpd_codes=["62"], is_system_index=True)
+
+    index_sync, live = scheduler._split_ctxs_for_index_routing([ctx])  # noqa: SLF001
+
+    assert index_sync == []
+    assert live == [ctx]
+    assert live[0].crawl_okpd_codes is None
+
+
+@pytest.mark.asyncio
+async def test_sync_profiles_via_index_calls_rebuild_for_each(app_config: Any) -> None:
+    scheduler = Scheduler(app_config.model_copy(deep=True))
+    repo = _RebuildRepo()
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    ctxs = [
+        _index_ctx(okpd_codes=["62.01"], profile_id=1),
+        _index_ctx(okpd_codes=["38"], profile_id=2),
+    ]
+
+    await scheduler._sync_profiles_via_index(ctxs)  # noqa: SLF001
+
+    assert [c["profile_id"] for c in repo.calls] == [1, 2]
+    assert all(c["rescore"] is False and c["use_document_index"] is True for c in repo.calls)
+
+
+@pytest.mark.asyncio
+async def test_sync_profiles_via_index_one_failure_does_not_stop_others(app_config: Any) -> None:
+    class _FlakyRebuildRepo(_RebuildRepo):
+        async def rebuild_profile_results(
+            self,
+            profile: Any,
+            keywords: list[str],
+            exclusion_words: list[str],
+            *,
+            rescore: bool = False,
+            use_document_index: bool = False,
+        ) -> dict[str, int]:
+            if profile.id == 1:
+                raise RuntimeError("db unavailable")
+            return await super().rebuild_profile_results(
+                profile,
+                keywords,
+                exclusion_words,
+                rescore=rescore,
+                use_document_index=use_document_index,
+            )
+
+    scheduler = Scheduler(app_config.model_copy(deep=True))
+    repo = _FlakyRebuildRepo()
+    scheduler._repository = repo  # type: ignore[assignment]  # noqa: SLF001
+    ctxs = [
+        _index_ctx(okpd_codes=["62.01"], profile_id=1),
+        _index_ctx(okpd_codes=["38"], profile_id=2),
+    ]
+
+    await scheduler._sync_profiles_via_index(ctxs)  # noqa: SLF001
+
+    assert [c["profile_id"] for c in repo.calls] == [2]
+
+
+@pytest.mark.asyncio
+async def test_run_once_routes_by_code_not_by_whole_profile(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Проверка на всех четырёх случаях сразу: профиль, полностью покрытый индексом,
+    синхронизируется из БД и не обходится живьём вовсе; частично покрытый —
+    синхронизируется И обходится живьём, но ТОЛЬКО по непокрытому остатку кодов
+    (не по всему профилю); непокрытый и системный индексный — обычным живым обходом
+    без сужения."""
+    cfg = app_config.model_copy(deep=True)
+    cfg.service.indexing.enabled = True
+    cfg.service.indexing.okpd2_prefixes = ["62"]
+    scheduler = _make_scheduler(cfg, max_concurrent=2)
+    fully_covered = _index_ctx(okpd_codes=["62.01"], profile_id=1)
+    partially_covered = _index_ctx(okpd_codes=["62.02", "71.20"], profile_id=2)
+    not_covered = _index_ctx(okpd_codes=["71.20"], profile_id=3)
+    system = _index_ctx(okpd_codes=["62"], is_system_index=True, profile_id=-1)
+
+    async def fake_gather_ctxs() -> list[ProfileRunContext]:
+        return [fully_covered, partially_covered, not_covered, system]
+
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather_ctxs)
+    monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: ["p1"])
+    monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+
+    live_calls: list[tuple[int, list[str] | None]] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: list[ProfileRunContext],
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+        cycle: object = None,
+    ) -> None:
+        live_calls.extend((c.profile.id, c.crawl_okpd_codes) for c in profiles)
+
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+
+    sync_calls: list[int] = []
+
+    async def fake_sync(ctxs: list[ProfileRunContext]) -> None:
+        sync_calls.extend(c.profile.id for c in ctxs)
+
+    monkeypatch.setattr(scheduler, "_sync_profiles_via_index", fake_sync)
+
+    await scheduler.run_once()
+
+    assert sorted(sync_calls) == [1, 2]  # fully_covered и partially_covered
+    assert sorted(live_calls) == [
+        (-1, None),  # системный индексный — целиком, без сужения
+        (2, ["71.20"]),  # partially_covered — только непокрытый остаток
+        (3, None),  # not_covered — целиком, индекс ему не подходит вовсе
+    ]

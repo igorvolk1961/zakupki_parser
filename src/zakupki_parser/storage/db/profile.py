@@ -75,10 +75,11 @@ class Profile(Base):
     nmck_min: Mapped[float | None] = mapped_column(Float)
     nmck_max: Mapped[float | None] = mapped_column(Float)
     # Искать ключевые слова профиля также в тексте документов закупки (ТЗ и
-    # приложения), не только в subject. Для закупок из проиндексированного
-    # диапазона ОКПД2 (indexing_okpd2_prefixes) ответ мгновенный (search_tsv);
-    # вне диапазона — живой фоллбэк при обходе (дозагрузка деталей+файлов на
-    # каждую запись, не прошедшую фильтр по subject) — заметно медленнее.
+    # приложения), не только в subject. Для уже проиндексированных закупок
+    # (procurement_search_index.status='indexed') ответ мгновенный (search_tsv,
+    # см. rebuild_profile_results#use_document_index); для остальных — живой
+    # фоллбэк при обходе (дозагрузка деталей+файлов на каждую запись, не
+    # прошедшую фильтр по subject) — заметно медленнее.
     search_in_documents: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )

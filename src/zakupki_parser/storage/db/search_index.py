@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Text,
     UniqueConstraint,
     func,
@@ -48,8 +49,15 @@ class ProcurementSearchIndex(Base):
     просто не персистится — только его tsvector.
     ``status`` — жизненный цикл индексации одной закупки: ``pending`` (запись
     создана, файлы ещё не обработаны) -> ``indexed`` (``search_tsv`` актуален) |
-    ``error`` (сбой скачивания/извлечения — ``error_message``, повтор на
-    следующей итерации; предыдущий успешный ``search_tsv`` при этом сохраняется).
+    ``error`` (сбой скачивания/извлечения — ``error_message``; ``attempts``
+    увеличивается на 1 при каждом ``error`` в ``save_index_result``, сбрасывается
+    в 0 при ``indexed``) -> ``dead_letter`` (``attempts`` достиг
+    ``IndexingConfig.max_attempts`` — retry прекращается, запись видна на вкладке
+    «Мониторинг» аналитику и devops, требует ручного вмешательства). Recovery-
+    проход (``Scheduler._recover_index_queue``, зеркало ``_recover_scoring_queue``)
+    повторно ставит ``error``-записи (не дошедшие до ``dead_letter``) в очередь
+    индексации не чаще, чем раз в ``IndexingConfig.retry_ttl_seconds``; предыдущий
+    успешный ``search_tsv`` при повторных ошибках не затирается.
 
     Индексы объявлены и здесь, и в Liquibase-миграции (db.changelog-1.57.yaml) —
     та же DDL продублирована намеренно: инцидент (2026-09) показал, что
@@ -65,6 +73,7 @@ class ProcurementSearchIndex(Base):
         UniqueConstraint("procurement_id", name="uq_procurement_search_index_procurement"),
         Index("ix_procurement_search_index_procurement", "procurement_id"),
         Index("ix_procurement_search_index_okpd2", "okpd2_normalized"),
+        Index("ix_procurement_search_index_status", "status"),
         Index(
             "ix_procurement_search_index_search_tsv",
             "search_tsv",
@@ -98,6 +107,8 @@ class ProcurementSearchIndex(Base):
     # переиндексирование: не тянуть документы повторно, если ничего не изменилось.
     content_hash: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    # Счётчик подряд идущих сбоев (status='error') — см. докстринг класса.
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

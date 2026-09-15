@@ -397,8 +397,17 @@ class Orchestrator(
                 units[(key, unique)] = CrawlUnit(criteria=criteria, kind=kind, profiles=[ctx])
 
         for ctx in run_profiles:
+            # crawl_okpd_codes (Stage D) сужает диапазон ЖИВОГО обхода для профиля,
+            # частично покрытого фоновой индексацией — коды, уже покрытые индексом,
+            # синхронизируются из БД отдельно (Scheduler._sync_profiles_via_index),
+            # обход запрашивается только по остальным. None — обычный полный диапазон.
+            codes = (
+                ctx.crawl_okpd_codes
+                if ctx.crawl_okpd_codes is not None
+                else (ctx.profile.okpd_codes or [])
+            )
             base = SearchCriteria(
-                okpd_codes=ctx.profile.okpd_codes or [],
+                okpd_codes=codes,
                 nmck_min=ctx.profile.nmck_min,
                 nmck_max=ctx.profile.nmck_max,
                 active_only=sc.active_only,

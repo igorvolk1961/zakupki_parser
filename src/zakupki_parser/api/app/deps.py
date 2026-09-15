@@ -61,6 +61,7 @@ class ApiContext:
     require_admin: Callable[[User | None], User | None]
     require_analyst: Callable[[User | None], User | None]
     require_devops: Callable[[User | None], User | None]
+    require_analyst_or_devops: Callable[[User | None], User | None]
     require_base: Callable[[User | None], User | None]
     require_internal: Callable[[Request], None]
     require_user_or_internal: Callable[[Request], Awaitable[User | None]]
@@ -223,6 +224,10 @@ def build_context(state: AppState) -> ApiContext:
     require_admin = _require_roles(ROLE_ADMIN)
     require_analyst = _require_roles(ROLE_ANALYST)
     require_devops = _require_roles(ROLE_DEVOPS)
+    # Dead-letter очередь фоновой индексации (см. index-dead-letter в monitoring.py):
+    # доступ и аналитику, и devops — оба заинтересованы (контроль качества индекса /
+    # эксплуатация пайплайна соответственно).
+    require_analyst_or_devops = _require_roles(ROLE_ANALYST, ROLE_DEVOPS)
     # Базовые вкладки (Закупки/Заказчики/Профили) видят user и analyst.
     require_base = _require_roles(ROLE_USER, ROLE_ANALYST)
 
@@ -286,6 +291,7 @@ def build_context(state: AppState) -> ApiContext:
     ctx.require_admin = require_admin
     ctx.require_analyst = require_analyst
     ctx.require_devops = require_devops
+    ctx.require_analyst_or_devops = require_analyst_or_devops
     ctx.require_base = require_base
     ctx.require_internal = require_internal
     ctx.require_user_or_internal = require_user_or_internal

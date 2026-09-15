@@ -652,6 +652,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             document_text=body.document_text,
             content_hash=body.content_hash,
             error_message=body.error_message,
+            max_attempts=state.cfg.service.indexing.max_attempts,
         )
         if not ok:
             raise HTTPException(status_code=404, detail="Закупка не найдена")

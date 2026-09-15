@@ -1043,7 +1043,7 @@ async def test_rebuild_profile_results_instant_match_via_document_index(db: Data
     )
 
     stats = await repo.rebuild_profile_results(
-        profile, ["роботизированн*"], [], indexing_okpd2_prefixes=["62"]
+        profile, ["роботизированн*"], [], use_document_index=True
     )
 
     assert stats["created"] == 1
@@ -1084,7 +1084,7 @@ async def test_rebuild_profile_results_document_exclusion_blocks_match(db: Datab
     )
 
     stats = await repo.rebuild_profile_results(
-        profile, ["роботизированн*"], ["демонтаж"], indexing_okpd2_prefixes=["62"]
+        profile, ["роботизированн*"], ["демонтаж"], use_document_index=True
     )
 
     assert stats["created"] == 0
@@ -1116,8 +1116,8 @@ async def test_rebuild_profile_results_no_okpd_codes_skips_index_path(db: Databa
         pid, "indexed", document_text="Приложение: роботизированный манипулятор"
     )
 
-    # indexing_okpd2_prefixes не передан скедулером для профиля без okpd_codes —
-    # здесь явно проверяем поведение репозитория при отсутствии параметра.
+    # use_document_index не передаётся скедулером для профиля без okpd_codes —
+    # здесь явно проверяем поведение репозитория при use_document_index=False (default).
     stats = await repo.rebuild_profile_results(profile, ["роботизированн*"], [])
 
     assert stats["created"] == 0
@@ -1143,6 +1143,93 @@ async def test_index_status_counts(db: Database) -> None:
     assert counts["indexed"] == 2
     assert counts["error"] == 1
     assert counts["total_procurements"] == 4
+
+
+@pytest.mark.asyncio
+async def test_save_index_result_error_then_dead_letter_after_max_attempts(db: Database) -> None:
+    """Повторные сбои индексации копят attempts; по достижении max_attempts запись
+    уходит в dead_letter (Stage A: recovery + Dead Letter Queue)."""
+    repo = ProcurementRepository(db)
+    pid = await _save_proc(repo, "IDX-DLQ-1")
+
+    await repo.save_index_result(pid, "error", error_message="boom1", max_attempts=2)
+    errors = await repo.recent_index_errors()
+    assert any(e["procurement_id"] == pid and e["error_message"] == "boom1" for e in errors)
+    dead = await repo.dead_letter_index_entries()
+    assert not any(e["procurement_id"] == pid for e in dead)
+
+    await repo.save_index_result(pid, "error", error_message="boom2", max_attempts=2)
+    dead = await repo.dead_letter_index_entries()
+    entry = next(e for e in dead if e["procurement_id"] == pid)
+    assert entry["attempts"] == 2
+    assert entry["error_message"] == "boom2"
+    errors = await repo.recent_index_errors()
+    assert not any(e["procurement_id"] == pid for e in errors)
+
+
+@pytest.mark.asyncio
+async def test_save_index_result_indexed_resets_attempts(db: Database) -> None:
+    """Успешная индексация сбрасывает счётчик попыток — следующий одиночный сбой
+    не должен сразу отправить запись в dead_letter."""
+    repo = ProcurementRepository(db)
+    pid = await _save_proc(repo, "IDX-DLQ-2")
+    await repo.save_index_result(pid, "error", error_message="boom", max_attempts=5)
+    await repo.save_index_result(pid, "indexed", document_text="текст закупки", max_attempts=5)
+
+    await repo.save_index_result(pid, "error", error_message="boom2", max_attempts=2)
+
+    errors = await repo.recent_index_errors()
+    assert any(e["procurement_id"] == pid for e in errors)
+    dead = await repo.dead_letter_index_entries()
+    assert not any(e["procurement_id"] == pid for e in dead)
+
+
+@pytest.mark.asyncio
+async def test_retryable_index_errors_respects_ttl_and_excludes_dead_letter(db: Database) -> None:
+    """Recovery-проход видит только 'error'-записи старше TTL; dead_letter пропускает."""
+    repo = ProcurementRepository(db)
+    retryable = await _save_proc(repo, "IDX-RETRY-1")
+    await repo.save_index_result(retryable, "error", error_message="boom", max_attempts=5)
+    dead_lettered = await _save_proc(repo, "IDX-RETRY-2")
+    await repo.save_index_result(dead_lettered, "error", error_message="boom", max_attempts=1)
+
+    now = datetime.now(UTC)
+    fresh = await repo.retryable_index_errors(limit=10, updated_before=now - timedelta(hours=1))
+    assert not any(item["procurement_id"] == retryable for item in fresh)
+
+    stale = await repo.retryable_index_errors(limit=10, updated_before=now + timedelta(seconds=5))
+    assert any(item["procurement_id"] == retryable for item in stale)
+    assert not any(item["procurement_id"] == dead_lettered for item in stale)
+
+
+@pytest.mark.asyncio
+async def test_reset_index_entry_for_retry(db: Database) -> None:
+    """Ручной сброс dead-letter записи (аналитик/devops) возвращает её в pending,
+    attempts обнуляется, она больше не в DLQ и не в выборке recovery по 'error'."""
+    repo = ProcurementRepository(db)
+    pid = await _save_proc(repo, "IDX-RESET-1")
+    await repo.save_index_result(pid, "error", error_message="boom", max_attempts=1)
+    dead = await repo.dead_letter_index_entries()
+    assert any(e["procurement_id"] == pid for e in dead)
+
+    ok = await repo.reset_index_entry_for_retry(pid)
+
+    assert ok is True
+    dead = await repo.dead_letter_index_entries()
+    assert not any(e["procurement_id"] == pid for e in dead)
+    stale = await repo.retryable_index_errors(
+        limit=10, updated_before=datetime.now(UTC) + timedelta(seconds=5)
+    )
+    assert not any(item["procurement_id"] == pid for item in stale)
+
+
+@pytest.mark.asyncio
+async def test_reset_index_entry_for_retry_unknown_returns_false(db: Database) -> None:
+    repo = ProcurementRepository(db)
+
+    ok = await repo.reset_index_entry_for_retry(999_999_999)
+
+    assert ok is False
 
 
 @pytest.mark.asyncio

@@ -25,7 +25,18 @@ export const TAB_SETS = {
   // Личный кабинет/аккаунты — только ролям, у которых может быть профиль
   // (user/analyst); admin/devops профилей не имеют, поэтому без кабинета.
   admin: [TAB_USERS],
-  analyst: [...TAB_BASE, TAB_METRICS, TAB_MONITOR, TAB_PROMPTS, TAB_REFS, TAB_ACCOUNT],
+  // TAB_MONITORING (devops) добавлен и аналитику: Dead Letter Queue фоновой
+  // индексации (require_analyst_or_devops, monitoring.py) требует и его доступа
+  // — остальные панели вкладки (очереди/циклы/диск) для аналитика read-only.
+  analyst: [
+    ...TAB_BASE,
+    TAB_METRICS,
+    TAB_MONITOR,
+    TAB_MONITORING,
+    TAB_PROMPTS,
+    TAB_REFS,
+    TAB_ACCOUNT,
+  ],
   // Конфиг парсера теперь под-вкладкой «Сервисы» (svc-tab-parser), не отдельным
   // верхним табом — см. ops_config.js.
   devops: [TAB_SERVICES, TAB_MONITORING, TAB_CFGOPS, TAB_LOGCFG, TAB_LOGS],
