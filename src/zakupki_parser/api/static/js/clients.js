@@ -483,9 +483,31 @@ function renderTags(arr, wrapId) {
   }
 }
 
+// Добавляет слово(а) из input.value в arr (через запятую — несколько за раз),
+// с дедупликацией без учёта регистра; общая логика для поля добавления
+// (bindTagInput — списки без поиска: вопросы, коды ОКПД2, компетенции) и поля
+// поиска (bindTagSearch — Enter там тоже добавляет, см. его комментарий; для
+// ключевых слов/слов-исключений это ЕДИНСТВЕННОЕ поле ввода — отдельного поля
+// «только для добавления» под списком чипов там больше нет, см. разметку
+// #pf-keywords-tags/#pf-excl-tags). Возвращает true, если что-то добавлено.
+function addTagWords(input, arr, wrapId, makeItem) {
+  const label = (item) => (typeof item === "object" && item != null ? item.text : item);
+  const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return false;
+  parts.forEach((w) => {
+    const item = makeItem ? makeItem(w) : w;
+    const key = String(label(item)).toLocaleLowerCase();
+    if (!arr.some((x) => String(label(x)).toLocaleLowerCase() === key)) arr.push(item);
+  });
+  input.value = "";
+  renderTags(arr, wrapId);
+  wordCounts();
+  syncEntryFormState();
+  return true;
+}
+
 function bindTagInput(wrapId, arr, makeItem) {
   const input = $(wrapId).querySelector("input");
-  const label = (item) => (typeof item === "object" && item != null ? item.text : item);
   // Страховка: при фокусе пере-рисуем чипы, чтобы они не могли остаться скрытыми.
   input.addEventListener("focus", () => {
     renderTags(arr, wrapId);
@@ -494,23 +516,16 @@ function bindTagInput(wrapId, arr, makeItem) {
   input.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!parts.length) return;
-    parts.forEach((w) => {
-      const item = makeItem ? makeItem(w) : w;
-      const key = String(label(item)).toLocaleLowerCase();
-      if (!arr.some((x) => String(label(x)).toLocaleLowerCase() === key)) arr.push(item);
-    });
-    input.value = "";
-    renderTags(arr, wrapId);
-    wordCounts();
-    syncEntryFormState();
+    addTagWords(input, arr, wrapId, makeItem);
   });
 }
 
 // Поиск по существующему списку тегов: фильтр скрывает несовпадающие чипы,
 // не затрагивая источник данных и счётчики (total на табах не меняется).
-function bindTagSearch(wrapId, arr) {
+// Для ключевых слов/слов-исключений это ЕДИНСТВЕННОЕ поле ввода — Enter здесь
+// и добавляет новое слово (см. ниже), и фильтр уже введённых работает как
+// обычно; больше нет отдельного «поля только для добавления» под списком.
+function bindTagSearch(wrapId, arr, makeItem) {
   const box = $(wrapId);
   const label = box && box.closest("label");
   const input = label && label.querySelector(".tag-search");
@@ -519,11 +534,27 @@ function bindTagSearch(wrapId, arr) {
     tagSearches.set(wrapId, input.value);
     renderTags(arr, wrapId);
   };
+  // Страховка: при фокусе пере-рисуем чипы, чтобы они не могли остаться скрытыми.
+  input.addEventListener("focus", () => {
+    renderTags(arr, wrapId);
+    wordCounts();
+  });
   input.addEventListener("input", apply);
   input.addEventListener("search", apply);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       input.value = "";
+      apply();
+      return;
+    }
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    // Поле поиска визуально стоит НАД полем добавления и выглядит так же —
+    // пользователь, начинающий вводить первое слово, естественно печатает
+    // сюда и жмёт Enter, ожидая добавления, а не только фильтрации списка.
+    // Трактуем Enter здесь как «добавить», как в основном поле ниже.
+    if (addTagWords(input, arr, wrapId, makeItem)) {
+      tagSearches.set(wrapId, "");
       apply();
     }
   });
@@ -1464,8 +1495,17 @@ $("#experience-cancel").addEventListener("click", () => {
   $("#experience-form").style.display = "none";
   syncEntryFormState();
 });
-bindTagInput("#pf-keywords-tags", profileKeywords);
-bindTagInput("#pf-excl-tags", profileExcl);
+// Единственное поле ввода для ключевых слов/слов-исключений — bindTagSearch
+// (поиск по списку + Enter добавляет новое слово); отдельного bindTagInput
+// здесь больше нет — под списком чипов не осталось второго поля добавления.
 bindTagSearch("#pf-keywords-tags", profileKeywords);
 bindTagSearch("#pf-excl-tags", profileExcl);
+// Раньше здесь не было вообще никакой привязки — вопрос нельзя было добавить
+// через это поле никаким способом (fillProfileForm только отображала уже
+// загруженные из профиля вопросы). makeItem — тот же формат {id, text}, что
+// fillProfileForm даёт вопросам, пришедшим с сервера.
+bindTagInput("#pf-questions-tags", profileQuestions, (text) => ({
+  id: `q${questionSeq++}`,
+  text,
+}));
 bindOkpdTagInput();

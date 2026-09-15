@@ -184,15 +184,22 @@
   #profile-editor .profile-form > div { flex-shrink:0; }
   #pf-pane-keywords, #pf-pane-excl, #pf-pane-questions { min-height:140px; }
   #pf-pane-comp { min-height:140px; }
+  /* align-items:stretch переопределяет align-items:center базового .tag-input
+     (там это строка — центрирует чипы по вертикали относительно инпута; здесь
+     .tag-input — колонка, и то же center по кросс-оси колонки центрировало бы
+     .tags/.tags-fallback ГОРИЗОНТАЛЬНО как блок, прижимая уже введённые слова
+     к центру панели, а не к левому краю). */
   #pf-pane-keywords .tag-input, #pf-pane-excl .tag-input, #pf-pane-questions .tag-input {
-    display:flex; flex-direction:column; gap:6px; overflow:visible;
+    display:flex; flex-direction:column; gap:6px; overflow:visible; align-items:stretch;
   }
   #pf-pane-keywords .tag-input .tags, #pf-pane-excl .tag-input .tags, #pf-pane-questions .tag-input .tags {
     display:flex; flex-wrap:wrap; gap:6px; align-content:flex-start; overflow:visible;
   }
   .tag-input .tags-fallback { font-family:ui-monospace,monospace; font-size:13px;
     color:var(--text); white-space:pre-wrap; }
-  #pf-pane-keywords .tag-input input[type="text"], #pf-pane-excl .tag-input input[type="text"],
+  /* Ключевые слова/слова-исключения: отдельного поля добавления под списком
+     чипов больше нет (единственное поле ввода — .tag-search выше, см.
+     clients.js#bindTagSearch) — правило нужно только вопросам. */
   #pf-pane-questions .tag-input input[type="text"] {
     position:sticky; bottom:0; flex:0 0 auto; width:100%; min-width:0; padding:6px;
     background:var(--panel2); border-radius:6px;
