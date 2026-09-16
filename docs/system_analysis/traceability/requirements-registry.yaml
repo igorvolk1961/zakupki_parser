@@ -1704,6 +1704,41 @@ requirements:
       площадки/закупки в БД общие для всех профилей, «веерная» фильтрация).
       Заказчик, чьи закупки отобрал только ДРУГОЙ профиль, не виден. До этого
       справочник был полностью глобальным (без учёта профиля вообще).
+  - id: FR-11.8
+    type: FR
+    title: Devops-мониторинг обхода ПО ПЛОЩАДКАМ (масштабируется на сотни площадок)
+    stakeholder: DevOps / SRE
+    stage: "3, 4"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/platform_stats.py
+      - src/zakupki_parser/storage/repository/platform_stats.py
+      - src/zakupki_parser/scheduler.py#_record_platform_stats
+      - src/zakupki_parser/api/app/routes/monitoring.py#platform_stats
+      - src/zakupki_parser/api/static/js/monitoring.js
+      - src/zakupki_parser/api/zakupki.html
+      - docker/liquibase/changelog/db.changelog-1.61.yaml
+    tests:
+      - tests/unit/test_scheduler_parallel.py
+      - tests/integration/test_repository.py
+      - tests/integration/test_api.py
+    notes: >-
+      Дополняет сводку цикла целиком (FR-11.5) разбивкой ПО КАЖДОЙ площадке:
+      GET /api/devops/platform-stats (require_analyst_or_devops, поиск по
+      platform_id + фильтр «только сбои» + пагинация limit/offset). Явно
+      рассчитано на рост числа площадок далеко за текущие 10 (заказано —
+      «более 160»): ``parser_platform_stats`` — ОДНА строка НА ПЛОЩАДКУ (upsert
+      по platform_id в Scheduler._process_platform после каждой обработки,
+      не insert-per-cycle) — размер таблицы растёт только с числом площадок,
+      никогда с числом циклов; среднее (avg_duration_seconds/avg_received/
+      avg_saved) считается из накопительных сумм (runs_total/sum_*), без
+      хранения истории по циклам. UI-панель («Статистика по площадкам»)
+      намеренно НЕ на общем 10с-таймере вкладки (в отличие от остальных
+      блоков «Мониторинга») — пере-рендер по таймеру сбрасывал бы поиск/
+      пагинацию при сотнях строк; грузится один раз при активации вкладки и
+      по явному действию пользователя (поиск/чекбокс/пагинация/«Обновить»),
+      тот же принцип, что и у indexingConfigView.
 
   # ===== Бизнес-правила =====
   - id: BR-01

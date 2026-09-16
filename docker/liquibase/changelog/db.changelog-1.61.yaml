@@ -1,0 +1,29 @@
+databaseChangeLog:
+- changeSet:
+    id: 63
+    author: zakupki-parser
+    comment: 'parser_platform_stats: статистика обхода ПО ПЛОЩАДКАМ (devops-мониторинг, вкладка «Мониторинг») — одна строка на площадку (upsert, не insert-per-cycle), размер таблицы не растёт с числом циклов, только с числом площадок (масштабируется на сотни площадок).'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          CREATE TABLE IF NOT EXISTS parser_platform_stats (
+              platform_id TEXT PRIMARY KEY,
+              last_iteration INTEGER NOT NULL,
+              last_started_at TIMESTAMPTZ NOT NULL,
+              last_finished_at TIMESTAMPTZ NOT NULL,
+              last_success BOOLEAN NOT NULL,
+              last_received INTEGER NOT NULL DEFAULT 0,
+              last_saved INTEGER NOT NULL DEFAULT 0,
+              last_error TEXT,
+              runs_total INTEGER NOT NULL DEFAULT 0,
+              runs_failed INTEGER NOT NULL DEFAULT 0,
+              sum_duration_seconds DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+              sum_received BIGINT NOT NULL DEFAULT 0,
+              sum_saved BIGINT NOT NULL DEFAULT 0,
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+          );
+          CREATE INDEX IF NOT EXISTS ix_parser_platform_stats_last_finished
+              ON parser_platform_stats (last_finished_at);
+          CREATE INDEX IF NOT EXISTS ix_parser_platform_stats_last_success
+              ON parser_platform_stats (last_success);

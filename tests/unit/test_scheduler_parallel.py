@@ -281,6 +281,58 @@ async def test_run_once_records_cycle_stats(
     assert stats["finished_at"] >= stats["started_at"]
 
 
+@pytest.mark.asyncio
+async def test_run_once_records_platform_stats(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_process_platform`` пишет ПЕР-ПЛОЩАДОЧНУЮ статистику (``parser_platform_
+    stats``, devops-мониторинг, вкладка «Мониторинг» — разбивка по площадкам,
+    в дополнение к сводке цикла целиком) — отдельно для успеха и для сбоя
+    площадки, с корректными platform_id/iteration/received/saved/error_message.
+    """
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    _patch_platforms(scheduler, monkeypatch, ["zakupki_mos", "zakupki_gov"])
+
+    async def fake_parse(
+        platform_id: str,
+        platform: object,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+    ) -> dict[str, int]:
+        if platform_id == "zakupki_gov":
+            raise RuntimeError("boom")
+        return {"received": 5, "saved": 2, "known": 1}
+
+    recorded: list[dict[str, Any]] = []
+
+    class _RepoWithPlatformStats(_FakeRepo):
+        async def upsert_platform_stats(self, **kwargs: Any) -> None:
+            recorded.append(kwargs)
+
+    monkeypatch.setattr(scheduler, "_parse_platform", fake_parse)
+    scheduler._repository = _RepoWithPlatformStats()  # type: ignore[assignment]  # noqa: SLF001
+
+    await scheduler.run_once(iteration=3)
+
+    assert len(recorded) == 2
+    by_platform = {r["platform_id"]: r for r in recorded}
+    ok = by_platform["zakupki_mos"]
+    assert ok["iteration"] == 3
+    assert ok["success"] is True
+    assert ok["received"] == 5
+    assert ok["saved"] == 2
+    assert ok["error_message"] is None
+    assert ok["finished_at"] >= ok["started_at"]
+    failed = by_platform["zakupki_gov"]
+    assert failed["iteration"] == 3
+    assert failed["success"] is False
+    assert failed["received"] == 0
+    assert failed["saved"] == 0
+    assert failed["error_message"] == "boom"
+
+
 class _FakeProfileCtx:
     """Профиль-контекст для внеочередного обхода (нужны ``id`` и ``profile.id``).
 

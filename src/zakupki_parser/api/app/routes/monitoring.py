@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from zakupki_parser.api.app.deps import ApiContext
@@ -136,6 +136,32 @@ def build_monitoring_router(ctx: ApiContext) -> APIRouter:
                     exc,
                 )
         return IndexRetryOut(procurement_id=procurement_id, requeued=True)
+
+    @router.get(
+        "/api/devops/platform-stats",
+        include_in_schema=False,
+        dependencies=[Depends(require_analyst_or_devops)],
+    )
+    async def platform_stats(
+        search: str | None = None,
+        only_failed: bool = False,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        """Статистика обхода ПО ПЛОЩАДКАМ, отдельно от сводки цикла целиком
+        (``cycles`` в ``monitoring()``): последняя обработка + накопленное среднее
+        по каждой площадке, с поиском и пагинацией — рассчитано на рост числа
+        площадок далеко за текущие 10 (см. докстринг ``ParserPlatformStats``).
+        """
+        if state.repository is None:
+            return {"total": 0, "items": []}
+        rows, total = await _repo().list_platform_stats(
+            search=search, only_failed=only_failed, limit=limit, offset=offset
+        )
+        return {
+            "total": total,
+            "items": [_repo().platform_stats_out(r) for r in rows],
+        }
 
     return router
 

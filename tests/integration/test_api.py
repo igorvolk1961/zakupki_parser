@@ -836,6 +836,87 @@ def test_index_dead_letter_retry_404_for_unknown(api_client: tuple[TestClient, P
     assert resp.status_code == 404
 
 
+async def _upsert_platform_stats(platform_id: str, *, success: bool = True) -> None:
+    """Пишет статистику одной площадки напрямую через репозиторий — у per-площадочной
+    статистики нет write-эндпоинта (пишется только планировщиком), см. ``_add_region_
+    procurement`` выше для того же паттерна прямой записи в тестовую БД."""
+    db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+    await db.connect()
+    try:
+        repo = ProcurementRepository(db)
+        now = datetime.now(UTC)
+        await repo.upsert_platform_stats(
+            platform_id=platform_id,
+            iteration=1,
+            started_at=now,
+            finished_at=now,
+            success=success,
+            received=1,
+            saved=1,
+            error_message=None if success else "boom",
+        )
+    finally:
+        await db.dispose()
+
+
+def test_platform_stats_requires_analyst_or_devops(
+    api_client: tuple[TestClient, Path], analyst_headers: dict[str, str]
+) -> None:
+    """Статистика по площадкам — та же политика доступа, что и у остальной вкладки
+    «Мониторинг» (аналитик ИЛИ devops)."""
+    client, _ = api_client
+    asyncio.run(_upsert_platform_stats("api-test-platform-auth"))
+    resp_analyst = client.get("/api/devops/platform-stats", headers=analyst_headers)
+    assert resp_analyst.status_code == 200
+    resp_devops = client.get("/api/devops/platform-stats")  # дефолтный клиент — admin+devops
+    assert resp_devops.status_code == 200
+
+
+def test_platform_stats_returns_items_and_shape(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    asyncio.run(_upsert_platform_stats("api-test-platform-shape", success=True))
+
+    resp = client.get("/api/devops/platform-stats", params={"search": "api-test-platform-shape"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    item = body["items"][0]
+    assert item["platform_id"] == "api-test-platform-shape"
+    assert item["last_success"] is True
+    assert item["runs_total"] == 1
+    assert item["runs_failed"] == 0
+    assert item["avg_received"] == pytest.approx(1.0)
+    assert item["avg_saved"] == pytest.approx(1.0)
+
+
+def test_platform_stats_only_failed_filter(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    asyncio.run(_upsert_platform_stats("api-test-platform-ok", success=True))
+    asyncio.run(_upsert_platform_stats("api-test-platform-fail", success=False))
+
+    resp = client.get(
+        "/api/devops/platform-stats",
+        params={"search": "api-test-platform-", "only_failed": True},
+    )
+
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert all(i["last_success"] is False for i in items)
+    assert any(i["platform_id"] == "api-test-platform-fail" for i in items)
+    assert not any(i["platform_id"] == "api-test-platform-ok" for i in items)
+
+
+def test_platform_stats_pagination_params(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.get(
+        "/api/devops/platform-stats",
+        params={"limit": 1, "offset": 0, "search": "api-test-platform"},
+    )
+    assert resp.status_code == 200
+    assert len(resp.json()["items"]) <= 1
+
+
 def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     body = client.get("/api/config/threshold").json()

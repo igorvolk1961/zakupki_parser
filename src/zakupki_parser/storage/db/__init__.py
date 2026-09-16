@@ -14,6 +14,7 @@ from zakupki_parser.storage.db.customer import Customer
 from zakupki_parser.storage.db.cycle_stats import ParserCycleStats
 from zakupki_parser.storage.db.engine import Database
 from zakupki_parser.storage.db.evaluation import ProcurementEvaluation
+from zakupki_parser.storage.db.platform_stats import ParserPlatformStats
 from zakupki_parser.storage.db.procurement import (
     Platform,
     ProcedureCategory,
@@ -41,6 +42,7 @@ __all__ = [
     "Keyword",
     "LicenseType",
     "ParserCycleStats",
+    "ParserPlatformStats",
     "Platform",
     "ProcedureCategory",
     "ProcedureType",

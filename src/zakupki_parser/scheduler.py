@@ -414,6 +414,12 @@ class Scheduler:
         площадка временно недоступна) считается в ``platforms_failed``. Аргумент
         опционален только ради обратной совместимости существующих тестов,
         обращающихся к ``_process_platform`` напрямую без агрегации цикла.
+
+        Дополнительно пишет ПЕР-ПЛОЩАДОЧНУЮ статистику (``_record_platform_stats``,
+        ``parser_platform_stats``) — вкладка «Мониторинг» показывает не только
+        сводку цикла целиком, но и разбивку по каждой площадке (рассчитано на
+        рост числа площадок далеко за текущие 10, см. докстринг
+        ``ParserPlatformStats``).
         """
         platform = self._cfg.dom.platforms.get(platform_id)
         if platform is None:
@@ -434,6 +440,7 @@ class Scheduler:
         token = set_run_context(platform_id, iteration)
         if cycle is not None:
             cycle.platforms_total += 1
+        platform_started_at = datetime.now(UTC)
         try:
             stats = await self._parse_platform(
                 platform_id, platform, profiles, iteration, full_window=full_window
@@ -441,14 +448,63 @@ class Scheduler:
             if cycle is not None:
                 cycle.received += stats.get("received", 0)
                 cycle.saved += stats.get("saved", 0)
+            await self._record_platform_stats(
+                platform_id,
+                iteration,
+                platform_started_at,
+                success=True,
+                received=stats.get("received", 0),
+                saved=stats.get("saved", 0),
+            )
         except Exception as exc:  # noqa: BLE001
             logger.error("Ошибка обработки площадки %s: %s", platform_id, exc)
             if cycle is not None:
                 cycle.platforms_failed += 1
+            await self._record_platform_stats(
+                platform_id,
+                iteration,
+                platform_started_at,
+                success=False,
+                received=0,
+                saved=0,
+                error_message=str(exc),
+            )
         finally:
             reset_run_context(token)
         if self._on_update is not None:
             await self._on_update()
+
+    async def _record_platform_stats(
+        self,
+        platform_id: str,
+        iteration: int,
+        started_at: datetime,
+        *,
+        success: bool,
+        received: int,
+        saved: int,
+        error_message: str | None = None,
+    ) -> None:
+        """Пишет статистику одной площадки (``parser_platform_stats``, best-effort).
+
+        Сбой записи не должен ронять обработку площадки — только предупреждение
+        в лог, как и остальные devops-only побочные записи в этом модуле.
+        """
+        if self._repository is None:
+            return
+        try:
+            await self._repository.upsert_platform_stats(
+                platform_id=platform_id,
+                iteration=iteration,
+                started_at=started_at,
+                finished_at=datetime.now(UTC),
+                success=success,
+                received=received,
+                saved=saved,
+                error_message=error_message,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Не удалось сохранить статистику площадки %s: %s", platform_id, exc)
 
     def _profile_on_platform(self, ctx: ProfileRunContext, platform_id: str) -> bool:
         """True, если профиль относится к площадке (``target_etp`` пуст — все)."""

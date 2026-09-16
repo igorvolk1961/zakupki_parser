@@ -14,6 +14,7 @@ from zakupki_parser.storage.repository.customers import CustomerMixin
 from zakupki_parser.storage.repository.cycle_stats import CycleStatsMixin
 from zakupki_parser.storage.repository.db_stats import DbStatsMixin
 from zakupki_parser.storage.repository.evaluations import EvaluationMixin
+from zakupki_parser.storage.repository.platform_stats import PlatformStatsMixin
 from zakupki_parser.storage.repository.procurements import ProcurementMixin
 from zakupki_parser.storage.repository.profiles import ProfileMixin
 from zakupki_parser.storage.repository.search_index import SearchIndexMixin
@@ -32,6 +33,7 @@ class ProcurementRepository(
     SearchIndexMixin,
     CycleStatsMixin,
     DbStatsMixin,
+    PlatformStatsMixin,
 ):
     """Операции с таблицей ``procurements`` (и смежными доменами).
 

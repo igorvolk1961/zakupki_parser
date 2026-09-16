@@ -681,6 +681,23 @@
       <div id="mon-cycles"></div>
     </div>
     <div class="panel">
+      <div class="panel-title" title="Статистика обхода по КАЖДОЙ площадке отдельно: последняя обработка и накопленное среднее. Рассчитано на рост числа площадок далеко за текущие — поиск и пагинация, без автообновления по таймеру">Статистика по площадкам</div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <input id="mon-platform-search" type="text" placeholder="Поиск по площадке..." style="max-width:220px;">
+        <label class="muted" style="display:inline-flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="mon-platform-only-failed"> только сбои
+        </label>
+        <button id="mon-platform-refresh" title="Обновить">Обновить</button>
+        <span class="muted" id="mon-platform-summary"></span>
+      </div>
+      <div id="mon-platform-stats"></div>
+      <div class="toolbar" style="margin-bottom:0;">
+        <button id="mon-platform-prev">&larr; Назад</button>
+        <span class="muted" id="mon-platform-page"></span>
+        <button id="mon-platform-next">Вперёд &rarr;</button>
+      </div>
+    </div>
+    <div class="panel">
       <div class="panel-title" title="Место на диске: файловое хранилище приложения (data/ — логи, сессия браузера, экспорты) и база данных PostgreSQL">Хранилище</div>
       <div id="mon-storage"></div>
     </div>

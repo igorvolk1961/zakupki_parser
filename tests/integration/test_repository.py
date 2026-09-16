@@ -1282,3 +1282,129 @@ async def test_cycle_stats_summary_empty(db: Database) -> None:
     summary = await repo.cycle_stats_summary(kind="regular")
 
     assert summary == {"last": None, "average": None}
+
+
+@pytest.mark.asyncio
+async def test_upsert_platform_stats_creates_then_updates(db: Database) -> None:
+    """Upsert по ``platform_id`` (devops-мониторинг, «Статистика по площадкам»):
+    первый вызов создаёт строку, второй ОБНОВЛЯЕТ её (не вставляет вторую) —
+    таблица остаётся размером «одна строка на площадку» независимо от числа
+    циклов (см. докстринг ``ParserPlatformStats``), а накопительные суммы
+    складываются, а не перезаписываются."""
+    repo = ProcurementRepository(db)
+    started = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+
+    await repo.upsert_platform_stats(
+        platform_id="zakupki_mos",
+        iteration=1,
+        started_at=started,
+        finished_at=started + timedelta(seconds=10),
+        success=True,
+        received=5,
+        saved=2,
+    )
+    await repo.upsert_platform_stats(
+        platform_id="zakupki_mos",
+        iteration=2,
+        started_at=started + timedelta(minutes=5),
+        finished_at=started + timedelta(minutes=5, seconds=30),
+        success=False,
+        received=0,
+        saved=0,
+        error_message="boom",
+    )
+
+    rows, total = await repo.list_platform_stats()
+
+    assert total == 1  # одна строка, не две — upsert, не insert
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.platform_id == "zakupki_mos"
+    assert row.last_iteration == 2
+    assert row.last_success is False
+    assert row.last_error == "boom"
+    assert row.last_received == 0
+    assert row.last_saved == 0
+    assert row.runs_total == 2
+    assert row.runs_failed == 1
+    assert row.sum_duration_seconds == pytest.approx(40.0)
+    assert row.sum_received == 5
+    assert row.sum_saved == 2
+
+    out = repo.platform_stats_out(row)
+    assert out["avg_duration_seconds"] == pytest.approx(20.0)
+    assert out["avg_received"] == pytest.approx(2.5)
+    assert out["avg_saved"] == pytest.approx(1.0)
+
+
+@pytest.mark.asyncio
+async def test_list_platform_stats_search_and_only_failed(db: Database) -> None:
+    """``search`` — подстрока platform_id (ILIKE), ``only_failed`` — только площадки,
+    чья ПОСЛЕДНЯЯ обработка завершилась ошибкой."""
+    repo = ProcurementRepository(db)
+    started = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+
+    await repo.upsert_platform_stats(
+        platform_id="zakupki_mos",
+        iteration=1,
+        started_at=started,
+        finished_at=started + timedelta(seconds=5),
+        success=True,
+        received=1,
+        saved=1,
+    )
+    await repo.upsert_platform_stats(
+        platform_id="zakupki_gov_44fz",
+        iteration=1,
+        started_at=started,
+        finished_at=started + timedelta(seconds=5),
+        success=False,
+        received=0,
+        saved=0,
+        error_message="timeout",
+    )
+    await repo.upsert_platform_stats(
+        platform_id="etpgpb",
+        iteration=1,
+        started_at=started,
+        finished_at=started + timedelta(seconds=5),
+        success=True,
+        received=3,
+        saved=1,
+    )
+
+    rows, total = await repo.list_platform_stats(search="zakupki")
+    assert total == 2
+    assert {r.platform_id for r in rows} == {"zakupki_mos", "zakupki_gov_44fz"}
+
+    rows, total = await repo.list_platform_stats(only_failed=True)
+    assert total == 1
+    assert rows[0].platform_id == "zakupki_gov_44fz"
+
+
+@pytest.mark.asyncio
+async def test_list_platform_stats_pagination(db: Database) -> None:
+    """Пагинация (``limit``/``offset``) — рассчитана на сотни площадок:
+    порядок по свежести (``last_finished_at`` убывание)."""
+    repo = ProcurementRepository(db)
+    base = datetime(2026, 9, 14, 10, 0, tzinfo=UTC)
+
+    for i in range(5):
+        started = base + timedelta(minutes=i)
+        await repo.upsert_platform_stats(
+            platform_id=f"platform_{i}",
+            iteration=1,
+            started_at=started,
+            finished_at=started + timedelta(seconds=5),
+            success=True,
+            received=1,
+            saved=1,
+        )
+
+    rows, total = await repo.list_platform_stats(limit=2, offset=0)
+    assert total == 5
+    assert [r.platform_id for r in rows] == ["platform_4", "platform_3"]
+
+    rows, total = await repo.list_platform_stats(limit=2, offset=2)
+    assert total == 5
+    assert [r.platform_id for r in rows] == ["platform_2", "platform_1"]

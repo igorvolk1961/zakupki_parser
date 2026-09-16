@@ -19,6 +19,16 @@ let monitoringTimer = null;
 let indexingConfigDirty = false;
 let indexingConfigLoaded = false;
 
+// Статистика по площадкам: своё состояние (поиск/пагинация), НЕ на общем
+// 10с-таймере — при сотнях площадок пере-рендер по таймеру сбрасывал бы
+// прокрутку/фокус пользователя, пока он ищет/листает. Грузится один раз при
+// первой активации вкладки и по явному действию (поиск/чекбокс/пагинация/
+// кнопка «Обновить»), как и indexingConfigView выше.
+const PLATFORM_STATS_LIMIT = 50;
+let platformStatsOffset = 0;
+let platformStatsTotal = 0;
+let platformStatsLoaded = false;
+
 // Настройки фоновой индексации (enabled/okpd2_prefixes/excluded_platforms) —
 // редактируемая форма (не часть авто-обновляемой сводки выше: пере-рендер
 // innerHTML каждые 10с стёр бы незасохранённый ввод). Грузится один раз при
@@ -166,6 +176,63 @@ function renderResources(res) {
     <div>Диск: ${fmtBytes(disk.used)} / ${fmtBytes(disk.total)} (${disk.percent?.toFixed(1) ?? "—"}%)</div>`;
 }
 
+function renderPlatformStats(items) {
+  if (!items || !items.length) {
+    return `<div class="muted">Нет данных</div>`;
+  }
+  const rows = items
+    .map((p) => {
+      const status = p.last_success
+        ? '<span style="color:var(--ok,#2e7d32);">OK</span>'
+        : `<span style="color:var(--danger,#c0392b);" title="${escapeHtml(p.last_error || "")}">сбой</span>`;
+      return `<tr>
+        <td>${escapeHtml(p.platform_id)}</td>
+        <td>${status}</td>
+        <td>${escapeHtml(fmtDT(p.last_finished_at))}</td>
+        <td>${p.last_received} / ${p.last_saved}</td>
+        <td>${p.avg_received.toFixed(1)} / ${p.avg_saved.toFixed(1)}</td>
+        <td>${fmtDuration(p.avg_duration_seconds)}</td>
+        <td>${p.runs_total} (сбоев: ${p.runs_failed})</td>
+      </tr>`;
+    })
+    .join("");
+  return `
+    <table>
+      <thead><tr>
+        <th>Площадка</th><th>Статус</th><th>Последний обход</th>
+        <th>Получено/сохранено (последний)</th><th>В среднем получено/сохранено</th>
+        <th>Средняя длительность</th><th>Обходов всего</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadPlatformStats() {
+  const view = document.getElementById("view-monitoring");
+  if (!view) return;
+  try {
+    const search = $("#mon-platform-search")?.value.trim() || undefined;
+    const onlyFailed = $("#mon-platform-only-failed")?.checked || undefined;
+    const data = await api("devops/platform-stats", {
+      search,
+      only_failed: onlyFailed,
+      limit: PLATFORM_STATS_LIMIT,
+      offset: platformStatsOffset,
+    });
+    platformStatsTotal = data.total || 0;
+    $("#mon-platform-stats").innerHTML = renderPlatformStats(data.items);
+    const from = platformStatsTotal ? platformStatsOffset + 1 : 0;
+    const to = Math.min(platformStatsOffset + PLATFORM_STATS_LIMIT, platformStatsTotal);
+    $("#mon-platform-summary").textContent = `${platformStatsTotal} площадок`;
+    $("#mon-platform-page").textContent = `${from}–${to} из ${platformStatsTotal}`;
+    $("#mon-platform-prev").disabled = platformStatsOffset <= 0;
+    $("#mon-platform-next").disabled = platformStatsOffset + PLATFORM_STATS_LIMIT >= platformStatsTotal;
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    $("#mon-platform-stats").innerHTML = `<div class="muted">ошибка загрузки: ${escapeHtml(msg)}</div>`;
+  }
+}
+
 async function loadMonitoring() {
   const view = document.getElementById("view-monitoring");
   if (!view) return;
@@ -187,6 +254,10 @@ async function loadMonitoring() {
     await indexingConfigView.load();
     indexingConfigLoaded = true;
   }
+  if (!platformStatsLoaded) {
+    await loadPlatformStats();
+    platformStatsLoaded = true;
+  }
   if (!monitoringTimer) {
     monitoringTimer = setInterval(() => {
       const v = document.getElementById("view-monitoring");
@@ -206,6 +277,32 @@ document.getElementById("mon-dlq")?.addEventListener("click", (e) => {
     $("#mon-error").textContent = `ошибка повтора: ${err && err.message ? err.message : err}`;
     btn.disabled = false;
   });
+});
+
+// Поиск/чекбокс/пагинация статистики по площадкам — только по явному действию
+// пользователя (не на 10с-таймере, см. комментарий у platformStatsLoaded).
+let platformSearchDebounce = null;
+$("#mon-platform-search")?.addEventListener("input", () => {
+  clearTimeout(platformSearchDebounce);
+  platformSearchDebounce = setTimeout(() => {
+    platformStatsOffset = 0;
+    loadPlatformStats();
+  }, 300);
+});
+$("#mon-platform-only-failed")?.addEventListener("change", () => {
+  platformStatsOffset = 0;
+  loadPlatformStats();
+});
+$("#mon-platform-refresh")?.addEventListener("click", () => loadPlatformStats());
+$("#mon-platform-prev")?.addEventListener("click", () => {
+  platformStatsOffset = Math.max(0, platformStatsOffset - PLATFORM_STATS_LIMIT);
+  loadPlatformStats();
+});
+$("#mon-platform-next")?.addEventListener("click", () => {
+  if (platformStatsOffset + PLATFORM_STATS_LIMIT < platformStatsTotal) {
+    platformStatsOffset += PLATFORM_STATS_LIMIT;
+    loadPlatformStats();
+  }
 });
 
 export function monitoringDirty() {
