@@ -90,15 +90,13 @@ class Scheduler:
         self._refresh_rebuild: set[int] = set()
         self._refresh_rescore: set[int] = set()
         self._refresh_event = asyncio.Event()
-        # Момент ПОСЛЕДНЕГО сигнала текущего накопленного батча (монотонное время):
-        # каждое сохранение сбрасывает таймер, и внеочередной проход стартует не
-        # раньше debounce с этого момента — серия правок подряд (даже с паузами
-        # внутри окна) копится в один обход.
-        self._refresh_pending_since: float | None = None
-        # Профили, уже покрытые внеочередным обходом в текущем регулярном цикле:
-        # повторные сохранения того же профиля не запускают новый полный обход
-        # (сбрасывается после каждого регулярного прохода — см. run_service).
-        self._refresh_handled_in_cycle: set[int] = set()
+        # Throttle (не debounce): момент ЗАВЕРШЕНИЯ последнего внеочередного
+        # обхода каждого профиля (монотонное время). Следующий обход того же
+        # профиля не раньше чем через profile_refresh_debounce_seconds ПОСЛЕ
+        # этого момента — защита от долбления площадок повторными правками, не
+        # искусственная задержка перед КАЖДЫМ обходом: профиль без записи здесь
+        # (ещё не обходился ни разу) обходится немедленно, без ожидания вообще.
+        self._refresh_last_run_at: dict[int, float] = {}
 
     async def start(self) -> None:
         setup_logging(self._cfg.logging)
@@ -110,6 +108,20 @@ class Scheduler:
     async def stop(self) -> None:
         self._stop.set()
         await self._db.dispose()
+
+    def _refresh_remaining(self, profile_id: int) -> float:
+        """Throttle: сколько ещё секунд ждать до обхода профиля.
+
+        0 — можно обходить прямо сейчас (в т.ч. ПЕРВЫЙ обход профиля: записи в
+        ``_refresh_last_run_at`` ещё нет, ждать нечего и не от чего). Иначе —
+        остаток ``profile_refresh_debounce_seconds`` от момента ЗАВЕРШЕНИЯ
+        предыдущего обхода этого профиля.
+        """
+        last = self._refresh_last_run_at.get(profile_id)
+        if last is None:
+            return 0.0
+        debounce = max(self._cfg.ops.profile_refresh_debounce_seconds, 0.0)
+        return max(0.0, debounce - (time.monotonic() - last))
 
     def request_profile_refresh(
         self,
@@ -133,50 +145,39 @@ class Scheduler:
         ``rescore`` — изменились компетенции: у совпавших результатов сбросить
         устаревший скор, чтобы recovery пересчитал его по новым компетенциям.
 
-        Debounce отсчитывается от ПОСЛЕДНЕГО сигнала накопленного батча: каждая
-        правка сбрасывает таймер, поэтому серия сохранений с паузами меньше окна
-        уходит одним внеочередным обходом.
+        Throttle, не debounce: ПЕРВЫЙ обход профиля начинается немедленно (нет
+        предыдущего обхода — нечего защищать задержкой). Повторный обход того же
+        профиля не раньше чем через ``profile_refresh_debounce_seconds`` после
+        завершения предыдущего (``_refresh_remaining``/``_refresh_last_run_at``) —
+        это и есть защита от долбления площадок частыми правками. При
+        ``profile_refresh_debounce_seconds=0`` ограничения нет вовсе — обходить
+        профиль повторно можно сразу после завершения предыдущего обхода.
         """
-        # Сброс окна коалесинга от каждой правки (trailing debounce): серия правок,
-        # растянутая на минуты, не порождает серию полных обходов — они сливаются,
-        # пока паузы между сохранениями меньше profile_refresh_debounce_seconds.
-        self._refresh_pending_since = time.monotonic()
-        is_new_batch = not self._refresh_ids
         self._refresh_ids.add(profile_id)
         if rebuild:
             self._refresh_rebuild.add(profile_id)
         if rescore:
             self._refresh_rescore.add(profile_id)
         self._refresh_event.set()
+        remaining = self._refresh_remaining(profile_id)
         logger.info(
-            "Запрошен внеочередной обход профиля %s (debounce %.0f с от последнего сохранения%s)",
+            "Запрошен внеочередной обход профиля %s (%s)",
             profile_id,
-            max(self._cfg.ops.profile_refresh_debounce_seconds, 0.0),
-            " — начало нового батча" if is_new_batch else " — продление батча",
+            "начнётся сразу" if remaining <= 0 else f"не ранее чем через {remaining:.0f} с",
         )
 
     def profile_refresh_status(self, profile_id: int) -> dict[str, Any]:
         """Текущее состояние запроса внеочередного обхода профиля (для API/UI).
 
         Возвращает:
-        - ``pending`` — профиль накоплен в батче и будет обойдён вне очереди;
-        - ``handled_this_cycle`` — профиль уже покрыт внеочередным обходом в текущем
-          регулярном цикле (повторная правка не даст второй полный обход до границы
-          цикла — остаётся накопленным);
-        - ``remaining_seconds`` — остаток окна debounce с последнего сохранения
-          (None, если профиль не накоплен или таймер не запущен).
+        - ``pending`` — профиль в очереди на внеочередной обход;
+        - ``remaining_seconds`` — throttle: сколько ещё ждать после завершения
+          ПРЕДЫДУЩЕГО обхода этого профиля (0 — обход начнётся сразу, включая
+          самый первый обход профиля; None — профиль не в очереди вовсе).
         """
         pending = profile_id in self._refresh_ids
-        handled = profile_id in self._refresh_handled_in_cycle
-        remaining: float | None = None
-        if pending and self._refresh_pending_since is not None:
-            debounce = max(self._cfg.ops.profile_refresh_debounce_seconds, 0.0)
-            remaining = max(0.0, debounce - (time.monotonic() - self._refresh_pending_since))
-        return {
-            "pending": pending,
-            "handled_this_cycle": handled,
-            "remaining_seconds": remaining,
-        }
+        remaining = self._refresh_remaining(profile_id) if pending else None
+        return {"pending": pending, "remaining_seconds": remaining}
 
     async def run_once(self, iteration: int = 0) -> None:
         """Один регулярный проход: все включённые площадки обрабатываются параллельно.
@@ -672,6 +673,14 @@ class Scheduler:
                 allowed.add(profile_id)
         return allowed
 
+    def _next_refresh_wait(self) -> float | None:
+        """Через сколько секунд ХОТЯ БЫ один накопленный профиль станет доступен
+        для обхода (throttle от завершения его предыдущего обхода, см.
+        ``_refresh_remaining``). ``None`` — очередь пуста, ждать нечего."""
+        if not self._refresh_ids:
+            return None
+        return min(self._refresh_remaining(pid) for pid in self._refresh_ids)
+
     async def run_service(self) -> None:
         """Бесконечный цикл: регулярные проходы через ``timeout_seconds``.
 
@@ -683,18 +692,20 @@ class Scheduler:
         обходы выполняются строго между проходами (без параллельных обходов) и не
         сдвигают расписание регулярных (``next_full_at`` фиксируется после каждого
         регулярного прохода).
+
+        Throttle, не debounce (см. ``request_profile_refresh``): между проходами
+        планировщик ждёт либо до границы регулярного цикла, либо до момента, когда
+        КАКОЙ-ТО накопленный профиль выйдет из throttle (``_next_refresh_wait``) —
+        смотря что раньше. Это даёт немедленный первый обход и при этом не позволяет
+        повторными правками одного профиля долбить площадки чаще, чем раз в
+        ``profile_refresh_debounce_seconds``.
         """
         await self.start()
         loop = asyncio.get_running_loop()
-        debounce = max(self._cfg.ops.profile_refresh_debounce_seconds, 0.0)
         try:
             while not self._stop.is_set():
                 self._iteration += 1
                 await self.run_once(self._iteration)
-                # Новый регулярный цикл: покрытие внеочередными обходами сбрасывается;
-                # запросы, не снятые этим проходом (правки во время него), получают
-                # шанс внеочередного обхода в новом цикле.
-                self._refresh_handled_in_cycle.clear()
                 if self._refresh_ids:
                     self._refresh_event.set()
                 next_full_at = loop.time() + self._cfg.ops.timeout_seconds
@@ -702,23 +713,19 @@ class Scheduler:
                 # Между регулярными проходами обслуживаем запросы обновления
                 # профилей; расписание регулярных проходов не сдвигается.
                 while not self._stop.is_set():
-                    remaining = next_full_at - loop.time()
-                    if remaining <= 0:
+                    remaining_to_full = next_full_at - loop.time()
+                    if remaining_to_full <= 0:
                         break
-                    reason = await self._wait_signal_or_timeout(remaining)
-                    if reason == "stop" or reason == "timeout":
+                    wait_for = self._next_refresh_wait()
+                    wait_time = (
+                        remaining_to_full if wait_for is None else min(wait_for, remaining_to_full)
+                    )
+                    reason = await self._wait_signal_or_timeout(wait_time)
+                    if reason == "stop":
                         break
-                    # reason == "refresh": внеочередной обход затронутых профилей.
-                    # Debounce от ПОСЛЕДНЕГО сигнала накопленного батча: каждая правка
-                    # сбрасывает таймер (request_profile_refresh), поэтому серия правок
-                    # копится и уходит в один обход (а не в серию обходов).
-                    if self._refresh_pending_since is not None:
-                        since_last = loop.time() - self._refresh_pending_since
-                        if since_last < debounce:
-                            await asyncio.sleep(min(debounce - since_last, remaining))
-                            continue
                     self._refresh_event.clear()
-                    self._refresh_pending_since = None
+                    if not self._refresh_ids:
+                        continue
                     self._iteration += 1
                     await self._run_refresh_pass(self._iteration)
         finally:
@@ -760,10 +767,13 @@ class Scheduler:
         сопоставление слов по уже сохранённым закупкам), а не только инкремент от
         ``last_processed_date`` площадки.
 
-        Профиль, уже покрытый внеочередным обходом в текущем регулярном цикле,
-        повторно полным окном не обходится (кап на число полных обходов одного
-        профиля за цикл) — запрос остаётся накопленным и снимается регулярным
-        проходом либо следующим циклом внеочередных обходов.
+        Throttle (``_refresh_remaining``), не кап «раз за цикл»: обрабатываются
+        только профили, вышедшие из throttle прямо сейчас (обычно все накопленные —
+        планировщик вызывает этот метод именно тогда, когда КАКОЙ-ТО профиль
+        готов, см. ``run_service``/``_next_refresh_wait``); профиль, ещё не
+        отошедший от предыдущего обхода, остаётся накопленным и будет обойдён,
+        как только истечёт ``profile_refresh_debounce_seconds`` с завершения
+        предыдущего его обхода — не дожидаясь границы регулярного цикла.
 
         Маршрутизация по коду (Stage D), как и в регулярном цикле
         (``_split_ctxs_for_index_routing``): коды профиля, покрытые индексом,
@@ -777,11 +787,8 @@ class Scheduler:
         проход не нужен вовсе.
         """
         if not self._refresh_ids:
-            self._refresh_pending_since = None
             return
-        profile_ids = [
-            pid for pid in self._refresh_ids if pid not in self._refresh_handled_in_cycle
-        ]
+        profile_ids = [pid for pid in self._refresh_ids if self._refresh_remaining(pid) <= 0]
         if not profile_ids:
             return
         # Метки перестройки/пересчёта снимаем со всех запрошенных (в т.ч. тех,
@@ -792,12 +799,9 @@ class Scheduler:
         self._refresh_ids.difference_update(profile_ids)
         self._refresh_rebuild.difference_update(requested)
         self._refresh_rescore.difference_update(requested)
-        if not self._refresh_ids:
-            self._refresh_pending_since = None
         ctxs = await self._gather_profile_ctxs(only_ids=requested)
         if not ctxs:
             return
-        self._refresh_handled_in_cycle.update(c.profile.id for c in ctxs)
         # Перестройка результатов сбора по новой области захвата (и пересчёт скора,
         # если изменились компетенции) — до обхода площадок: обход дособерёт новые
         # закупки, а сброшенный скор recovery поставит на пересчёт в этом же цикле.
@@ -828,6 +832,11 @@ class Scheduler:
         # Сброшенный при перестройке скор пересчитываем сразу после обхода
         # (те же правила recovery: опция scoring владельца, TTL).
         await self._recover_scoring_queue(iteration)
+        # Throttle: следующий обход ЭТИХ профилей не раньше чем через debounce от
+        # ЭТОГО момента (завершения текущего обхода) — см. _refresh_remaining.
+        now = time.monotonic()
+        for ctx in ctxs:
+            self._refresh_last_run_at[ctx.profile.id] = now
         logger.info(
             "Внеочередной обход завершён: профилей %d (итерация %d)",
             len(ctxs),

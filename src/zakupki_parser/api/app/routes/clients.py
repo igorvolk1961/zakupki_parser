@@ -223,20 +223,14 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
                 "начнётся после запуска мониторинга на панели devops."
             )
         status = scheduler.profile_refresh_status(profile.id)
-        if status.get("handled_this_cycle"):
-            return (
-                "Профиль сохранён. Внеочередной сбор по нему уже выполнялся в "
-                "текущем цикле: эта правка будет учтена следующим проходом "
-                "мониторинга."
-            )
         remaining = status.get("remaining_seconds")
         if remaining is not None and remaining > 0:
             total = int(remaining)
             approx = f"{total // 60} мин {total % 60} с" if total >= 60 else f"{total} с"
             return (
                 "Профиль сохранён. Внеочередной сбор данных по нему начнётся "
-                f"не ранее чем через {approx} после последнего сохранения "
-                "(сразу после завершения текущего прохода, если он идёт)."
+                f"не ранее чем через {approx} после завершения предыдущего "
+                "внеочередного обхода профиля."
             )
         return (
             "Профиль сохранён. Внеочередной сбор данных по нему начнётся сразу "

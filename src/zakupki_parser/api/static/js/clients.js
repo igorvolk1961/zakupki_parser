@@ -8,6 +8,7 @@ import { confirmDialog, confirmDialogAsync } from "./dialogs.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import { loadWork } from "./work.js";
+import { switchTo } from "./roles.js";
 
 let profileEditorId = null;
 let profileEditorName = "";
@@ -1138,9 +1139,19 @@ function profileFormData() {
   };
 }
 
+// Открыт ли редактор профиля кнопкой «Редактировать профиль» со вкладки
+// «Закупки» (а не изнутри вкладки «Профили»): если да, закрытие редактора
+// (сохранение ИЛИ отмена — оба пути идут через closeProfileEditor) должно
+// вернуть пользователя обратно на «Закупки», а не оставлять на «Профили».
+let returnToProcAfterEdit = false;
+
 function closeProfileEditor() {
   $("#profile-editor").style.display = "none";
   $("#profiles").style.display = "";
+  if (returnToProcAfterEdit) {
+    returnToProcAfterEdit = false;
+    switchTo("proc");
+  }
 }
 
 async function openProfileEditor(id) {
@@ -1417,6 +1428,18 @@ export {
   doDeleteProfile,
   closeExportProfileModal,
 };
+
+// Кнопка «Редактировать профиль» на вкладке «Закупки» (рядом с селектором
+// активного профиля): открывает карточку ТЕКУЩЕГО активного профиля на
+// вкладке «Профили» и запоминает, что нужно вернуться на «Закупки» после
+// закрытия редактора (см. closeProfileEditor/returnToProcAfterEdit).
+$("#proc-edit-profile")?.addEventListener("click", () => {
+  const id = Number($("#proc-profile").value);
+  if (!id) return;
+  returnToProcAfterEdit = true;
+  switchTo("profiles");
+  openProfileEditor(id);
+});
 
 $("#profile-new").addEventListener("click", () => openProfileEditor(null));
 $("#profile-import").addEventListener("click", () => $("#profile-import-file").click());

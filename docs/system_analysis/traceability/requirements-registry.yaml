@@ -725,6 +725,9 @@ requirements:
       - src/zakupki_parser/scheduler.py#_build_system_index_ctx
       - src/zakupki_parser/scheduler.py#_split_ctxs_for_index_routing
       - src/zakupki_parser/scheduler.py#_sync_profiles_via_index
+      - src/zakupki_parser/scheduler.py#request_profile_refresh
+      - src/zakupki_parser/scheduler.py#_run_refresh_pass
+      - src/zakupki_parser/api/app/routes/clients.py#_collection_notice
       - src/zakupki_parser/parser/orchestrator/context.py
       - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#_build_units
     tests:
@@ -769,6 +772,25 @@ requirements:
       ``procurement_search_index.status == 'indexed'`` для конкретной закупки
       (через JOIN). Параметр переименован ``indexing_okpd2_prefixes: list[str]
       | None`` -> ``use_document_index: bool``.
+
+      Throttle вместо debounce+кап «раз за регулярный цикл» (2026-09,
+      ``request_profile_refresh``/``run_service``/``_run_refresh_pass``): ДО
+      этого фикса внеочередной обход профиля искусственно задерживался перед
+      ПЕРВЫМ обходом (trailing debounce от последней правки — незачем,
+      защищать ещё не от чего) И был ограничен «не больше одного full-window
+      обхода профиля за регулярный цикл» — жёсткий кап БЕЗ debounce,
+      независимый от него: при ``profile_refresh_debounce_seconds=0``
+      («без ограничения частоты») повторная правка профиля в течение того же
+      часового цикла всё равно откладывалась до его границы (до часа), что
+      обесценивало быстрый путь через индекс именно для самого частого
+      сценария — пользователь донастраивает профиль (код/слова) сразу после
+      создания. Новая модель — throttle: первый обход профиля стартует
+      немедленно (``_refresh_last_run_at`` пуст), повторный — не раньше чем
+      через ``profile_refresh_debounce_seconds`` ПОСЛЕ ЗАВЕРШЕНИЯ предыдущего
+      обхода ЭТОГО профиля (не от границы цикла и не от последней правки).
+      ``Scheduler.profile_refresh_status``/``_collection_notice`` (уведомление
+      при сохранении профиля) обновлены под новую семантику (``remaining_
+      seconds`` из throttle, поле ``handled_this_cycle`` убрано как устаревшее).
 
   # ===== Функциональные требования =====
   - id: FR-1.1
@@ -821,6 +843,33 @@ requirements:
       - src/zakupki_parser/storage/profile_json.py
     tests:
       - tests/unit/test_profile_json.py
+  - id: FR-1.5
+    type: FR
+    title: Быстрый переход к редактированию активного профиля со вкладки «Закупки»
+    stakeholder: Тендеролог (user)
+    stage: "2, 6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/zakupki.html
+      - src/zakupki_parser/api/static/js/clients.js
+    tests: []
+    covered_by: FR-1.1
+    notes: >-
+      Кнопка «Редактировать профиль» рядом с селектором активного профиля на
+      вкладке «Закупки» (``#proc-edit-profile``): переключает на вкладку
+      «Профили» (``switchTo("profiles")``) и сразу открывает карточку ТЕКУЩЕГО
+      активного профиля (``openProfileEditor``, id — из ``#proc-profile.
+      value``). После закрытия редактора (сохранение ИЛИ отмена — оба пути
+      идут через единую ``closeProfileEditor``) пользователь возвращается на
+      «Закупки» (``returnToProcAfterEdit`` — флаг взводится только этим
+      входом; обычный вход в редактор со вкладки «Профили» не взводит его и
+      после закрытия остаётся на «Профили», как раньше). Чисто клиентская
+      функция (без изменений backend) — в репозитории нет фреймворка для
+      JS-тестов, проверено вручную (headless Playwright: кнопка видна,
+      переход/открытие карточки правильного профиля, возврат на «Закупки»
+      после отмены И после сохранения, отсутствие регрессии обычного входа
+      через вкладку «Профили»).
 
   - id: FR-2.1
     type: FR

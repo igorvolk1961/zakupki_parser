@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -382,34 +383,27 @@ async def test_request_profile_refresh_sets_event_and_ids(
 ) -> None:
     """request_profile_refresh добавляет id и будит планировщик из сна.
 
-    Debounce сбрасывается от КАЖДОГО сигнала (trailing): повторные правки в
-    пределах окна не накапливают старые таймеры, а продлевают ожидание.
+    Throttle, не debounce: профиль без записи в ``_refresh_last_run_at`` (ещё
+    ни разу не обходился) готов к обходу немедленно — ``_refresh_remaining``
+    возвращает 0, задержки перед первым обходом нет.
     """
     scheduler = _make_scheduler(app_config, max_concurrent=2)
     assert not scheduler._refresh_ids  # noqa: SLF001
     assert not scheduler._refresh_event.is_set()  # noqa: SLF001
-    assert scheduler._refresh_pending_since is None  # noqa: SLF001
 
-    scheduler.request_profile_refresh(7)
-    since = scheduler._refresh_pending_since  # noqa: SLF001
-    assert since is not None
-    assert scheduler._refresh_ids == {7}  # noqa: SLF001
-    assert scheduler._refresh_event.is_set()  # noqa: SLF001
-
-    # Повторный сигнал того же профиля продлевает окно от последнего сигнала.
     scheduler.request_profile_refresh(7)
     assert scheduler._refresh_ids == {7}  # noqa: SLF001
     assert scheduler._refresh_event.is_set()  # noqa: SLF001
-    pending = scheduler._refresh_pending_since  # noqa: SLF001
-    assert pending is not None
-    assert pending >= since
+    assert scheduler._refresh_remaining(7) == 0.0  # noqa: SLF001
 
-    # Другой профиль в том же батче также продлевает окно.
+    # Повторный сигнал того же профиля — без изменений (ещё не обходился).
+    scheduler.request_profile_refresh(7)
+    assert scheduler._refresh_ids == {7}  # noqa: SLF001
+    assert scheduler._refresh_event.is_set()  # noqa: SLF001
+
+    # Другой профиль в том же батче также накапливается.
     scheduler.request_profile_refresh(8)
     assert scheduler._refresh_ids == {7, 8}  # noqa: SLF001
-    pending = scheduler._refresh_pending_since  # noqa: SLF001
-    assert pending is not None
-    assert pending >= since
 
 
 @pytest.mark.asyncio
@@ -445,7 +439,7 @@ async def test_run_refresh_pass_processes_only_requested_profiles(
     await scheduler._run_refresh_pass(iteration=5)  # noqa: SLF001
 
     assert scheduler._refresh_ids == set()  # noqa: SLF001
-    assert scheduler._refresh_handled_in_cycle == {7}  # noqa: SLF001
+    assert 7 in scheduler._refresh_last_run_at  # noqa: SLF001
     assert calls == [
         ("p1", [7], 5, True),
         ("p2", [7], 5, True),
@@ -453,12 +447,15 @@ async def test_run_refresh_pass_processes_only_requested_profiles(
 
 
 @pytest.mark.asyncio
-async def test_run_refresh_pass_skips_profile_handled_this_cycle(
+async def test_run_refresh_pass_throttles_repeated_edit(
     app_config: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Повторная правка того же профиля за регулярный цикл не запускает новый
-    полный обход: один full-window проход на профиль за цикл (кап нагрузки)."""
+    """Throttle (``_refresh_remaining``), не кап «раз за регулярный цикл»: правка
+    того же профиля СРАЗУ после его обхода не запускает новый полный обход —
+    остаётся накопленной и выполнится, как только истечёт ``profile_refresh_
+    debounce_seconds`` с ЗАВЕРШЕНИЯ предыдущего обхода (не с границы цикла)."""
     scheduler = _make_scheduler(app_config, max_concurrent=2)
+    scheduler._cfg.ops.profile_refresh_debounce_seconds = 60.0  # noqa: SLF001
     calls: list[tuple[str, list[int], int, bool]] = []
     gathers: list[set[int] | None] = []
 
@@ -485,18 +482,90 @@ async def test_run_refresh_pass_skips_profile_handled_this_cycle(
     monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: ["p1"])
     monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
 
+    # Первая правка: профиль ещё не обходился — обход стартует немедленно
+    # (без задержки перед первым обходом).
+    scheduler.request_profile_refresh(7)
+    await scheduler._run_refresh_pass(iteration=1)  # noqa: SLF001
+    assert len(calls) == 1
+    assert scheduler._refresh_remaining(7) > 0  # noqa: SLF001  # throttle начался
+
+    # Вторая правка того же профиля сразу после обхода — ещё внутри throttle-окна.
+    scheduler.request_profile_refresh(7)
+    await scheduler._run_refresh_pass(iteration=2)  # noqa: SLF001
+
+    assert len(calls) == 1  # повторный полный обход пока не запускается
+    assert gathers == [{7}]  # вторая правка не доходит даже до сбора контекста
+    assert scheduler._refresh_ids == {7}  # noqa: SLF001  # остаётся накопленной
+    assert scheduler._refresh_remaining(7) > 0  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_run_refresh_pass_processes_again_once_throttle_elapses(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Как только throttle-окно истекло (debounce с завершения предыдущего обхода
+    прошёл), накопленная правка того же профиля обходится — не дожидаясь границы
+    регулярного цикла."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    scheduler._cfg.ops.profile_refresh_debounce_seconds = 60.0  # noqa: SLF001
+    calls: list[tuple[str, list[int], int, bool]] = []
+
+    async def fake_process(
+        platform_id: str,
+        profiles: object,
+        iteration: int = 0,
+        *,
+        full_window: bool = False,
+        cycle: object = None,
+    ) -> None:
+        calls.append(
+            (platform_id, sorted(c.id for c in profiles), iteration, full_window)  # type: ignore[attr-defined]
+        )
+
+    async def fake_gather(only_ids: set[int] | None = None) -> list[_FakeProfileCtx]:
+        if only_ids:
+            return [_FakeProfileCtx(p) for p in only_ids]
+        return []
+
+    monkeypatch.setattr(scheduler, "_process_platform", fake_process)
+    monkeypatch.setattr(scheduler, "_gather_profile_ctxs", fake_gather)
+    monkeypatch.setattr(scheduler, "_ordered_enabled_platforms", lambda enabled: ["p1"])
+    monkeypatch.setattr(scheduler, "_profile_on_platform", lambda ctx, platform_id: True)
+
     scheduler.request_profile_refresh(7)
     await scheduler._run_refresh_pass(iteration=1)  # noqa: SLF001
     assert len(calls) == 1
 
-    # Вторая правка того же профиля в этом же регулярном цикле.
     scheduler.request_profile_refresh(7)
     await scheduler._run_refresh_pass(iteration=2)  # noqa: SLF001
+    assert len(calls) == 1  # ещё внутри throttle-окна
 
-    assert len(calls) == 1  # повторный полный обход не запускается
-    assert gathers == [{7}]  # вторая правка не доходит даже до сбора контекста
-    assert scheduler._refresh_ids == {7}  # noqa: SLF001  # остаётся до регулярного прохода
-    assert scheduler._refresh_handled_in_cycle == {7}  # noqa: SLF001
+    # Throttle-окно истекло (имитируем истечение времени напрямую, не sleep).
+    scheduler._refresh_last_run_at[7] = time.monotonic() - 61.0  # noqa: SLF001
+    assert scheduler._refresh_remaining(7) == 0.0  # noqa: SLF001
+    await scheduler._run_refresh_pass(iteration=3)  # noqa: SLF001
+
+    assert len(calls) == 2  # накопленная правка наконец обошлась
+    assert scheduler._refresh_ids == set()  # noqa: SLF001
+
+
+def test_next_refresh_wait_reflects_soonest_eligible_profile(app_config: Any) -> None:
+    """``_next_refresh_wait`` — минимум остатка throttle среди накопленных
+    профилей; ``None``, если очередь пуста."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    scheduler._cfg.ops.profile_refresh_debounce_seconds = 60.0  # noqa: SLF001
+
+    assert scheduler._next_refresh_wait() is None  # noqa: SLF001
+
+    scheduler.request_profile_refresh(7)
+    assert scheduler._next_refresh_wait() == 0.0  # noqa: SLF001  # первый обход — сразу
+
+    now = time.monotonic()
+    scheduler._refresh_last_run_at[7] = now - 30.0  # noqa: SLF001  # ~30с осталось
+    scheduler.request_profile_refresh(8)  # 8 обходится сразу (0с)
+
+    wait = scheduler._next_refresh_wait()  # noqa: SLF001
+    assert wait == 0.0  # минимум по батчу — профиль 8, готов немедленно
 
 
 @pytest.mark.asyncio
