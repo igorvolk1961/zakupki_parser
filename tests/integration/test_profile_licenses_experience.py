@@ -92,6 +92,7 @@ def _create_profile(client: TestClient, name: str) -> int:
     return int(r.json()["id"])
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped ple_client
 def test_reference_data_seeded(ple_client: TestClient) -> None:
     client = ple_client
     types = client.get("/api/license-types")

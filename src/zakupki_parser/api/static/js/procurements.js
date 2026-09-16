@@ -160,14 +160,16 @@ async function procParams() {
   if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
   if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
-  if (await scoringGate()) {
-    // Скоринг доступен: «Только релевантные» фильтрует по fit-score.
-    if ($("#proc-relevant").checked) params.min_fit_score = $("#proc-min-fit").value;
-    // Закупки без fit-score (ещё не обработаны конвейером скоринга) не показываем.
+  // «Только релевантные» — по желанию пользователя, НЕ автоматически: раньше при
+  // доступном скоринге закупки без fit-score (ещё не обработанные конвейером)
+  // скрывались всегда, независимо от чекбокса — пользователь не мог их увидеть,
+  // даже сняв «Только релевантные». Теперь оба фильтра (порог fit-score И
+  // «скрыть неоценённые») управляются ОДНИМ чекбоксом: снят — видно всё,
+  // включая ещё не оценённые закупки.
+  if ((await scoringGate()) && $("#proc-relevant").checked) {
+    params.min_fit_score = $("#proc-min-fit").value;
     params.scored = true;
   }
-  // Скоринг отключён — фильтр «закупки не прошедшие скоринг» выключен:
-  // параметры scored/min_fit_score не отправляются, показываются все закупки.
   return params;
 }
 

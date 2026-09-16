@@ -86,6 +86,9 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "slow: заметно дольше остальных (>10с) — по умолчанию исключены (-m \"not slow\"), запускать только по явному разрешению",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     # Устаревшее внутреннее предупреждение starlette.testclient (рекомендует httpx2);

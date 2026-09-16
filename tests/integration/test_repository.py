@@ -1000,7 +1000,10 @@ async def test_rebuild_profile_results_keeps_score_without_rescore(db: Database)
 async def test_rebuild_profile_results_instant_match_via_document_index(db: Database) -> None:
     """Мгновенный путь §6 плана индексации: subject не совпал, но текст документов
     (procurement_search_index) — да; закупка из проиндексированного диапазона ОКПД2
-    получает оценку без обращения к площадкам."""
+    получает оценку без обращения к площадкам. Требует profile.search_in_documents=True
+    (per-profile гейт: индексация документы читает всегда, но учитывает совпадение по
+    ним для КОНКРЕТНОГО профиля только если он сам просил искать в документах —
+    см. test_rebuild_profile_results_document_match_requires_search_in_documents_flag)."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("reb-idx", "h", ["user"])
     profile = await repo.upsert_profile(
@@ -1010,6 +1013,7 @@ async def test_rebuild_profile_results_instant_match_via_document_index(db: Data
             "target_etp": ["zakupki_mos"],
             "okpd_codes": ["62"],
             "keywords": ["роботизированн*"],
+            "search_in_documents": True,
         },
         user.id,
     )
@@ -1056,7 +1060,8 @@ async def test_rebuild_profile_results_instant_match_via_document_index(db: Data
 
 @pytest.mark.asyncio
 async def test_rebuild_profile_results_document_exclusion_blocks_match(db: Database) -> None:
-    """Слово-исключение, найденное только в тексте документа, тоже отбрасывает закупку."""
+    """Слово-исключение, найденное только в тексте документа, тоже отбрасывает закупку
+    (требует profile.search_in_documents=True — см. предыдущий тест)."""
     repo = ProcurementRepository(db)
     user = await repo.create_user("reb-idx-excl", "h", ["user"])
     profile = await repo.upsert_profile(
@@ -1067,6 +1072,7 @@ async def test_rebuild_profile_results_document_exclusion_blocks_match(db: Datab
             "okpd_codes": ["62"],
             "keywords": ["роботизированн*"],
             "exclusion_words": ["демонтаж"],
+            "search_in_documents": True,
         },
         user.id,
     )
@@ -1085,6 +1091,50 @@ async def test_rebuild_profile_results_document_exclusion_blocks_match(db: Datab
 
     stats = await repo.rebuild_profile_results(
         profile, ["роботизированн*"], ["демонтаж"], use_document_index=True
+    )
+
+    assert stats["created"] == 0
+    assert (await repo.get_score(pid, profile.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_document_match_requires_search_in_documents_flag(
+    db: Database,
+) -> None:
+    """Фоновая индексация ВСЕГДА читает текст документов (системный процесс,
+    не зависит от профиля), но УЧИТЫВАТЬ найденное в них совпадение для
+    КОНКРЕТНОГО профиля можно только если сам профиль просил искать в
+    документах (``profile.search_in_documents``) — иначе матчинг идёт ТОЛЬКО
+    по subject, даже если закупка полностью проиндексирована и её документы
+    содержат ключевое слово. До фикса ``use_document_index=True`` (решается
+    ТОЛЬКО покрытием кода ОКПД2, Stage D) само по себе включало матчинг по
+    документам для любого профиля независимо от его собственной настройки."""
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-idx-noflag", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "competencies": COMP_JSON,
+            "target_etp": ["zakupki_mos"],
+            "okpd_codes": ["62"],
+            "keywords": ["роботизированн*"],
+            "search_in_documents": False,
+        },
+        user.id,
+    )
+    pid = await _save_proc(
+        repo,
+        "RB-IDX-NOFLAG",
+        subject="Оказание клининговых услуг",
+        okpd2_codes="62.01.11",
+        nmck=100.0,
+    )
+    await repo.save_index_result(
+        pid, "indexed", document_text="Приложение: роботизированный манипулятор"
+    )
+
+    stats = await repo.rebuild_profile_results(
+        profile, ["роботизированн*"], [], use_document_index=True
     )
 
     assert stats["created"] == 0

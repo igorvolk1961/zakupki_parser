@@ -188,6 +188,7 @@ async def inserted_id(api_client: tuple[TestClient, Path]) -> AsyncIterator[int]
     yield rows[0].id
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped api_client
 def test_health(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     resp = client.get("/health")
@@ -924,6 +925,7 @@ def test_relevance_threshold_endpoint(api_client: tuple[TestClient, Path]) -> No
     assert isinstance(body["notify_min_fit_score"], (int, float))
 
 
+@pytest.mark.slow
 def test_list_filter_min_fit_score(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, _ = api_client
     # Задаём закупке фит-скор (выше порога по умолчанию 0.4).
@@ -982,6 +984,7 @@ def test_list_filter_min_fit_score_ignores_default_scored(
     assert any(item["id"] == default_id for item in all_procs["items"])
 
 
+@pytest.mark.slow
 def test_sim_filtered_record_visible_with_fit_score(
     api_client: tuple[TestClient, Path],
 ) -> None:
@@ -1136,6 +1139,7 @@ def test_list_sort_publication_date(api_client: tuple[TestClient, Path]) -> None
     assert dates[-1] is None
 
 
+@pytest.mark.slow
 def test_set_score_by_external_service(
     api_client: tuple[TestClient, Path], inserted_id: int
 ) -> None:
@@ -1156,6 +1160,7 @@ def test_set_score_by_external_service(
     assert detail["fit_score"] == 0.85
 
 
+@pytest.mark.slow
 def test_set_score_notifies_above_threshold(
     api_client: tuple[TestClient, Path], inserted_id: int
 ) -> None:

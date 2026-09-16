@@ -107,14 +107,31 @@ requirements:
       - src/zakupki_parser/storage/db/profile.py
       - src/zakupki_parser/parser/filtering.py
       - src/zakupki_parser/parser/orchestrator/processing.py#_live_fallback_document_text
+      - src/zakupki_parser/storage/repository/procurements.py#rebuild_profile_results
     tests:
       - tests/unit/test_profile_json.py
       - tests/unit/test_filtering.py
       - tests/unit/test_api_lister.py
+      - tests/integration/test_repository.py
     notes: >-
       Опция профиля search_in_documents. В проиндексированном диапазоне ОКПД2
       (см. Группу 11) ответ мгновенный; вне диапазона — живой фоллбэк во время
       обхода площадки (дозагрузка деталей+файлов, заметно медленнее).
+
+      Фикс (2026-09): фоновая индексация ВСЕГДА извлекает текст документов
+      (системный процесс, общий для всех профилей, не зависит ни от одного
+      конкретного профиля) — но ``rebuild_profile_results`` (индексный путь,
+      Stage B/D) раньше учитывал найденное в документах совпадение
+      БЕЗУСЛОВНО, для любого профиля с покрытым кодом ОКПД2, ИГНОРИРУЯ
+      ``profile.search_in_documents`` — профиль с выключенным флагом всё
+      равно получал совпадения по тексту документов, если закупка была
+      проиндексирована. Теперь ``doc_ok`` (внутри ``matched_list``)
+      дополнительно требует ``profile.search_in_documents`` — профиль с
+      выключенным флагом матчится ТОЛЬКО по ``subject``, даже через
+      индексный путь, ровно как и через живой (см. ``processing.py``).
+      Флаг остаётся per-profile настройкой «где искать ключевые слова ЭТОГО
+      профиля» для ОБОИХ путей — не переключателем «индексировать ли
+      документы вообще» (это решение системное и профилю не подвластно).
 
   - id: US-2.1
     type: US
@@ -162,8 +179,19 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py#list_procurements
       - src/zakupki_parser/storage/repository/procurements.py
       - src/zakupki_parser/storage/repository/evaluations.py
+      - src/zakupki_parser/api/static/js/procurements.js
     tests:
       - tests/integration/test_api.py
+    notes: >-
+      Фикс (2026-09): чекбокс «Только релевантные» (``#proc-relevant``) теперь
+      ЕДИНСТВЕННО управляет и порогом ``min_fit_score``, и параметром
+      ``scored`` — раньше ``scored=true`` отправлялся БЕЗУСЛОВНО, как только
+      скоринг был доступен аккаунту (независимо от чекбокса): закупки без
+      fit-score (ещё не обработанные конвейером скоринга — может занимать
+      время при большом бэклоге) были невидимы пользователю целиком, без
+      возможности их посмотреть. Теперь оба параметра отправляются ТОЛЬКО
+      при включённом чекбоксе — выключен, видны все закупки, включая
+      неоценённые (желание пользователя, не автоматическое поведение).
   - id: US-2.4
     type: US
     title: Фильтр до списка
@@ -632,7 +660,7 @@ requirements:
       - tests/unit/test_user_options.py
   - id: US-10.6
     type: US
-    title: "Триал 14 дней: все опции поиска и скоринга бесплатны"
+    title: "Триал 14 дней: все опции поиска и скоринга бесплатны, но пользователь может выключить отдельные"
     stakeholder: Тендеролог (user)
     stage: "6"
     status: implemented
@@ -640,9 +668,28 @@ requirements:
     code:
       - src/zakupki_parser/options.py
       - src/zakupki_parser/api/app/routes/auth.py
+      - src/zakupki_parser/api/app/deps.py#require_user
       - src/zakupki_parser/storage/repository/accounts.py
+      - src/zakupki_parser/storage/repository/users.py#create_user_with_setup
     tests:
       - tests/unit/test_user_options.py
+      - tests/integration/test_auth_api.py
+    notes: >-
+      Фикс (2026-09): триал материализуется ОДИН РАЗ, в момент создания
+      пользователя (``account_paid_default=True`` в ``auth.py`` для
+      саморегистрации — было ``False``), а не runtime-переопределением
+      ``effective_options`` во время действия триала. ДО фикса: пока триал
+      шёл, ``effective_options`` безусловно включала ВСЕ платные опции
+      НЕЗАВИСИМО от ``account.options`` (который создавался целиком
+      выключенным) — пользователь физически не мог выключить отдельную опцию
+      во время триала: чекбокс в личном кабинете снимался, но на фактический
+      доступ это не влияло. Теперь account.options — единственный источник
+      истины даже во время триала (``in_trial``/``trial_end_at`` остались
+      информационными полями). По истечении ``trial_end_at`` — лениво, при
+      первом запросе после истечения (``require_user`` -> ``AccountMixin.
+      downgrade_expired_trial``) — платные опции активного аккаунта
+      сбрасываются в выключено и ``trial_end_at`` очищается: реальное
+      ограничение доступа через 14 дней, а не просто смена runtime-флага.
   - id: US-10.7
     type: US
     title: Профиль без компетенций по аккаунту

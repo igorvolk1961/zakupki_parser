@@ -201,6 +201,7 @@ async def test_etpgpb_list_extraction(page: Page) -> None:
     assert data["publication_date"] <= data["deadline"]
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_b2b_list_extraction(page: Page) -> None:
     """Верифицированные селекторы B2B-Center против реальной HTML-фикстуры."""

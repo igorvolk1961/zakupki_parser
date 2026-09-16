@@ -145,6 +145,7 @@ def _seed_procurement() -> int:
     return asyncio.run(_seed())
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped mc_client
 def test_clients_crud(mc_client: TestClient) -> None:
     client = mc_client
     active = client.get("/api/clients/active")
@@ -429,6 +430,7 @@ def test_profile_export_structured_competencies(mc_client: TestClient) -> None:
     )
 
 
+@pytest.mark.slow
 def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
     client = mc_client
     procurement_id = _seed_procurement()

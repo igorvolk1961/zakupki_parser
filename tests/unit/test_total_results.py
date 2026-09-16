@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from playwright.async_api import Page
 from tests.conftest import set_html
 
 from zakupki_parser.config.models import AppConfig
 from zakupki_parser.parser.lister import extract_total_results
+
+# Каждый тест поднимает реальную Playwright-страницу (фикстура page) — teardown
+# (закрытие контекста браузера) занимает 3-6.5с на тест, а не логика самого
+# теста. Помечены целиком модулем — не запускать без явного разрешения.
+pytestmark = pytest.mark.slow
 
 
 def _platform(app_config: AppConfig, **list_config_overrides: Any) -> Any:

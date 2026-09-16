@@ -62,9 +62,13 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
         if await _repo().get_user_by_username(body.username) is not None:
             raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
         password_hash = await asyncio.to_thread(hash_password, body.password)
-        # Триал-режим: по умолчанию 14 дней (а не 10 лет); в триале доступны
-        # бесплатно все опции поиска и скоринга. Аккаунт «По умолчанию» — только
-        # бесплатные опции (#6): он начнёт действовать после окончания триала.
+        # Триал-режим: по умолчанию 14 дней (а не 10 лет). Аккаунт «По умолчанию»
+        # создаётся сразу со ВСЕМИ платными опциями включёнными (материализует
+        # триал в реальное состояние аккаунта, а не runtime-переопределение —
+        # см. докстринг accounts.py: иначе пользователь не мог бы выключить
+        # отдельную опцию, пока триал идёт) — пользователь может выключить
+        # что угодно сам; по истечении trial_end_at опции сбрасываются
+        # (AccountMixin.downgrade_expired_trial, лениво при следующем запросе).
         trial_end_at = datetime.now(UTC) + timedelta(days=TRIAL_DEFAULT_DAYS)
         try:
             # Атомарно: пользователь + триал + default-профиль + default-аккаунт.
@@ -74,7 +78,7 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
                 [ROLE_USER],
                 email=body.email,
                 trial_end_at=trial_end_at,
-                account_paid_default=False,
+                account_paid_default=True,
             )
         except IntegrityError as exc:
             # Гонка двух одновременных регистраций с одним логином: констрейнт

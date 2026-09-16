@@ -75,6 +75,7 @@ async def _upsert(repo: ProcurementRepository, number: str, **extra: object) -> 
     return next(p.id for p in rows if p.number == number)
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_reject_sets_status_and_hides_from_list(db: Database) -> None:
     repo = ProcurementRepository(db)
@@ -98,6 +99,7 @@ async def test_reject_sets_status_and_hides_from_list(db: Database) -> None:
     assert total == 1 and rows[0].id == pid
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_reject_removes_matched_keywords(db: Database) -> None:
     repo = ProcurementRepository(db)
@@ -128,6 +130,7 @@ async def test_reject_adds_exclusion_word(db: Database) -> None:
     assert words["exclusion_words"] == ["медицина"]
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_accept_into_work_flag_and_list(db: Database) -> None:
     repo = ProcurementRepository(db)
@@ -158,6 +161,7 @@ async def test_accept_into_work_flag_and_list(db: Database) -> None:
     assert rows[0].in_work is False
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_accept_by_url_existing_and_snapshot(db: Database) -> None:
     repo = ProcurementRepository(db)
@@ -187,6 +191,7 @@ async def test_accept_by_url_existing_and_snapshot(db: Database) -> None:
     assert items[0].procurement_id == pid
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_clear_all_keeps_work_items_unless_requested(db: Database) -> None:
     repo = ProcurementRepository(db)
@@ -209,6 +214,7 @@ async def test_clear_all_keeps_work_items_unless_requested(db: Database) -> None
     assert await repo.list_work_items(profile_id) == []
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_list_in_work_filter(db: Database) -> None:
     """Единый список: фильтр in_work возвращает закупки профиля «в работе»."""
@@ -235,6 +241,7 @@ async def test_list_in_work_filter(db: Database) -> None:
     assert row_other is not None and row_other.in_work is False
 
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_work_is_per_profile(db: Database) -> None:
     """Признак «в работе» изолирован по профилю (BR-07)."""

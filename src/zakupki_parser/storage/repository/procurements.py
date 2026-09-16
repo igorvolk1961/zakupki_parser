@@ -937,10 +937,23 @@ class ProcurementMixin(RepositoryMixin):
         поэтому метод сам постановку не делает. Возвращает статистику
         ``{created, updated, removed, reset}``.
 
-        ``use_document_index=True`` (план фоновой индексации, Stage B) — закупки,
-        не совпавшие по словам с ``subject``, ДОполнительно проверяются по тексту
-        документов (``procurement_search_index.search_tsv``, tsquery-транслятор
-        ``parser/filtering_tsquery.py``) — мгновенно, без обращения к площадкам.
+        ``use_document_index=True`` (план фоновой индексации, Stage B) — решение
+        «этот профиль обслуживается через индекс, а не живым обходом» (Stage D,
+        ``Scheduler._split_ctxs_for_index_routing`` — по покрытию кода ОКПД2
+        ``IndexingConfig.okpd2_prefixes``, НЕ связано с ``profile.search_in_
+        documents``: сама фоновая индексация ВСЕГДА извлекает текст документов,
+        независимо от профиля, — это системный процесс, общий для всех профилей).
+        Если ДОПОЛНИТЕЛЬНО включён ``profile.search_in_documents`` (per-profile
+        настройка: «где искать ключевые слова ЭТОГО профиля» — влияет и на живой
+        путь, ``processing.py``, и на этот, индексный), закупки, не совпавшие по
+        словам с ``subject``, ДОполнительно проверяются по тексту документов
+        (``procurement_search_index.search_tsv``, tsquery-транслятор
+        ``parser/filtering_tsquery.py``) — мгновенно, без обращения к площадкам
+        (индекс уже наполнен). Профиль с ``search_in_documents=False`` матчится
+        ТОЛЬКО по ``subject``, даже через индексный путь — сам факт, что закупка
+        проиндексирована (текст документов ГДЕ-ТО в БД есть), не означает, что
+        КОНКРЕТНО ЭТОТ профиль обязан его учитывать.
+
         Условие «эта конкретная закупка проиндексирована» проверяется САМИМ JOIN'ом
         (``ProcurementSearchIndex.status == 'indexed'`` ниже) — НЕ по тому, входит
         ли её код в текущий ``IndexingConfig.okpd2_prefixes`` (устаревшая, более
@@ -982,10 +995,14 @@ class ProcurementMixin(RepositoryMixin):
             # doc_pos_match уже учитывает и «проиндексирована» (JOIN ниже гейтится
             # status='indexed'), и «текст документов совпал по tsquery» — доп.
             # проверка по текущим indexing.okpd2_prefixes здесь была бы лишней и
-            # неверной (см. докстринг метода).
+            # неверной (см. докстринг метода). profile.search_in_documents —
+            # ОТДЕЛЬНЫЙ гейт: сама индексация документы читает всегда, но
+            # УЧИТЫВАТЬ найденное в них совпадение для КОНКРЕТНОГО профиля можно,
+            # только если он сам просил искать в документах.
             doc_ok = (
                 not subject_ok
                 and use_document_index
+                and bool(profile.search_in_documents)
                 and bool(getattr(proc, "doc_pos_match", False))
             )
             if not subject_ok and not doc_ok:

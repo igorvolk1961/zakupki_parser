@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,7 @@ def _headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped auth_client
 def test_register_login_me(auth_client: TestClient) -> None:
     client = auth_client
     # Регистрация: пароль выбирает сам пользователь + подтверждение, роль — user.
@@ -169,12 +171,85 @@ def test_register_login_me(auth_client: TestClient) -> None:
     )
 
 
+def test_register_materializes_full_paid_options_during_trial(auth_client: TestClient) -> None:
+    """Саморегистрация даёт триал; аккаунт «По умолчанию» создаётся сразу со ВСЕМИ
+    платными опциями включёнными (материализация в момент создания, а не
+    runtime-переопределение — см. докстринг accounts.py): раньше account.options
+    был весь выключен, и триал лишь ПОДМЕНЯЛ эффективный расчёт, из-за чего
+    пользователь физически не мог выключить отдельную опцию во время триала."""
+    client = auth_client
+    resp = client.post(
+        "/api/auth/register",
+        json={
+            "username": "trialuser1",
+            "password": "password123",
+            "password_confirm": "password123",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["access_token"]
+
+    cab = client.get("/api/account/cabinet", headers=_headers(token))
+    assert cab.status_code == 200
+    body = cab.json()
+    assert body["trial"]["enabled"] is True
+    scoring = next(o for o in body["catalog"] if o["key"] == "scoring")
+    assert scoring["enabled"] is True
+    # account_enabled — РЕАЛЬНОЕ состояние аккаунта, не эффективный расчёт:
+    # материализовано, а не только «доступно благодаря триалу».
+    assert scoring["account_enabled"] is True
+
+
+def test_trial_expiry_resets_account_options(auth_client: TestClient) -> None:
+    """По истечении триала (здесь — админ выставляет прошедшую дату, имитируя
+    истечение 14 дней) первый же авторизованный запрос под токеном пользователя
+    лениво сбрасывает платные опции активного аккаунта и очищает trial_end_at
+    (``require_user`` -> ``AccountMixin.downgrade_expired_trial``) — реальное
+    ограничение доступа, а не только смена runtime-флага."""
+    client = auth_client
+    resp = client.post(
+        "/api/auth/register",
+        json={
+            "username": "trialuser2",
+            "password": "password123",
+            "password_confirm": "password123",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    user_id = resp.json()["user"]["id"]
+    token = resp.json()["access_token"]
+
+    admin_token = _login(client, "service-account", "servicepass")
+    past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    upd = client.patch(
+        f"/api/users/{user_id}/trial",
+        json={"trial_end_at": past},
+        headers=_headers(admin_token),
+    )
+    assert upd.status_code == 200, upd.text
+
+    # Любой авторизованный запрос под токеном самого пользователя — лениво
+    # запускает сброс (require_user на КАЖДОМ запросе).
+    me = client.get("/api/auth/me", headers=_headers(token))
+    assert me.status_code == 200
+
+    cab = client.get("/api/account/cabinet", headers=_headers(token))
+    assert cab.status_code == 200
+    body = cab.json()
+    assert body["trial"]["enabled"] is False
+    assert body["trial"]["trial_end_at"] is None
+    scoring = next(o for o in body["catalog"] if o["key"] == "scoring")
+    assert scoring["enabled"] is False
+    assert scoring["account_enabled"] is False
+
+
 def test_public_endpoints_open(auth_client: TestClient) -> None:
     client = auth_client
     assert client.get("/health").status_code == 200
     assert client.get("/").status_code == 200
 
 
+@pytest.mark.slow
 def test_pipeline_endpoints_require_internal_token(auth_client: TestClient) -> None:
     """Служебные эндпоинты конвейера (POST /score) закрыты внутренним токеном."""
     client = auth_client
@@ -269,8 +344,21 @@ def test_pipeline_can_read_procurement_card_with_internal_token(auth_client: Tes
 
 
 def test_simple_user_cannot_use_admin_endpoints(auth_client: TestClient) -> None:
+    """Регистрирует СОБСТВЕННОГО пользователя (не полагается на «tender1» из
+    ``test_register_login_me`` — раньше скрыто зависел от порядка выполнения
+    тестов в модуле: при выборочном запуске, напр. ``-m "not slow"``, «tender1»
+    мог не существовать, если test_register_login_me не выполнялся)."""
     client = auth_client
-    token = _login(client, "tender1", "password123")
+    reg = client.post(
+        "/api/auth/register",
+        json={
+            "username": "simpleuser1",
+            "password": "password123",
+            "password_confirm": "password123",
+        },
+    )
+    assert reg.status_code == 200, reg.text
+    token = str(reg.json()["access_token"])
     headers = _headers(token)
 
     # Рабочие (простой пользователь) эндпоинты доступны.

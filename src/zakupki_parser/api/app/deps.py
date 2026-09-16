@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import Depends, HTTPException, Request
@@ -225,6 +226,19 @@ def build_context(state: AppState) -> ApiContext:
             raise HTTPException(status_code=401, detail="Пользователь не найден")
         if user.status == "blocked":
             raise HTTPException(status_code=403, detail="Аккаунт заблокирован")
+        # Истёкший триал: лениво, один раз, сбрасываем платные опции активного
+        # аккаунта и очищаем trial_end_at (AccountMixin.downgrade_expired_trial) —
+        # реальное ограничение доступа через 14 дней, а не просто runtime-флаг.
+        # Проверяем по уже прочитанному user.trial_end_at — лишний запрос к БД
+        # не уходит на каждый запрос АКТИВНОГО триала, только когда он истёк
+        # (and короткозамкнут: downgrade_expired_trial вызывается, только если
+        # первые два условия истинны).
+        if (
+            user.trial_end_at is not None
+            and user.trial_end_at <= datetime.now(UTC)
+            and await _repo().downgrade_expired_trial(user.id)
+        ):
+            user.trial_end_at = None
         return user
 
     def _require_roles(*required: str) -> Callable[[User | None], User | None]:

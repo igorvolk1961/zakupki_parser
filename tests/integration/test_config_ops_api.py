@@ -109,6 +109,7 @@ def _auth(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {_login(client)}"}
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped ops_client
 def test_ops_config_redacts_secrets(ops_client: TestClient) -> None:
     cfg = ops_client.get("/api/config/ops", headers=_auth(ops_client)).json()
     assert "timeout_seconds" in cfg

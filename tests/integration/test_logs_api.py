@@ -117,6 +117,7 @@ def _headers(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped logs_client
 def test_logs_tail_default(logs_client: TestClient) -> None:
     data = logs_client.get("/api/logs/tail", headers=_headers(logs_client)).json()
     assert data["file_exists"] is True

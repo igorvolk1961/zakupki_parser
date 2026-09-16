@@ -38,13 +38,31 @@ def test_default_account_is_free_only() -> None:
     assert paid_default_options(enabled=True) == dict.fromkeys(PAID_KEYS, True)
 
 
-def test_effective_options_trial_unlocks_all_paid() -> None:
+def test_effective_options_trial_does_not_override_account() -> None:
+    """Триал больше НЕ переопределяет account.options во время действия (было —
+    в триале все платные опции считались включёнными НЕЗАВИСИМО от аккаунта,
+    из-за чего пользователь физически не мог выключить отдельную опцию, пока
+    триал шёл). Теперь триал материализуется один раз в момент создания
+    пользователя (account_paid_default=True в create_user_with_setup для
+    саморегистрации) — во время действия читается РЕАЛЬНОЕ состояние аккаунта,
+    ``in_trial``/``trial_end_at`` остаются информационными полями."""
     trial_end = NOW + timedelta(days=14)
+    # Аккаунт с ВСЕМИ выключенными опциями (пользователь сам их выключил во
+    # время триала) — триал это решение больше не переопределяет.
     eff = effective_options([_account(paid_default_options(False))], trial_end, now=NOW)
     assert eff.in_trial
-    assert eff.has_option("scoring")
-    assert eff.has_option("analysis")
-    assert eff.has_option("margin")
+    assert not eff.has_option("scoring")
+    assert not eff.has_option("analysis")
+    assert not eff.has_option("margin")
+    assert eff.has_option("search")  # бесплатные доступны всегда
+
+    # Материализованный триал (account_paid_default=True при регистрации) —
+    # всё включено, потому что включено В АККАУНТЕ, а не потому что идёт триал.
+    eff_full = effective_options([_account(paid_default_options(True))], trial_end, now=NOW)
+    assert eff_full.in_trial
+    assert eff_full.has_option("scoring")
+    assert eff_full.has_option("analysis")
+    assert eff_full.has_option("margin")
 
 
 def test_effective_options_account_paid_off() -> None:
