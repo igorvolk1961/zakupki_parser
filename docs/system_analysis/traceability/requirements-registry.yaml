@@ -727,11 +727,17 @@ requirements:
       - src/zakupki_parser/scheduler.py#_sync_profiles_via_index
       - src/zakupki_parser/scheduler.py#request_profile_refresh
       - src/zakupki_parser/scheduler.py#_run_refresh_pass
+      - src/zakupki_parser/scheduler.py#_regular_loop
+      - src/zakupki_parser/scheduler.py#_refresh_loop
+      - src/zakupki_parser/scheduler.py#_get_platform_sem
+      - src/zakupki_parser/scheduler.py#_get_domain_sem
       - src/zakupki_parser/api/app/routes/clients.py#_collection_notice
+      - src/zakupki_parser/api/app/routes/clients.py#refresh_client
       - src/zakupki_parser/parser/orchestrator/context.py
       - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#_build_units
     tests:
       - tests/integration/test_repository.py
+      - tests/integration/test_multiclient.py
       - tests/unit/test_scheduler_parallel.py
       - tests/unit/test_okpd_prefixes.py
     notes: >-
@@ -791,6 +797,37 @@ requirements:
       ``Scheduler.profile_refresh_status``/``_collection_notice`` (уведомление
       при сохранении профиля) обновлены под новую семантику (``remaining_
       seconds`` из throttle, поле ``handled_this_cycle`` убрано как устаревшее).
+
+      Внеочередной обход параллельно регулярному (2026-09, ``run_service``
+      разбит на ``_regular_loop``/``_refresh_loop``): ДО этого фикса throttle
+      уже верно считал профиль готовым к обходу немедленно, но реально
+      запустить обход планировщик всё ещё мог только МЕЖДУ регулярными
+      проходами — если regулярный проход (типично первый после старта
+      парсера, «холодный», без ``last_processed_date``, поэтому особенно
+      долгий) уже шёл, готовый внеочередной обход просто ждал его завершения.
+      ``_regular_loop``/``_refresh_loop`` теперь независимые параллельные
+      циклы (``asyncio.create_task`` + ``asyncio.gather`` в ``run_service``);
+      каждый готовый профиль обходится ОТДЕЛЬНОЙ детached-задачей
+      (``_run_refresh_pass_guarded``, отслеживается в ``_refresh_tasks`` и
+      явно отменяется в ``stop()`` — ``asyncio.create_task`` создаёт
+      независимую задачу, отмена родительской ``run_service`` её саму по себе
+      не отменяет). Суммарная нагрузка на площадки при параллельно идущих
+      проходах по-прежнему ограничена настроенными лимитами — семафоры
+      конкурентности (``_get_platform_sem``/``_get_domain_sem``) стали ОБЩИМИ
+      на все проходы (раньше пересоздавались на каждый ``_run_platform_pass``
+      отдельно, что при двух одновременных проходах суммарно удвоило бы
+      конкурентность к одной площадке); при этом лимит по-прежнему
+      перечитывается из конфига при каждом получении семафора — горячая
+      правка ``config_parser.yaml`` (без рестарта парсера,
+      ``routes/config.py``: ``state_setter=lambda m: setattr(state.cfg,
+      "parser", m)``) продолжает применяться без задержки.
+
+      Кнопка «Обновить сейчас» на вкладке «Закупки» (``POST /api/clients/
+      {id}/refresh``, ``refresh_client``): принудительный внеочередной обход
+      активного профиля БЕЗ изменения самого профиля — тот же fast-start путь
+      (``_request_refresh_for(profile, rebuild=True)``) и та же throttle-защита
+      (``profile_refresh_debounce_seconds``, общая с обычными правками
+      профиля — throttle привязан к id профиля, а не к причине запроса).
 
   # ===== Функциональные требования =====
   - id: FR-1.1
@@ -870,6 +907,31 @@ requirements:
       переход/открытие карточки правильного профиля, возврат на «Закупки»
       после отмены И после сохранения, отсутствие регрессии обычного входа
       через вкладку «Профили»).
+  - id: FR-1.6
+    type: FR
+    title: Принудительное обновление активного профиля («Обновить сейчас»)
+    stakeholder: Тендеролог (user)
+    stage: "2, 6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/zakupki.html
+      - src/zakupki_parser/api/static/js/clients.js
+      - src/zakupki_parser/api/app/routes/clients.py#refresh_client
+    tests:
+      - tests/integration/test_multiclient.py
+    notes: >-
+      Кнопка «Обновить сейчас» рядом с селектором активного профиля на
+      вкладке «Закупки» (``#proc-refresh-profile``): вызывает ``POST /api/
+      clients/{id}/refresh`` — тот же fast-start путь, что и у сохранения
+      профиля с изменением критериев сбора (``_request_refresh_for(profile,
+      rebuild=True)``), БЕЗ изменения самого профиля. Throttle — тот же
+      ``profile_refresh_debounce_seconds``, что и у обычных правок (throttle
+      в ``Scheduler`` привязан к id профиля, а не к причине запроса):
+      повторное нажатие раньше, чем истёк throttle с предыдущего обхода, не
+      запускает новый обход — уведомление (``#proc-refresh-status``, тот же
+      ``_collection_notice``, ``verb="Обновление запрошено"``) сообщает
+      остаток ожидания. Кнопка не переключает вкладку (в отличие от FR-1.5).
 
   - id: FR-2.1
     type: FR

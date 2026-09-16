@@ -81,8 +81,9 @@ class Scheduler:
         # записывается в scoring_iteration закупок — граница батча журнала «Метрики».
         self._iteration = 0
         # Внеочередные обходы (fast-start): профили, запрошенные через
-        # ``request_profile_refresh``, обрабатываются сразу после завершения
-        # текущего прохода, не дожидаясь следующего регулярного цикла.
+        # ``request_profile_refresh``, обрабатываются немедленно, параллельно
+        # текущему регулярному проходу (см. _regular_loop/_refresh_loop) — не
+        # дожидаясь ни его завершения, ни следующего регулярного цикла.
         self._refresh_ids: set[int] = set()
         # Правка профиля может требовать не только внеочередного обхода, но и
         # перестройки его результатов сбора (procurement_evaluations) и/или
@@ -97,6 +98,26 @@ class Scheduler:
         # искусственная задержка перед КАЖДЫМ обходом: профиль без записи здесь
         # (ещё не обходился ни разу) обходится немедленно, без ожидания вообще.
         self._refresh_last_run_at: dict[int, float] = {}
+        # Внеочередные обходы теперь выполняются ПАРАЛЛЕЛЬНО с регулярным проходом
+        # (см. _regular_loop/_refresh_loop), не дожидаясь его завершения — задачи
+        # запускаются через asyncio.create_task (не await инлайн), поэтому их нужно
+        # явно отслеживать и отменять при остановке (create_task создаёт НЕЗАВИСИМУЮ
+        # задачу: отмена run_service её саму по себе не отменяет).
+        self._refresh_tasks: set[asyncio.Task[None]] = set()
+        # ОБЩИЕ (не пересоздаются на каждый проход) семафоры конкурентности площадок:
+        # нужны, чтобы параллельно идущие проходы (регулярный + один или несколько
+        # внеочередных) вместе не превышали config_parser.yaml ->
+        # max_concurrent_platforms/max_concurrent_per_domain — один семафор на ВСЕ
+        # одновременные проходы, а не отдельный на каждый (иначе конкурентность к
+        # одной и той же площадке удваивалась бы на каждый параллельно идущий
+        # проход). Лимит перечитывается при каждом получении семафора (см.
+        # _get_platform_sem/_get_domain_sem) — так горячая правка config_parser.yaml
+        # (без рестарта парсера, см. routes/config.py: state_setter=...) по-прежнему
+        # применяется к новым запросам семафора, как и раньше (раньше семафоры
+        # пересоздавались на каждый проход с актуальным значением).
+        self._platform_sem: asyncio.Semaphore | None = None
+        self._platform_sem_limit: int | None = None
+        self._domain_sems: dict[str, tuple[int, asyncio.Semaphore]] = {}
 
     async def start(self) -> None:
         setup_logging(self._cfg.logging)
@@ -107,7 +128,46 @@ class Scheduler:
 
     async def stop(self) -> None:
         self._stop.set()
+        # Отменяем ещё не завершившиеся задачи внеочередных обходов (запущены
+        # asyncio.create_task в _refresh_loop, не await инлайн — см. __init__)
+        # и дожидаемся их отмены ДО закрытия пула БД, иначе отменённая задача
+        # могла бы обратиться к уже закрытому соединению.
+        tasks = list(self._refresh_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         await self._db.dispose()
+
+    def _get_platform_sem(self) -> asyncio.Semaphore:
+        """Общий (на все параллельно идущие проходы) семафор числа площадок.
+
+        Пересоздаётся, только если лимит изменился (горячая правка
+        config_parser.yaml -> max_concurrent_platforms без рестарта парсера) —
+        иначе один и тот же объект переиспользуется всеми проходами.
+        """
+        limit = self._cfg.parser.max_concurrent_platforms
+        if self._platform_sem is None or self._platform_sem_limit != limit:
+            self._platform_sem = asyncio.Semaphore(limit)
+            self._platform_sem_limit = limit
+        return self._platform_sem
+
+    def _get_domain_sem(self, dkey: str) -> asyncio.Semaphore:
+        """Общий (на все параллельно идущие проходы) семафор одного домена/бэкенда.
+
+        Пересоздаётся, только если лимит изменился (горячая правка
+        config_parser.yaml -> max_concurrent_per_domain). Общий semaphore между
+        проходами критичен именно для домена — это и есть защита «44-ФЗ/223-ФЗ
+        одного сайта не идут параллельно», её нельзя ослаблять, когда регулярный
+        и внеочередной проходы совпали по площадке.
+        """
+        limit = self._cfg.parser.max_concurrent_per_domain
+        cached = self._domain_sems.get(dkey)
+        if cached is None or cached[0] != limit:
+            sem = asyncio.Semaphore(limit)
+            self._domain_sems[dkey] = (limit, sem)
+            return sem
+        return cached[1]
 
     def _refresh_remaining(self, profile_id: int) -> float:
         """Throttle: сколько ещё секунд ждать до обхода профиля.
@@ -133,11 +193,15 @@ class Scheduler:
         """Помечает профиль как требующий внеочередного обхода (fast-start).
 
         Вызывается после создания/изменения включённого профиля (API-роуты).
-        Планировщик обработает профиль сразу после завершения текущего прохода,
-        не дожидаясь следующего регулярного цикла (``timeout_seconds``). Пригодность
-        профиля (включён, владелец активен и имеет поиск) ещё раз проверяется в
-        момент запуска внеочередного обхода; опция ``scoring`` владельца при этом
-        НЕ исключает профиль из обхода (мониторинг работает без скоринга).
+        Планировщик обработает профиль немедленно, НЕ дожидаясь ни следующего
+        регулярного цикла (``timeout_seconds``), ни завершения уже идущего
+        регулярного прохода — внеочередной и регулярный проходы выполняются
+        параллельно (``_regular_loop``/``_refresh_loop``), суммарная нагрузка
+        на площадки ограничена общими семафорами (``_get_platform_sem``/
+        ``_get_domain_sem``). Пригодность профиля (включён, владелец активен и
+        имеет поиск) ещё раз проверяется в момент запуска внеочередного обхода;
+        опция ``scoring`` владельца при этом НЕ исключает профиль из обхода
+        (мониторинг работает без скоринга).
 
         ``rebuild`` — после обхода перестроить per-profile результаты сбора
         (``procurement_evaluations``) по текущей области захвата профиля:
@@ -335,10 +399,17 @@ class Scheduler:
         """Обход включённых площадок для набора профилей (общая часть прохода).
 
         Используется и регулярным ``run_once`` (все профили), и внеочередным
-        обходом ``_run_refresh_pass`` (только затронутые профили). При
-        ``full_window=True`` обход каждого профиля идёт по полному окну
-        ``default_cutoff_days`` (история для нового профиля), а не от инкремента
-        ``last_processed_date`` площадки.
+        обходом ``_run_refresh_pass`` (только затронутые профили) — оба могут
+        выполняться ОДНОВРЕМЕННО (см. ``_regular_loop``/``_refresh_loop``), в т.ч.
+        несколько ``_run_platform_pass`` параллельно; семафоры конкурентности
+        (``_get_platform_sem``/``_get_domain_sem``) — ОБЩИЕ на все параллельно
+        идущие вызовы, поэтому суммарная нагрузка на площадки не превышает
+        настроенных лимитов, даже когда два прохода совпали по площадке (тогда
+        просто один из них дожидается доменного семафора, как и любые два
+        обращения к площадке внутри одного прохода). При ``full_window=True``
+        обход каждого профиля идёт по полному окну ``default_cutoff_days``
+        (история для нового профиля), а не от инкремента ``last_processed_date``
+        площадки.
 
         Возвращает сводку прохода (devops-мониторинг, ``parser_cycle_stats``) —
         вызывающий (``run_once``/``_run_refresh_pass``) дописывает временные метки
@@ -349,17 +420,10 @@ class Scheduler:
             return cycle
         enabled_platforms = await self._repository.enabled_platform_ids()
 
-        sem = asyncio.Semaphore(self._cfg.parser.max_concurrent_platforms)
-        # Доменный лимит (R5): 44-ФЗ/223-ФЗ одного сайта (одинаковый domain_group
-        # или hostname url) не обрабатываются параллельно — общий бэкенд/IP/антибот.
-        per_domain_limit = self._cfg.parser.max_concurrent_per_domain
-        per_domain: dict[str, asyncio.Semaphore] = {}
-
         async def _run_platform(platform_id: str, profiles: list[ProfileRunContext]) -> None:
-            dkey = self._domain_key(platform_id)
-            d_sem = per_domain.setdefault(dkey, asyncio.Semaphore(per_domain_limit))
+            d_sem = self._get_domain_sem(self._domain_key(platform_id))
             # Единый порядок захвата (глобальный -> доменный) исключает deadlock.
-            async with sem, d_sem:
+            async with self._get_platform_sem(), d_sem:
                 await self._process_platform(
                     platform_id, profiles, iteration, full_window=full_window, cycle=cycle
                 )
@@ -682,57 +746,77 @@ class Scheduler:
         return min(self._refresh_remaining(pid) for pid in self._refresh_ids)
 
     async def run_service(self) -> None:
-        """Бесконечный цикл: регулярные проходы через ``timeout_seconds``.
-
-        После каждого прохода планировщик ждёт до следующего регулярного прохода,
-        но просыпается раньше по сигналу ``request_profile_refresh`` (создание или
-        изменение профиля) и выполняет внеочередной обход ТОЛЬКО затронутых
-        профилей: новый/изменённый профиль начинает собираться сразу после
-        завершения текущего прохода, а не через полный период цикла. Внеочередные
-        обходы выполняются строго между проходами (без параллельных обходов) и не
-        сдвигают расписание регулярных (``next_full_at`` фиксируется после каждого
-        регулярного прохода).
-
-        Throttle, не debounce (см. ``request_profile_refresh``): между проходами
-        планировщик ждёт либо до границы регулярного цикла, либо до момента, когда
-        КАКОЙ-ТО накопленный профиль выйдет из throttle (``_next_refresh_wait``) —
-        смотря что раньше. Это даёт немедленный первый обход и при этом не позволяет
-        повторными правками одного профиля долбить площадки чаще, чем раз в
-        ``profile_refresh_debounce_seconds``.
+        """Запускает регулярный и внеочередной циклы ПАРАЛЛЕЛЬНО (не await один
+        за другим): внеочередной обход (fast-start) не ждёт завершения уже
+        идущего регулярного прохода — раньше оба цикла жили в одном
+        последовательном ``while``, и внеочередной обход, попавший на время
+        работы длинного регулярного прохода (типично — самый первый после
+        старта парсера, «холодный», без ``last_processed_date``), был вынужден
+        ждать его завершения целиком, даже если throttle уже разрешал обход
+        немедленно. Оба цикла используют ОБЩИЕ семафоры конкурентности
+        площадок (``_get_platform_sem``/``_get_domain_sem``) — параллельность
+        двух проходов не удваивает нагрузку на площадки.
         """
         await self.start()
-        loop = asyncio.get_running_loop()
         try:
-            while not self._stop.is_set():
-                self._iteration += 1
-                await self.run_once(self._iteration)
-                if self._refresh_ids:
-                    self._refresh_event.set()
-                next_full_at = loop.time() + self._cfg.ops.timeout_seconds
-                logger.info("Цикл завершён, ожидание %d с", self._cfg.ops.timeout_seconds)
-                # Между регулярными проходами обслуживаем запросы обновления
-                # профилей; расписание регулярных проходов не сдвигается.
-                while not self._stop.is_set():
-                    remaining_to_full = next_full_at - loop.time()
-                    if remaining_to_full <= 0:
-                        break
-                    wait_for = self._next_refresh_wait()
-                    wait_time = (
-                        remaining_to_full if wait_for is None else min(wait_for, remaining_to_full)
-                    )
-                    reason = await self._wait_signal_or_timeout(wait_time)
-                    if reason == "stop":
-                        break
-                    self._refresh_event.clear()
-                    if not self._refresh_ids:
-                        continue
-                    self._iteration += 1
-                    await self._run_refresh_pass(self._iteration)
+            regular = asyncio.create_task(self._regular_loop())
+            refresh = asyncio.create_task(self._refresh_loop())
+            await asyncio.gather(regular, refresh)
         finally:
             await self.stop()
 
-    async def _wait_signal_or_timeout(self, timeout: float) -> str:
-        """Ждёт stop/refresh-сигнал до истечения ``timeout``.
+    async def _regular_loop(self) -> None:
+        """Регулярные проходы через ``timeout_seconds`` (пауза отсчитывается от
+        завершения предыдущего прохода — расписание не «плывёт» из-за внеочередных
+        обходов, которые теперь идут в параллельном ``_refresh_loop``)."""
+        while not self._stop.is_set():
+            self._iteration += 1
+            await self.run_once(self._iteration)
+            logger.info("Цикл завершён, ожидание %d с", self._cfg.ops.timeout_seconds)
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._stop.wait(), timeout=self._cfg.ops.timeout_seconds)
+
+    async def _refresh_loop(self) -> None:
+        """Внеочередные обходы (fast-start, throttle) — независимый цикл, не
+        дожидается ``_regular_loop``. Как только throttle отпускает какой-то
+        накопленный профиль (``_next_refresh_wait``), для него запускается
+        ОТДЕЛЬНАЯ параллельная задача (``asyncio.create_task``, не await
+        инлайн) — так несколько профилей, ставших доступными почти
+        одновременно, тоже обходятся параллельно, а не друг за другом.
+        Задача отслеживается в ``_refresh_tasks`` (см. ``stop()``) и гасит
+        собственные исключения (см. ``_run_refresh_pass_guarded``) — сбой
+        обхода одного профиля не должен останавливать ни этот цикл, ни
+        планировщик в целом.
+        """
+        while not self._stop.is_set():
+            wait_for = self._next_refresh_wait()
+            reason = await self._wait_signal_or_timeout(wait_for)
+            if reason == "stop":
+                break
+            self._refresh_event.clear()
+            if not self._refresh_ids:
+                continue
+            self._iteration += 1
+            iteration = self._iteration
+            task = asyncio.create_task(self._run_refresh_pass_guarded(iteration))
+            self._refresh_tasks.add(task)
+            task.add_done_callback(self._refresh_tasks.discard)
+
+    async def _run_refresh_pass_guarded(self, iteration: int) -> None:
+        """Обёртка ``_run_refresh_pass`` для запуска через ``asyncio.create_task``:
+        задача детached (не await инлайн из ``_refresh_loop``), поэтому необработанное
+        исключение молча потерялось бы (лишь предупреждение asyncio «Task exception
+        was never retrieved») — логируем явно, тем же логгером, что и остальные
+        сбои планировщика."""
+        try:
+            await self._run_refresh_pass(iteration)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Внеочередной обход (итерация %d) завершился ошибкой: %s", iteration, exc)
+
+    async def _wait_signal_or_timeout(self, timeout: float | None) -> str:
+        """Ждёт stop/refresh-сигнал до истечения ``timeout`` (``None`` — бессрочно).
 
         Возвращает ``"stop"``/``"refresh"``/``"timeout"``. Отмена внешней задачи
         (остановка парсера) отменяет внутренние задачи ожидания.

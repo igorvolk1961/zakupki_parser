@@ -194,11 +194,16 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if profile is not None and profile.enabled:
             _request_profile_refresh(state, profile.id, rebuild=rebuild, rescore=rescore)
 
-    def _collection_notice(profile: Any, *, refresh_requested: bool) -> str:
+    def _collection_notice(
+        profile: Any, *, refresh_requested: bool, verb: str = "Профиль сохранён"
+    ) -> str:
         """Уведомление пользователю: когда начнётся сбор данных по профилю.
 
-        Вызывается сразу после сохранения; ``refresh_requested`` — запрошен ли
-        внеочередной обход этой правкой (см. change-detection в ``update_client``).
+        Вызывается сразу после сохранения (или принудительного обновления —
+        ``refresh_client``, ``verb="Обновление запрошено"``); ``refresh_requested``
+        — запрошен ли внеочередной обход этой правкой (см. change-detection в
+        ``update_client``; принудительное обновление запрашивает его всегда,
+        пока профиль включён).
         """
         if not profile.enabled:
             return (
@@ -207,7 +212,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         if not refresh_requested:
             return (
-                "Профиль сохранён. Изменения не влияют на критерии сбора "
+                f"{verb}. Изменения не влияют на критерии сбора "
                 "(ОКПД2/слова/НМЦК/регионы/площадки) — сбор данных продолжится "
                 "по регулярному расписанию мониторинга."
             )
@@ -215,11 +220,11 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         if scheduler is None:
             if profile.id in state.pending_profile_refresh_ids:
                 return (
-                    "Профиль сохранён. Парсер остановлен: внеочередной сбор по "
+                    f"{verb}. Парсер остановлен: внеочередной сбор по "
                     "профилю начнётся сразу после запуска мониторинга."
                 )
             return (
-                "Профиль сохранён. Парсер не запущен: сбор данных по профилю "
+                f"{verb}. Парсер не запущен: сбор данных по профилю "
                 "начнётся после запуска мониторинга на панели devops."
             )
         status = scheduler.profile_refresh_status(profile.id)
@@ -228,12 +233,12 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             total = int(remaining)
             approx = f"{total // 60} мин {total % 60} с" if total >= 60 else f"{total} с"
             return (
-                "Профиль сохранён. Внеочередной сбор данных по нему начнётся "
+                f"{verb}. Внеочередной сбор данных по нему начнётся "
                 f"не ранее чем через {approx} после завершения предыдущего "
                 "внеочередного обхода профиля."
             )
         return (
-            "Профиль сохранён. Внеочередной сбор данных по нему начнётся сразу "
+            f"{verb}. Внеочередной сбор данных по нему начнётся сразу "
             "после завершения текущего прохода (если он идёт) — в ближайшее окно "
             "между проходами мониторинга."
         )
@@ -450,6 +455,33 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             _request_refresh_for(updated, rebuild=True, rescore=comp_changed)
         notice = _collection_notice(updated, refresh_requested=rebuild and bool(updated.enabled))
         return await _save_out(updated, notice, keywords=new_words)
+
+    @router.post(
+        "/api/clients/{client_id}/refresh",
+        response_model=ProfileSaveOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def refresh_client(
+        client_id: int, user: User | None = Depends(require_base)
+    ) -> ProfileSaveOut:
+        """Принудительное обновление («Обновить сейчас») — БЕЗ изменения самого
+        профиля, тот же fast-start путь, что и сохранение профиля с изменением
+        критериев сбора (``_request_refresh_for``, ``rebuild=True``). Throttle —
+        тот же ``profile_refresh_debounce_seconds``, что и у обычных правок (он
+        привязан к id профиля, а не к причине запроса, см. ``Scheduler.
+        request_profile_refresh``): повторное нажатие раньше, чем истёк
+        throttle с предыдущего обхода, не запускает новый обход, только
+        удлиняет ожидание в уведомлении.
+        """
+        eff_user = _require_user(user)
+        profile = await _repo().get_profile(eff_user.id, client_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Профиль не найден")
+        _request_refresh_for(profile, rebuild=True)
+        notice = _collection_notice(
+            profile, refresh_requested=bool(profile.enabled), verb="Обновление запрошено"
+        )
+        return await _save_out(profile, notice)
 
     @router.post(
         "/api/clients/{client_id}/activate",

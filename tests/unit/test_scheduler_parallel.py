@@ -788,7 +788,11 @@ async def test_run_service_wakes_on_refresh_keeps_regular_cadence(
     monkeypatch.setattr(scheduler, "_run_refresh_pass", fake_refresh_pass)
 
     task = asyncio.create_task(scheduler.run_service())
-    await asyncio.sleep(0)
+    # run_service теперь запускает регулярный и внеочередной циклы как отдельные
+    # дочерние задачи (asyncio.create_task) — им нужно несколько оборотов event
+    # loop'а, чтобы дойти до первого run_once (один sleep(0) уже не гарантирует).
+    for _ in range(5):
+        await asyncio.sleep(0.01)
     assert full_passes == [1]
 
     # Профиль создан во время «сна» планировщика: внеочередной обход сразу.
@@ -807,6 +811,116 @@ async def test_run_service_wakes_on_refresh_keeps_regular_cadence(
     scheduler._stop.set()  # noqa: SLF001
     await asyncio.wait_for(task, timeout=2)
     assert scheduler._refresh_ids == set()  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_refresh_pass_runs_while_regular_pass_still_in_flight(
+    app_config: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Внеочередной обход больше не ждёт завершения уже идущего регулярного
+    прохода (_regular_loop/_refresh_loop — независимые параллельные циклы):
+    правка профиля, сделанная ПОКА регулярный проход ещё выполняется (не
+    завершился), запускает внеочередной обход немедленно, а не после того, как
+    регулярный проход закончит работу."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    scheduler._cfg.ops.timeout_seconds = 3600  # noqa: SLF001
+    scheduler._cfg.ops.profile_refresh_debounce_seconds = 0.0  # noqa: SLF001
+
+    async def noop() -> None:
+        return None
+
+    monkeypatch.setattr(scheduler, "start", noop)
+    monkeypatch.setattr(scheduler, "stop", noop)
+
+    regular_started = asyncio.Event()
+    regular_release = asyncio.Event()
+    refresh_passes: list[list[int]] = []
+
+    async def fake_run_once(iteration: int = 0) -> None:
+        regular_started.set()
+        await regular_release.wait()  # имитация длинного «холодного» прохода
+
+    async def fake_refresh_pass(iteration: int = 0) -> None:
+        refresh_passes.append(sorted(scheduler._refresh_ids))  # noqa: SLF001
+        scheduler._refresh_ids.clear()  # noqa: SLF001
+
+    monkeypatch.setattr(scheduler, "run_once", fake_run_once)
+    monkeypatch.setattr(scheduler, "_run_refresh_pass", fake_refresh_pass)
+
+    task = asyncio.create_task(scheduler.run_service())
+    await asyncio.wait_for(regular_started.wait(), timeout=1)
+
+    # Регулярный проход ещё идёт (заблокирован на regular_release) — просим
+    # внеочередной обход прямо сейчас.
+    scheduler.request_profile_refresh(7)
+    for _ in range(10):
+        await asyncio.sleep(0.01)
+    assert refresh_passes == [[7]]  # выполнился, НЕ дожидаясь завершения регулярного
+
+    regular_release.set()
+    scheduler._stop.set()  # noqa: SLF001
+    await asyncio.wait_for(task, timeout=2)
+
+
+def test_platform_sem_reused_and_rebuilt_on_limit_change(app_config: Any) -> None:
+    """``_get_platform_sem``: один и тот же объект, пока лимит не поменялся
+    (горячая правка config_parser.yaml -> max_concurrent_platforms без
+    рестарта парсера — см. routes/config.py: state_setter)."""
+    scheduler = _make_scheduler(app_config, max_concurrent=3)
+
+    sem1 = scheduler._get_platform_sem()  # noqa: SLF001
+    sem2 = scheduler._get_platform_sem()  # noqa: SLF001
+    assert sem1 is sem2
+
+    scheduler._cfg.parser.max_concurrent_platforms = 5  # noqa: SLF001
+    sem3 = scheduler._get_platform_sem()  # noqa: SLF001
+    assert sem3 is not sem1
+
+
+def test_domain_sem_reused_per_domain_and_rebuilt_on_limit_change(app_config: Any) -> None:
+    """``_get_domain_sem``: отдельный объект на каждый домен, переиспользуется,
+    пока не поменялся max_concurrent_per_domain."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+
+    a1 = scheduler._get_domain_sem("zakupki.gov.ru")  # noqa: SLF001
+    a2 = scheduler._get_domain_sem("zakupki.gov.ru")  # noqa: SLF001
+    b1 = scheduler._get_domain_sem("roseltorg.ru")  # noqa: SLF001
+    assert a1 is a2
+    assert a1 is not b1
+
+    scheduler._cfg.parser.max_concurrent_per_domain = 2  # noqa: SLF001
+    a3 = scheduler._get_domain_sem("zakupki.gov.ru")  # noqa: SLF001
+    assert a3 is not a1
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_detached_refresh_tasks(app_config: Any) -> None:
+    """``stop()`` отменяет ещё не завершившиеся детached-задачи внеочередных
+    обходов (запущены asyncio.create_task в _refresh_loop — отмена run_service
+    сама по себе их не отменяет, см. __init__/_refresh_tasks) и дожидается их
+    отмены, прежде чем закрыть пул БД."""
+    scheduler = _make_scheduler(app_config, max_concurrent=2)
+    started = asyncio.Event()
+    cancelled = False
+
+    async def never_finishes() -> None:
+        nonlocal cancelled
+        started.set()
+        try:
+            await asyncio.Event().wait()  # висит, пока не отменят
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+
+    task = asyncio.create_task(never_finishes())
+    scheduler._refresh_tasks.add(task)  # noqa: SLF001
+    task.add_done_callback(scheduler._refresh_tasks.discard)  # noqa: SLF001
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    await scheduler.stop()
+
+    assert cancelled is True
+    assert scheduler._refresh_tasks == set()  # noqa: SLF001
 
 
 class _GatherRepo:

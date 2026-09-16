@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 from collections.abc import Iterator
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -195,6 +196,101 @@ def test_active_client_exposes_scoring_embeddings_enabled_false_by_default(
     )
     assert resp.status_code == 200
     assert resp.json()["scoring_embeddings_enabled"] is False
+
+
+class _FakeSchedulerForRefresh:
+    """Минимальный планировщик для теста ``POST /api/clients/{id}/refresh``:
+    только методы, которые реально вызывает ``refresh_client``/``_collection_
+    notice`` (не полноценный ``Scheduler`` — не нужны БД/площадки)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[int, bool, bool]] = []
+        self._pending: set[int] = set()
+
+    def request_profile_refresh(
+        self, profile_id: int, *, rebuild: bool = False, rescore: bool = False
+    ) -> None:
+        self.calls.append((profile_id, rebuild, rescore))
+        self._pending.add(profile_id)
+
+    def profile_refresh_status(self, profile_id: int) -> dict[str, Any]:
+        pending = profile_id in self._pending
+        return {"pending": pending, "remaining_seconds": 0.0 if pending else None}
+
+
+def test_refresh_client_unknown_profile_404(mc_client: TestClient) -> None:
+    client = mc_client
+    resp = client.post("/api/clients/999999999/refresh")
+    assert resp.status_code == 404
+
+
+def test_refresh_client_other_users_profile_404(mc_client: TestClient) -> None:
+    """Tenant-скоуп (BR-07): принудительное обновление чужого профиля — 404,
+    как и у остальных эндпоинтов профиля (get_profile фильтрует по user_id)."""
+    client = mc_client
+    other_profile_id = asyncio.run(
+        _seed_profile_with_account("refreshtest-other", {"scoring": True})
+    )
+    resp = client.post(f"/api/clients/{other_profile_id}/refresh")
+    assert resp.status_code == 404
+
+
+def test_refresh_client_disabled_profile_no_scheduler_call(mc_client: TestClient) -> None:
+    """Отключённый профиль: уведомление говорит «включите и сохраните», и
+    planировщик вообще не вызывается (``_request_refresh_for`` гейтит по
+    ``profile.enabled``, как и у сохранения)."""
+    client = mc_client
+    created = client.post(
+        "/api/clients",
+        json={"name": "refresh-disabled", "competencies": COMP_JSON, "enabled": False},
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    fake = _FakeSchedulerForRefresh()
+    app_state = cast(Any, client.app).state.parser
+    app_state.parser_scheduler = fake
+    try:
+        resp = client.post(f"/api/clients/{profile_id}/refresh")
+        assert resp.status_code == 200
+        assert "отключён" in resp.json()["notice"]
+        assert fake.calls == []
+    finally:
+        app_state.parser_scheduler = None
+
+
+def test_refresh_client_enabled_profile_calls_scheduler_with_rebuild(
+    mc_client: TestClient,
+) -> None:
+    """Включённый профиль: тот же fast-start путь, что и у сохранения
+    (``request_profile_refresh(id, rebuild=True, rescore=False)``), уведомление
+    начинается с «Обновление запрошено» (не «Профиль сохранён» — профиль не
+    менялся)."""
+    client = mc_client
+    created = client.post(
+        "/api/clients",
+        json={"name": "refresh-enabled", "competencies": COMP_JSON, "enabled": True},
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    fake = _FakeSchedulerForRefresh()
+    app_state = cast(Any, client.app).state.parser
+    app_state.parser_scheduler = fake
+    try:
+        resp = client.post(f"/api/clients/{profile_id}/refresh")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["notice"].startswith("Обновление запрошено")
+        assert fake.calls == [(profile_id, True, False)]
+
+        # Повторное нажатие сразу же — throttle уже "pending", сообщение не
+        # содержит "не выполняется" (профиль всё ещё включён и обрабатывается).
+        resp2 = client.post(f"/api/clients/{profile_id}/refresh")
+        assert resp2.status_code == 200
+        assert fake.calls == [(profile_id, True, False), (profile_id, True, False)]
+    finally:
+        app_state.parser_scheduler = None
 
 
 def test_profile_target_regions_roundtrip(mc_client: TestClient) -> None:

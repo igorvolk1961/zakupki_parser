@@ -1441,6 +1441,30 @@ $("#proc-edit-profile")?.addEventListener("click", () => {
   openProfileEditor(id);
 });
 
+// Кнопка «Обновить сейчас» на вкладке «Закупки»: принудительный внеочередной
+// обход активного профиля БЕЗ изменения самого профиля (POST /api/clients/
+// {id}/refresh) — тот же throttle-путь и та же обратная связь (notice), что
+// и у сохранения профиля с изменением критериев сбора; повторные нажатия до
+// истечения throttle просто продлевают текст ожидания, не запускают новый обход.
+$("#proc-refresh-profile")?.addEventListener("click", async () => {
+  const id = Number($("#proc-profile").value);
+  if (!id) return;
+  const btn = $("#proc-refresh-profile");
+  const status = $("#proc-refresh-status");
+  btn.disabled = true;
+  status.textContent = "";
+  try {
+    const r = await apiJSON(`/api/clients/${id}/refresh`, { method: "POST" });
+    if (!r.ok) throw new Error(await apiErrorDetail(r));
+    const saved = await r.json();
+    status.textContent = (saved && saved.notice) || "Обновление запрошено";
+  } catch (e) {
+    status.textContent = "Ошибка: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $("#profile-new").addEventListener("click", () => openProfileEditor(null));
 $("#profile-import").addEventListener("click", () => $("#profile-import-file").click());
 $("#profile-import-file").addEventListener("change", importProfileFile);
