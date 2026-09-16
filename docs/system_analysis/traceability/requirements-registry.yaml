@@ -1682,6 +1682,28 @@ requirements:
       _closing) — пока только диагностика, без авто-восстановления: решение
       об архитектуре (общий браузер vs изолированные по площадке) отложено до
       появления статистики реальной частоты таких крашей.
+  - id: FR-11.7
+    type: FR
+    title: Справочник заказчиков сужен до активного профиля (вкладка «Заказчики»)
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: ADR-4
+    code:
+      - src/zakupki_parser/storage/repository/customers.py#list_customers
+      - src/zakupki_parser/api/app/routes/customers.py
+    tests:
+      - tests/integration/test_repository_customers.py
+      - tests/integration/test_api.py
+    notes: >-
+      GET /api/customers резолвит активный профиль вызывающего
+      (``_active_context``, тот же путь, что и ``/api/procurements``) и
+      сужает справочник до заказчиков, у которых есть хотя бы одна закупка с
+      записью в ``procurement_evaluations`` для ЭТОГО профиля — тот же
+      критерий «принадлежности» закупки профилю, что и везде в проекте (BR-07:
+      площадки/закупки в БД общие для всех профилей, «веерная» фильтрация).
+      Заказчик, чьи закупки отобрал только ДРУГОЙ профиль, не виден. До этого
+      справочник был полностью глобальным (без учёта профиля вообще).
 
   # ===== Бизнес-правила =====
   - id: BR-01

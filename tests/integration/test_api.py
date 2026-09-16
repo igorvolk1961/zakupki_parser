@@ -1244,6 +1244,25 @@ def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted
     client, _ = api_client
     customer_id = client.get(f"/api/procurements/{inserted_id}").json()["customer_id"]
 
+    # /api/customers сужен до заказчиков, связанных с закупками активного
+    # профиля вызывающего (BR-07) — closure inserted_id вставлена в обход
+    # обычного матчинга профилем, поэтому её нужно явно «отобрать» перед
+    # проверкой, иначе заказчик не попадёт в выдачу.
+    async def _match_default_profile() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            user = await repo.first_user()
+            assert user is not None
+            profile = await repo.get_active_profile(user.id)
+            assert profile is not None
+            await repo.record_matched_keywords(inserted_id, profile.id, ["тест"])
+        finally:
+            await db.dispose()
+
+    asyncio.run(_match_default_profile())
+
     listed = client.get("/api/customers").json()
     assert listed["total"] >= 1
     assert any(item["id"] == customer_id for item in listed["items"])
@@ -1257,6 +1276,39 @@ def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted
     )
     assert rated.status_code == 200
     assert rated.json()["rating"] == 0.9
+
+
+def test_customers_list_excludes_customer_not_matched_by_active_profile(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Заказчик закупки, не отобранной активным профилем вызывающего (нет
+    записи в procurement_evaluations для него), не попадает в /api/customers —
+    даже если закупка сохранена в общей БД (закупки общие для всех профилей)."""
+    client, _ = api_client
+
+    async def _seed_unmatched() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert(
+                {
+                    "number": "CUST-UNMATCHED-1",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Не отобрано профилем",
+                    "customer": "ООО Не в этом профиле",
+                }
+            )
+            pid = await repo.find_id("CUST-UNMATCHED-1", "zakupki_mos")
+            assert pid is not None
+            return pid
+        finally:
+            await db.dispose()
+
+    asyncio.run(_seed_unmatched())
+
+    listed = client.get("/api/customers", params={"limit": 100}).json()
+    assert not any(item["name"] == "ООО Не в этом профиле" for item in listed["items"])
 
 
 def test_customer_rating_404(api_client: tuple[TestClient, Path]) -> None:

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import CustomerListOut, CustomerOut, RatingUpdate
+from zakupki_parser.storage.db import User
 
 
 def build_customers_router(ctx: ApiContext) -> APIRouter:
@@ -13,6 +14,8 @@ def build_customers_router(ctx: ApiContext) -> APIRouter:
     _repo = ctx._repo
     require_base = ctx.require_base
     require_internal = ctx.require_internal
+    require_user = ctx.require_user
+    _active_context = ctx._active_context
 
     @router.get(
         "/api/customers",
@@ -24,8 +27,16 @@ def build_customers_router(ctx: ApiContext) -> APIRouter:
         inn: str | None = None,
         limit: int = Query(default=20, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        user: User | None = Depends(require_user),
     ) -> CustomerListOut:
-        rows, total = await _repo().list_customers(name=name, inn=inn, limit=limit, offset=offset)
+        # Справочник сужен до заказчиков, связанных с закупками активного
+        # профиля пользователя (BR-07) — тот же критерий «принадлежности»
+        # закупки профилю, что и в /api/procurements (см. list_customers).
+        _, profile = await _active_context(user)
+        assert profile is not None
+        rows, total = await _repo().list_customers(
+            name=name, inn=inn, limit=limit, offset=offset, profile_id=profile.id
+        )
         return CustomerListOut(total=total, items=[CustomerOut.model_validate(r) for r in rows])
 
     @router.get(

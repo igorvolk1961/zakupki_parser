@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import AsyncIterator
 
@@ -18,6 +19,17 @@ from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
+
+COMP_JSON = json.dumps(
+    {
+        "positioning": "Тестовые компетенции",
+        "breadth": "broad",
+        "competencies": [{"area": "Аудит", "description": "обследование"}],
+        "exclusions": [],
+    },
+    ensure_ascii=False,
+    separators=(",", ":"),
+)
 
 pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
 
@@ -212,3 +224,67 @@ async def test_backfill_from_legacy_customer_column(db: Database) -> None:
             )
         )
         assert result.scalar_one() == 2
+
+
+@pytest.mark.asyncio
+async def test_list_customers_scoped_to_profile(db: Database) -> None:
+    """profile_id сужает справочник до заказчиков, связанных с закупками ЭТОГО
+    профиля (BR-07) — закупка «принадлежит» профилю, когда для неё есть запись
+    в procurement_evaluations, тот же критерий, что и в list_procurements."""
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("cust-scope-user", "h", ["user"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
+
+    await repo.upsert({"number": "CS-1", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
+    await repo.upsert(
+        {"number": "CS-2", "platform_id": "zakupki_mos", "customer": "АО ТехноЛогика"}
+    )
+    matched_id = await repo.find_id("CS-1", "zakupki_mos")
+    assert matched_id is not None
+    await repo.record_matched_keywords(matched_id, profile.id, ["слово"])
+
+    rows, total = await repo.list_customers(profile_id=profile.id)
+
+    assert total == 1
+    assert rows[0].name == "ООО Ромашка"
+
+
+@pytest.mark.asyncio
+async def test_list_customers_scoped_to_profile_excludes_other_profiles_matches(
+    db: Database,
+) -> None:
+    """Закупка, отобранная ДРУГИМ профилем (общий для всех обход площадок,
+    BR-07), не делает её заказчика видимым для профиля, который её не отбирал."""
+    repo = ProcurementRepository(db)
+    owner = await repo.create_user("cust-scope-owner", "h", ["user"])
+    profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, owner.id)
+    other_owner = await repo.create_user("cust-scope-other", "h", ["user"])
+    other_profile = await repo.upsert_profile(
+        {"name": "other", "competencies": COMP_JSON}, other_owner.id
+    )
+
+    await repo.upsert(
+        {"number": "CS-3", "platform_id": "zakupki_mos", "customer": "ООО Чужая закупка"}
+    )
+    other_matched_id = await repo.find_id("CS-3", "zakupki_mos")
+    assert other_matched_id is not None
+    await repo.record_matched_keywords(other_matched_id, other_profile.id, ["другое слово"])
+
+    rows, total = await repo.list_customers(profile_id=profile.id)
+
+    assert total == 0
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_list_customers_without_profile_id_returns_all(db: Database) -> None:
+    """Без profile_id (старое поведение) — полный справочник, без сужения."""
+    repo = ProcurementRepository(db)
+    await repo.upsert({"number": "CS-5", "platform_id": "zakupki_mos", "customer": "ООО Ромашка"})
+    await repo.upsert(
+        {"number": "CS-6", "platform_id": "zakupki_mos", "customer": "АО ТехноЛогика"}
+    )
+
+    rows, total = await repo.list_customers()
+
+    assert total == 2
