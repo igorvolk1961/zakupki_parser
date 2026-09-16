@@ -242,6 +242,8 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py#get_procurement
       - src/zakupki_parser/storage/db/procurement.py
       - src/zakupki_parser/api/static/js/procurements.js
+      - src/zakupki_parser/api/static/js/roles.js
+      - src/zakupki_parser/api/static/css/zakupki.css
     tests:
       - tests/integration/test_api.py
     notes: >-
@@ -262,6 +264,28 @@ requirements:
       закрывает модалку (панель под ней не трогается); если карточка была
       открыта в самой модалке (с вкладки без панели) — воспроизводится, как
       раньше (``openDetailId !== null`` — различает эти два случая).
+
+      Тулбар действий зафиксирован в подвале карточки, карточка расширена,
+      таблица+карточка занимают весь экран (2026-09, тот же решение
+      пользователя, следующий шаг): ``.proc-detail``/``.modal`` — flex-колонка,
+      контент (заголовок/сводка оценки/вкладки/панели) обёрнут в
+      ``.card-scroll`` (``flex:1 1 auto; overflow:auto``), тулбар — отдельный
+      последний flex-элемент (``.card-footer``), поэтому НЕ скроллится вместе
+      с содержимым. То же для ВСЕХ модалок приложения (не только карточки
+      закупки) — ``.modal`` получил ``max-height:85vh; overflow:auto``
+      (длинный контент скроллится ВНУТРИ модалки, а не двигает её по
+      ``.modal-bg``), кнопка «×» стала ``position:absolute`` вместо ``float``
+      (не уезжает при скролле). Карточка расширена 480px -> 640px.
+      Ширина/высота вкладки «Закупки» — на весь экран: ``main`` теряет
+      ``max-width`` (``body.wide-view``, класс переключается в
+      ``roles.js#switchTo`` только для вкладки ``proc``, не затрагивает
+      остальные вкладки), доступная высота таблицы/карточки — CSS-переменная
+      ``--proc-avail-height``, вычисляется в ``updateWideViewHeight`` от
+      фактической позиции ``#view-proc`` (``getBoundingClientRect().top``) до
+      низа окна — без знания точных px шапки/вкладок/панели парсера devops,
+      пересчитывается по ``resize`` и при первой отрисовке после входа
+      (``updateRolesUI`` — «Закупки» активна в статичном HTML по умолчанию,
+      ``switchTo`` для нее не вызывается при обычном логине).
   - id: US-3.3
     type: US
     title: Экспорт XLSX

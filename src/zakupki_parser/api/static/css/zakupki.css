@@ -22,6 +22,11 @@
   header .sub { color: var(--muted); font-size:13px; }
   header .header-right { display:flex; align-items:center; gap:18px; }
   main { padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
+  /* Вкладка «Закупки»: таблица и карточка занимают весь экран (по ширине —
+     снят max-width; по высоте — --proc-avail-height считается в JS от
+     фактической высоты шапки/вкладок, см. roles.js#updateWideViewHeight,
+     чтобы не зависеть от точных px хедера). Класс переключается в switchTo. */
+  body.wide-view main { max-width: none; }
   .toolbar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; align-items:center;}
   input, select, button { background: var(--panel2); border:1px solid var(--line); color: var(--text);
     padding:9px 12px; border-radius:8px; font-size:14px;}
@@ -43,7 +48,8 @@
   .panel-title { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color: var(--muted); margin-bottom:8px;}
   .empty { text-align:center; color: var(--muted); padding: 60px 0;}
   .split { display:flex; gap:16px; align-items:flex-start; }
-  .proc-list { flex:1 1 auto; min-width:0; max-height:72vh; display:flex; flex-direction:column;
+  .proc-list { flex:1 1 auto; min-width:0; max-height: var(--proc-avail-height, 72vh);
+               display:flex; flex-direction:column;
                border:1px solid var(--line); border-radius:10px; background: var(--panel);}
   .proc-list table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
   .sort-toggle { display:block; flex:0 0 auto; font-size:13px; color: var(--muted, #888); padding:8px 12px; }
@@ -74,10 +80,15 @@
   .proc-list .subj { margin-top:2px; }
   /* Панель показывает ПОЛНУЮ карточку закупки (та же разметка, что и модалка,
      см. cardBodyHtml) — шире прежней сокращённой карточки, чтобы вкладки/
-     таблицы/тулбар действий помещались без лишней тесноты. */
-  .proc-detail { flex:0 0 480px; width:480px; max-height:72vh; overflow:auto;
+     таблицы/тулбар действий помещались без лишней тесноты. Сама карточка не
+     скроллится целиком: только .card-scroll внутри неё — тулбар действий
+     (.card-footer) остаётся зафиксированным внизу. */
+  .proc-detail { flex:0 0 640px; width:640px; max-height: var(--proc-avail-height, 72vh);
+                 display:flex; flex-direction:column; position:relative;
                  background: var(--panel); border:1px solid var(--line); border-radius:12px;
                  padding:14px 16px; }
+  .card-scroll { flex:1 1 auto; min-height:0; overflow:auto; }
+  .card-footer { flex:0 0 auto; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
   .pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line);}
   .pill.score { background: var(--pill-score-bg); border-color: var(--pill-score-border); color: var(--pill-score-text); font-weight:700;}
   .pill.active { background: #dcfce7; border-color: #bbf7d0; color: #166534; font-weight:600;}
@@ -115,15 +126,26 @@
   .modal-bg { position:fixed; inset:0; background:rgba(2,6,23,.7); display:none; align-items:flex-start;
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
-  .modal { background: var(--panel); border:1px solid var(--line); border-radius:14px; max-width:760px; width:100%; padding:20px;}
+  /* flex-колонка + max-height/overflow — общее для ВСЕХ модалок (не только
+     карточки закупки): длинное содержимое скроллится ВНУТРИ модалки, а не
+     двигает саму модалку по .modal-bg. Карточка закупки поверх этого ещё
+     фиксирует тулбар действий в подвале, см. .card-scroll/.card-footer. */
+  .modal { background: var(--panel); border:1px solid var(--line); border-radius:14px; max-width:760px; width:100%; padding:20px;
+           position:relative; display:flex; flex-direction:column; max-height:85vh; overflow:auto; }
   /* Полная карточка закупки (cardBodyHtml) рендерится и в модалке, и в панели
      #proc-detail — общая разметка (заголовок/таблицы/код) для обеих. */
   .modal h2, .proc-detail h2 { margin-top:0; font-size:18px;}
+  /* Место под × (теперь position:absolute, не float) — длинный заголовок не
+     наедет на кнопку закрытия. */
+  .modal h2 { padding-right:28px; }
   .modal table, .proc-detail table { width:100%; border-collapse:collapse; font-size:13px; }
   .modal td, .modal th, .proc-detail td, .proc-detail th { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
   .modal td:first-child, .proc-detail td:first-child { color: var(--muted); width: 34%; }
   .modal code, .proc-detail code { color: var(--accent); word-break: break-word;}
-  .modal .close { float:right; cursor:pointer; color: var(--muted); font-size:22px; line-height:1;}
+  /* absolute (не float) — чтобы × оставался на месте, даже когда содержимое
+     карточки скроллится под ней (.card-scroll) или сама модалка скроллит
+     длинный контент (max-height/overflow выше). */
+  .modal .close { position:absolute; top:16px; right:18px; cursor:pointer; color: var(--muted); font-size:22px; line-height:1; z-index:1;}
   /* Просмотр текста ТЗ (в т.ч. извлечённого из архива). */
   .tz-view { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:12px;
     padding:14px 16px; overflow:auto; max-height:65vh; word-break:break-word; }

@@ -112,10 +112,39 @@ export function switchTo(name) {
     const view = document.getElementById("view-" + t);
     if (view) view.style.display = t === name ? "block" : "none";
   });
+  // «Закупки» — единственная вкладка, растянутая на весь экран (таблица +
+  // карточка, см. zakupki.css body.wide-view): вне её остальные вкладки не
+  // трогаем, чтобы не менять их обычную ширину/вёрстку.
+  document.body.classList.toggle("wide-view", name === "proc");
+  if (name === "proc") {
+    // display переключился только что — ждём кадр (reflow), чтобы
+    // getBoundingClientRect в updateWideViewHeight отдал актуальную геометрию.
+    requestAnimationFrame(updateWideViewHeight);
+  }
   // Один путь активации вкладки: и клики по кнопкам, и программное переключение
   // (updateRolesUI при скрытии активной вкладки ролью) должны загружать содержимое.
   document.dispatchEvent(new CustomEvent("tab:active", { detail: { name } }));
 }
+
+// Доступная высота таблицы/карточки на вкладке «Закупки» (--proc-avail-height,
+// используется .proc-list/.proc-detail в zakupki.css) — «до самого низа экрана»
+// без знания точных px шапки/вкладок: берём фактическую позицию #view-proc
+// (учитывает topnav+header+панель парсера+бар вкладок, что бы над ним ни было)
+// и вычитаем из высоты окна.
+export function updateWideViewHeight() {
+  if (!document.body.classList.contains("wide-view")) return;
+  const proc = document.getElementById("view-proc");
+  const main = document.querySelector("main");
+  if (!proc || !main || proc.style.display === "none") return;
+  const top = proc.getBoundingClientRect().top;
+  const bottomPad = parseFloat(getComputedStyle(main).paddingBottom) || 0;
+  const avail = Math.max(320, window.innerHeight - top - bottomPad - 4);
+  document.documentElement.style.setProperty("--proc-avail-height", avail + "px");
+}
+
+window.addEventListener("resize", () => {
+  if (document.body.classList.contains("wide-view")) updateWideViewHeight();
+});
 
 export function updateRolesUI() {
   const guestView = document.getElementById("view-guest");
@@ -173,5 +202,15 @@ export function updateRolesUI() {
   );
   if ((!activeBtn || activeBtn.style.display === "none") && visible.length) {
     switchTo(visible[0]);
+  } else {
+    // switchTo выше не вызывался (активная вкладка не менялась) — но именно
+    // здесь впервые известно, какая вкладка активна при первой отрисовке
+    // после входа («Закупки» активна в статичном HTML по умолчанию, switchTo
+    // для неё ни разу не вызывается). Синхронизируем wide-view и пересчитываем
+    // высоту сами — панель парсера (devops) выше тоже могла только что
+    // появиться/исчезнуть, сдвинув #view-proc по вертикали.
+    const activeName = activeBtn ? activeBtn.id.slice("tab-".length) : null;
+    document.body.classList.toggle("wide-view", activeName === "proc");
+    if (activeName === "proc") requestAnimationFrame(updateWideViewHeight);
   }
 }

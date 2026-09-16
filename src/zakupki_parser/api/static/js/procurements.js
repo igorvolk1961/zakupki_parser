@@ -294,13 +294,20 @@ function cardBodyHtml(row, { closable, containerId }) {
   if (analyst) {
     panels.push(`<div class="card-tab-panel" data-cardpanel="metrics" style="display:none">${cardMetricsPanel(row)}</div>`);
   }
+  // Тулбар действий — ЗАФИКСИРОВАН в подвале карточки (не скроллится вместе с
+  // содержимым): контейнер (.proc-detail/.modal) — flex-колонка, .card-scroll
+  // растягивается и скроллит контент сам, .card-footer — фиксированный
+  // последний элемент этой колонки. Кнопка закрытия (×) — тоже вне скролла
+  // (position:absolute поверх карточки, см. CSS), иначе уезжала бы при скролле.
   return `
     ${closable ? `<span class="close" onclick="closeModal()">×</span>` : ""}
-    <h2>${escapeHtml(row.number)}</h2>
-    ${cardScoreSummaryHtml(row, analyst)}
-    <div class="tabs card-tabs">${tabs.join("")}</div>
-    ${panels.join("")}
-    <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end; flex-wrap:wrap; gap:6px;">
+    <div class="card-scroll">
+      <h2>${escapeHtml(row.number)}</h2>
+      ${cardScoreSummaryHtml(row, analyst)}
+      <div class="tabs card-tabs">${tabs.join("")}</div>
+      ${panels.join("")}
+    </div>
+    <div class="toolbar card-footer" style="justify-content:flex-end; flex-wrap:wrap; gap:6px;">
       <button class="ghost" id="${containerId}-excl-btn" disabled title="Выделите фрагмент текста в карточке, чтобы добавить его в исключения профиля" onclick="addSelectionToExclusions(${row.id}, '${containerId}')">В исключения</button>
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
       ${row.in_work
