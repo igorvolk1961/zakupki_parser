@@ -126,6 +126,8 @@ def test_logs_tail_default(logs_client: TestClient) -> None:
     assert data["lines"] == LOG_LINES
 
 
+@pytest.mark.slow  # test_logs_tail_default (обычный «первый») уже slow и
+# деселектится под -m "not slow" — setup module-scoped logs_client платит ЭТОТ.
 def test_logs_tail_level_filter(logs_client: TestClient) -> None:
     h = _headers(logs_client)
     err = logs_client.get("/api/logs/tail", params={"level": "error"}, headers=h).json()

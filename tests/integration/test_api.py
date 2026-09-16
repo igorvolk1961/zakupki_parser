@@ -55,8 +55,11 @@ async def _add_region_procurement() -> None:
                 "region": "г. Москва",
             }
         )
+        pid = await repo.find_id("RG-API-1", "zakupki_mos")
+        assert pid is not None
     finally:
         await db.dispose()
+    await _match_active_profile(pid)
 
 
 async def _add_region_score_procurement(number: str, region: str) -> int:
@@ -87,6 +90,28 @@ async def _has_evaluation(procurement_id: int, profile_id: int) -> bool:
     try:
         repo = ProcurementRepository(db)
         return await repo.get_score(procurement_id, profile_id) is not None
+    finally:
+        await db.dispose()
+
+
+async def _match_active_profile(procurement_id: int) -> None:
+    """Отмечает закупку как отобранную дефолтным профилем admin (BR-07).
+
+    ``GET /api/procurements`` показывает только закупки, отобранные активным
+    профилем (есть строка в ``procurement_evaluations`` — см.
+    ``list_procurements``). Закупки, вставленные в тестах напрямую через
+    ``repo.upsert``/``ProcurementRepository`` в обход обычного матчинга
+    профилем, нужно явно «отобрать», иначе они не попадут в выдачу.
+    """
+    db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+    await db.connect()
+    try:
+        repo = ProcurementRepository(db)
+        user = await repo.first_user()
+        assert user is not None
+        profile = await repo.get_active_profile(user.id)
+        assert profile is not None and profile.id is not None
+        await repo.record_matched_keywords(procurement_id, profile.id, ["тест"])
     finally:
         await db.dispose()
 
@@ -184,8 +209,10 @@ async def inserted_id(api_client: tuple[TestClient, Path]) -> AsyncIterator[int]
         }
     )
     rows, _ = await repo.list_procurements(number="API-1")
+    pid = rows[0].id
     await db.dispose()
-    yield rows[0].id
+    await _match_active_profile(pid)
+    yield pid
 
 
 @pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped api_client
@@ -198,6 +225,8 @@ def test_health(api_client: tuple[TestClient, Path]) -> None:
     assert body["db"] is True
 
 
+@pytest.mark.slow  # test_health (обычный «первый») уже slow и деселектится
+# под -m "not slow" — setup module-scoped api_client платит ЭТОТ.
 def test_coverage(api_client: tuple[TestClient, Path]) -> None:
     """GET /api/coverage — статика (конфиг) + динамика (БД) по площадкам."""
     client, _ = api_client
@@ -975,6 +1004,7 @@ def test_list_filter_min_fit_score_ignores_default_scored(
             await db.dispose()
 
     default_id = asyncio.run(_insert_default())
+    asyncio.run(_match_active_profile(default_id))
 
     # Несмотря на высокий fit_score, дефолтный не попадает в «релевантные».
     relevant = client.get("/api/procurements", params={"min_fit_score": 0.5}).json()
@@ -1048,7 +1078,7 @@ def test_list_sort_fit_score(api_client: tuple[TestClient, Path]) -> None:
     """GET /api/procurements?sort=fit_score сортирует по релевантности (NULL в конце)."""
     client, _ = api_client
 
-    async def _seed() -> None:
+    async def _seed() -> list[int]:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
@@ -1078,10 +1108,17 @@ def test_list_sort_fit_score(api_client: tuple[TestClient, Path]) -> None:
                     "score_method": "fit",
                 }
             )
+            ids = []
+            for num in ("SORT-MID", "SORT-NONE", "SORT-HIGH"):
+                pid = await repo.find_id(num, "zakupki_mos")
+                assert pid is not None
+                ids.append(pid)
+            return ids
         finally:
             await db.dispose()
 
-    asyncio.run(_seed())
+    for pid in asyncio.run(_seed()):
+        asyncio.run(_match_active_profile(pid))
 
     body = client.get(
         "/api/procurements",
@@ -1096,7 +1133,7 @@ def test_list_sort_publication_date(api_client: tuple[TestClient, Path]) -> None
     """GET /api/procurements?sort=publication_date сортирует по убыванию даты (NULL в конце)."""
     client, _ = api_client
 
-    async def _seed() -> None:
+    async def _seed() -> list[int]:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
         await db.connect()
         try:
@@ -1124,10 +1161,17 @@ def test_list_sort_publication_date(api_client: tuple[TestClient, Path]) -> None
                     "subject": "Без даты",
                 }
             )
+            ids = []
+            for num in ("SORTDATE-OLD", "SORTDATE-NEW", "SORTDATE-NONE"):
+                pid = await repo.find_id(num, "zakupki_mos")
+                assert pid is not None
+                ids.append(pid)
+            return ids
         finally:
             await db.dispose()
 
-    asyncio.run(_seed())
+    for pid in asyncio.run(_seed()):
+        asyncio.run(_match_active_profile(pid))
 
     body = client.get(
         "/api/procurements",
@@ -1270,6 +1314,43 @@ def test_procurement_region_out_and_filter(
     assert hit["region"] == "г. Москва"
 
 
+def test_add_exclusion_word_endpoint(api_client: tuple[TestClient, Path]) -> None:
+    """POST /api/procurements/{id}/exclusion-word — кнопка «В исключения» карточки:
+    добавляет фразу в исключения активного профиля без отбраковки закупки."""
+    client, _ = api_client
+    pid = _seed_procurement("EXCL-API-1")
+
+    resp = client.post(f"/api/procurements/{pid}/exclusion-word", json={"word": "не наш профиль*"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["added"] is True
+    assert "не наш профиль*" in body["exclusion_words"]
+
+    # Повторное добавление той же фразы — идемпотентно (added=False).
+    resp2 = client.post(f"/api/procurements/{pid}/exclusion-word", json={"word": "не наш профиль*"})
+    assert resp2.status_code == 200
+    assert resp2.json()["added"] is False
+
+    # Закупка не отклонена — только по прямой отбраковке (reject).
+    detail = client.get(f"/api/procurements/{pid}").json()
+    assert detail["score_method"] != "reject"
+
+
+def test_add_exclusion_word_rejects_blank(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    pid = _seed_procurement("EXCL-API-2")
+    resp = client.post(f"/api/procurements/{pid}/exclusion-word", json={"word": "   "})
+    assert resp.status_code == 422
+
+
+def test_add_exclusion_word_404_for_unknown_procurement(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    client, _ = api_client
+    resp = client.post("/api/procurements/999999/exclusion-word", json={"word": "x"})
+    assert resp.status_code == 404
+
+
 def test_set_score_region_mismatch_not_written(api_client: tuple[TestClient, Path]) -> None:
     """Регион вне целевых профиля (стал известен после досборки) — скор не пишется.
 
@@ -1331,24 +1412,9 @@ def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted
     customer_id = client.get(f"/api/procurements/{inserted_id}").json()["customer_id"]
 
     # /api/customers сужен до заказчиков, связанных с закупками активного
-    # профиля вызывающего (BR-07) — closure inserted_id вставлена в обход
-    # обычного матчинга профилем, поэтому её нужно явно «отобрать» перед
-    # проверкой, иначе заказчик не попадёт в выдачу.
-    async def _match_default_profile() -> None:
-        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
-        await db.connect()
-        try:
-            repo = ProcurementRepository(db)
-            user = await repo.first_user()
-            assert user is not None
-            profile = await repo.get_active_profile(user.id)
-            assert profile is not None
-            await repo.record_matched_keywords(inserted_id, profile.id, ["тест"])
-        finally:
-            await db.dispose()
-
-    asyncio.run(_match_default_profile())
-
+    # профиля вызывающего (BR-07) — inserted_id уже отобрана дефолтным
+    # профилем фикстурой ``inserted_id`` (иначе не попала бы и в список
+    # закупок, см. list_procurements).
     listed = client.get("/api/customers").json()
     assert listed["total"] >= 1
     assert any(item["id"] == customer_id for item in listed["items"])

@@ -161,6 +161,23 @@ class RejectIn(BaseModel):
     exclusion_word: str | None = Field(default=None, max_length=256)
 
 
+class ExclusionWordIn(BaseModel):
+    """Добавление фрагмента текста карточки закупки в исключения профиля.
+
+    Точечное действие пользователя (выделение фрагмента в карточке), не
+    связанное с отбраковкой закупки — в отличие от ``RejectIn.exclusion_word``.
+    """
+
+    word: str = Field(min_length=1, max_length=256)
+
+
+class ExclusionWordOut(BaseModel):
+    """Результат добавления слова-исключения: добавлено ли и полный список."""
+
+    added: bool
+    exclusion_words: list[str]
+
+
 class AcceptWorkIn(BaseModel):
     """Принятие закупки «в работу»: необязательная заметка."""
 

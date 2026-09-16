@@ -254,6 +254,33 @@ class ProfileMixin(RepositoryMixin):
             "exclusion_words": [r.word for r in rows if r.type == "exclusion"],
         }
 
+    async def add_exclusion_word(self, profile_id: int, word: str) -> bool:
+        """Добавляет слово-исключение профиля (явное действие пользователя).
+
+        Идемпотентно (уникальность по ``profile_id``+``word``+``type``) —
+        повторное добавление того же слова не создаёт дубликат. Общий метод
+        для отбраковки закупки (``reject``, exclusion_word) и точечного
+        добавления фрагмента текста в исключения из карточки закупки
+        (выделение мышью, US-5.3-подобный сценарий без отбраковки).
+        """
+        stmt = (
+            pg_insert(Keyword)
+            .values(profile_id=profile_id, word=word, type="exclusion")
+            .on_conflict_do_nothing(index_elements=["profile_id", "word", "type"])
+            .returning(Keyword.id)
+        )
+        async with self._db.session() as session:
+            new_id = (await session.execute(stmt)).scalar_one_or_none()
+            await session.commit()
+        added = new_id is not None
+        logger.info(
+            "Слово-исключение %r %s профилю %s",
+            word,
+            "добавлено" if added else "уже есть у",
+            profile_id,
+        )
+        return added
+
     async def list_profiles_keywords(
         self, profile_ids: list[int]
     ) -> dict[int, dict[str, list[str]]]:

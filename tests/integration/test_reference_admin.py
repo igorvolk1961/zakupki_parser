@@ -160,6 +160,7 @@ def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped ref_client
 def test_reference_tables_listed(ref_client: TestClient) -> None:
     client = ref_client
     r = client.get("/api/reference")
@@ -321,6 +322,7 @@ def test_seed_name_rename_blocked(ref_client: TestClient) -> None:
     )
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped ref_auth_client
 def test_reference_analyst_only(ref_auth_client: TestClient) -> None:
     client = ref_auth_client
     # Аноним — 401.

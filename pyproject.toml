@@ -87,7 +87,7 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "slow: заметно дольше остальных (>10с) — по умолчанию исключены (-m \"not slow\"), запускать только по явному разрешению",
+    "slow: заметно дольше остальных (>5с) — по умолчанию исключены (-m \"not slow\"), запускать только по явному разрешению",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

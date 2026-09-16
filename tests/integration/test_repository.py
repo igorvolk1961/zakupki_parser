@@ -34,7 +34,14 @@ COMP_JSON = json.dumps(
 
 TEST_DSN = os.environ.get("ZAKUPKI_TEST_DSN", "")
 
-pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
+# db-фикстура функциональная (не module-scoped): полный drop_all+create_all
+# схемы перед КАЖДЫМ тестом — весь файл стабильно >5с на тест, поэтому
+# помечен целиком, а не потест (иначе почти каждый тест пришлось бы метить
+# отдельно, что нестабильно между прогонами и хуже читается).
+pytestmark = [
+    pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан"),
+    pytest.mark.slow,
+]
 
 
 @pytest_asyncio.fixture
@@ -729,7 +736,8 @@ async def test_list_procurements_scored_filter(db: Database) -> None:
     user = await repo.create_user("s-user", "hash", ["admin"])
     profile = await repo.upsert_profile({"name": "default", "competencies": COMP_JSON}, user.id)
     assert profile.id is not None
-    await _upsert(repo, "S-1")
+    unscored_id = await _upsert(repo, "S-1")
+    await repo.record_matched_keywords(unscored_id, profile.id, ["авт*"])
     scored_id = await _upsert(repo, "S-2")
     await repo.upsert_score(scored_id, profile.id, fit_score=0.8, score_method="fit")
 

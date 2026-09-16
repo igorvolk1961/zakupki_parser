@@ -397,6 +397,32 @@ requirements:
       - tests/integration/test_decisions_work.py
       - tests/unit/test_decisions_schemas.py
 
+  - id: US-5.7
+    type: US
+    title: Добавить фрагмент текста карточки в исключения
+    stakeholder: Тендеролог (user)
+    stage: "7"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/profiles.py#add_exclusion_word
+      - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_exclusion_word
+      - src/zakupki_parser/api/static/js/procurements.js
+    tests:
+      - tests/integration/test_decisions_work.py
+      - tests/integration/test_api.py
+    notes: >-
+      Кнопка «В исключения» в карточке закупки (по умолчанию недоступна;
+      включается выделением непустого фрагмента текста мышью в карточке).
+      В отличие от US-5.1/5.2 (отбраковка с опциональным exclusion_word), это
+      точечное действие НЕ меняет статус закупки — только добавляет фразу в
+      исключения активного профиля (идемпотентно, ``add_exclusion_word``,
+      общий метод с ``reject``). Если правый край выделения приходится на
+      середину слова — к фразе добавляется хвостовая «*» (стеб-поиск, см.
+      ``filtering.py#_token_regex``); обрыв слева на wildcard не влияет —
+      движок фильтрации поддерживает только хвостовой wildcard, ведущую «*»
+      добавлять было бы бессмысленно (решение подтверждено с пользователем).
+
   - id: US-6.1
     type: US
     title: Сводка «В работу» в XLSX
@@ -2020,11 +2046,31 @@ requirements:
     code:
       - src/zakupki_parser/storage/repository/profiles.py
       - src/zakupki_parser/storage/repository/evaluations.py
+      - src/zakupki_parser/storage/repository/procurements.py#list_procurements
       - src/zakupki_parser/api/app/deps.py
     tests:
       - tests/integration/test_multiclient.py
       - tests/unit/test_repository_round.py
       - tests/integration/test_profile_licenses_experience.py
+      - tests/integration/test_decisions_work.py
+      - tests/integration/test_repository.py
+    notes: >-
+      Фикс (2026-09): у ``list_procurements`` не было БАЗОВОГО условия
+      «отобрано активным профилем» — LEFT JOIN на ``procurement_evaluations``
+      подкладывал per-profile скор, но отсутствие строки в evaluations никак
+      не фильтровало выдачу. Раньше это маскировалось тем, что ``scored=true``
+      отправлялся безусловно (US-2.3, чекбокс «Только релевантные»), что
+      попутно отсекало и все «чужие» закупки — только у отобранных профилем
+      закупок вообще появляется строка в evaluations. После того как
+      ``scored``/``min_fit_score`` стали зависеть от чекбокса, вкладка
+      «Закупки» при снятом чекбоксе стала показывать вообще весь
+      проиндексированный каталог. Добавлено базовое условие: видна закупка,
+      если есть строка evaluations для активного профиля (совпадение по
+      словам/индексу — ``rebuild_profile_results``, независимо от статуса
+      скоринга) ИЛИ есть строка ``procurement_work_items`` для активного
+      профиля (вручную принята «в работу», в т.ч. по прямой ссылке в обход
+      авто-отбора). Условие применяется всегда, когда передан ``profile_id``
+      (не зависит от ``scored``/``in_work``/``include_rejected``).
   - id: BR-09
     type: BR
     title: Аккаунты пользователя и платные опции

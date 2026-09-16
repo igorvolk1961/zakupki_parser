@@ -169,6 +169,9 @@ def test_clients_crud(mc_client: TestClient) -> None:
     assert listed.json()["total"] >= 2
 
 
+@pytest.mark.slow  # test_clients_crud (обычный «первый») уже slow и деселектится
+# под -m "not slow" — из-за этого setup module-scoped mc_client теперь платит
+# ЭТОТ тест (артефакт атрибуции module-scoped фикстуры, не своя логика).
 def test_active_client_exposes_scoring_embeddings_enabled_true(mc_client: TestClient) -> None:
     """/api/clients/active (X-Profile-ID, конвейер скоринга) отдаёт
     scoring_embeddings_enabled=True, когда опция включена в аккаунте владельца."""
@@ -482,6 +485,10 @@ def test_analyze_and_pwin_margin_queue(mc_client: TestClient) -> None:
     assert r.json()["status"] == "queued"
 
 
+@pytest.mark.slow  # state.notify_min_fit_score по умолчанию 0.0 и notifier не
+# подменён фейком (в отличие от test_set_score_notifies_above_threshold) —
+# POST /score с fit_score=0.9 уходит в реальный Notifier, который ждёт таймаут
+# сетевого вызова (~15с). Не связано с логикой самого теста/list_procurements.
 def test_list_uses_active_user_scores(mc_client: TestClient) -> None:
     client = mc_client
     procurement_id = _seed_procurement()

@@ -92,6 +92,7 @@ def _login(client: TestClient) -> str:
     return str(resp.json()["access_token"])
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup автouse-фикстуры _prepare_db
 def test_auto_start_enabled_starts_monitoring_on_boot(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

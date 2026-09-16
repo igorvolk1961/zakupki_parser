@@ -73,6 +73,7 @@ def _limited_auth(client: TestClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped limited_user_client
 def test_parser_status_allowed_for_non_devops(limited_user_client: TestClient) -> None:
     """Аккаунт без роли devops читает статус парсера (200), а не получает 403."""
     client = limited_user_client

@@ -12,7 +12,7 @@ import {
   fmtDT,
 } from "./utils.js";
 import { state } from "./store.js";
-import { api, apiJSON } from "./api.js";
+import { api, apiJSON, apiErrorDetail } from "./api.js";
 import { hasRole } from "./roles.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -265,6 +265,7 @@ function renderModal(row) {
     <div class="tabs card-tabs">${tabs.join("")}</div>
     ${panels.join("")}
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end; flex-wrap:wrap; gap:6px;">
+      <button class="ghost" id="excl-btn" disabled title="Выделите фрагмент текста в карточке, чтобы добавить его в исключения профиля" onclick="addSelectionToExclusions(${row.id})">В исключения</button>
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
       ${row.in_work
         ? `<button class="ghost" onclick="removeWorkByProc(${row.id})">Снять с работы</button>`
@@ -834,6 +835,62 @@ async function doReject(id) {
   }
 }
 
+// Текущее выделение в карточке закупки (#modal) -> фраза для исключений, либо
+// null, если выделения нет/оно пустое/вне карточки. Если правый край выделения
+// приходится на середину слова, к фразе добавляется хвостовая «*» (стеб-поиск —
+// единственный вид wildcard, который понимает движок фильтрации, см.
+// filtering.py::_token_regex); обрыв слева на wildcard не влияет — ведущих «*»
+// движок не поддерживает, добавлять её было бы бессмысленно.
+function selectionExclusionPhrase() {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const modal = $("#modal");
+  if (!modal) return null;
+  const range = sel.getRangeAt(0);
+  if (!modal.contains(range.commonAncestorContainer)) return null;
+  const raw = range.toString();
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let cutRight = false;
+  if (range.endContainer.nodeType === Node.TEXT_NODE) {
+    const value = range.endContainer.textContent || "";
+    // endOffset относится к «сырому» (необрезанному) выделению — сдвигаем его
+    // назад на длину обрезанных пробелов в конце, чтобы попасть на конец trimmed.
+    const trailingWs = raw.length - raw.replace(/\s+$/, "").length;
+    const nextChar = value.charAt(range.endOffset - trailingWs);
+    if (nextChar && /[\p{L}\p{N}]/u.test(nextChar)) cutRight = true;
+  }
+  return cutRight ? trimmed + "*" : trimmed;
+}
+
+async function addSelectionToExclusions(id) {
+  const phrase = selectionExclusionPhrase();
+  if (!phrase) return;
+  const btn = $("#excl-btn");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/exclusion-word", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ word: phrase }),
+    });
+    if (!r.ok) {
+      $("#parser-status").textContent = "не удалось добавить в исключения: " + (await apiErrorDetail(r));
+      $("#parser-status").style.color = "#dc2626";
+      return;
+    }
+    const data = await r.json();
+    $("#parser-status").textContent = data.added
+      ? `Добавлено в исключения: «${phrase}»`
+      : `Уже есть в исключениях: «${phrase}»`;
+    $("#parser-status").style.color = "";
+    window.getSelection().removeAllRanges();
+  } catch (err) {
+    $("#parser-status").textContent = "ошибка: " + (err.message || err);
+    $("#parser-status").style.color = "#dc2626";
+  }
+}
+
 function updateSelUi() {
   const n = selected.size;
   $("#batch-analyze").disabled = !n;
@@ -863,6 +920,7 @@ export {
   openReject,
   closeReject,
   doReject,
+  addSelectionToExclusions,
 };
 
 // Гейт «мониторинг без скоринга» (BR-09): узнав доступность опции scoring,
@@ -961,6 +1019,12 @@ $("#proc-detail").addEventListener("click", (e) => {
 });
 $("#modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "modal-bg") closeModal();
+});
+// Кнопка «В исключения» доступна, только пока в карточке выделен непустой
+// фрагмент текста (по умолчанию недоступна — включается выделением мышью).
+document.addEventListener("selectionchange", () => {
+  const btn = $("#excl-btn");
+  if (btn) btn.disabled = selectionExclusionPhrase() === null;
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();

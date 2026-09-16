@@ -23,6 +23,8 @@ from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
     AcceptWorkByUrlIn,
     AcceptWorkIn,
+    ExclusionWordIn,
+    ExclusionWordOut,
     ExportIn,
     IndexResultIn,
     IndexResultOut,
@@ -380,6 +382,34 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if row is None:  # pragma: no cover - проверено выше
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return _procurement_detail_out(row, include_costs=_is_analyst(user))
+
+    @router.post(
+        "/api/procurements/{procurement_id}/exclusion-word",
+        response_model=ExclusionWordOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def add_procurement_exclusion_word(
+        procurement_id: int,
+        body: ExclusionWordIn,
+        user: User | None = Depends(require_base),
+    ) -> ExclusionWordOut:
+        """Добавляет выделенный в карточке фрагмент текста в исключения профиля.
+
+        Точечное действие (выделение мышью в карточке закупки) — в отличие от
+        отбраковки (``reject``), не меняет статус самой закупки и не требует
+        причины: пользователь просто уточняет фильтр профиля на будущее.
+        """
+        _, profile = await _active_context(user)
+        assert profile is not None
+        existing = await _repo().get_by_id(procurement_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        word = body.word.strip()
+        if not word:
+            raise HTTPException(status_code=422, detail="Пустая фраза")
+        added = await _repo().add_exclusion_word(profile.id, word)
+        words = await _repo().get_profile_keywords(profile.id)
+        return ExclusionWordOut(added=added, exclusion_words=words["exclusion_words"])
 
     @router.get(
         "/api/procurements/work",

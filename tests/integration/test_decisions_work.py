@@ -132,6 +132,31 @@ async def test_reject_adds_exclusion_word(db: Database) -> None:
 
 @pytest.mark.slow
 @pytest.mark.asyncio
+async def test_add_exclusion_word_does_not_reject_procurement(db: Database) -> None:
+    """add_exclusion_word (карточка -> «В исключения») добавляет слово без
+    отбраковки закупки — в отличие от reject(exclusion_word=...)."""
+    repo = ProcurementRepository(db)
+    _, profile_id = await _profile_with_keywords(repo, "excl-only", keywords=["ИИ"])
+    pid = await _upsert(repo, "EXCL-1")
+    await repo.record_matched_keywords(pid, profile_id, ["ИИ"])
+
+    added = await repo.add_exclusion_word(profile_id, "не наш профиль*")
+    assert added is True
+    words = await repo.get_profile_keywords(profile_id)
+    assert "не наш профиль*" in words["exclusion_words"]
+
+    evaluation = await repo.get_score(pid, profile_id)
+    assert evaluation is not None and evaluation.status != "rejected"
+
+    # Повторное добавление того же слова — идемпотентно (added=False, не дублирует).
+    added_again = await repo.add_exclusion_word(profile_id, "не наш профиль*")
+    assert added_again is False
+    words2 = await repo.get_profile_keywords(profile_id)
+    assert words2["exclusion_words"].count("не наш профиль*") == 1
+
+
+@pytest.mark.slow
+@pytest.mark.asyncio
 async def test_accept_into_work_flag_and_list(db: Database) -> None:
     repo = ProcurementRepository(db)
     _, profile_id = await _profile_with_keywords(repo, "work-user")
@@ -222,6 +247,8 @@ async def test_list_in_work_filter(db: Database) -> None:
     _, profile_id = await _profile_with_keywords(repo, "work-filter")
     in_work_id = await _upsert(repo, "WORK-F1")
     other_id = await _upsert(repo, "WORK-F2")
+    await repo.record_matched_keywords(in_work_id, profile_id, ["слово"])
+    await repo.record_matched_keywords(other_id, profile_id, ["слово"])
     await repo.accept_into_work(in_work_id, profile_id)
 
     rows, total = await repo.list_procurements(profile_id=profile_id, in_work=True)
@@ -251,6 +278,10 @@ async def test_work_is_per_profile(db: Database) -> None:
     pid = await _upsert(repo, "WORK-PP")
 
     await repo.accept_into_work(pid, profile_a)
+    # profile_b видит закупку в своей выдаче только если она отобрана его же
+    # профилем (BR-07) — иначе принятие «в работу» другим профилем её бы
+    # спрятало из выдачи profile_b (нет строки оценки/работы для profile_b).
+    await repo.record_matched_keywords(pid, profile_b, ["слово"])
 
     # Другой профиль этого не видит.
     rows, _ = await repo.list_procurements(profile_id=profile_b)

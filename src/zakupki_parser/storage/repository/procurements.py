@@ -212,7 +212,12 @@ class ProcurementMixin(RepositoryMixin):
         публикации, убывание, NULL в конце). Прочие значения игнорируются —
         используется порядок по id (как в БД).
 
-        ``profile_id`` — скоуп профиля (BR-07): фильтр/сортировка по fit_score и
+        ``profile_id`` — скоуп профиля (BR-07): базовая выдача ограничена
+        закупками, которые профиль либо отобрал (есть строка в
+        ``procurement_evaluations`` — ключевые слова/индекс документов, см.
+        ``rebuild_profile_results``), либо вручную принял «в работу» (строка в
+        ``procurement_work_items`` — доступно и для закупок вне авто-отбора,
+        например по прямой ссылке). Фильтр/сортировка по fit_score и
         score_method применяются к per-profile ``procurement_evaluations``.
 
         ``include_rejected`` — показывать ли отклонённые профилем закупки (Эпик 5):
@@ -230,6 +235,23 @@ class ProcurementMixin(RepositoryMixin):
         score_sub = None
         if profile_id is not None:
             score_sub = _profile_score_subquery(profile_id)
+        if score_sub is not None:
+            # Базовый скоуп профиля (BR-07): «отобрано профилем» = есть запись
+            # оценки (совпадение по словам/индексу — независимо от того,
+            # выполнен ли скоринг) ИЛИ закупка вручную принята «в работу» этим
+            # профилем (может быть добавлена по ссылке в обход авто-отбора).
+            # Без этого условия вкладка «Закупки» показывала бы весь
+            # проиндексированный каталог, а не то, что нашёл профиль.
+            profile_work_sub = select(ProcurementWorkItem.procurement_id).where(
+                ProcurementWorkItem.profile_id == profile_id,
+                ProcurementWorkItem.procurement_id.is_not(None),
+            )
+            conditions.append(
+                or_(
+                    score_sub.c.procurement_id.is_not(None),
+                    Procurement.id.in_(profile_work_sub),
+                )
+            )
         if score_sub is not None and not include_rejected:
             # Отклонённые профилем скрываются из выдачи (US-2.5/FR-5.1); закупки
             # без per-profile оценки (нет строки в evaluations) не отклонялись.

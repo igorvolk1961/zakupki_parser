@@ -31,7 +31,13 @@ COMP_JSON = json.dumps(
     separators=(",", ":"),
 )
 
-pytestmark = pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан")
+# db-фикстура функциональная (не module-scoped): полный drop_all+create_all
+# схемы перед КАЖДЫМ тестом — весь файл стабильно >5с на тест (как и
+# test_repository.py), поэтому помечен целиком.
+pytestmark = [
+    pytest.mark.skipif(not TEST_DSN, reason="ZAKUPKI_TEST_DSN не задан"),
+    pytest.mark.slow,
+]
 
 
 @pytest_asyncio.fixture

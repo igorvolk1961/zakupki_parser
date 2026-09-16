@@ -171,6 +171,8 @@ def test_register_login_me(auth_client: TestClient) -> None:
     )
 
 
+@pytest.mark.slow  # test_register_login_me (обычный «первый») уже slow и
+# деселектится под -m "not slow" — setup module-scoped auth_client платит ЭТОТ.
 def test_register_materializes_full_paid_options_during_trial(auth_client: TestClient) -> None:
     """Саморегистрация даёт триал; аккаунт «По умолчанию» создаётся сразу со ВСЕМИ
     платными опциями включёнными (материализация в момент создания, а не

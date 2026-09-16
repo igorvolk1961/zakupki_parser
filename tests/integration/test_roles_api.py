@@ -138,6 +138,7 @@ def _register(client: TestClient, username: str) -> str:
     return str(resp.json()["access_token"])
 
 
+@pytest.mark.slow  # первый тест модуля — оплачивает setup module-scoped roles_client
 def test_admin_can_create_users_and_list(roles_client: TestClient) -> None:
     client = roles_client
     admin_token = _login(client, "admin", "adminpass")
@@ -158,6 +159,10 @@ def test_admin_can_create_users_and_list(roles_client: TestClient) -> None:
 
 
 def test_create_user_rejects_user_role_and_empty(roles_client: TestClient) -> None:
+    """Регистрирует СОБСТВЕННОГО пользователя для проверки дубликата (не
+    полагается на «analyst1» из test_admin_can_create_users_and_list — тот
+    теперь помечен slow и под -m "not slow" не выполняется, см. gotcha из
+    предыдущей сессии про скрытые межтестовые зависимости)."""
     client = roles_client
     admin_token = _login(client, "admin", "adminpass")
     bad = client.post(
@@ -172,10 +177,11 @@ def test_create_user_rejects_user_role_and_empty(roles_client: TestClient) -> No
         json={"username": "x2", "password": "password123", "roles": []},
     )
     assert empty.status_code == 422
+    _create(client, admin_token, "dupcheck1", ["analyst"])
     dup = client.post(
         "/api/users",
         headers=_auth(admin_token),
-        json={"username": "analyst1", "password": "password123", "roles": ["devops"]},
+        json={"username": "dupcheck1", "password": "password123", "roles": ["devops"]},
     )
     assert dup.status_code == 409
 

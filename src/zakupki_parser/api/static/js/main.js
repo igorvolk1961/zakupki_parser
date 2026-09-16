@@ -24,6 +24,7 @@ import {
   openReject,
   closeReject,
   doReject,
+  addSelectionToExclusions,
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
 import {
@@ -152,6 +153,7 @@ window.removeWorkByProc = removeWorkByProc;
 window.openReject = openReject;
 window.closeReject = closeReject;
 window.doReject = doReject;
+window.addSelectionToExclusions = addSelectionToExclusions;
 window.addWorkByUrl = addWorkByUrl;
 window.removeWorkItem = removeWorkItem;
 window.removeFromWork = removeFromWork;

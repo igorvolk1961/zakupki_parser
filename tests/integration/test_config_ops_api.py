@@ -121,6 +121,8 @@ def test_ops_config_redacts_secrets(ops_client: TestClient) -> None:
         assert "token" not in cfg["notifications"][block]
 
 
+@pytest.mark.slow  # test_ops_config_redacts_secrets (обычный «первый») уже slow
+# и деселектится под -m "not slow" — setup module-scoped ops_client платит ЭТОТ.
 def test_ops_schema_hides_secrets(ops_client: TestClient) -> None:
     body = ops_client.get("/api/config/ops/schema", headers=_auth(ops_client)).json()
     schema = {f["key"]: f for f in body["schema"]}

@@ -110,6 +110,8 @@ def test_reference_data_seeded(ple_client: TestClient) -> None:
     assert {t["code"] for t in conf.json()} == {"platform", "documents", "registry"}
 
 
+@pytest.mark.slow  # test_reference_data_seeded (обычный «первый») уже slow и
+# деселектится под -m "not slow" — setup module-scoped ple_client платит ЭТОТ.
 def test_licenses_crud(ple_client: TestClient) -> None:
     client = ple_client
     pid = _create_profile(client, "lic-profile")
