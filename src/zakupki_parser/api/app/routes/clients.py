@@ -21,6 +21,7 @@ from zakupki_parser.api.app.schemas import (
     ProfileSaveOut,
 )
 from zakupki_parser.api.app.state import _broadcast, _request_profile_refresh
+from zakupki_parser.okpd import okpd_codes_coverage
 from zakupki_parser.storage.db import User
 from zakupki_parser.storage.profile_json import (
     parse_profile_json,
@@ -181,34 +182,77 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         return out
 
-    def _request_refresh_for(profile: Any, *, rebuild: bool = False, rescore: bool = False) -> None:
-        """Запрашивает внеочередной обход включённого профиля (fast-start).
+    async def _request_refresh_for(
+        profile: Any, *, rebuild: bool = False, rescore: bool = False
+    ) -> bool:
+        """Запрашивает сбор данных для включённого профиля (fast-start).
 
-        Новый/изменённый включённый профиль планировщик обработает сразу после
-        текущего прохода, не дожидаясь следующего регулярного цикла. Отключённые
-        профили не сигналим: при включении сигнал придёт со следующим сохранением.
+        Коды профиля, ЦЕЛИКОМ покрытые диапазоном фоновой индексации (см.
+        ``Scheduler._split_ctxs_for_index_routing`` — тот же критерий на уровне
+        отдельного кода внутри одного обхода), не требуют живого обхода площадок
+        вовсе: результаты сбора перестраиваются СИНХРОННО прямо здесь, одним
+        запросом к уже проиндексированным данным (``rebuild_profile_results``,
+        ``use_document_index=True``) — ни throttle (``profile_refresh_debounce_
+        seconds``), ни работающий планировщик для этого не нужны. Если покрытие
+        частичное (``any_covered`` без ``fully_covered``) — синхронный пересбор
+        всё равно выполняется (даёт мгновенные результаты по уже покрытой части),
+        но профиль ДОПОЛНИТЕЛЬНО просится у планировщика как раньше — непокрытая
+        часть кодов по-прежнему нуждается в живом обходе, throttle защищает
+        именно его (единственную часть, реально обращающуюся к площадкам).
+        Профиль без кодов или вне диапазона индексации — как раньше, целиком
+        через планировщик.
 
-        ``rebuild`` — после обхода перестроить результаты сбора профиля (правка
-        области захвата); ``rescore`` — изменились компетенции, пересчитать скор.
+        Отключённые профили не сигналим: при включении сигнал придёт со
+        следующим сохранением. Возвращает ``True``, если профиль ЦЕЛИКОМ покрыт
+        индексацией (вызывающий может сообщить пользователю, что сбор уже
+        завершён, а не поставлен в очередь).
         """
-        if profile is not None and profile.enabled:
+        if profile is None or not profile.enabled:
+            return False
+        indexing = state.cfg.service.indexing
+        prefixes = indexing.okpd2_prefixes if indexing.enabled else []
+        any_covered, fully_covered = okpd_codes_coverage(profile.okpd_codes, prefixes)
+        if any_covered:
+            words = await _repo().get_profile_keywords(profile.id)
+            await _repo().rebuild_profile_results(
+                profile,
+                words["keywords"],
+                words["exclusion_words"],
+                rescore=rescore,
+                use_document_index=True,
+            )
+            await _broadcast(state)
+        if not fully_covered:
             _request_profile_refresh(state, profile.id, rebuild=rebuild, rescore=rescore)
+        return fully_covered
 
     def _collection_notice(
-        profile: Any, *, refresh_requested: bool, verb: str = "Профиль сохранён"
+        profile: Any,
+        *,
+        refresh_requested: bool,
+        verb: str = "Профиль сохранён",
+        fully_index_covered: bool = False,
     ) -> str:
-        """Уведомление пользователю: когда начнётся сбор данных по профилю.
+        """Уведомление пользователю: когда начнётся/уже завершился сбор данных.
 
         Вызывается сразу после сохранения (или принудительного обновления —
         ``refresh_client``, ``verb="Обновление запрошено"``); ``refresh_requested``
         — запрошен ли внеочередной обход этой правкой (см. change-detection в
         ``update_client``; принудительное обновление запрашивает его всегда,
-        пока профиль включён).
+        пока профиль включён). ``fully_index_covered`` — все коды профиля
+        обслужены фоновой индексацией синхронно (``_request_refresh_for``) —
+        живого обхода площадок для него не было и не будет вовсе.
         """
         if not profile.enabled:
             return (
                 "Профиль отключён — сбор данных по нему не выполняется. "
                 "Включите профиль и сохраните его, чтобы начать сбор."
+            )
+        if fully_index_covered:
+            return (
+                f"{verb}. Все коды ОКПД2 профиля входят в проиндексированный "
+                "диапазон — результаты уже пересобраны из индекса, обход "
+                "площадок не требуется."
             )
         if not refresh_requested:
             return (
@@ -407,8 +451,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        _request_refresh_for(profile)
-        notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
+        covered = await _request_refresh_for(profile)
+        notice = _collection_notice(
+            profile, refresh_requested=bool(profile.enabled), fully_index_covered=covered
+        )
         return await _save_out(profile, notice)
 
     @router.put(
@@ -451,9 +497,14 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             updated.competencies
         )
         rebuild = crawl_changed or comp_changed
+        covered = False
         if rebuild:
-            _request_refresh_for(updated, rebuild=True, rescore=comp_changed)
-        notice = _collection_notice(updated, refresh_requested=rebuild and bool(updated.enabled))
+            covered = await _request_refresh_for(updated, rebuild=True, rescore=comp_changed)
+        notice = _collection_notice(
+            updated,
+            refresh_requested=rebuild and bool(updated.enabled),
+            fully_index_covered=covered,
+        )
         return await _save_out(updated, notice, keywords=new_words)
 
     @router.post(
@@ -466,9 +517,13 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> ProfileSaveOut:
         """Принудительное обновление («Обновить сейчас») — БЕЗ изменения самого
         профиля, тот же fast-start путь, что и сохранение профиля с изменением
-        критериев сбора (``_request_refresh_for``, ``rebuild=True``). Throttle —
-        тот же ``profile_refresh_debounce_seconds``, что и у обычных правок (он
-        привязан к id профиля, а не к причине запроса, см. ``Scheduler.
+        критериев сбора (``_request_refresh_for``, ``rebuild=True``). Для
+        профиля, ЦЕЛИКОМ покрытого фоновой индексацией, throttle не действует
+        вовсе — повторное нажатие снова синхронно пересобирает результаты из
+        индекса (дёшево, живой обход площадок при этом не идёт). Для
+        остального (частичное покрытие/живой обход) — throttle тот же
+        ``profile_refresh_debounce_seconds``, что и у обычных правок (привязан
+        к id профиля, а не к причине запроса, см. ``Scheduler.
         request_profile_refresh``): повторное нажатие раньше, чем истёк
         throttle с предыдущего обхода, не запускает новый обход, только
         удлиняет ожидание в уведомлении.
@@ -477,9 +532,12 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         profile = await _repo().get_profile(eff_user.id, client_id)
         if profile is None:
             raise HTTPException(status_code=404, detail="Профиль не найден")
-        _request_refresh_for(profile, rebuild=True)
+        covered = await _request_refresh_for(profile, rebuild=True)
         notice = _collection_notice(
-            profile, refresh_requested=bool(profile.enabled), verb="Обновление запрошено"
+            profile,
+            refresh_requested=bool(profile.enabled),
+            verb="Обновление запрошено",
+            fully_index_covered=covered,
         )
         return await _save_out(profile, notice)
 
@@ -560,18 +618,21 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         await _broadcast(state)
         # Импорт обновляет существующий профиль: перестраиваем результаты сбора
         # (и пересчитываем скор, если изменились компетенции). Новый профиль —
-        # только по нему начинает идти обход (результатов ещё нет).
+        # по нему начинает идти обход (результатов ещё нет), а покрытая
+        # индексом часть кодов даёт результаты сразу же (_request_refresh_for).
         from zakupki_parser.storage.competencies import competencies_hash
 
         comp_changed = existing is not None and competencies_hash(
             existing.competencies
         ) != competencies_hash(profile.competencies)
-        _request_refresh_for(
+        covered = await _request_refresh_for(
             profile,
             rebuild=existing is not None,
             rescore=comp_changed,
         )
-        notice = _collection_notice(profile, refresh_requested=bool(profile.enabled))
+        notice = _collection_notice(
+            profile, refresh_requested=bool(profile.enabled), fully_index_covered=covered
+        )
         return await _save_out(profile, notice)
 
     return router

@@ -805,7 +805,9 @@ requirements:
       - src/zakupki_parser/scheduler.py#_get_platform_sem
       - src/zakupki_parser/scheduler.py#_get_domain_sem
       - src/zakupki_parser/api/app/routes/clients.py#_collection_notice
+      - src/zakupki_parser/api/app/routes/clients.py#_request_refresh_for
       - src/zakupki_parser/api/app/routes/clients.py#refresh_client
+      - src/zakupki_parser/okpd.py#okpd_codes_coverage
       - src/zakupki_parser/parser/orchestrator/context.py
       - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#_build_units
     tests:
@@ -901,6 +903,31 @@ requirements:
       (``_request_refresh_for(profile, rebuild=True)``) и та же throttle-защита
       (``profile_refresh_debounce_seconds``, общая с обычными правками
       профиля — throttle привязан к id профиля, а не к причине запроса).
+
+      Синхронный пересбор без планировщика для полностью покрытых профилей
+      (2026-09, ``_request_refresh_for``/``okpd_codes_coverage``): ДО этого
+      фикса ЛЮБАЯ правка/сохранение/«Обновить сейчас» профиля — даже профиля,
+      чьи коды ОКПД2 ЦЕЛИКОМ покрыты фоновой индексацией и живому обходу
+      вообще не подлежат (см. выше) — всё равно шла через ``Scheduler.
+      request_profile_refresh``: throttle (``profile_refresh_debounce_
+      seconds``) применялся и к нему без надобности, а если парсер был
+      остановлен (``state.parser_scheduler is None``) — запрос просто
+      копился в ``pending_profile_refresh_ids`` и ничего не происходило до
+      ручного запуска мониторинга, хотя вся нужная работа — локальный запрос
+      к БД, к площадкам обращаться не нужно вовсе. Теперь ``_request_refresh_
+      for`` сам проверяет покрытие (``okpd_codes_coverage``, тот же критерий
+      по коду, что и ``_split_ctxs_for_index_routing``, но на уровне ПРОФИЛЯ
+      целиком — ``any_covered``/``fully_covered``): при ``any_covered``
+      результаты синхронно пересобираются прямо в запросе (``rebuild_profile_
+      results``, ``use_document_index=True``, без throttle, без планировщика);
+      при ``fully_covered`` профиль ДОПОЛНИТЕЛЬНО у планировщика уже не
+      просится вовсе (нечего обходить живьём); при частичном покрытии —
+      синхронный пересбор ВСЁ РАВНО выполняется (мгновенные результаты по
+      покрытой части), но планировщик по-прежнему просится для непокрытого
+      остатка — throttle защищает именно живой обход, единственную часть,
+      реально обращающуюся к площадкам. ``_collection_notice`` сообщает
+      пользователю, что обход площадок не требовался, вместо throttle-
+      уведомления.
 
   # ===== Функциональные требования =====
   - id: FR-1.1

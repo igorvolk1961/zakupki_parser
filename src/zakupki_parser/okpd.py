@@ -133,6 +133,23 @@ def any_okpd_code_covered_by_prefixes(raw_codes: str | None, prefixes: Sequence[
     return False
 
 
+def okpd_codes_coverage(codes: Sequence[str] | None, prefixes: Sequence[str]) -> tuple[bool, bool]:
+    """Покрытие СПИСКА кодов ОКПД2 профиля диапазоном (``any_covered``, ``fully_covered``).
+
+    ``any_covered`` — хотя бы один код профиля входит в ``prefixes``;
+    ``fully_covered`` — ВСЕ коды входят (значит профилю живой обход площадок не
+    нужен вовсе — вся его область захвата уже обслуживается фоновой индексацией,
+    см. ``Scheduler._split_ctxs_for_index_routing``, тот же критерий на уровне
+    отдельного кода внутри одного обхода). Профиль без кодов или пустой/выключенный
+    диапазон индексации (``prefixes`` пуст) — ``(False, False)``: индексация
+    неприменима, живой обход нужен как обычно.
+    """
+    if not codes or not prefixes:
+        return False, False
+    flags = [okpd_code_covered_by_prefixes(c, prefixes) for c in codes]
+    return any(flags), all(flags)
+
+
 def parse_tree_html(html: str) -> dict[str, Any]:
     """Разбирает снимок выбранных ветвей ОКПД2 в маппинг код→путь и путь→имя."""
     code_to_path: dict[str, str] = {}

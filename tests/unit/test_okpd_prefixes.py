@@ -13,6 +13,7 @@ from zakupki_parser.okpd import (
     any_okpd_code_covered_by_prefixes,
     normalize_okpd2_field,
     okpd_code_covered_by_prefixes,
+    okpd_codes_coverage,
 )
 
 
@@ -59,6 +60,27 @@ def test_any_okpd_code_covered_by_prefixes(
     raw_codes: str | None, prefixes: list[str], expected: bool
 ) -> None:
     assert any_okpd_code_covered_by_prefixes(raw_codes, prefixes) is expected
+
+
+@pytest.mark.parametrize(
+    ("codes", "prefixes", "expected"),
+    [
+        (None, ["62"], (False, False)),
+        ([], ["62"], (False, False)),
+        (["62.01"], [], (False, False)),
+        # Все коды покрыты -> живой обход этому профилю не нужен вовсе.
+        (["62.01", "62.02"], ["62"], (True, True)),
+        # Часть покрыта -> нужен и синхронный пересбор (any), и живой обход
+        # (не fully) для непокрытого остатка.
+        (["62.01", "71.20"], ["62", "38"], (True, False)),
+        # Ничего не покрыто.
+        (["71.20"], ["62", "38"], (False, False)),
+    ],
+)
+def test_okpd_codes_coverage(
+    codes: list[str] | None, prefixes: list[str], expected: tuple[bool, bool]
+) -> None:
+    assert okpd_codes_coverage(codes, prefixes) == expected
 
 
 @pytest.mark.parametrize(

@@ -297,6 +297,159 @@ def test_refresh_client_enabled_profile_calls_scheduler_with_rebuild(
         app_state.parser_scheduler = None
 
 
+def _seed_indexed_procurement(number: str, subject: str, okpd2_codes: str) -> int:
+    """Закупка с заданными предметом/ОКПД2 (для проверки синхронного пересбора
+    из индекса — subject-матчинг, без отдельного procurement_search_index)."""
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert(
+                {
+                    "number": number,
+                    "platform_id": "zakupki_mos",
+                    "subject": subject,
+                    "okpd2_codes": okpd2_codes,
+                }
+            )
+            rows, _ = await repo.list_procurements(number=number)
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    return asyncio.run(_seed())
+
+
+def test_create_client_fully_index_covered_matches_immediately_without_scheduler(
+    mc_client: TestClient,
+) -> None:
+    """Профиль, ЦЕЛИКОМ покрытый диапазоном фоновой индексации: создание сразу
+    пересобирает результаты из уже проиндексированных данных — без throttle и
+    БЕЗ работающего планировщика (``parser_scheduler`` весь тест остаётся
+    ``None`` — сбор данных всё равно уже произошёл, синхронно)."""
+    client = mc_client
+    app_state = cast(Any, client.app).state.parser
+    assert app_state.parser_scheduler is None
+    app_state.cfg.service.indexing.enabled = True
+    app_state.cfg.service.indexing.okpd2_prefixes = ["62"]
+    try:
+        procurement_id = _seed_indexed_procurement(
+            "IDX-COV-NEW", "Разработка робототехнического комплекса", "62.01.11"
+        )
+        created = client.post(
+            "/api/clients",
+            json={
+                "name": "idx-covered-new",
+                "competencies": COMP_JSON,
+                "enabled": True,
+                "is_active": True,
+                "okpd_codes": ["62.01"],
+                "keywords": ["робототехническ*"],
+            },
+        )
+        assert created.status_code == 200, created.text
+        assert app_state.parser_scheduler is None  # ни разу не понадобился
+        assert "проиндексированный диапазон" in created.json()["notice"]
+
+        listed = client.get("/api/procurements", params={"number": "IDX-COV-NEW"})
+        assert listed.status_code == 200
+        items = listed.json()["items"]
+        assert any(item["id"] == procurement_id for item in items)
+    finally:
+        app_state.cfg.service.indexing.enabled = False
+        app_state.cfg.service.indexing.okpd2_prefixes = []
+
+
+def test_refresh_client_fully_index_covered_skips_scheduler_no_throttle(
+    mc_client: TestClient,
+) -> None:
+    """«Обновить сейчас» для профиля, ЦЕЛИКОМ покрытого индексацией: планировщик
+    не вызывается вовсе (throttle его не касается) — повторное нажатие подряд
+    снова синхронно пересобирает результаты, а не «остаётся в очереди»."""
+    client = mc_client
+    app_state = cast(Any, client.app).state.parser
+    app_state.cfg.service.indexing.enabled = True
+    app_state.cfg.service.indexing.okpd2_prefixes = ["62"]
+    try:
+        created = client.post(
+            "/api/clients",
+            json={
+                "name": "idx-covered-refresh",
+                "competencies": COMP_JSON,
+                "enabled": True,
+                "okpd_codes": ["62.01"],
+                "keywords": ["робот*"],
+            },
+        )
+        assert created.status_code == 200
+        profile_id = created.json()["id"]
+
+        fake = _FakeSchedulerForRefresh()
+        app_state.parser_scheduler = fake
+        try:
+            resp1 = client.post(f"/api/clients/{profile_id}/refresh")
+            assert resp1.status_code == 200
+            assert "проиндексированный диапазон" in resp1.json()["notice"]
+            resp2 = client.post(f"/api/clients/{profile_id}/refresh")
+            assert resp2.status_code == 200
+            # Планировщик не просился НИ РАЗУ — throttle к нему не применяется.
+            assert fake.calls == []
+        finally:
+            app_state.parser_scheduler = None
+    finally:
+        app_state.cfg.service.indexing.enabled = False
+        app_state.cfg.service.indexing.okpd2_prefixes = []
+
+
+def test_update_client_partial_index_coverage_still_calls_scheduler(
+    mc_client: TestClient,
+) -> None:
+    """Частичное покрытие (часть кодов вне диапазона индексации): синхронный
+    пересбор по покрытой части выполняется, но планировщик ВСЁ РАВНО просится —
+    непокрытая часть кодов нуждается в живом обходе (throttle защищает его)."""
+    client = mc_client
+    app_state = cast(Any, client.app).state.parser
+    app_state.cfg.service.indexing.enabled = True
+    app_state.cfg.service.indexing.okpd2_prefixes = ["62"]
+    try:
+        created = client.post(
+            "/api/clients",
+            json={
+                "name": "idx-partial",
+                "competencies": COMP_JSON,
+                "enabled": True,
+                "okpd_codes": ["71"],
+            },
+        )
+        assert created.status_code == 200
+        profile_id = created.json()["id"]
+
+        fake = _FakeSchedulerForRefresh()
+        app_state.parser_scheduler = fake
+        try:
+            resp = client.put(
+                f"/api/clients/{profile_id}",
+                json={
+                    "name": "idx-partial",
+                    "competencies": COMP_JSON,
+                    "enabled": True,
+                    "okpd_codes": ["62.01", "71.20"],
+                },
+            )
+            assert resp.status_code == 200, resp.text
+            # Частичное покрытие — уведомление НЕ говорит «обход не требуется»,
+            # планировщик просился для непокрытого остатка (код 71.20).
+            assert "проиндексированный диапазон" not in resp.json()["notice"]
+            assert fake.calls == [(profile_id, True, False)]
+        finally:
+            app_state.parser_scheduler = None
+    finally:
+        app_state.cfg.service.indexing.enabled = False
+        app_state.cfg.service.indexing.okpd2_prefixes = []
+
+
 def test_profile_target_regions_roundtrip(mc_client: TestClient) -> None:
     """Целевые регионы профиля + макс. расстояние: CRUD + JSON-экспорт/импорт без потерь."""
     client = mc_client
