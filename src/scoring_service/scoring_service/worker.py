@@ -42,15 +42,16 @@ class ScoringWorker:
         self._parser = ParserApiClient(
             settings.parser_api_url, internal_token=settings.parser_internal_token
         )
-        # Кэш нормализации профиля активного клиента: значение (str/dict) → ProfileTexts.
-        # Профиль постоянен в рамках жизни воркера — не пересобираем его на каждую закупку.
+        # Кэш нормализации профиля активного клиента: ключ (profile_id, raw
+        # competencies, флаг эмбеддингов) → (ProfileTexts, флаг). Профиль постоянен
+        # в рамках жизни воркера — не пересобираем его на каждую закупку.
         # Fallback на конкретный профиль из файла НЕ используется: компетенции берутся
         # только из активного профиля клиента (парсер). Если профиль недоступен —
         # задача обрабатывается как ошибка (ретрай/снятие), но не скорится «чужим» профилем.
-        self._profile_cache: tuple[object, ProfileTexts] | None = None
+        self._profile_cache: tuple[object, tuple[ProfileTexts, bool]] | None = None
 
-    async def _resolve_competencies(self, profile_id: int) -> ProfileTexts:
-        """Компетенции профиля (из парсера). Без fallback на файл.
+    async def _resolve_scoring_context(self, profile_id: int) -> tuple[ProfileTexts, bool]:
+        """Компетенции профиля + флаг «эмбеддинги при скоринге». Без fallback на файл.
 
         Профиль известен из задания очереди (пер-профильно, BR-07): скоринг
         считается по компетенциям именно этого профиля. Парсер может отдать
@@ -59,6 +60,13 @@ class ScoringWorker:
         ``httpx.HTTPStatusError``/``httpx.TransportError`` прокидываются наверх —
         там они обрабатываются как сбой парсера (ретрай/снятие). Если компетенции
         не удалось извлечь — поднимаем ошибку: закупка не скорится без контекста.
+
+        Флаг эмбеддингов — опция АККАУНТА владельца профиля (options.py: scoring_
+        embeddings), парсер отдаёт её в том же ответе (``/api/clients/active`` ->
+        ``scoring_embeddings_enabled``); передаётся в ``Scorer.score`` как per-job
+        разрешение на ветку векторной близости перед LLM (см. scoring/__init__.py).
+        Отсутствие поля (старая версия парсера) трактуется как «выключено» — тот
+        же принцип «явное включение», что и у остальных платных опций аккаунта.
         """
         from scoring_service.profile import profile_to_texts
 
@@ -66,13 +74,16 @@ class ScoringWorker:
             internal_token=self._settings.parser_internal_token, profile_id=profile_id
         )
         raw = (client or {}).get("competencies")
-        if self._profile_cache is not None and self._profile_cache[0] == (profile_id, raw):
+        embeddings_filter_enabled = bool((client or {}).get("scoring_embeddings_enabled", False))
+        cache_key = (profile_id, raw, embeddings_filter_enabled)
+        if self._profile_cache is not None and self._profile_cache[0] == cache_key:
             return self._profile_cache[1]
         texts = profile_to_texts(raw)
         if texts is None or not texts.llm:
             raise RuntimeError("Компетенции профиля не заданы — скоринг без контекста невозможен")
-        self._profile_cache = ((profile_id, raw), texts)
-        return texts
+        result = (texts, embeddings_filter_enabled)
+        self._profile_cache = (cache_key, result)
+        return result
 
     def _scoring_snapshot_key(self, snapshot: dict[str, Any] | None) -> str:
         """Ключ сравнения скор-настроек: пересобираем scorer только при изменении."""
@@ -128,9 +139,17 @@ class ScoringWorker:
         try:
             await self._queue.claim_processing(procurement_id, profile_id, priority)
             record = await self._parser.get_procurement(procurement_id)
-            competencies = await self._resolve_competencies(profile_id)
+            competencies, embeddings_filter_enabled = await self._resolve_scoring_context(
+                profile_id
+            )
             scorer = await self._ensure_scorer()
-            result = scorer.score(record, competencies, procurement_id, run_id=self._run_id)
+            result = scorer.score(
+                record,
+                competencies,
+                procurement_id,
+                run_id=self._run_id,
+                embeddings_filter_enabled=embeddings_filter_enabled,
+            )
             await self._queue.publish_result(
                 {
                     "procurement_id": procurement_id,

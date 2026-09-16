@@ -93,6 +93,19 @@ PAID_OPTIONS: tuple[OptionDef, ...] = (
         requires_competencies=True,
     ),
     OptionDef(
+        key="scoring_embeddings",
+        title="Эмбеддинги при скоринге (предфильтр)",
+        description=(
+            "Предварительная фильтрация закупок по векторной близости описания и "
+            "компетенций ДО запуска LLM-скоринга: заведомо нерелевантные закупки "
+            "получают fit=0 без вызова LLM (экономия на LLM-вызовах). Действует "
+            "только вместе со «Скорингом по компетенциям (LLM)» — сама по себе, "
+            "без него, ничего не даёт."
+        ),
+        group=GROUP_PAID,
+        requires_competencies=True,
+    ),
+    OptionDef(
         key="analysis_embeddings",
         title="Эмбеддинги при анализе закупки",
         description=(

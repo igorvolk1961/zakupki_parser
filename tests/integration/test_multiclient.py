@@ -94,6 +94,39 @@ def mc_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
     os.environ.pop("ZAKUPKI_INTERNAL_TOKEN", None)
 
 
+async def _seed_profile_with_account(username: str, options: dict[str, bool]) -> int:
+    """Отдельный пользователь + профиль + аккаунт с заданными платными опциями.
+
+    Изолирован от общего пользователя ``mc_client`` (который легаси — без
+    аккаунтов, поэтому имеет «полный доступ» ко всем платным опциям, см.
+    ``effective_options``): здесь опции аккаунта заданы явно, чтобы проверить
+    ``scoring_embeddings_enabled`` в /api/clients/active для КОНКРЕТНОГО набора
+    переключателей, а не для легаси-дефолта.
+    """
+    db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+    await db.connect()
+    try:
+        repo = ProcurementRepository(db)
+        user = await repo.create_user(username, "test-hash", [ROLE_USER])
+        await repo.create_account(user.id, "default", options=options)
+        profile = await repo.upsert_profile(
+            {
+                "name": "default",
+                "enabled": True,
+                "is_active": True,
+                "competencies": COMP_JSON,
+                "keywords": [],
+                "exclusion_words": [],
+                "questions": [],
+            },
+            user.id,
+        )
+        assert profile.id is not None
+        return profile.id
+    finally:
+        await db.dispose()
+
+
 def _seed_procurement() -> int:
     async def _seed() -> int:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
@@ -132,6 +165,36 @@ def test_clients_crud(mc_client: TestClient) -> None:
     listed = client.get("/api/clients")
     assert listed.status_code == 200
     assert listed.json()["total"] >= 2
+
+
+def test_active_client_exposes_scoring_embeddings_enabled_true(mc_client: TestClient) -> None:
+    """/api/clients/active (X-Profile-ID, конвейер скоринга) отдаёт
+    scoring_embeddings_enabled=True, когда опция включена в аккаунте владельца."""
+    client = mc_client
+    profile_id = asyncio.run(
+        _seed_profile_with_account("embtest-on", {"scoring": True, "scoring_embeddings": True})
+    )
+    resp = client.get(
+        "/api/clients/active",
+        headers={**INTERNAL_HEADERS, "X-Profile-ID": str(profile_id)},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["scoring_embeddings_enabled"] is True
+
+
+def test_active_client_exposes_scoring_embeddings_enabled_false_by_default(
+    mc_client: TestClient,
+) -> None:
+    """Опция «эмбеддинги при скоринге» не включена в аккаунте (только «scoring») —
+    scoring_embeddings_enabled=False (явное включение, как у остальных платных опций)."""
+    client = mc_client
+    profile_id = asyncio.run(_seed_profile_with_account("embtest-off", {"scoring": True}))
+    resp = client.get(
+        "/api/clients/active",
+        headers={**INTERNAL_HEADERS, "X-Profile-ID": str(profile_id)},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["scoring_embeddings_enabled"] is False
 
 
 def test_profile_target_regions_roundtrip(mc_client: TestClient) -> None:

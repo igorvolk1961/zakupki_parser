@@ -2,9 +2,13 @@
 
 Поток:
 1. извлечь описание закупки из карточки (``pipeline.description``);
-2. (опц.) ветка векторной близости ДО LLM: если близость ниже порога
-   ``embedding_filter_threshold`` — предварительная фильтрация (LLM не
-   запускается, возвращается fit_score=0 и score_method=sim);
+2. (опц.) ветка векторной близости ДО LLM: запускается, только если сервис
+   настроен на эмбеддинги (``settings.giga_enabled``/сконфигурирован) И
+   per-job флаг ``embeddings_filter_enabled`` (options.py: scoring_embeddings —
+   опция АККАУНТА владельца профиля, ``worker.py`` читает её из
+   ``/api/clients/active``) разрешает это для данного задания; если близость
+   ниже порога ``embedding_filter_threshold`` — предварительная фильтрация
+   (LLM не запускается, возвращается fit_score=0 и score_method=sim);
 3. fit-цепочка: reasoning + fit_score (0..10);
 4. judge-цепочка: critics / verdict / final_fit_score;
 5. если verdict == reject — до ``num_refine_rounds`` повторный fit с учётом critics,
@@ -143,6 +147,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         run_name: str = "scoring_job",
+        embeddings_filter_enabled: bool = True,
     ) -> ScoringOutput:
         """Полный скоринг закупки по карточке и профилю поставщика.
 
@@ -158,6 +163,13 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         ``scoring_job``. Позволяет различать трейсы (например, номер повтора и
         фрагмент описания закупки).
 
+        ``embeddings_filter_enabled`` — per-job разрешение на ветку векторной
+        близости (опция аккаунта владельца профиля, options.py: scoring_
+        embeddings; ``worker.py`` передаёт её из ``/api/clients/active``).
+        Ветка запускается только при ``self._embedder is not None`` (сервис
+        сконфигурирован) И этом флаге — по умолчанию True для обратной
+        совместимости с прямыми вызовами (тесты, где флаг не важен).
+
         Весь скоринг одного задания выполняется внутри единого корневого run,
         поэтому fit/judge/refine попадают в ОДИН трейс как дочерние спаны.
         """
@@ -168,6 +180,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         )
         session_id = run_id or (str(procurement_id) if procurement_id is not None else None)
         trace_meta = self._trace_metadata(procurement_id, run_id, metadata)
+        trace_meta["embeddings_filter_enabled"] = embeddings_filter_enabled
         root_config = cast(
             RunnableConfig,
             {
@@ -194,7 +207,15 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         runner = RunnableLambda(self._score_impl, name=run_name)
         stage_start = time.perf_counter()
         result = runner.invoke(
-            (record, texts, procurement_id, session_id, trace_meta, root_config),
+            (
+                record,
+                texts,
+                procurement_id,
+                session_id,
+                trace_meta,
+                root_config,
+                embeddings_filter_enabled,
+            ),
             config=root_config,
         )
         duration_ms = (time.perf_counter() - stage_start) * 1000.0
@@ -238,16 +259,25 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             str | None,
             dict[str, Any],
             RunnableConfig,
+            bool,
         ],
         config: RunnableConfig | None = None,
     ) -> ScoringOutput:
         """Внутренняя реализация скоринга; выполняется внутри корневого run."""
-        record, texts, procurement_id, session_id, trace_meta, root_config = inputs
+        (
+            record,
+            texts,
+            procurement_id,
+            session_id,
+            trace_meta,
+            root_config,
+            embeddings_filter_enabled,
+        ) = inputs
         parent_config = config or root_config
         description = extract_description(record)
 
         embed_sim: float | None = None
-        if self._embedder is not None:
+        if self._embedder is not None and embeddings_filter_enabled:
             # Ветка векторной близости выполняется ДО LLM-пайплайна: результат
             # используется для предварительной фильтрации закупок (если близость
             # ниже порога embedding_filter_threshold — LLM не запускается).

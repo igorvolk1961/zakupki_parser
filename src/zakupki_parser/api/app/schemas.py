@@ -543,6 +543,10 @@ class ProfileOut(BaseModel):
     updated_at: datetime
     # Факты профиля для сопоставления с фактами ТЗ (только в active_client).
     facts: ProfileFactsOut | None = None
+    # Опция аккаунта владельца «эмбеддинги при скоринге» (предфильтр перед LLM,
+    # options.py: scoring_embeddings) — только в active_client (конвейер скоринга
+    # читает её per-job, см. scoring_service.worker). None вне active_client.
+    scoring_embeddings_enabled: bool | None = None
 
 
 class ProfileSaveOut(ProfileOut):

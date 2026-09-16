@@ -704,6 +704,38 @@ def test_score_embedding_prefilter_disabled_threshold_zero() -> None:
     assert out.score_method == "fit"
 
 
+def test_score_embeddings_filter_disabled_skips_branch_even_below_threshold() -> None:
+    """``embeddings_filter_enabled=False`` (опция аккаунта выключена) — ветка
+    векторной близости не выполняется вовсе, даже если сервис сконфигурирован и
+    близость была бы ниже порога: LLM-пайплайн выполняется напрямую."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = _embedding_scorer(fit, judge, similarity=0.1, threshold=0.66)
+    out = scorer.score(
+        {"subject": "Разработка ПО", "nmck": 100.0},
+        "компетенции",
+        embeddings_filter_enabled=False,
+    )
+
+    assert fit.calls == 1
+    assert judge.calls == 1
+    assert out.score == 0.8
+    assert out.score_method == "fit"
+    assert out.embedding_similarity is None
+
+
+def test_score_embeddings_filter_enabled_default_preserves_prefilter() -> None:
+    """Флаг по умолчанию (True, обратная совместимость с прямыми вызовами) — ветка
+    работает как раньше, отсекая закупку ниже порога."""
+    fit = _FakeFit([8.0])
+    judge = _FakeJudge([_judge("accept", 8.0)])
+    scorer = _embedding_scorer(fit, judge, similarity=0.5, threshold=0.66)
+    out = scorer.score({"subject": "Разработка ПО", "nmck": 100.0}, "компетенции")
+
+    assert fit.calls == 0
+    assert out.score_method == "sim"
+
+
 def test_score_embedding_prefilter_branch_failure_runs_llm() -> None:
     """Сбой ветки эмбеддингов: фильтрация не применяется, LLM-пайплайн выполняется."""
 

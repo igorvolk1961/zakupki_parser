@@ -75,6 +75,15 @@ class _OkParser:
         return {}
 
 
+class _EmbeddingsEnabledParser(_OkParser):
+    """Имитация парсера: у владельца профиля включена опция «эмбеддинги при скоринге»."""
+
+    async def get_active_client(
+        self, internal_token: str | None = None, profile_id: int | None = None
+    ) -> dict:
+        return {"competencies": _PROFILE, "scoring_embeddings_enabled": True}
+
+
 class _NoCompetenciesParser(_OkParser):
     """Имитация парсера без компетенций активного профиля (скоринг невозможен)."""
 
@@ -102,6 +111,7 @@ class _TimeoutScorer:
         run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         run_name: str = "scoring_job",
+        embeddings_filter_enabled: bool = True,
     ) -> object:
         raise openai.APITimeoutError(request=httpx.Request("POST", "http://llm/chat/completions"))
 
@@ -117,6 +127,7 @@ class _RejectedScorer:
         run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         run_name: str = "scoring_job",
+        embeddings_filter_enabled: bool = True,
     ) -> object:
         raise openai.BadRequestError(
             "invalid request",
@@ -126,7 +137,10 @@ class _RejectedScorer:
 
 
 class _SuccessScorer:
-    """Имитация успешного скоринга (без LLM)."""
+    """Имитация успешного скоринга (без LLM). Запоминает переданный флаг эмбеддингов."""
+
+    def __init__(self) -> None:
+        self.last_embeddings_filter_enabled: bool | None = None
 
     def score(
         self,
@@ -136,7 +150,9 @@ class _SuccessScorer:
         run_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         run_name: str = "scoring_job",
+        embeddings_filter_enabled: bool = True,
     ) -> object:
+        self.last_embeddings_filter_enabled = embeddings_filter_enabled
         return SimpleNamespace(
             score=1.0,
             fit_multiplier=1.0,
@@ -311,3 +327,30 @@ async def test_success_resets_retries(worker_queue) -> None:
     # И результат опубликован.
     results = worker._queue._settings.results_key
     assert await worker._queue._client.llen(results) == 1
+
+
+async def test_embeddings_filter_flag_defaults_false_when_missing(worker_queue) -> None:
+    """Парсер не прислал ``scoring_embeddings_enabled`` (поле отсутствует) — воркер
+    передаёт scorer.score флаг False (явное включение, как у остальных платных
+    опций аккаунта — см. options.py)."""
+    worker = worker_queue
+    worker._parser = _OkParser()
+    scorer = _SuccessScorer()
+    worker._scorer = scorer
+    assert worker._queue._client is not None
+    await worker._queue.enqueue(500, 1.0, profile_id=1)
+    await worker._process_once()
+    assert scorer.last_embeddings_filter_enabled is False
+
+
+async def test_embeddings_filter_flag_passed_through_when_enabled(worker_queue) -> None:
+    """Аккаунт владельца профиля включил «эмбеддинги при скоринге» — воркер читает
+    флаг из ``/api/clients/active`` и передаёт его в ``scorer.score``."""
+    worker = worker_queue
+    worker._parser = _EmbeddingsEnabledParser()
+    scorer = _SuccessScorer()
+    worker._scorer = scorer
+    assert worker._queue._client is not None
+    await worker._queue.enqueue(501, 1.0, profile_id=1)
+    await worker._process_once()
+    assert scorer.last_embeddings_filter_enabled is True

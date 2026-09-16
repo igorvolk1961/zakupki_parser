@@ -115,6 +115,26 @@ def build_context(state: AppState) -> ApiContext:
             )
         return user, profile
 
+    async def _scoring_embeddings_enabled(profile: Profile) -> bool:
+        """Включена ли в аккаунте владельца профиля опция «эмбеддинги при скоринге».
+
+        Читается только конвейером скоринга (``/api/clients/active``,
+        ``include_facts=True``): ``scoring_service.worker`` решает per-job, можно
+        ли использовать предфильтр по векторной близости перед LLM, — не по
+        глобальной настройке сервиса, а по опции АККАУНТА владельца профиля
+        (options.py: ``scoring_embeddings``). Профиль без владельца (``user_id
+        is None`` — легаси/системный индексный профиль) скоринг не получает
+        вовсе (``scoring_allowed`` для таких профилей всегда False), опция здесь
+        не имеет значения — считаем её недоступной.
+        """
+        if profile.user_id is None:
+            return False
+        owner = await _repo().get_user(profile.user_id)
+        if owner is None:
+            return False
+        accounts = await _repo().list_accounts(profile.user_id)
+        return effective_options(accounts, owner.trial_end_at).has_option("scoring_embeddings")
+
     async def _profile_out(
         profile: Profile,
         keywords: dict[str, list[str]] | None = None,
@@ -122,8 +142,10 @@ def build_context(state: AppState) -> ApiContext:
     ) -> ProfileOut:
         """Карточка профиля со словами из таблицы ``keywords`` (канонический источник).
 
-        ``include_facts`` — прикрепить факты BR-03 (лицензии/опыт) для конвейера
-        (эндпоинт /api/clients/active): они нужны Stage B анализа ТЗ.
+        ``include_facts`` — прикрепить факты BR-03 (лицензии/опыт) и опцию
+        аккаунта «эмбеддинги при скоринге» для конвейера (эндпоинт
+        /api/clients/active): факты нужны Stage B анализа ТЗ, опция —
+        scoring_service (предфильтр перед LLM).
         """
         data = ProfileOut.model_validate(profile).model_dump()
         if keywords is None:
@@ -132,6 +154,7 @@ def build_context(state: AppState) -> ApiContext:
         data["exclusion_words"] = keywords["exclusion_words"]
         if include_facts:
             data["facts"] = ProfileFactsOut(**await _repo().get_profile_facts(profile.id))
+            data["scoring_embeddings_enabled"] = await _scoring_embeddings_enabled(profile)
         return ProfileOut(**data)
 
     async def _effective_options(user: User) -> EffectiveOptions:
