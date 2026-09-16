@@ -48,6 +48,8 @@
   .proc-list table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
   .sort-toggle { display:block; flex:0 0 auto; font-size:13px; color: var(--muted, #888); padding:8px 12px; }
   .proc-table { flex:1 1 auto; min-height:0; overflow:auto; }
+  /* Строка закупки, чья полная карточка сейчас показана в панели справа. */
+  .proc-table tr.sel { background: var(--sel-bg); }
   .sort-toggle select { margin-left:6px; }
   .pager { display:flex; align-items:center; gap:14px; justify-content:center; padding:10px 12px;
            border-top:1px solid var(--line); font-size:13px; }
@@ -70,15 +72,12 @@
   .proc-list td.id { color: var(--muted); width:64px; font-family:ui-monospace,monospace; }
   .proc-list .num { color: var(--accent); font-size:12px; font-family:ui-monospace,monospace;}
   .proc-list .subj { margin-top:2px; }
-  .proc-detail { flex:0 0 400px; width:400px; max-height:72vh; overflow:auto;
-                 display:flex; flex-direction:column; gap:12px; }
-  .card { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; cursor:pointer;}
-  .card:hover, .card.selcard { border-color: var(--accent); }
-  .card .num { color: var(--accent); font-size:13px; font-family:ui-monospace,monospace;}
-  .card .subj { font-weight:600; margin:6px 0 10px; line-height:1.35;}
-  .card .row { display:flex; justify-content:space-between; font-size:13px; color: var(--muted);
-               padding:3px 0; border-top:1px dashed var(--line);}
-  .card .row b { color: var(--text); font-weight:600;}
+  /* Панель показывает ПОЛНУЮ карточку закупки (та же разметка, что и модалка,
+     см. cardBodyHtml) — шире прежней сокращённой карточки, чтобы вкладки/
+     таблицы/тулбар действий помещались без лишней тесноты. */
+  .proc-detail { flex:0 0 480px; width:480px; max-height:72vh; overflow:auto;
+                 background: var(--panel); border:1px solid var(--line); border-radius:12px;
+                 padding:14px 16px; }
   .pill { font-size:11px; padding:2px 8px; border-radius:20px; background: var(--panel2); border:1px solid var(--line);}
   .pill.score { background: var(--pill-score-bg); border-color: var(--pill-score-border); color: var(--pill-score-text); font-weight:700;}
   .pill.active { background: #dcfce7; border-color: #bbf7d0; color: #166534; font-weight:600;}
@@ -117,11 +116,13 @@
               justify-content:center; padding:40px 16px; overflow:auto; z-index:10;}
   .modal-bg.open { display:flex; }
   .modal { background: var(--panel); border:1px solid var(--line); border-radius:14px; max-width:760px; width:100%; padding:20px;}
-  .modal h2 { margin-top:0; font-size:18px;}
-  .modal table { width:100%; border-collapse:collapse; font-size:13px; }
-  .modal td, .modal th { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
-  .modal td:first-child { color: var(--muted); width: 34%; }
-  .modal code { color: var(--accent); word-break: break-word;}
+  /* Полная карточка закупки (cardBodyHtml) рендерится и в модалке, и в панели
+     #proc-detail — общая разметка (заголовок/таблицы/код) для обеих. */
+  .modal h2, .proc-detail h2 { margin-top:0; font-size:18px;}
+  .modal table, .proc-detail table { width:100%; border-collapse:collapse; font-size:13px; }
+  .modal td, .modal th, .proc-detail td, .proc-detail th { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
+  .modal td:first-child, .proc-detail td:first-child { color: var(--muted); width: 34%; }
+  .modal code, .proc-detail code { color: var(--accent); word-break: break-word;}
   .modal .close { float:right; cursor:pointer; color: var(--muted); font-size:22px; line-height:1;}
   /* Просмотр текста ТЗ (в т.ч. извлечённого из архива). */
   .tz-view { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:12px;

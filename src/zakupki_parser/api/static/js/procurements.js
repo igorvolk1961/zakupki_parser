@@ -17,10 +17,19 @@ import { hasRole } from "./roles.js";
 import { renderMarkdown } from "./markdown.js";
 
 let allItems = [];
+// Пакетный выбор (чекбоксы/Ctrl+клик) — ТОЛЬКО для массовых операций (анализ/
+// P(win)/Margin), не связан с тем, какая карточка сейчас показана в панели
+// справа (см. panelDetailId) — отменено требование одновременного показа
+// нескольких карточек (было раньше), решение пользователя.
 let selected = new Set();
 const PROC_PAGE_SIZE = 100;
 let procPage = 1;
 let procTotal = 0;
+// id ЕДИНСТВЕННОЙ закупки, чья полная карточка показана в панели #proc-detail
+// (клик по строке таблицы) — и её активная вкладка (сохраняется между
+// перерисовками панели, как и у модалки, см. openDetailTab).
+let panelDetailId = null;
+let panelDetailTab = "data";
 
 // Эффективная доступность опции scoring у пользователя (BR-09). Без неё
 // фильтр «закупки без прошедшего скоринга» отключается: закупки скоринг не
@@ -50,6 +59,8 @@ const analyzingIds = new Set();
 // id открытой карточки (модалки) и сигнатура её rag_report для автообновления.
 let openDetailId = null;
 let lastDetailSig = "";
+// То же для карточки панели (#proc-detail) — см. refreshPanelDetail.
+let lastPanelDetailSig = "";
 // Активная вкладка карточки закупки («Данные закупки»/«Результаты скоринга и
 // анализа»/«Метрики»). Сохраняется между перерисовками (pollProc автообновляет
 // модалку по изменению rag_report, не сбрасывая выбранную вкладку).
@@ -59,30 +70,12 @@ function updateMinFit() {
   $("#min-fit-wrap").style.display = $("#proc-relevant").checked ? "inline" : "none";
 }
 
-function card(row) {
-  return `<div class="card selcard" data-id="${row.id}">
-    <div class="num">${row.number}</div>
-    <div class="subj">${escapeHtml(row.subject || "—")}</div>
-    <div class="row"><span>Заказчик</span><b>${escapeHtml(row.customer || "—")}</b></div>
-    <div class="row"><span>Регион</span><b>${escapeHtml(row.region || "—")}</b></div>
-    <div class="row"><span>Тип процедуры</span><b>${escapeHtml(row.procedure_type || "—")}</b></div>
-    <div class="row"><span>НМЦК</span><b>${fmtMoney(row.nmck)}</b></div>
-    <div class="row"><span>Срок подачи</span><b>${fmtDate(row.deadline)}</b></div>
-    <div class="row"><span>Статус</span><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></div>
-    <div class="row"><span>Площадка</span><span class="pill">${escapeHtml(row.platform_name || row.platform_id)}</span>
-      <span class="pill score">score ${row.score ?? "—"}</span>
-      <span class="pill score">fit ${fitCell(row)}</span>
-      <span class="pill score">sim ${row.embedding_similarity ?? "—"}</span>
-      ${row.langfuse_trace_url && hasRole("analyst") ? `<a class="pill" href="${escapeHtml(row.langfuse_trace_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">трейс</a>` : ""}</div>
-  </div>`;
-}
-
 function procRow(row) {
   const methodLabel = row.score_method
     ? { manual: "ручная", reject: "отклонена" }[row.score_method] || row.score_method
     : "";
   const rg = row.rag_report ? ` data-rag="${escapeHtml(JSON.stringify(row.rag_report))}"` : "";
-  return `<tr data-id="${row.id}" class="${selected.has(row.id) ? "sel" : ""}"${rg}>
+  return `<tr data-id="${row.id}" class="${panelDetailId === row.id ? "sel" : ""}"${rg}>
     <td><input type="checkbox" class="row-sel" data-id="${row.id}" ${selected.has(row.id) ? "checked" : ""}></td>
     <td class="id">${row.id}</td>
     <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}${row.in_work ? ' <span class="pill active">в работе</span>' : ""}</div></td>
@@ -99,18 +92,27 @@ function displayItems() {
   return allItems;
 }
 
-function selectedItems() {
-  return allItems.filter((r) => selected.has(r.id));
-}
-
+// Панель справа от таблицы показывает ПОЛНУЮ карточку (те же вкладки/данные,
+// что и модалка) ровно ОДНОЙ выбранной закупки — отменено прежнее требование
+// показывать несколько карточек одновременно. Строка карточки уже есть в
+// allItems (список отдаёт те же поля, что и карточка, см. ProcurementOut) —
+// отдельный запрос за деталями не нужен, в отличие от модалки (openDetail),
+// которая может открываться БЕЗ предварительно загруженного списка (с вкладки
+// «В работе», см. work.js#openWorkCard).
 function renderDetail() {
-  const items = selectedItems();
   const panel = $("#proc-detail");
-  if (!items.length) {
-    panel.innerHTML = `<div class="empty">Выберите закупку слева<br><span class="muted" style="font-size:12px">Несколько — удерживайте Ctrl при клике</span></div>`;
+  if (panelDetailId === null) {
+    panel.innerHTML = `<div class="empty">Выберите закупку слева</div>`;
     return;
   }
-  panel.innerHTML = items.map(card).join("");
+  const row = allItems.find((r) => r.id === panelDetailId);
+  if (!row) {
+    panel.innerHTML = `<div class="empty">Закупка больше не в текущей выдаче (изменились фильтры или страница)</div>`;
+    return;
+  }
+  lastPanelDetailSig = detailSig(row);
+  panel.innerHTML = cardBodyHtml(row, { closable: false, containerId: "proc-detail" });
+  setCardTab(panelDetailTab, "proc-detail");
 }
 
 function renderProc() {
@@ -208,9 +210,11 @@ async function pollProc() {
       renderProc();
       renderPager();
     }
-    // Открытая карточка могла получить результат анализа ТЗ (rag_report), даже если
-    // сигнатура списка не изменилась — обновляем её независимо от списка.
+    // Открытая карточка (модалка и/или панель) могла получить результат анализа
+    // ТЗ (rag_report), даже если сигнатура списка не изменилась — обновляем
+    // независимо от списка.
     await refreshOpenDetail();
+    await refreshPanelDetail();
   } catch (err) {
     /* временные сбои игнорируем — попробуем на следующем тике */
   }
@@ -232,6 +236,35 @@ function detailSig(row) {
 }
 
 function renderModal(row) {
+  $("#modal").innerHTML = cardBodyHtml(row, { closable: true, containerId: "modal" });
+  setCardTab(openDetailTab, "modal");
+  $("#modal-bg").classList.add("open");
+}
+
+// Компактная сводка по оценке (score/fit/sim + трейс) — раньше показывалась
+// только на сокращённой карточке в панели; после отмены требования «несколько
+// карточек одновременно» сокращённая карточка убрана, но эти данные всё
+// равно нужны «на виду», не только на вкладке «Результаты скоринга и анализа»
+// (которая требует отдельного клика) — показываем сразу под заголовком,
+// независимо от активной вкладки.
+function cardScoreSummaryHtml(row, analyst) {
+  return `<div class="toolbar" style="margin:0 0 10px; gap:6px;">
+    <span class="pill score">score ${row.score ?? "—"}</span>
+    <span class="pill score">fit ${fitCell(row)}</span>
+    <span class="pill score">sim ${row.embedding_similarity ?? "—"}</span>
+    ${row.langfuse_trace_url && analyst ? `<a class="pill" href="${escapeHtml(row.langfuse_trace_url)}" target="_blank" rel="noopener">трейс</a>` : ""}
+  </div>`;
+}
+
+// Полное содержимое карточки закупки (заголовок + сводка оценки + вкладки +
+// панели + тулбар действий) — общее для модалки (``renderModal``, доступна с
+// других вкладок, напр. «В работе») и панели справа от таблицы «Закупки»
+// (``renderDetail``, единственная показываемая карточка). ``containerId`` —
+// на чём именно рендерится карточка ("modal"/"proc-detail"): используется для
+// скоупинга id (``${containerId}-excl-btn``) и переключения вкладок
+// (``setCardTab``), чтобы модалка и панель, если обе одновременно видны
+// (напр. модалка ТЗ поверх панели), не конфликтовали по дублирующимся id.
+function cardBodyHtml(row, { closable, containerId }) {
   const f = (label, v) => `<tr><td>${label}</td><td>${v}</td></tr>`;
   const files =
     (row.files_json || [])
@@ -246,11 +279,13 @@ function renderModal(row) {
   // всегда; «Метрики» — только роли analyst (внутренняя метрика, costs отдаётся
   // только ей — см. converters).
   const tabs = [
-    `<button type="button" class="active" data-cardtab="data" onclick="setCardTab('data')">Данные закупки</button>`,
-    `<button type="button" data-cardtab="scoring" onclick="setCardTab('scoring')">Результаты скоринга и анализа</button>`,
+    `<button type="button" class="active" data-cardtab="data" onclick="setCardTab('data', '${containerId}')">Данные закупки</button>`,
+    `<button type="button" data-cardtab="scoring" onclick="setCardTab('scoring', '${containerId}')">Результаты скоринга и анализа</button>`,
   ];
   if (analyst) {
-    tabs.push(`<button type="button" data-cardtab="metrics" onclick="setCardTab('metrics')">Метрики</button>`);
+    tabs.push(
+      `<button type="button" data-cardtab="metrics" onclick="setCardTab('metrics', '${containerId}')">Метрики</button>`
+    );
   }
   const panels = [
     `<div class="card-tab-panel active" data-cardpanel="data">${cardDataPanel(row, f, files)}</div>`,
@@ -259,13 +294,14 @@ function renderModal(row) {
   if (analyst) {
     panels.push(`<div class="card-tab-panel" data-cardpanel="metrics" style="display:none">${cardMetricsPanel(row)}</div>`);
   }
-  $("#modal").innerHTML = `
-    <span class="close" onclick="closeModal()">×</span>
+  return `
+    ${closable ? `<span class="close" onclick="closeModal()">×</span>` : ""}
     <h2>${escapeHtml(row.number)}</h2>
+    ${cardScoreSummaryHtml(row, analyst)}
     <div class="tabs card-tabs">${tabs.join("")}</div>
     ${panels.join("")}
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end; flex-wrap:wrap; gap:6px;">
-      <button class="ghost" id="excl-btn" disabled title="Выделите фрагмент текста в карточке, чтобы добавить его в исключения профиля" onclick="addSelectionToExclusions(${row.id})">В исключения</button>
+      <button class="ghost" id="${containerId}-excl-btn" disabled title="Выделите фрагмент текста в карточке, чтобы добавить его в исключения профиля" onclick="addSelectionToExclusions(${row.id}, '${containerId}')">В исключения</button>
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
       ${row.in_work
         ? `<button class="ghost" onclick="removeWorkByProc(${row.id})">Снять с работы</button>`
@@ -277,8 +313,6 @@ function renderModal(row) {
       ${row.langfuse_trace_url && analyst ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
       ${row.rag_report && row.rag_report.trace_url && analyst ? `<button class="ghost" onclick="viewTraceUrl('${escapeHtml(row.rag_report.trace_url)}')">Анализ</button>` : ""}
     </div>`;
-  setCardTab(openDetailTab);
-  $("#modal-bg").classList.add("open");
 }
 
 // Вкладка «Данные закупки»: реквизиты карточки (без скоринга и метрик).
@@ -450,12 +484,17 @@ function metricsTokensTable(m) {
 }
 
 // Переключение вкладки карточки закупки (вызывается из inline onclick).
-function setCardTab(tab) {
+// containerId — "modal" или "proc-detail": карточка может одновременно
+// показываться в обоих местах (напр. панель на вкладке «Закупки» + модалка
+// ТЗ поверх неё), переключение вкладки в одном не должно задевать другое.
+function setCardTab(tab, containerId) {
   if (tab === "metrics" && !hasRole("analyst")) tab = "data";
-  openDetailTab = tab;
-  const modal = $("#modal");
-  const btns = modal.querySelectorAll("[data-cardtab]");
-  const panels = modal.querySelectorAll("[data-cardpanel]");
+  if (containerId === "modal") openDetailTab = tab;
+  else panelDetailTab = tab;
+  const container = $("#" + containerId);
+  if (!container) return;
+  const btns = container.querySelectorAll("[data-cardtab]");
+  const panels = container.querySelectorAll("[data-cardpanel]");
   btns.forEach((b) => b.classList.toggle("active", b.dataset.cardtab === tab));
   panels.forEach((p) => {
     const on = p.dataset.cardpanel === tab;
@@ -476,6 +515,26 @@ async function refreshOpenDetail() {
       // Результат получен — анализ завершён: снимаем блокировку кнопки.
       if (row.rag_report) analyzingIds.delete(openDetailId);
       renderModal(row);
+    }
+  } catch (err) {
+    /* временный сбой — попробуем на следующем тике */
+  }
+}
+
+// То же для панели справа от таблицы «Закупки» (см. refreshOpenDetail): rag_
+// report карточки, показанной в панели, может обновиться без изменения
+// update_date (сигнатура списка, sigOfProc, тогда не меняется и allItems не
+// перечитывается) — отдельный запрос и патч allItems, как и у модалки.
+async function refreshPanelDetail() {
+  if (panelDetailId === null) return;
+  try {
+    const row = await api("procurements/" + panelDetailId);
+    if (detailSig(row) !== lastPanelDetailSig) {
+      lastPanelDetailSig = detailSig(row);
+      if (row.rag_report) analyzingIds.delete(panelDetailId);
+      const idx = allItems.findIndex((r) => r.id === panelDetailId);
+      if (idx !== -1) allItems[idx] = Object.assign({}, allItems[idx], row);
+      renderDetail();
     }
   } catch (err) {
     /* временный сбой — попробуем на следующем тике */
@@ -524,10 +583,14 @@ async function viewTz(id) {
   }
 }
 
-// Возврат из просмотра ТЗ к карточке закупки (модалка перерисовывается).
+// Возврат из просмотра ТЗ (и «Требования к участнику», тот же обработчик).
+// Модалка с полной карточкой перерисовывается, только если ДО открытия ТЗ она
+// уже показывала карточку (openDetailId — приход с вкладки «В работе», где
+// панели нет); если ТЗ было открыто из панели на вкладке «Закупки» — панель
+// и так уже показывает карточку, просто закрываем модалку поверх неё.
 async function closeTz(id) {
   closeModal();
-  await openDetail(id);
+  if (openDetailId !== null) await openDetail(id);
 }
 
 // Просмотр json-структуры «Требования к участнику» (поиск по всем документам).
@@ -749,7 +812,10 @@ async function acceptWork(id) {
     }
     $("#parser-status").textContent = `Закупка #${id} принята «в работу»`;
     await loadProc();
-    await openDetail(id);
+    // Перерисовать карточку в модалке нужно, только если она сейчас показана
+    // там (вкладка «В работе», без панели) — на «Закупки» loadProc уже
+    // обновил панель через renderProc -> renderDetail.
+    if (openDetailId !== null) await openDetail(id);
   } catch (err) {
     $("#parser-status").textContent = "не удалось принять «в работу»: " + (err.message || err);
   }
@@ -764,7 +830,7 @@ async function removeWorkByProc(id) {
     }
     $("#parser-status").textContent = `Закупка #${id} снята с «в работе»`;
     await loadProc();
-    await openDetail(id);
+    if (openDetailId !== null) await openDetail(id);
   } catch (err) {
     $("#parser-status").textContent = "не удалось снять с работы: " + (err.message || err);
   }
@@ -796,7 +862,7 @@ async function openReject(id) {
 
 async function closeReject(id) {
   closeModal();
-  await openDetail(id);
+  if (openDetailId !== null) await openDetail(id);
 }
 
 async function doReject(id) {
@@ -835,19 +901,23 @@ async function doReject(id) {
   }
 }
 
-// Текущее выделение в карточке закупки (#modal) -> фраза для исключений, либо
-// null, если выделения нет/оно пустое/вне карточки. Если правый край выделения
-// приходится на середину слова, к фразе добавляется хвостовая «*» (стеб-поиск —
-// единственный вид wildcard, который понимает движок фильтрации, см.
-// filtering.py::_token_regex); обрыв слева на wildcard не влияет — ведущих «*»
-// движок не поддерживает, добавлять её было бы бессмысленно.
-function selectionExclusionPhrase() {
+// Текущее выделение в карточке закупки (модалка ИЛИ панель #proc-detail) ->
+// фраза для исключений, либо null, если выделения нет/оно пустое/вне карточки.
+// containerId — "modal" или "proc-detail" (см. cardBodyHtml): проверяем
+// выделение именно в ТОМ контейнере, откуда нажата кнопка — оба контейнера
+// могут одновременно существовать в DOM (панель под модалкой ТЗ/Отбраковать).
+// Если правый край выделения приходится на середину слова, к фразе
+// добавляется хвостовая «*» (стеб-поиск — единственный вид wildcard, который
+// понимает движок фильтрации, см. filtering.py::_token_regex); обрыв слева на
+// wildcard не влияет — ведущих «*» движок не поддерживает, добавлять её было
+// бы бессмысленно.
+function selectionExclusionPhrase(containerId) {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-  const modal = $("#modal");
-  if (!modal) return null;
+  const container = $("#" + containerId);
+  if (!container) return null;
   const range = sel.getRangeAt(0);
-  if (!modal.contains(range.commonAncestorContainer)) return null;
+  if (!container.contains(range.commonAncestorContainer)) return null;
   const raw = range.toString();
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -863,10 +933,10 @@ function selectionExclusionPhrase() {
   return cutRight ? trimmed + "*" : trimmed;
 }
 
-async function addSelectionToExclusions(id) {
-  const phrase = selectionExclusionPhrase();
+async function addSelectionToExclusions(id, containerId) {
+  const phrase = selectionExclusionPhrase(containerId);
   if (!phrase) return;
-  const btn = $("#excl-btn");
+  const btn = $("#" + containerId + "-excl-btn");
   if (btn) btn.disabled = true;
   try {
     const r = await apiJSON("/api/procurements/" + id + "/exclusion-word", {
@@ -950,32 +1020,29 @@ $("#proc-rows").addEventListener("click", (e) => {
   const tr = e.target.closest("tr[data-id]");
   if (!tr) return;
   const id = Number(tr.dataset.id);
+  // Чекбокс/Ctrl+клик — ТОЛЬКО пакетный выбор для массовых операций (анализ/
+  // P(win)/Margin), не влияет на то, какая карточка показана в панели справа
+  // (см. panelDetailId) — решение пользователя: несколько карточек больше не
+  // показываются одновременно, но пакетные операции остаются как были.
   if (e.target.classList.contains("row-sel")) {
-    if (selected.has(id)) {
-      selected.delete(id);
-    } else {
-      selected.add(id);
-    }
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
     e.target.checked = selected.has(id);
-    tr.classList.toggle("sel", selected.has(id));
-    renderDetail();
     updateSelUi();
     return;
   }
   if (e.ctrlKey) {
-    if (selected.has(id)) {
-      selected.delete(id);
-      tr.classList.remove("sel");
-    } else {
-      selected.add(id);
-      tr.classList.add("sel");
-    }
-  } else {
-    selected = new Set([id]);
-    document.querySelectorAll("#proc-rows tr").forEach((r) => r.classList.toggle("sel", r === tr));
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+    updateSelUi();
+    return;
   }
+  // Обычный клик по строке — показать ЕЁ полную карточку в панели (и только
+  // её; предыдущая, если была другая, скрывается).
+  panelDetailId = id;
+  panelDetailTab = "data";
+  document.querySelectorAll("#proc-rows tr").forEach((r) => r.classList.toggle("sel", r === tr));
   renderDetail();
-  updateSelUi();
 });
 $("#sel-all").addEventListener("change", (e) => {
   allItems.forEach((r) => {
@@ -983,7 +1050,6 @@ $("#sel-all").addEventListener("change", (e) => {
     else selected.delete(r.id);
   });
   renderProc();
-  renderDetail();
   updateSelUi();
 });
 $("#batch-analyze").addEventListener("click", async () => {
@@ -1013,18 +1079,19 @@ $("#batch-pwin-margin").addEventListener("click", async () => {
     ? `Поставлена оценка P(win)/Margin для ${ids.length} закупок…`
     : "не удалось поставить P(win)/Margin";
 });
-$("#proc-detail").addEventListener("click", (e) => {
-  const card = e.target.closest(".card");
-  if (card) openDetail(card.dataset.id);
-});
 $("#modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "modal-bg") closeModal();
 });
 // Кнопка «В исключения» доступна, только пока в карточке выделен непустой
 // фрагмент текста (по умолчанию недоступна — включается выделением мышью).
 document.addEventListener("selectionchange", () => {
-  const btn = $("#excl-btn");
-  if (btn) btn.disabled = selectionExclusionPhrase() === null;
+  // Модалка и панель могут одновременно быть в DOM (напр. модалка ТЗ поверх
+  // панели «Закупки») — обновляем каждую кнопку «В исключения» независимо, по
+  // выделению именно в ЕЁ контейнере.
+  ["modal", "proc-detail"].forEach((containerId) => {
+    const btn = $("#" + containerId + "-excl-btn");
+    if (btn) btn.disabled = selectionExclusionPhrase(containerId) === null;
+  });
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
