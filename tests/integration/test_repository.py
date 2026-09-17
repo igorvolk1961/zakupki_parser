@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.config.models import DbConfig
-from zakupki_parser.storage.db import Base, Database
+from zakupki_parser.storage.db import ALL_PLATFORMS_SENTINEL, Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
 COMP_JSON = json.dumps(
@@ -1180,6 +1180,49 @@ async def test_rebuild_profile_results_no_okpd_codes_skips_index_path(db: Databa
 
     assert stats["created"] == 0
     assert (await repo.get_score(pid, profile.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_empty_target_etp_matches_nothing(db: Database) -> None:
+    """Пустой target_etp теперь означает «ни одной площадки», а не «все» (US-11.x):
+
+    даже полностью подходящая по словам/ОКПД2 закупка не должна попасть в результаты.
+    """
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-etp-empty", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {"name": "default", "competencies": COMP_JSON, "target_etp": []},
+        user.id,
+    )
+    pid = await _save_proc(repo, "RB-ETP-EMPTY", subject="Аудит финансов", nmck=100.0)
+
+    stats = await repo.rebuild_profile_results(profile, ["аудит"], [])
+
+    assert stats["created"] == 0
+    assert (await repo.get_score(pid, profile.id)) is None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_profile_results_sentinel_matches_any_platform(db: Database) -> None:
+    """ALL_PLATFORMS_SENTINEL в target_etp — площадочный фильтр не применяется вовсе."""
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-etp-all", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {"name": "default", "competencies": COMP_JSON, "target_etp": [ALL_PLATFORMS_SENTINEL]},
+        user.id,
+    )
+    p1 = await _save_proc(
+        repo, "RB-ETP-ALL-1", platform="zakupki_mos", subject="Аудит финансов", nmck=100.0
+    )
+    p2 = await _save_proc(
+        repo, "RB-ETP-ALL-2", platform="b2b_center", subject="Аудит консолидации", nmck=100.0
+    )
+
+    stats = await repo.rebuild_profile_results(profile, ["аудит"], [])
+
+    assert stats["created"] == 2
+    assert (await repo.get_score(p1, profile.id)) is not None
+    assert (await repo.get_score(p2, profile.id)) is not None
 
 
 @pytest.mark.asyncio

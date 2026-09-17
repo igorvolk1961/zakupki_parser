@@ -27,6 +27,7 @@ from zakupki_parser.parser.orchestrator.processing import RecordProcessingMixin
 from zakupki_parser.parser.orchestrator.stop import StopMixin
 from zakupki_parser.parser.organization import resolve_inn
 from zakupki_parser.scoring import ScoringTransportClient
+from zakupki_parser.storage.db import ALL_PLATFORMS_SENTINEL
 from zakupki_parser.storage.repository import ProcurementRepository
 
 logger = logging.getLogger(__name__)
@@ -302,11 +303,12 @@ class Orchestrator(
     def _platform_selects(self, ctx: ProfileRunContext) -> bool:
         """True, если профиль относится к этой площадке.
 
-        Ограничение по ``target_etp`` (зарезервировано, сейчас обычно пусто):
-        пустой список — профиль участвует на всех площадках.
+        ``target_etp`` содержит либо ``ALL_PLATFORMS_SENTINEL`` («все площадки»),
+        либо явный список id — тот же критерий, что и ``Scheduler._profile_on_
+        platform`` (см. его докстринг). ПУСТОЙ список — ни одной площадки.
         """
         etp = set(ctx.profile.target_etp or [])
-        return not etp or self._platform_id in etp
+        return ALL_PLATFORMS_SENTINEL in etp or self._platform_id in etp
 
     async def _load_legacy_profiles(self) -> list[ProfileRunContext]:
         """Разрешение обхода без явно переданных профилей (dev/тесты).

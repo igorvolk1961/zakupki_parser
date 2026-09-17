@@ -28,6 +28,20 @@ if TYPE_CHECKING:
     from zakupki_parser.storage.db.user import User
 
 
+# Специальное значение в target_etp: «все площадки» (устойчиво к добавлению
+# новых площадок в систему — в отличие от буквального перечисления всех id).
+# ПУСТОЙ список target_etp означает «ни одной площадки» (2026-09, решение
+# пользователя: раньше пустой список НЕЯВНО означал «все» — Scheduler.
+# _profile_on_platform трактовал ``not etp`` как отсутствие фильтра; в форме
+# профиля это выглядело как «площадки не выбраны» и вводило в заблуждение —
+# пользователь ожидал, что пустой список ничего не обходит). Новые профили по
+# умолчанию получают ``[ALL_PLATFORMS_SENTINEL]`` (см. ``default`` ниже и
+# ``clients.js`` — чекбокс «Все площадки» в редакторе профиля); существующие
+# профили с пустым ``target_etp`` мигрированы на sentinel (см. Liquibase
+# changeset 64, db.changelog-1.62.yaml), чтобы не потерять фактический охват.
+ALL_PLATFORMS_SENTINEL = "__all__"
+
+
 class Profile(Base):
     """Профиль фильтрации пользователя (тендеролога).
 
@@ -54,8 +68,11 @@ class Profile(Base):
     )
     min_fit_threshold: Mapped[float | None] = mapped_column(Float)
     # target_etp/target_laws/min_fit_threshold зарезервированы (CRUD в API, влияние
-    # на парсинг/пороги — пост-MVP, этапы 4/5).
-    target_etp: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    # на парсинг/пороги — пост-MVP, этапы 4/5). target_etp — см. ALL_PLATFORMS_
+    # SENTINEL выше: по умолчанию «все площадки», а не пустой список.
+    target_etp: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=lambda: [ALL_PLATFORMS_SENTINEL]
+    )
     target_laws: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     # Целевые регионы профиля (клиентская пост-фильтрация, как ключевые слова R9).
     target_regions: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)

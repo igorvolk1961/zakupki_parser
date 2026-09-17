@@ -22,7 +22,7 @@ from zakupki_parser.okpd import okpd_code_covered_by_prefixes
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
 from zakupki_parser.scoring import ScoringTransportClient
-from zakupki_parser.storage.db import Database, Profile
+from zakupki_parser.storage.db import ALL_PLATFORMS_SENTINEL, Database, Profile
 from zakupki_parser.storage.repository import ProcurementRepository
 from zakupki_parser.storage.repository.accounts import effective_options
 
@@ -572,9 +572,17 @@ class Scheduler:
             logger.warning("Не удалось сохранить статистику площадки %s: %s", platform_id, exc)
 
     def _profile_on_platform(self, ctx: ProfileRunContext, platform_id: str) -> bool:
-        """True, если профиль относится к площадке (``target_etp`` пуст — все)."""
+        """True, если профиль относится к площадке.
+
+        ``target_etp`` содержит либо ``ALL_PLATFORMS_SENTINEL`` («все площадки»,
+        включая добавленные позже — см. ``storage/db/profile.py``), либо явный
+        список id конкретных площадок. ПУСТОЙ список — ни одной площадки
+        (2026-09, решение пользователя): раньше пустой список неявно означал
+        «все», что в форме профиля выглядело как «площадки не выбраны» и
+        вводило в заблуждение.
+        """
         etp = set(ctx.profile.target_etp or [])
-        return not etp or platform_id in etp
+        return ALL_PLATFORMS_SENTINEL in etp or platform_id in etp
 
     async def _gather_profile_ctxs(
         self, only_ids: set[int] | None = None

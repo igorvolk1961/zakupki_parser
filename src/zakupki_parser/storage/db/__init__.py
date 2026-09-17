@@ -23,6 +23,7 @@ from zakupki_parser.storage.db.procurement import (
     Procurement,
 )
 from zakupki_parser.storage.db.profile import (
+    ALL_PLATFORMS_SENTINEL,
     ExperienceConfirmationType,
     Keyword,
     LicenseType,
@@ -35,6 +36,7 @@ from zakupki_parser.storage.db.user import User
 from zakupki_parser.storage.db.work import ProcurementWorkItem
 
 __all__ = [
+    "ALL_PLATFORMS_SENTINEL",
     "Base",
     "Customer",
     "Database",

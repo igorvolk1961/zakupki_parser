@@ -23,6 +23,13 @@ let profileExclLoaded = 0;
 let profileQuestionsLoaded = 0;
 let questionSeq = 1;
 // Площадки, используемые профилем (target_etp): выбираются из активных.
+// ALL_PLATFORMS_SENTINEL — значение «все площадки» (см. storage/db/profile.py,
+// тот же литерал): устойчиво к появлению новых площадок в системе, в отличие
+// от перечисления всех id. ПУСТОЙ список target_etp означает «ни одной
+// площадки» — чтобы получить прежнее поведение «все», нужно явно выбрать
+// «Все площадки» в форме (чекбокс ниже), которая по умолчанию включена для
+// новых профилей.
+const ALL_PLATFORMS_SENTINEL = "__all__";
 let profilePlatforms = [];
 let platformCatalog = [];
 let platformsLoaded = false;
@@ -252,6 +259,37 @@ function renderPlatformTable() {
   if (!box) return;
   box.innerHTML = "";
 
+  const allSelected = profilePlatforms.includes(ALL_PLATFORMS_SENTINEL);
+
+  const allRow = document.createElement("label");
+  allRow.className = "pf-platform-all";
+  allRow.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:10px; cursor:pointer;";
+  const allCb = document.createElement("input");
+  allCb.type = "checkbox";
+  allCb.id = "pf-platform-all";
+  allCb.checked = allSelected;
+  allCb.title =
+    "Обходятся все активные площадки, включая добавленные в систему позже. " +
+    "Снимите галку, чтобы выбрать конкретные площадки — пустой список означает, что не обходится ни одна.";
+  allCb.addEventListener("change", () => {
+    profilePlatforms = allCb.checked ? [ALL_PLATFORMS_SENTINEL] : [];
+    renderPlatformTable();
+    syncEntryFormState();
+    wordCounts();
+  });
+  allRow.appendChild(allCb);
+  allRow.appendChild(document.createTextNode(" Все площадки"));
+  box.appendChild(allRow);
+
+  if (allSelected) {
+    const note = document.createElement("div");
+    note.className = "muted";
+    note.style.marginBottom = "6px";
+    note.textContent = "Обход по всем активным площадкам, включая добавленные позже.";
+    box.appendChild(note);
+    return;
+  }
+
   // Добавление площадки в профиль — через выпадающий список активных
   // площадок, ещё не добавленных в профиль.
   const addRow = document.createElement("div");
@@ -306,7 +344,7 @@ function renderPlatformTable() {
     const td = document.createElement("td");
     td.colSpan = 4;
     td.className = "muted";
-    td.textContent = "Площадки не выбраны";
+    td.textContent = "Площадки не выбраны — обход не будет выполняться ни по одной площадке";
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
@@ -355,7 +393,10 @@ function fillProfileForm(p) {
   profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
   profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
   profileQuestionsLoaded = (p ? p.questions || [] : []).length;
-  profilePlatforms = (p ? p.target_etp || [] : []).slice();
+  // Новый профиль (p отсутствует) по умолчанию — «Все площадки»; у
+  // существующего показываем то, что реально сохранено (в т.ч. пустой список
+  // — «ни одной», ALL_PLATFORMS_SENTINEL — «все»).
+  profilePlatforms = p ? (p.target_etp || []).slice() : [ALL_PLATFORMS_SENTINEL];
   // Каталог перечитываем при каждом открытии профиля: реактивированные на
   // панели «Аналитика» площадки должны снова появиться в таблице.
   platformsLoaded = false;
@@ -764,15 +805,21 @@ function wordCounts() {
   setWordCount($("#pf-cnt-excl"), profileExcl.length);
   setWordCount($("#pf-cnt-questions"), profileQuestions.length);
   setWordCount($("#pf-cnt-comp"), compCount());
-  // Счётчик площадок — только видимые (активные) строки таблицы профиля.
-  const catalogMap = new Map(platformCatalog.map((p) => [p.platform_id, p]));
-  setWordCount(
-    $("#pf-cnt-platforms"),
-    profilePlatforms.filter((id) => {
-      const p = catalogMap.get(id);
-      return p && p.enabled;
-    }).length
-  );
+  // Счётчик площадок — только видимые (активные) строки таблицы профиля;
+  // «Все площадки» показываем текстом, а не 0 (пустой список от «выбрано
+  // 0 конкретных» не отличить иначе).
+  if (profilePlatforms.includes(ALL_PLATFORMS_SENTINEL)) {
+    $("#pf-cnt-platforms").textContent = "Все";
+  } else {
+    const catalogMap = new Map(platformCatalog.map((p) => [p.platform_id, p]));
+    setWordCount(
+      $("#pf-cnt-platforms"),
+      profilePlatforms.filter((id) => {
+        const p = catalogMap.get(id);
+        return p && p.enabled;
+      }).length
+    );
+  }
   setWordCount($("#pf-cnt-licenses"), profileLicenses.length);
   setWordCount($("#pf-cnt-experience"), profileExperience.length);
 }

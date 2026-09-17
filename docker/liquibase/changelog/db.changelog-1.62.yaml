@@ -1,0 +1,12 @@
+databaseChangeLog:
+- changeSet:
+    id: 64
+    author: zakupki-parser
+    comment: 'profiles.target_etp: изменена семантика пустого списка — раньше означал «все площадки» (Scheduler._profile_on_platform трактовал ``not etp`` как «фильтра нет»), теперь означает «ни одной» (решение пользователя, форма профиля с пустым списком визуально выглядела как «ничего не выбрано», что вводило в заблуждение). Существующие профили с пустым target_etp мигрируются на явный ALL_PLATFORMS_SENTINEL ("__all__", см. storage/db/profile.py), чтобы сохранить фактический охват площадок — без миграции они бы перестали обходиться вовсе.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          UPDATE profiles
+              SET target_etp = '["__all__"]'::jsonb
+              WHERE target_etp = '[]'::jsonb;

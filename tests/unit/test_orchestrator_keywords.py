@@ -18,7 +18,7 @@ from playwright.async_api import Page
 from zakupki_parser.config.models import AppConfig, RetryConfig, SearchCriteria
 from zakupki_parser.parser.orchestrator import Orchestrator
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
-from zakupki_parser.storage.db import Profile
+from zakupki_parser.storage.db import ALL_PLATFORMS_SENTINEL, Profile
 
 
 class _OkCircuit:
@@ -73,13 +73,13 @@ class _FakeProfile:
     """Активный профиль: только okpd_codes влияет на выбор обходов."""
 
     id = 1
-    target_etp: list[str] = []
+    target_etp: list[str] = [ALL_PLATFORMS_SENTINEL]
 
     def __init__(self, okpd_codes: list[str]) -> None:
         self.okpd_codes = okpd_codes
         self.nmck_min = None
         self.nmck_max = None
-        self.target_etp = []
+        self.target_etp = [ALL_PLATFORMS_SENTINEL]
 
 
 class _ProfileRepo:

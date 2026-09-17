@@ -13,7 +13,7 @@ import pytest
 from zakupki_parser.options import paid_default_options
 from zakupki_parser.parser.orchestrator.context import ProfileRunContext
 from zakupki_parser.scheduler import Scheduler
-from zakupki_parser.storage.db import Profile, UserAccount
+from zakupki_parser.storage.db import ALL_PLATFORMS_SENTINEL, Profile, UserAccount
 
 
 def _competencies_json() -> str:
@@ -1386,3 +1386,35 @@ async def test_run_once_routes_by_code_not_by_whole_profile(
         (2, ["71.20"]),  # partially_covered — только непокрытый остаток
         (3, None),  # not_covered — целиком, индекс ему не подходит вовсе
     ]
+
+
+def _ctx_with_etp(target_etp: list[str]) -> ProfileRunContext:
+    profile = SimpleNamespace(target_etp=target_etp)
+    return ProfileRunContext(profile=cast(Any, profile))
+
+
+def test_profile_on_platform_empty_target_etp_matches_nothing(app_config: Any) -> None:
+    """2026-09, решение пользователя: пустой target_etp — ни одной площадки
+    (раньше означал «все» — форма профиля с пустым списком выглядела как
+    «ничего не выбрано», что вводило в заблуждение)."""
+    scheduler = Scheduler(app_config)
+    ctx = _ctx_with_etp([])
+    assert scheduler._profile_on_platform(ctx, "zakupki_mos") is False  # noqa: SLF001
+    assert scheduler._profile_on_platform(ctx, "b2b_center") is False  # noqa: SLF001
+
+
+def test_profile_on_platform_sentinel_matches_any_platform(app_config: Any) -> None:
+    """ALL_PLATFORMS_SENTINEL — явное «все площадки», включая любую, не
+    перечисленную в диапазоне (устойчиво к добавлению новых площадок)."""
+    scheduler = Scheduler(app_config)
+    ctx = _ctx_with_etp([ALL_PLATFORMS_SENTINEL])
+    assert scheduler._profile_on_platform(ctx, "zakupki_mos") is True  # noqa: SLF001
+    assert scheduler._profile_on_platform(ctx, "a-brand-new-platform") is True  # noqa: SLF001
+
+
+def test_profile_on_platform_explicit_list_matches_only_listed(app_config: Any) -> None:
+    scheduler = Scheduler(app_config)
+    ctx = _ctx_with_etp(["zakupki_mos", "fabrikant"])
+    assert scheduler._profile_on_platform(ctx, "zakupki_mos") is True  # noqa: SLF001
+    assert scheduler._profile_on_platform(ctx, "fabrikant") is True  # noqa: SLF001
+    assert scheduler._profile_on_platform(ctx, "b2b_center") is False  # noqa: SLF001

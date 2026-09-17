@@ -987,6 +987,55 @@ requirements:
       пользователю, что обход площадок не требовался, вместо throttle-
       уведомления.
 
+  - id: US-11.2
+    type: US
+    title: "Явный выбор «Все площадки» — пустой список target_etp больше не значит «все»"
+    stakeholder: Тендеролог (user)
+    stage: "3, 4"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/profile.py
+      - src/zakupki_parser/storage/db/__init__.py
+      - src/zakupki_parser/scheduler.py#_profile_on_platform
+      - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#_platform_selects
+      - src/zakupki_parser/storage/repository/procurements.py#rebuild_profile_results
+      - src/zakupki_parser/api/static/js/clients.js
+      - docker/liquibase/changelog/db.changelog-1.62.yaml
+    tests:
+      - tests/unit/test_scheduler_parallel.py
+      - tests/integration/test_repository.py
+      - tests/unit/test_orchestrator_keywords.py
+    notes: >-
+      До этого фикса пустой ``profiles.target_etp`` трактовался кодом как «нет
+      фильтра — все площадки» (``Scheduler._profile_on_platform``: ``not etp
+      or platform_id in etp``, аналогично ``Orchestrator._platform_selects`` и
+      ``ProcurementRepository.rebuild_profile_results``), при этом в форме
+      профиля пустой список площадок визуально выглядел как «ничего не
+      выбрано» — вводящее в заблуждение расхождение UI и фактического
+      поведения (источник путаницы пользователя: профиль без единой
+      отмеченной площадки продолжал обходиться по всем).
+
+      Семантика инвертирована: пустой ``target_etp`` теперь означает «ни одной
+      площадки», а «все площадки, включая добавленные позже» выражается явным
+      маркером ``ALL_PLATFORMS_SENTINEL = "__all__"`` внутри того же
+      ``list[str]`` (не отдельная nullable-колонка — минимальный след
+      миграции, по аналогии с существующими зарезервированными значениями типа
+      ``SYSTEM_INDEX_PROFILE_ID``). Новый профиль по умолчанию создаётся с
+      ``["__all__"]`` (форма — с отмеченным чекбоксом «Все площадки»).
+      Существующие профили с пустым ``target_etp`` мигрированы на
+      ``["__all__"]`` (changeset 64, ``UPDATE ... WHERE target_etp = '[]'``),
+      чтобы фактический охват площадок не сузился молча при деплое этого
+      изменения.
+
+      UI (``clients.js#renderPlatformTable``): чекбокс «Все площадки» сверху
+      списка площадок профиля; при отметке — таблица индивидуального выбора
+      скрывается (нет смысла редактировать список, который игнорируется);
+      при снятии — таблица площадок показывается, пустой список сопровождается
+      явным предупреждением «Площадки не выбраны — обход не будет выполняться
+      ни по одной площадке» вместо молчаливого поведения «всё равно обходим
+      всё».
+
   # ===== Функциональные требования =====
   - id: FR-1.1
     type: FR

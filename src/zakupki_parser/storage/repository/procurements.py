@@ -18,6 +18,7 @@ from zakupki_parser.okpd import any_okpd_code_covered_by_prefixes
 from zakupki_parser.parser.filtering_tsquery import TS_CONFIG, compile_keywords_to_tsquery
 from zakupki_parser.storage.customers import normalize_name
 from zakupki_parser.storage.db import (
+    ALL_PLATFORMS_SENTINEL,
     Customer,
     Platform,
     ProcedureType,
@@ -1108,8 +1109,14 @@ class ProcurementMixin(RepositoryMixin):
                         ProcurementSearchIndex.status == "indexed",
                     ),
                 )
-            if target_etp:
-                stmt = stmt.where(Procurement.platform_id.in_(target_etp))
+            if ALL_PLATFORMS_SENTINEL not in target_etp:
+                # Пустой target_etp — ни одной площадки (см. ALL_PLATFORMS_
+                # SENTINEL): условие заведомо ложно, а не пропущено — раньше
+                # пустой список молча снимал фильтр (совпадали закупки С ЛЮБОЙ
+                # площадки), что противоречило новой семантике «пусто — ничего».
+                stmt = stmt.where(
+                    Procurement.platform_id.in_(target_etp) if target_etp else literal(False)
+                )
 
             to_upsert: dict[int, list[str]] = {}
             to_reset: set[int] = set()
