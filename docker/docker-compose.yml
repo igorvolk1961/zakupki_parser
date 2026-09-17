@@ -89,7 +89,7 @@ services:
       start_period: 1s
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     # Без profiles: используется и Langfuse (LANG_S3_BUCKET), и общий L2-кэш
     # извлечённого текста документов закупки (TZ_CACHE_BUCKET, scoring_common.
     # tz.object_cache) — эти две фичи независимы друг от друга.
@@ -105,7 +105,7 @@ services:
     restart: unless-stopped
 
   minio-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     depends_on:
       minio:
         condition: service_started
