@@ -450,6 +450,59 @@ def test_update_client_partial_index_coverage_still_calls_scheduler(
         app_state.cfg.service.indexing.okpd2_prefixes = []
 
 
+def test_add_exclusion_word_retroactively_removes_already_matched_procurement(
+    mc_client: TestClient,
+) -> None:
+    """Баг: добавление слова-исключения через карточку («В исключения») само по
+    себе только сохраняло слово в keywords, но НЕ пересматривало уже отобранные
+    закупки (procurement_evaluations) — закупка, которую слово должно было
+    исключить, оставалась видна до следующего сохранения профиля. Теперь
+    add_procurement_exclusion_word сам запускает тот же пересбор, что и
+    сохранение профиля (_sync_profile_results) — для полностью покрытого
+    индексом профиля пересбор синхронный, эффект виден сразу же, без
+    отдельного сохранения/«Обновить сейчас»."""
+    client = mc_client
+    app_state = cast(Any, client.app).state.parser
+    app_state.cfg.service.indexing.enabled = True
+    app_state.cfg.service.indexing.okpd2_prefixes = ["62"]
+    try:
+        procurement_id = _seed_indexed_procurement(
+            "IDX-EXCL-1", "Разработка робототехнического комплекса", "62.01.11"
+        )
+        created = client.post(
+            "/api/clients",
+            json={
+                "name": "idx-excl",
+                "competencies": COMP_JSON,
+                "enabled": True,
+                "is_active": True,
+                "okpd_codes": ["62.01"],
+                "keywords": ["робототехническ*"],
+            },
+        )
+        assert created.status_code == 200, created.text
+
+        # Закупка отобрана профилем сразу после создания (полностью покрыт индексом).
+        listed = client.get("/api/procurements", params={"number": "IDX-EXCL-1"})
+        assert any(item["id"] == procurement_id for item in listed.json()["items"])
+
+        # Добавляем слово-исключение из карточки — БЕЗ отдельного сохранения
+        # профиля/«Обновить сейчас».
+        resp = client.post(
+            f"/api/procurements/{procurement_id}/exclusion-word",
+            json={"word": "комплекса"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["added"] is True
+
+        # Закупка должна пропасть из выдачи профиля СРАЗУ ЖЕ.
+        listed2 = client.get("/api/procurements", params={"number": "IDX-EXCL-1"})
+        assert all(item["id"] != procurement_id for item in listed2.json()["items"])
+    finally:
+        app_state.cfg.service.indexing.enabled = False
+        app_state.cfg.service.indexing.okpd2_prefixes = []
+
+
 def test_profile_target_regions_roundtrip(mc_client: TestClient) -> None:
     """Целевые регионы профиля + макс. расстояние: CRUD + JSON-экспорт/импорт без потерь."""
     client = mc_client

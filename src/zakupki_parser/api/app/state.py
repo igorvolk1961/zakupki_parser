@@ -17,6 +17,7 @@ from fastapi import WebSocket
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
 from zakupki_parser.notify import Notifier
+from zakupki_parser.okpd import okpd_codes_coverage
 from zakupki_parser.scoring import ScoringTransportClient
 from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
@@ -97,6 +98,65 @@ def _request_profile_refresh(
             state.pending_profile_rebuild_ids.add(profile_id)
         if rescore:
             state.pending_profile_rescore_ids.add(profile_id)
+
+
+async def _sync_profile_results(
+    state: AppState,
+    repo: ProcurementRepository,
+    profile: Any,
+    *,
+    rebuild: bool = False,
+    rescore: bool = False,
+) -> bool:
+    """Пересобирает результаты сбора включённого профиля (fast-start).
+
+    Общая реализация для ДВУХ вызывающих: сохранение/принудительное обновление
+    профиля целиком (``routes/clients.py#_request_refresh_for``) и точечная
+    правка результатов БЕЗ изменения самого профиля — добавление слова-
+    исключения из карточки закупки (``routes/procurements.py#add_procurement_
+    exclusion_word``): без вызова этой функции новое слово-исключение
+    сохраняется в профиль, но уже отобранные (``procurement_evaluations``)
+    закупки, которые оно должно было исключить, остаются видны до следующего
+    сохранения профиля — сам факт добавления слова никак их не пересматривает.
+
+    Коды профиля, ЦЕЛИКОМ покрытые диапазоном фоновой индексации (см.
+    ``Scheduler._split_ctxs_for_index_routing`` — тот же критерий на уровне
+    отдельного кода внутри одного обхода), не требуют живого обхода площадок
+    вовсе: результаты сбора перестраиваются СИНХРОННО прямо здесь, одним
+    запросом к уже проиндексированным данным (``rebuild_profile_results``,
+    ``use_document_index=True``) — ни throttle (``profile_refresh_debounce_
+    seconds``), ни работающий планировщик для этого не нужны. Если покрытие
+    частичное (``any_covered`` без ``fully_covered``) — синхронный пересбор
+    всё равно выполняется (даёт мгновенные результаты по уже покрытой части),
+    но профиль ДОПОЛНИТЕЛЬНО просится у планировщика как раньше — непокрытая
+    часть кодов по-прежнему нуждается в живом обходе, throttle защищает
+    именно его (единственную часть, реально обращающуюся к площадкам).
+    Профиль без кодов или вне диапазона индексации — как раньше, целиком
+    через планировщик.
+
+    Отключённые профили не сигналим: при включении сигнал придёт со
+    следующим сохранением. Возвращает ``True``, если профиль ЦЕЛИКОМ покрыт
+    индексацией (вызывающий может сообщить пользователю, что сбор уже
+    завершён, а не поставлен в очередь).
+    """
+    if profile is None or not profile.enabled:
+        return False
+    indexing = state.cfg.service.indexing
+    prefixes = indexing.okpd2_prefixes if indexing.enabled else []
+    any_covered, fully_covered = okpd_codes_coverage(profile.okpd_codes, prefixes)
+    if any_covered:
+        words = await repo.get_profile_keywords(profile.id)
+        await repo.rebuild_profile_results(
+            profile,
+            words["keywords"],
+            words["exclusion_words"],
+            rescore=rescore,
+            use_document_index=True,
+        )
+        await _broadcast(state)
+    if not fully_covered:
+        _request_profile_refresh(state, profile.id, rebuild=rebuild, rescore=rescore)
+    return fully_covered
 
 
 def _spawn_parser(state: AppState) -> None:

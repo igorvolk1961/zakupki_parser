@@ -20,8 +20,7 @@ from zakupki_parser.api.app.schemas import (
     ProfileOut,
     ProfileSaveOut,
 )
-from zakupki_parser.api.app.state import _broadcast, _request_profile_refresh
-from zakupki_parser.okpd import okpd_codes_coverage
+from zakupki_parser.api.app.state import _broadcast, _sync_profile_results
 from zakupki_parser.storage.db import User
 from zakupki_parser.storage.profile_json import (
     parse_profile_json,
@@ -187,44 +186,13 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> bool:
         """Запрашивает сбор данных для включённого профиля (fast-start).
 
-        Коды профиля, ЦЕЛИКОМ покрытые диапазоном фоновой индексации (см.
-        ``Scheduler._split_ctxs_for_index_routing`` — тот же критерий на уровне
-        отдельного кода внутри одного обхода), не требуют живого обхода площадок
-        вовсе: результаты сбора перестраиваются СИНХРОННО прямо здесь, одним
-        запросом к уже проиндексированным данным (``rebuild_profile_results``,
-        ``use_document_index=True``) — ни throttle (``profile_refresh_debounce_
-        seconds``), ни работающий планировщик для этого не нужны. Если покрытие
-        частичное (``any_covered`` без ``fully_covered``) — синхронный пересбор
-        всё равно выполняется (даёт мгновенные результаты по уже покрытой части),
-        но профиль ДОПОЛНИТЕЛЬНО просится у планировщика как раньше — непокрытая
-        часть кодов по-прежнему нуждается в живом обходе, throttle защищает
-        именно его (единственную часть, реально обращающуюся к площадкам).
-        Профиль без кодов или вне диапазона индексации — как раньше, целиком
-        через планировщик.
-
-        Отключённые профили не сигналим: при включении сигнал придёт со
-        следующим сохранением. Возвращает ``True``, если профиль ЦЕЛИКОМ покрыт
-        индексацией (вызывающий может сообщить пользователю, что сбор уже
-        завершён, а не поставлен в очередь).
+        Тонкая обёртка над общей ``state._sync_profile_results`` (см. её
+        докстринг за деталями throttle/индексного пути) — вызывается после
+        создания/изменения/принудительного обновления профиля.
         """
-        if profile is None or not profile.enabled:
-            return False
-        indexing = state.cfg.service.indexing
-        prefixes = indexing.okpd2_prefixes if indexing.enabled else []
-        any_covered, fully_covered = okpd_codes_coverage(profile.okpd_codes, prefixes)
-        if any_covered:
-            words = await _repo().get_profile_keywords(profile.id)
-            await _repo().rebuild_profile_results(
-                profile,
-                words["keywords"],
-                words["exclusion_words"],
-                rescore=rescore,
-                use_document_index=True,
-            )
-            await _broadcast(state)
-        if not fully_covered:
-            _request_profile_refresh(state, profile.id, rebuild=rebuild, rescore=rescore)
-        return fully_covered
+        return await _sync_profile_results(
+            state, _repo(), profile, rebuild=rebuild, rescore=rescore
+        )
 
     def _collection_notice(
         profile: Any,

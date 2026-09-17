@@ -450,10 +450,12 @@ requirements:
     code:
       - src/zakupki_parser/storage/repository/profiles.py#add_exclusion_word
       - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_exclusion_word
+      - src/zakupki_parser/api/app/state.py#_sync_profile_results
       - src/zakupki_parser/api/static/js/procurements.js
     tests:
       - tests/integration/test_decisions_work.py
       - tests/integration/test_api.py
+      - tests/integration/test_multiclient.py
     notes: >-
       Кнопка «В исключения» в карточке закупки (по умолчанию недоступна;
       включается выделением непустого фрагмента текста мышью в карточке).
@@ -465,6 +467,18 @@ requirements:
       ``filtering.py#_token_regex``); обрыв слева на wildcard не влияет —
       движок фильтрации поддерживает только хвостовой wildcard, ведущую «*»
       добавлять было бы бессмысленно (решение подтверждено с пользователем).
+
+      БАГ (2026-09, «похоже, не работает фильтр на слова-исключения»):
+      добавление слова само по себе писало только строку в ``keywords`` — уже
+      отобранные закупки (``procurement_evaluations``), которые это слово
+      ДОЛЖНО было исключить, никак не пересматривались и оставались видны до
+      следующего сохранения профиля/«Обновить сейчас» (сам факт вставки слова
+      не запускал ``rebuild_profile_results``). Исправлено: при реальном
+      добавлении нового слова (``added=True``) эндпоинт сразу вызывает
+      ``_sync_profile_results`` — ту же функцию, что и сохранение/
+      принудительное обновление профиля (``routes/clients.py``, общая
+      реализация вынесена из ``_request_refresh_for`` в ``state.py``, чтобы не
+      дублировать логику throttle/индексного пути между двумя вызывающими).
 
   - id: US-6.1
     type: US
@@ -850,6 +864,7 @@ requirements:
       - src/zakupki_parser/api/app/routes/clients.py#_collection_notice
       - src/zakupki_parser/api/app/routes/clients.py#_request_refresh_for
       - src/zakupki_parser/api/app/routes/clients.py#refresh_client
+      - src/zakupki_parser/api/app/state.py#_sync_profile_results
       - src/zakupki_parser/okpd.py#okpd_codes_coverage
       - src/zakupki_parser/parser/orchestrator/context.py
       - src/zakupki_parser/parser/orchestrator/orchestrator/__init__.py#_build_units

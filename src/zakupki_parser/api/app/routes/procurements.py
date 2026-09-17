@@ -40,7 +40,7 @@ from zakupki_parser.api.app.schemas import (
     WorkItemOut,
     WorkItemsListOut,
 )
-from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage
+from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage, _sync_profile_results
 from zakupki_parser.browser.manager import BrowserManager
 from zakupki_parser.parser.detail import extract_detail_vars, extract_details, open_detail
 from zakupki_parser.parser.filtering import region_match
@@ -398,6 +398,14 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         Точечное действие (выделение мышью в карточке закупки) — в отличие от
         отбраковки (``reject``), не меняет статус самой закупки и не требует
         причины: пользователь просто уточняет фильтр профиля на будущее.
+
+        Само по себе слово-исключение в таблице ``keywords`` не пересматривает
+        уже отобранные закупки (``procurement_evaluations``) — без явного
+        пересбора закупки, которые оно должно исключить, остались бы видны до
+        следующего сохранения профиля. Поэтому при реальном добавлении нового
+        слова (``added=True``) сразу запускается тот же пересбор, что и при
+        сохранении профиля (``_sync_profile_results`` — синхронно для
+        покрытых индексом кодов, через планировщик для живого обхода).
         """
         _, profile = await _active_context(user)
         assert profile is not None
@@ -408,6 +416,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if not word:
             raise HTTPException(status_code=422, detail="Пустая фраза")
         added = await _repo().add_exclusion_word(profile.id, word)
+        if added:
+            await _sync_profile_results(state, _repo(), profile, rebuild=True)
         words = await _repo().get_profile_keywords(profile.id)
         return ExclusionWordOut(added=added, exclusion_words=words["exclusion_words"])
 
