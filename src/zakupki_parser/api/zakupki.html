@@ -656,6 +656,18 @@
   </div>
   <div id="view-monitoring" style="display:none;">
     <div id="mon-error" class="muted" style="color:var(--danger,#c0392b);"></div>
+    <div class="toolbar" style="margin-bottom:0;">
+      <label class="muted" style="display:inline-flex;align-items:center;gap:4px;" title="Как часто автоматически обновляются данные на этой вкладке, пока она открыта. Сохраняется в этом браузере.">
+        Автообновление:
+        <select id="mon-refresh-interval">
+          <option value="5000">5 с</option>
+          <option value="10000">10 с</option>
+          <option value="30000">30 с</option>
+          <option value="60000">60 с</option>
+          <option value="0">выкл</option>
+        </select>
+      </label>
+    </div>
     <div class="panel">
       <div class="panel-title" title="Redis-очереди каскада скоринга (Fit/P(win)/Margin/Анализ/Индексация)">Очереди</div>
       <div id="mon-queues"></div>

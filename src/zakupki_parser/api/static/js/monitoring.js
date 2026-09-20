@@ -16,8 +16,40 @@ const STAGE_LABELS = {
 };
 
 let monitoringTimer = null;
+let monitoringTimerReady = false;
 let indexingConfigDirty = false;
 let indexingConfigLoaded = false;
+
+// Интервал автообновления вкладки «Мониторинг» — настраивается селектом
+// #mon-refresh-interval (5/10/30/60с или «выкл»), сохраняется в localStorage
+// этого браузера. По умолчанию — прежние 10с.
+const MON_REFRESH_STORAGE_KEY = "mon-refresh-interval-ms";
+const MON_REFRESH_DEFAULT_MS = 10000;
+
+function readStoredRefreshMs() {
+  try {
+    const raw = localStorage.getItem(MON_REFRESH_STORAGE_KEY);
+    const n = raw == null ? NaN : Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : MON_REFRESH_DEFAULT_MS;
+  } catch {
+    return MON_REFRESH_DEFAULT_MS;
+  }
+}
+
+function restartMonitoringTimer() {
+  if (monitoringTimer) {
+    clearInterval(monitoringTimer);
+    monitoringTimer = null;
+  }
+  const sel = $("#mon-refresh-interval");
+  const ms = sel ? Number(sel.value) : MON_REFRESH_DEFAULT_MS;
+  if (!ms) return; // «выкл» — обновление только при заходе на вкладку/вручную
+  monitoringTimer = setInterval(() => {
+    const v = document.getElementById("view-monitoring");
+    if (!v || v.style.display === "none") return;
+    loadMonitoring();
+  }, ms);
+}
 
 // Статистика по площадкам: своё состояние (поиск/пагинация), НЕ на общем
 // 10с-таймере — при сотнях площадок пере-рендер по таймеру сбрасывал бы
@@ -173,7 +205,36 @@ function renderResources(res) {
   return `
     <div>CPU: ${res.cpu_percent?.toFixed(1) ?? "—"}%</div>
     <div>Память: ${fmtBytes(mem.used)} / ${fmtBytes(mem.total)} (${mem.percent?.toFixed(1) ?? "—"}%)</div>
-    <div>Диск: ${fmtBytes(disk.used)} / ${fmtBytes(disk.total)} (${disk.percent?.toFixed(1) ?? "—"}%)</div>`;
+    <div>Диск: ${fmtBytes(disk.used)} / ${fmtBytes(disk.total)} (${disk.percent?.toFixed(1) ?? "—"}%)</div>
+    ${renderProcesses(res.processes)}`;
+}
+
+function renderProcesses(items) {
+  if (!items || !items.length) return "";
+  const totalCpu = items.reduce((s, p) => s + (p.cpu_percent || 0), 0);
+  const totalRss = items.reduce((s, p) => s + (p.rss_bytes || 0), 0);
+  const totalRssPct = items.reduce((s, p) => s + (p.rss_percent || 0), 0);
+  const rows = items
+    .map(
+      (p) => `<tr>
+        <td>${escapeHtml(p.label)}</td>
+        <td class="muted">${p.pid}</td>
+        <td>${p.cpu_percent.toFixed(1)}%</td>
+        <td>${fmtBytes(p.rss_bytes)} (${p.rss_percent.toFixed(1)}%)</td>
+      </tr>`
+    )
+    .join("");
+  return `
+    <div class="panel-title" style="margin-top:12px;" title="Доля CPU/RAM с момента предыдущего опроса (как и общий CPU выше), не мгновенный снимок. Виден только сам процесс api и его дочерние (например, браузер парсера); отдельные воркеры каскада (scoring_service/analysis_service/...) видны только при локальном запуске run_all.sh — в docker-стеке у каждого свой контейнер, процессы других контейнеров отсюда не видны.">Процессы программы</div>
+    <table>
+      <thead><tr><th>Процесс</th><th>PID</th><th>CPU</th><th>Память</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr>
+        <td colspan="2"><b>Итого</b></td>
+        <td><b>${totalCpu.toFixed(1)}%</b></td>
+        <td><b>${fmtBytes(totalRss)} (${totalRssPct.toFixed(1)}%)</b></td>
+      </tr></tfoot>
+    </table>`;
 }
 
 function renderPlatformStats(items) {
@@ -258,12 +319,9 @@ async function loadMonitoring() {
     await loadPlatformStats();
     platformStatsLoaded = true;
   }
-  if (!monitoringTimer) {
-    monitoringTimer = setInterval(() => {
-      const v = document.getElementById("view-monitoring");
-      if (!v || v.style.display === "none") return;
-      loadMonitoring();
-    }, 10000);
+  if (!monitoringTimerReady) {
+    monitoringTimerReady = true;
+    restartMonitoringTimer();
   }
 }
 
@@ -304,6 +362,19 @@ $("#mon-platform-next")?.addEventListener("click", () => {
     loadPlatformStats();
   }
 });
+
+const monRefreshSelect = $("#mon-refresh-interval");
+if (monRefreshSelect) {
+  monRefreshSelect.value = String(readStoredRefreshMs());
+  monRefreshSelect.addEventListener("change", () => {
+    try {
+      localStorage.setItem(MON_REFRESH_STORAGE_KEY, monRefreshSelect.value);
+    } catch {
+      /* приватный режим/квота localStorage — не критично, просто не запомнится */
+    }
+    restartMonitoringTimer();
+  });
+}
 
 export function monitoringDirty() {
   return indexingConfigDirty;

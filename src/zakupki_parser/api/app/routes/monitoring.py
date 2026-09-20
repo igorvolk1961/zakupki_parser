@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -69,6 +70,7 @@ def build_monitoring_router(ctx: ApiContext) -> APIRouter:
             "cpu_percent": psutil.cpu_percent(interval=None),
             "memory": _mem_stats(psutil.virtual_memory()),
             "disk": {"total": disk.total, "used": disk.used, "percent": disk.percent},
+            "processes": _program_processes(),
         }
 
         return {
@@ -168,6 +170,108 @@ def build_monitoring_router(ctx: ApiContext) -> APIRouter:
 
 def _mem_stats(mem: Any) -> dict[str, float]:
     return {"total": mem.total, "used": mem.used, "percent": mem.percent}
+
+
+# Метки процессов каскада скоринга по подстроке в cmdline — так их находит и
+# scripts/run_all.sh (pgrep -f). Работает только когда воркер виден в ОДНОМ
+# PID-namespace с процессом api: при локальном run_all.sh (все — отдельные
+# ОС-процессы на одном хосте) видно всё; в docker-стеке (каждый сервис — свой
+# контейнер/namespace) видно только сам процесс api и его потомков (см.
+# _own_pids) — это не баг, а ограничение видимости процессов между контейнерами.
+_PROCESS_LABEL_PATTERNS: list[tuple[str, str]] = [
+    ("scoring_transport", "scoring_transport serve"),
+    ("scoring_service (Fit)", "scoring_service worker"),
+    ("pwin_service", "pwin_service worker"),
+    ("margin_service", "margin_service worker"),
+    ("analysis_service", "analysis_service"),
+    ("indexing_service", "indexing_service worker"),
+]
+
+# Кэш psutil.Process по pid между опросами — нужен, чтобы cpu_percent(None)
+# считал дельту с ПРЕДЫДУЩЕГО опроса (тот же принцип, что у системного
+# psutil.cpu_percent(interval=None) выше), а не блокировать запрос сном.
+_process_cache: dict[int, psutil.Process] = {}
+
+
+def _own_pids() -> dict[int, str]:
+    """PID самого API-процесса и всех его потомков (например, headless-браузер
+    парсера) с метками."""
+    try:
+        me = psutil.Process(os.getpid())
+    except psutil.Error:
+        return {os.getpid(): "api (веб/цикл мониторинга)"}
+    result = {me.pid: "api (веб/цикл мониторинга)"}
+    try:
+        for child in me.children(recursive=True):
+            result[child.pid] = "api: дочерний процесс"
+    except psutil.Error:
+        pass
+    return result
+
+
+def _matched_pids() -> dict[int, str]:
+    result = _own_pids()
+    for proc in psutil.process_iter(["pid", "cmdline"]):
+        pid = proc.info["pid"]
+        if pid in result:
+            continue
+        cmdline = " ".join(proc.info.get("cmdline") or [])
+        for label, pattern in _PROCESS_LABEL_PATTERNS:
+            if pattern in cmdline:
+                result[pid] = label
+                break
+    return result
+
+
+def _program_processes() -> list[dict[str, Any]]:
+    """CPU/RAM по процессам программы — доля (%) и абсолютные значения.
+
+    cpu_percent — как и системный (см. ``resources.cpu_percent`` выше): доля
+    с МОМЕНТА ПРЕДЫДУЩЕГО опроса этого эндпоинта, а не мгновенный снимок и не
+    фиксированное окно. Для процесса, впервые попавшего в выдачу, первое
+    значение — заглушка 0.0 (счётчик только что «прогрет», делить пока не на
+    что) — как и с системным CPU, следующий опрос уже даст реальную дельту.
+    """
+    matched = _matched_pids()
+    total_mem = psutil.virtual_memory().total
+    for pid in set(_process_cache) - set(matched):
+        _process_cache.pop(pid, None)
+
+    items: list[dict[str, Any]] = []
+    for pid, label in matched.items():
+        proc = _process_cache.get(pid)
+        is_new = proc is None
+        if is_new:
+            try:
+                proc = psutil.Process(pid)
+                proc.cpu_percent(None)  # прогрев счётчика — само значение не используем
+            except psutil.Error:
+                continue
+            _process_cache[pid] = proc
+            cpu = 0.0
+        else:
+            assert proc is not None
+            try:
+                cpu = proc.cpu_percent(None)
+            except psutil.Error:
+                _process_cache.pop(pid, None)
+                continue
+        try:
+            rss = proc.memory_info().rss
+        except psutil.Error:
+            _process_cache.pop(pid, None)
+            continue
+        items.append(
+            {
+                "pid": pid,
+                "label": label,
+                "cpu_percent": cpu,
+                "rss_bytes": rss,
+                "rss_percent": (rss / total_mem * 100) if total_mem else 0.0,
+            }
+        )
+    items.sort(key=lambda x: x["rss_bytes"], reverse=True)
+    return items
 
 
 def _dir_size_bytes(path: Path) -> int:

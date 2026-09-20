@@ -1878,6 +1878,14 @@ def test_monitoring_returns_queues_index_and_resources(
     assert isinstance(body["index"]["recent_errors"], list)
     assert 0.0 <= body["resources"]["memory"]["percent"] <= 100.0
     assert body["resources"]["disk"]["total"] > 0
+    # processes: как минимум сам процесс API-теста — форма ответа (доля с момента
+    # предыдущего опроса, не фиксированное окно, поэтому конкретные cpu_percent не
+    # проверяем).
+    processes = body["resources"]["processes"]
+    assert isinstance(processes, list)
+    assert len(processes) >= 1
+    expected_keys = {"pid", "label", "cpu_percent", "rss_bytes", "rss_percent"}
+    assert all(expected_keys <= p.keys() for p in processes)
     # cycles/storage — форма ответа (значения зависят от истории проходов/локальной
     # ФС окружения, где запущены тесты — не фиксируем конкретные числа).
     assert "last" in body["cycles"]
