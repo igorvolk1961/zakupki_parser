@@ -173,12 +173,15 @@ def test_register_login_me(auth_client: TestClient) -> None:
 
 @pytest.mark.slow  # test_register_login_me (обычный «первый») уже slow и
 # деселектится под -m "not slow" — setup module-scoped auth_client платит ЭТОТ.
-def test_register_materializes_full_paid_options_during_trial(auth_client: TestClient) -> None:
-    """Саморегистрация даёт триал; аккаунт «По умолчанию» создаётся сразу со ВСЕМИ
+def test_register_materializes_paid_options_except_scoring_during_trial(
+    auth_client: TestClient,
+) -> None:
+    """Саморегистрация даёт триал; аккаунт «По умолчанию» создаётся сразу с
     платными опциями включёнными (материализация в момент создания, а не
-    runtime-переопределение — см. докстринг accounts.py): раньше account.options
-    был весь выключен, и триал лишь ПОДМЕНЯЛ эффективный расчёт, из-за чего
-    пользователь физически не мог выключить отдельную опцию во время триала."""
+    runtime-переопределение — см. докстринг accounts.py), КРОМЕ скоринга по
+    компетенциям (LLM) и его эмбеддингов — их пользователь включает сам, явно,
+    осознанно приняв решение тратить ресурсы на LLM-скоринг закупок. Анализ
+    закупки и заполнение компетенций по сайту — доступны сразу."""
     client = auth_client
     resp = client.post(
         "/api/auth/register",
@@ -195,11 +198,15 @@ def test_register_materializes_full_paid_options_during_trial(auth_client: TestC
     assert cab.status_code == 200
     body = cab.json()
     assert body["trial"]["enabled"] is True
-    scoring = next(o for o in body["catalog"] if o["key"] == "scoring")
-    assert scoring["enabled"] is True
-    # account_enabled — РЕАЛЬНОЕ состояние аккаунта, не эффективный расчёт:
-    # материализовано, а не только «доступно благодаря триалу».
-    assert scoring["account_enabled"] is True
+    catalog = {o["key"]: o for o in body["catalog"]}
+    for key in ("scoring", "scoring_embeddings"):
+        assert catalog[key]["enabled"] is False
+        # account_enabled — РЕАЛЬНОЕ состояние аккаунта, не эффективный расчёт:
+        # материализовано, а не только «недоступно из-за триала».
+        assert catalog[key]["account_enabled"] is False
+    for key in ("analysis", "analysis_embeddings", "competencies_from_url", "pwin", "margin"):
+        assert catalog[key]["enabled"] is True, key
+        assert catalog[key]["account_enabled"] is True, key
 
 
 def test_trial_expiry_resets_account_options(auth_client: TestClient) -> None:

@@ -8,11 +8,13 @@ from zakupki_parser.options import (
     ALL_OPTIONS,
     FREE_KEYS,
     PAID_KEYS,
+    TRIAL_EXCLUDED_KEYS,
     enabled_options,
     enabled_paid_options,
     option_by_key,
     option_requires_competencies,
     paid_default_options,
+    trial_default_options,
 )
 from zakupki_parser.storage.db import UserAccount
 from zakupki_parser.storage.repository.accounts import effective_options
@@ -31,6 +33,13 @@ def test_catalog_has_free_and_paid() -> None:
     geo = option_by_key("geo_premium")
     assert geo is not None
     assert geo.available is False
+
+
+def test_competencies_from_url_option_registered() -> None:
+    option = option_by_key("competencies_from_url")
+    assert option is not None
+    assert option.group == "paid"
+    assert option.available is True
 
 
 def test_default_account_is_free_only() -> None:
@@ -112,3 +121,27 @@ def test_requires_competencies_flag_on_scoring() -> None:
 def test_enabled_options_free_always_present() -> None:
     assert set(FREE_KEYS) <= enabled_options({}, in_trial=False)
     assert set(FREE_KEYS) <= enabled_options({}, in_trial=True)
+
+
+def test_trial_default_options_excludes_only_scoring() -> None:
+    """Саморегистрация: скоринг по компетенциям пользователь включает сам явно;
+    остальные реализованные платные опции (анализ, заполнение компетенций по
+    сайту, pwin/margin) доступны сразу."""
+    opts = trial_default_options()
+    assert opts["scoring"] is False
+    assert opts["scoring_embeddings"] is False
+    assert {"scoring", "scoring_embeddings"} == TRIAL_EXCLUDED_KEYS
+    for key in set(PAID_KEYS) - TRIAL_EXCLUDED_KEYS:
+        assert opts[key] is True, key
+
+
+def test_trial_default_options_effective_access() -> None:
+    trial_end = NOW + timedelta(days=1)
+    eff = effective_options([_account(trial_default_options())], trial_end, now=NOW)
+    assert not eff.has_option("scoring")
+    assert not eff.has_option("scoring_embeddings")
+    assert eff.has_option("analysis")
+    assert eff.has_option("competencies_from_url")
+    assert eff.has_option("pwin")
+    assert eff.has_option("margin")
+    assert eff.account_provides_competency_scoring() is False

@@ -62,7 +62,7 @@ class UserMixin(RepositoryMixin):
         email: str | None = None,
         *,
         trial_end_at: datetime | None = None,
-        account_paid_default: bool = False,
+        account_options: dict[str, bool] | None = None,
     ) -> User:
         """Регистрирует пользователя одной транзакцией: пользователь + триал.
 
@@ -72,7 +72,13 @@ class UserMixin(RepositoryMixin):
         коммитился до выставления ``trial_end_at``/аккаунта, сбой между шагами
         оставлял бы пользователя без триала и без аккаунта — по правилам
         легаси-доступа это означало бы «вечный полный доступ» (см. ревью).
+
+        ``account_options`` — переключатели платных опций нового аккаунта
+        (см. ``options.py``: ``trial_default_options`` для саморегистрации,
+        ``paid_default_options(enabled=True)`` для создания администратором);
+        не задано — только бесплатные опции (``paid_default_options(False)``).
         """
+        options = account_options if account_options is not None else paid_default_options(False)
         async with self._db.session() as session:
             user = User(username=username, password_hash=password_hash, roles=roles, email=email)
             user.trial_end_at = trial_end_at
@@ -92,7 +98,7 @@ class UserMixin(RepositoryMixin):
                 UserAccount(
                     user_id=user.id,
                     name=AccountMixin.DEFAULT_ACCOUNT_NAME,
-                    options=paid_default_options(enabled=account_paid_default),
+                    options=options,
                     is_active=True,
                 )
             )

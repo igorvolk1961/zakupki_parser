@@ -623,8 +623,21 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         Скачивает URL (SSRF-защищённо), извлекает текст, просит LLM собрать
         компетенции по канонической схеме ``Profile`` — результат подставляется
         в редактор для проверки пользователем, профиль не меняется автоматически.
+
+        Платная опция аккаунта (``competencies_from_url``, options.py) — включена
+        по умолчанию при саморегистрации (в отличие от ``scoring``, которую
+        пользователь включает сам).
         """
-        _require_user(user)
+        eff_user = _require_user(user)
+        eff = await _effective_options(eff_user)
+        if not eff.has_option("competencies_from_url"):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Заполнение компетенций по сайту недоступно в вашем аккаунте: это "
+                    "платная опция (LLM). Включите её в личном кабинете."
+                ),
+            )
         try:
             competencies = await generate_competencies_from_url(payload.url)
         except CompetenciesUrlNotConfigured as exc:

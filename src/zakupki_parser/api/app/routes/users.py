@@ -34,6 +34,7 @@ from zakupki_parser.api.app.schemas import (
     UserTrialIn,
 )
 from zakupki_parser.auth import ROLE_ADMIN, ROLE_USER, hash_password
+from zakupki_parser.options import paid_default_options
 from zakupki_parser.storage.db import User
 from zakupki_parser.storage.repository.accounts import in_trial_now
 
@@ -73,7 +74,7 @@ def build_users_router(ctx: ApiContext) -> APIRouter:
                 list(body.roles),
                 email=body.email,
                 trial_end_at=None,
-                account_paid_default=True,
+                account_options=paid_default_options(enabled=True),
             )
         except IntegrityError as exc:
             raise HTTPException(

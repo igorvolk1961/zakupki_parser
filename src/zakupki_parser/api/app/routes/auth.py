@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import LoginIn, RegisterIn, TokenOut, UserOut
 from zakupki_parser.auth import ROLE_USER, create_token, hash_password, verify_password
-from zakupki_parser.options import TRIAL_DEFAULT_DAYS
+from zakupki_parser.options import TRIAL_DEFAULT_DAYS, trial_default_options
 from zakupki_parser.storage.db import User
 
 logger = logging.getLogger(__name__)
@@ -63,12 +63,15 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=409, detail="Пользователь с таким логином уже есть")
         password_hash = await asyncio.to_thread(hash_password, body.password)
         # Триал-режим: по умолчанию 14 дней (а не 10 лет). Аккаунт «По умолчанию»
-        # создаётся сразу со ВСЕМИ платными опциями включёнными (материализует
-        # триал в реальное состояние аккаунта, а не runtime-переопределение —
-        # см. докстринг accounts.py: иначе пользователь не мог бы выключить
-        # отдельную опцию, пока триал идёт) — пользователь может выключить
-        # что угодно сам; по истечении trial_end_at опции сбрасываются
-        # (AccountMixin.downgrade_expired_trial, лениво при следующем запросе).
+        # создаётся сразу с платными опциями включёнными, КРОМЕ скоринга по
+        # компетенциям (материализует триал в реальное состояние аккаунта, а не
+        # runtime-переопределение — см. докстринг accounts.py: иначе пользователь
+        # не мог бы выключить отдельную опцию, пока триал идёт) — пользователь
+        # может выключить/включить что угодно сам, включая скоринг; по истечении
+        # trial_end_at опции сбрасываются (AccountMixin.downgrade_expired_trial,
+        # лениво при следующем запросе). Скоринг по компетенциям (LLM) исключён
+        # из авто-включения (trial_default_options) — платная обработка каждой
+        # закупки, которую пользователь включает сам, осознанно.
         trial_end_at = datetime.now(UTC) + timedelta(days=TRIAL_DEFAULT_DAYS)
         try:
             # Атомарно: пользователь + триал + default-профиль + default-аккаунт.
@@ -78,7 +81,7 @@ def build_auth_router(ctx: ApiContext) -> APIRouter:
                 [ROLE_USER],
                 email=body.email,
                 trial_end_at=trial_end_at,
-                account_paid_default=True,
+                account_options=trial_default_options(),
             )
         except IntegrityError as exc:
             # Гонка двух одновременных регистраций с одним логином: констрейнт
