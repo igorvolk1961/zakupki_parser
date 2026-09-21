@@ -17,6 +17,7 @@ let profilesTotal = 0;
 let profileKeywords = [];
 let profileExcl = [];
 let profileOkpd = [];
+let profileRegions = [];
 let profileQuestions = [];
 let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
@@ -410,6 +411,11 @@ function fillProfileForm(p) {
   renderTags(profileOkpd, "#pf-okpd-tags");
   $("#pf-nmck-min").value = p && p.nmck_min != null ? p.nmck_min : "";
   $("#pf-nmck-max").value = p && p.nmck_max != null ? p.nmck_max : "";
+  profileRegions.length = 0;
+  (p ? p.target_regions || [] : []).forEach((r) => profileRegions.push(r));
+  renderTags(profileRegions, "#pf-regions-tags");
+  $("#pf-region-distance").value =
+    p && p.max_region_distance_km != null ? p.max_region_distance_km : "";
   profileKeywords.length = 0;
   (p ? p.keywords || [] : []).forEach((w) => profileKeywords.push(w));
   profileExcl.length = 0;
@@ -462,8 +468,10 @@ function setWordCount(el, n) {
   el.textContent = n ? String(n) : "";
 }
 
-// Реестр поиска по блокам тегов (wrapId -> текущая строка фильтра).
-// Фильтр скрывает несовпадающие чипы, не меняя источник данных (arr).
+// Реестр поиска по блокам тегов (wrapId -> текущая строка фильтра). Фильтр —
+// отдельное поле над списком (bindTagFilter), не смешанное с полем добавления
+// (bindTagInput внутри .tag-input); скрывает несовпадающие чипы, не меняя
+// источник данных (arr).
 const tagSearches = new Map();
 
 function renderTags(arr, wrapId) {
@@ -525,13 +533,32 @@ function renderTags(arr, wrapId) {
   }
 }
 
+// Отдельное поле «поиск по списку» (над блоком тегов, .tag-search-row): только
+// фильтрует уже введённые слова, ничего не добавляет — добавление остаётся за
+// input внутри .tag-input (bindTagInput), общим для всех текстовых списков.
+function bindTagFilter(wrapId, arr) {
+  const box = $(wrapId);
+  const label = box && box.closest("label");
+  const input = label && label.querySelector(".tag-search");
+  if (!input) return;
+  const apply = () => {
+    tagSearches.set(wrapId, input.value);
+    renderTags(arr, wrapId);
+  };
+  input.addEventListener("input", apply);
+  input.addEventListener("search", apply);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      input.value = "";
+      apply();
+    }
+  });
+}
+
 // Добавляет слово(а) из input.value в arr (через запятую — несколько за раз),
-// с дедупликацией без учёта регистра; общая логика для поля добавления
-// (bindTagInput — списки без поиска: вопросы, коды ОКПД2, компетенции) и поля
-// поиска (bindTagSearch — Enter там тоже добавляет, см. его комментарий; для
-// ключевых слов/слов-исключений это ЕДИНСТВЕННОЕ поле ввода — отдельного поля
-// «только для добавления» под списком чипов там больше нет, см. разметку
-// #pf-keywords-tags/#pf-excl-tags). Возвращает true, если что-то добавлено.
+// с дедупликацией без учёта регистра; общая логика поля добавления для всех
+// текстовых списков профиля (bindTagInput — ключевые слова, слова-исключения,
+// вопросы, коды ОКПД2, компетенции). Возвращает true, если что-то добавлено.
 function addTagWords(input, arr, wrapId, makeItem) {
   const label = (item) => (typeof item === "object" && item != null ? item.text : item);
   const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
@@ -559,46 +586,6 @@ function bindTagInput(wrapId, arr, makeItem) {
     if (e.key !== "Enter") return;
     e.preventDefault();
     addTagWords(input, arr, wrapId, makeItem);
-  });
-}
-
-// Поиск по существующему списку тегов: фильтр скрывает несовпадающие чипы,
-// не затрагивая источник данных и счётчики (total на табах не меняется).
-// Для ключевых слов/слов-исключений это ЕДИНСТВЕННОЕ поле ввода — Enter здесь
-// и добавляет новое слово (см. ниже), и фильтр уже введённых работает как
-// обычно; больше нет отдельного «поля только для добавления» под списком.
-function bindTagSearch(wrapId, arr, makeItem) {
-  const box = $(wrapId);
-  const label = box && box.closest("label");
-  const input = label && label.querySelector(".tag-search");
-  if (!input) return;
-  const apply = () => {
-    tagSearches.set(wrapId, input.value);
-    renderTags(arr, wrapId);
-  };
-  // Страховка: при фокусе пере-рисуем чипы, чтобы они не могли остаться скрытыми.
-  input.addEventListener("focus", () => {
-    renderTags(arr, wrapId);
-    wordCounts();
-  });
-  input.addEventListener("input", apply);
-  input.addEventListener("search", apply);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      input.value = "";
-      apply();
-      return;
-    }
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    // Поле поиска визуально стоит НАД полем добавления и выглядит так же —
-    // пользователь, начинающий вводить первое слово, естественно печатает
-    // сюда и жмёт Enter, ожидая добавления, а не только фильтрации списка.
-    // Трактуем Enter здесь как «добавить», как в основном поле ниже.
-    if (addTagWords(input, arr, wrapId, makeItem)) {
-      tagSearches.set(wrapId, "");
-      apply();
-    }
   });
 }
 
@@ -1156,6 +1143,9 @@ function profileFormData() {
     okpd_codes: profileOkpd.slice(),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),
+    target_regions: profileRegions.slice(),
+    max_region_distance_km:
+      $("#pf-region-distance").value === "" ? null : Number($("#pf-region-distance").value),
     target_etp: profilePlatforms.slice(),
     keywords: profileKeywords.slice(),
     exclusion_words: profileExcl.slice(),
@@ -1236,6 +1226,12 @@ async function saveProfile() {
   const badOkpd = data.okpd_codes.filter((c) => !okpdIsValid(c));
   if (badOkpd.length) {
     const msg = `Код ОКПД2 «${badOkpd.join('», «')}» имеет неверный формат: цифры, разделённые точками (например, 62.02 или 62.02.20.110)`;
+    setProfileSaveStatus(msg, true);
+    setProfileStatus("Ошибка сохранения: " + msg);
+    return false;
+  }
+  if (data.max_region_distance_km != null && data.max_region_distance_km < 0) {
+    const msg = "Максимальное расстояние от центра региона не может быть отрицательным";
     setProfileSaveStatus(msg, true);
     setProfileStatus("Ошибка сохранения: " + msg);
     return false;
@@ -1589,11 +1585,10 @@ $("#experience-cancel").addEventListener("click", () => {
   $("#experience-form").style.display = "none";
   syncEntryFormState();
 });
-// Единственное поле ввода для ключевых слов/слов-исключений — bindTagSearch
-// (поиск по списку + Enter добавляет новое слово); отдельного bindTagInput
-// здесь больше нет — под списком чипов не осталось второго поля добавления.
-bindTagSearch("#pf-keywords-tags", profileKeywords);
-bindTagSearch("#pf-excl-tags", profileExcl);
+bindTagInput("#pf-keywords-tags", profileKeywords);
+bindTagInput("#pf-excl-tags", profileExcl);
+bindTagFilter("#pf-keywords-tags", profileKeywords);
+bindTagFilter("#pf-excl-tags", profileExcl);
 // Раньше здесь не было вообще никакой привязки — вопрос нельзя было добавить
 // через это поле никаким способом (fillProfileForm только отображала уже
 // загруженные из профиля вопросы). makeItem — тот же формат {id, text}, что
@@ -1603,3 +1598,4 @@ bindTagInput("#pf-questions-tags", profileQuestions, (text) => ({
   text,
 }));
 bindOkpdTagInput();
+bindTagInput("#pf-regions-tags", profileRegions);

@@ -220,9 +220,8 @@
   }
   .tag-input .tags-fallback { font-family:ui-monospace,monospace; font-size:13px;
     color:var(--text); white-space:pre-wrap; }
-  /* Ключевые слова/слова-исключения: отдельного поля добавления под списком
-     чипов больше нет (единственное поле ввода — .tag-search выше, см.
-     clients.js#bindTagSearch) — правило нужно только вопросам. */
+  #pf-pane-keywords .tag-input input[type="text"],
+  #pf-pane-excl .tag-input input[type="text"],
   #pf-pane-questions .tag-input input[type="text"] {
     position:sticky; bottom:0; flex:0 0 auto; width:100%; min-width:0; padding:6px;
     background:var(--panel2); border-radius:6px;

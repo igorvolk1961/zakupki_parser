@@ -300,6 +300,16 @@
             <label title="Нижняя граница НМЦК — фильтр поиска по цене контракта"><input type="number" step="0.01" id="pf-nmck-min"> НМЦК мин</label>
             <label title="Верхняя граница НМЦК — фильтр поиска по цене контракта"><input type="number" step="0.01" id="pf-nmck-max"> НМЦК макс</label>
           </div>
+          <label title="Целевые регионы профиля (Enter — добавить, × — удалить). Отсечение закупок вне списка выполняется на этапе анализа (нужны координаты центра региона), парсер по этому полю ничего не отбрасывает.">Регионы закупок
+            <div class="tag-input" id="pf-regions-tags">
+              <div class="tags"></div>
+              <div class="tags-fallback" style="display:none;"></div>
+              <input type="text" placeholder="название региона, Enter" spellcheck="false">
+            </div>
+          </label>
+          <div class="profile-checks">
+            <label title="Максимальное расстояние от центра целевого региона до места поставки, км. Проверяется только на этапе анализа; пусто — без ограничения по расстоянию."><input type="number" step="1" min="0" id="pf-region-distance"> Макс. расстояние от центра региона, км</label>
+          </div>
           <div class="tabs" id="pf-tabs" style="margin:4px 0;">
             <button type="button" class="active" id="pf-tab-keywords" title="Слова, по которым подбираются закупки">Ключевые слова <span class="tab-count" id="pf-cnt-keywords"></span></button>
             <button type="button" id="pf-tab-excl" title="Слова-исключения: закупка, содержащая их, отбрасывается">Слова-исключения <span class="tab-count" id="pf-cnt-excl"></span></button>
@@ -311,22 +321,24 @@
           </div>
           <label id="pf-pane-keywords" title="Enter — добавить, × — удалить">Ключевые слова
             <div class="tag-search-row">
-              <input type="search" class="tag-search" placeholder="словосочетание или поиск по списку, Enter — добавить" spellcheck="false">
+              <input type="search" class="tag-search" placeholder="поиск по списку" spellcheck="false">
               <span class="tag-search-status muted"></span>
             </div>
             <div class="tag-input" id="pf-keywords-tags">
               <div class="tags"></div>
               <div class="tags-fallback" style="display:none;"></div>
+              <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
             </div>
           </label>
           <label id="pf-pane-excl" style="display:none;" title="Enter — добавить, × — удалить">Слова-исключения
             <div class="tag-search-row">
-              <input type="search" class="tag-search" placeholder="словосочетание или поиск по списку, Enter — добавить" spellcheck="false">
+              <input type="search" class="tag-search" placeholder="поиск по списку" spellcheck="false">
               <span class="tag-search-status muted"></span>
             </div>
             <div class="tag-input" id="pf-excl-tags">
               <div class="tags"></div>
               <div class="tags-fallback" style="display:none;"></div>
+              <input type="text" placeholder="словосочетание, Enter" spellcheck="false">
             </div>
           </label>
           <label id="pf-pane-questions" style="display:none;" title="Enter — добавить, × — удалить">Вопросы по ТЗ
