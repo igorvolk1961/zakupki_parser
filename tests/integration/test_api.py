@@ -1407,6 +1407,89 @@ def test_set_score_region_match_written(api_client: tuple[TestClient, Path]) -> 
     assert asyncio.run(_has_evaluation(pid, profile_id)) is True
 
 
+def test_set_score_too_far_not_written(api_client: tuple[TestClient, Path]) -> None:
+    """Вердикт analysis_service «дальше max_region_distance_km» — скор не пишется.
+
+    Вердикт (rag_report['geo']['too_far']) считает analysis_service (координат
+    у парсера нет); здесь он применяется как ещё одна клиентская пост-фильтрация,
+    симметрично проверке региона — оценка профиля удаляется.
+    """
+    client, _ = api_client
+    pid = asyncio.run(_add_region_score_procurement("RG-SCORE-3", "Новосибирская область"))
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "region-distance",
+            "competencies": COMP_JSON,
+            "target_regions": ["Москва"],
+            "max_region_distance_km": 50,
+        },
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    resp = client.post(
+        f"/api/procurements/{pid}/score",
+        json={
+            "profile_id": profile_id,
+            "score": 42.0,
+            "fit_score": 0.9,
+            "score_method": "fit",
+            "rag_report": {
+                "geo": {
+                    "too_far": True,
+                    "distance_km": 3200.0,
+                    "max_distance_km": 50.0,
+                }
+            },
+        },
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["score"] is None
+    assert body["fit_score"] is None
+    assert asyncio.run(_has_evaluation(pid, profile_id)) is False
+
+
+def test_set_score_within_distance_written(api_client: tuple[TestClient, Path]) -> None:
+    """Вердикт analysis_service «в пределах max_region_distance_km» — скор пишется как обычно."""
+    client, _ = api_client
+    pid = asyncio.run(_add_region_score_procurement("RG-SCORE-4", "Москва"))
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "region-distance-ok",
+            "competencies": COMP_JSON,
+            "target_regions": ["Москва"],
+            "max_region_distance_km": 50,
+        },
+    )
+    assert created.status_code == 200
+    profile_id = created.json()["id"]
+
+    resp = client.post(
+        f"/api/procurements/{pid}/score",
+        json={
+            "profile_id": profile_id,
+            "score": 55.0,
+            "fit_score": 0.7,
+            "score_method": "fit",
+            "rag_report": {
+                "geo": {
+                    "too_far": False,
+                    "distance_km": 12.0,
+                    "max_distance_km": 50.0,
+                }
+            },
+        },
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["fit_score"] == 0.7
+    assert asyncio.run(_has_evaluation(pid, profile_id)) is True
+
+
 def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, _ = api_client
     customer_id = client.get(f"/api/procurements/{inserted_id}").json()["customer_id"]

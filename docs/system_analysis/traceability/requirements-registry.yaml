@@ -1876,6 +1876,7 @@ requirements:
       - tests/unit/test_geo_geocoder.py
       - tests/unit/test_geo_region_filter.py
       - src/analysis_service/tests/test_geo_verdict.py
+      - tests/integration/test_api.py
 
   # ===== Функциональные требования (группа 11: фоновая индексация по ОКПД2) =====
   - id: FR-11.1

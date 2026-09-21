@@ -200,8 +200,11 @@ def _region_string_filter_enabled(profile: Any) -> bool:
     """Строковая пост-фильтрация по региону активна для профиля.
 
     Активна, если заданы целевые регионы (``target_regions``). Дистанция
-    ``max_region_distance_km`` на сборе НЕ влияет: она проверяется только на
-    этапе анализа по особым требованиям профиля (см. ``set_score``).
+    ``max_region_distance_km`` на сборе (здесь, в этой проверке) НЕ участвует —
+    она не строковая и региона закупки ещё может не быть в момент этой проверки.
+    Расстояние считается позже, на этапе анализа (``analysis_service``), и
+    применяется как отдельная пост-фильтрация в том же обработчике (см.
+    ``set_score`` — блок ``geo_verdict``).
     """
     return bool(profile is not None and profile.target_regions)
 
@@ -765,9 +768,28 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             if row is None:  # pragma: no cover - проверено выше
                 raise HTTPException(status_code=404, detail="Закупка не найдена")
             return _procurement_detail_out(row, include_costs=True)
-        # Проверка расстояния от центра целевого региона (max_region_distance_km)
-        # выполняется на этапе анализа в analysis_service (особые требования профиля):
-        # парсер здесь гео-логики не содержит.
+        # Проверка расстояния от центра целевого региона (max_region_distance_km):
+        # само расстояние считает analysis_service (парсер гео-логики не содержит,
+        # координат у него нет) и кладёт вердикт в rag_report['geo']['too_far'].
+        # Здесь этот уже готовый вердикт применяется как ещё одна клиентская
+        # пост-фильтрация (симметрично проверке региона выше) — закупка дальше
+        # лимита ни от одного целевого региона профиля не «отбирается».
+        geo_verdict = (body.rag_report or {}).get("geo")
+        if isinstance(geo_verdict, dict) and geo_verdict.get("too_far"):
+            await _repo().remove_evaluation(procurement_id, body.profile_id)
+            logger.info(
+                "Закупка %s: расстояние %.1f км > %.1f км от целевых регионов профиля %s — "
+                "результат скоринга не записан",
+                procurement_id,
+                geo_verdict.get("distance_km") or 0.0,
+                geo_verdict.get("max_distance_km") or 0.0,
+                body.profile_id,
+            )
+            await _broadcast(state)
+            row = await _repo().get_by_id(procurement_id, profile_id=body.profile_id)
+            if row is None:  # pragma: no cover - проверено выше
+                raise HTTPException(status_code=404, detail="Закупка не найдена")
+            return _procurement_detail_out(row, include_costs=True)
         # Стоимость обработки закупки: скоринг (body.score_costs) и анализ
         # (rag_report['cost']). Аналитическую стоимость вынимаем из rag_report ДО
         # сохранения, чтобы внутренняя метрика (USD) не персистилась/не отдавалась
