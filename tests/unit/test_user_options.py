@@ -35,8 +35,8 @@ def test_catalog_has_free_and_paid() -> None:
     assert geo.available is False
 
 
-def test_competencies_from_url_option_registered() -> None:
-    option = option_by_key("competencies_from_url")
+def test_profile_from_url_option_registered() -> None:
+    option = option_by_key("profile_from_url")
     assert option is not None
     assert option.group == "paid"
     assert option.available is True
@@ -141,7 +141,7 @@ def test_trial_default_options_effective_access() -> None:
     assert not eff.has_option("scoring")
     assert not eff.has_option("scoring_embeddings")
     assert eff.has_option("analysis")
-    assert eff.has_option("competencies_from_url")
+    assert eff.has_option("profile_from_url")
     assert eff.has_option("pwin")
     assert eff.has_option("margin")
     assert eff.account_provides_competency_scoring() is False

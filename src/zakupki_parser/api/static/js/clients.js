@@ -390,6 +390,8 @@ function setProfileStatus(msg) {
 }
 
 function fillProfileForm(p) {
+  $("#pf-profile-url").value = "";
+  setProfileUrlStatus("");
   profileEditorName = p ? p.name : "";
   profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
   profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
@@ -738,26 +740,28 @@ function renderCompList() {
   });
 }
 
-function setCompUrlStatus(msg, isError) {
-  const el = $("#pf-comp-url-status");
+function setProfileUrlStatus(msg, isError) {
+  const el = $("#pf-profile-url-status");
   el.textContent = msg || "";
   el.classList.toggle("error", !!isError);
 }
 
-// Заполняет компетенции по сайту поставщика: сервер скачивает страницу и просит
-// LLM собрать структуру (та же каноническая схема, что у ручного ввода/импорта).
-// Результат только подставляется в форму — профиль не сохраняется автоматически.
-async function fillCompetenciesFromUrl() {
-  const url = $("#pf-comp-url").value.trim();
+// Заполняет профиль по сайту поставщика: сервер скачивает страницу и просит LLM
+// собрать компетенции (та же каноническая схема, что у ручного ввода/импорта) и
+// лицензии (сопоставленные со справочником license_types — несуществующие типы
+// сервер уже отфильтровал). Результат только подставляется в форму (вкладки
+// «Компетенции»/«Лицензии») — профиль не сохраняется автоматически.
+async function fillProfileFromUrl() {
+  const url = $("#pf-profile-url").value.trim();
   if (!url) {
-    setCompUrlStatus("Укажите URL сайта", true);
+    setProfileUrlStatus("Укажите URL сайта", true);
     return;
   }
-  const btn = $("#pf-comp-from-url");
+  const btn = $("#pf-profile-from-url");
   btn.disabled = true;
-  setCompUrlStatus("Скачиваю сайт и формирую компетенции…");
+  setProfileUrlStatus("Скачиваю сайт и формирую профиль…");
   try {
-    const r = await apiJSON("/api/clients/competencies/from-url", {
+    const r = await apiJSON("/api/clients/profile/from-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
@@ -769,11 +773,38 @@ async function fillCompetenciesFromUrl() {
     compStructured = parsed;
     compMode = "structured";
     renderCompForm();
+
+    await ensureLicenseTypes();
+    const incoming = Array.isArray(data.licenses) ? data.licenses : [];
+    let added = 0;
+    incoming.forEach((lic) => {
+      const isDup = profileLicenses.some(
+        (x) =>
+          x.license_type_id === lic.license_type_id && (x.number || "") === (lic.number || "")
+      );
+      if (isDup) return;
+      profileLicenses.push({
+        license_type_id: lic.license_type_id,
+        number: lic.number || null,
+        authority: lic.authority || null,
+        issue_date: lic.issue_date || null,
+        expiry_date: lic.expiry_date || null,
+        notes: lic.notes || null,
+        id: "local-" + String(++localEntrySeq),
+      });
+      added++;
+    });
+    renderLicenses();
+
     wordCounts();
     syncEntryFormState();
-    setCompUrlStatus("Компетенции сформированы по сайту — проверьте и сохраните профиль");
+    const licPart = added ? `, лицензий добавлено: ${added}` : "";
+    setProfileUrlStatus(
+      `Профиль сформирован по сайту${licPart} — проверьте вкладки ` +
+        "«Компетенции»/«Лицензии» и сохраните профиль"
+    );
   } catch (e) {
-    setCompUrlStatus("Ошибка: " + e.message, true);
+    setProfileUrlStatus("Ошибка: " + e.message, true);
   } finally {
     btn.disabled = false;
   }
@@ -1585,7 +1616,7 @@ $("#export-profile-modal-bg").addEventListener("click", (e) => {
 );
 $("#pf-competencies").addEventListener("input", wordCounts);
 $("#pf-comp-mode").addEventListener("click", switchCompMode);
-$("#pf-comp-from-url").addEventListener("click", fillCompetenciesFromUrl);
+$("#pf-profile-from-url").addEventListener("click", fillProfileFromUrl);
 $("#pf-comp-add").addEventListener("click", () => {
   compStructured.competencies.push({ area: "", description: "", examples: [] });
   renderCompList();

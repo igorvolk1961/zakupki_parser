@@ -1490,14 +1490,14 @@ def test_set_score_within_distance_written(api_client: tuple[TestClient, Path]) 
     assert asyncio.run(_has_evaluation(pid, profile_id)) is True
 
 
-def test_competencies_from_url_rejects_non_http_scheme(
+def test_profile_from_url_rejects_non_http_scheme(
     api_client: tuple[TestClient, Path],
 ) -> None:
     """Маршрут смонтирован и требует авторизации (клиент фикстуры аутентифицирован);
     некорректная схема URL отклоняется до сети — понятная ошибка 400, а не 500."""
     client, _ = api_client
     resp = client.post(
-        "/api/clients/competencies/from-url",
+        "/api/clients/profile/from-url",
         json={"url": "file:///etc/passwd"},
     )
     assert resp.status_code == 400

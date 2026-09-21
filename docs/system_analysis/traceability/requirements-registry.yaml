@@ -780,8 +780,8 @@ requirements:
       которую пользователь включает сам, явно, в личном кабинете (создание
       пользователя администратором не изменилось — там по-прежнему включено
       всё, осознанное предоставление доступа). Остальные
-      реализованные платные опции (анализ закупки, заполнение компетенций
-      профиля по сайту — новая опция ``competencies_from_url``, pwin, margin)
+      реализованные платные опции (анализ закупки, заполнение профиля по
+      сайту — опция ``profile_from_url``, см. FR-10.12, pwin, margin)
       по-прежнему включаются сразу — это разовые/выборочные операции по
       явному запросу пользователя, а не фоновая обработка всей базы закупок.
       ``account_paid_default: bool`` в ``create_user_with_setup`` заменён на
@@ -1894,21 +1894,28 @@ requirements:
       - tests/integration/test_api.py
   - id: FR-10.12
     type: FR
-    title: Заполнение компетенций профиля по URL сайта поставщика (LLM)
+    title: Заполнение профиля (компетенции + лицензии) по URL сайта поставщика (LLM)
     stakeholder: Тендеролог (user)
     stage: "5"
     status: implemented
     adr: "-"
     code:
-      - src/zakupki_parser/api/app/competency_source.py
+      - src/zakupki_parser/api/app/profile_source.py
       - src/zakupki_parser/api/app/routes/clients.py
       - src/zakupki_parser/api/app/schemas.py
       - src/zakupki_parser/storage/competencies.py
       - src/zakupki_parser/api/zakupki.html
       - src/zakupki_parser/api/static/js/clients.js
     tests:
-      - tests/unit/test_competency_source.py
+      - tests/unit/test_profile_source.py
       - tests/integration/test_api.py
+    notes: >-
+      Уточнение (2026-09-21): кнопка перенесена с уровня вкладки «Компетенции»
+      на уровень профиля в целом (``competency_source.py`` -> ``profile_source.py``,
+      опция аккаунта ``competencies_from_url`` -> ``profile_from_url``) — сбор
+      данных с сайта клиента теперь заполняет ещё и лицензии (справочник
+      ``license_types``, несуществующие у LLM типы отбрасываются), не только
+      компетенции.
 
   # ===== Функциональные требования (группа 11: фоновая индексация по ОКПД2) =====
   - id: FR-11.1

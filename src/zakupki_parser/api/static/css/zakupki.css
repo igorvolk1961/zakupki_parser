@@ -99,7 +99,7 @@
   html[data-theme="dark"] .pill.inactive { background:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
   .profile-form { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
   .profile-form label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--muted); }
-  .profile-form input[type="text"], .profile-form input[type="number"], .profile-form textarea {
+  .profile-form input[type="text"], .profile-form input[type="number"], .profile-form input[type="url"], .profile-form textarea {
     font-family:ui-monospace,monospace; font-size:13px; background:var(--panel2); color:var(--text);
     border:1px solid var(--line); border-radius:8px; padding:8px; }
   .profile-checks { display:flex; gap:16px; flex-wrap:wrap; }

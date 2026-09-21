@@ -518,20 +518,25 @@ class ProfileImportIn(BaseModel):
     content: str
 
 
-class CompetenciesFromUrlIn(BaseModel):
-    """Запрос на заполнение компетенций профиля по сайту поставщика."""
+class ProfileFromUrlIn(BaseModel):
+    """Запрос на заполнение профиля (компетенции + лицензии) по сайту поставщика."""
 
     url: str = Field(min_length=1, max_length=2048)
 
 
-class CompetenciesFromUrlOut(BaseModel):
-    """Компетенции, сформированные LLM по тексту сайта (канонический JSON схемы Profile).
+class ProfileFromUrlOut(BaseModel):
+    """Компетенции и лицензии, сформированные LLM по тексту сайта.
 
-    Не сохраняются автоматически — форма подставляет результат в редактор
-    компетенций, пользователь проверяет/правит перед «Сохранить профиль».
+    ``competencies`` — канонический JSON схемы ``Profile`` (как у ручного ввода/
+    импорта); ``licenses`` — записи, сопоставленные со справочником
+    ``license_types`` (несуществующие типы LLM отфильтрованы на сервере). Ничего
+    не сохраняется автоматически — форма подставляет результат в редактор
+    (вкладки «Компетенции» и «Лицензии»), пользователь проверяет/правит перед
+    «Сохранить профиль».
     """
 
     competencies: str
+    licenses: list[LicenseIn] = Field(default_factory=list)
 
 
 class ProfileExportOut(BaseModel):

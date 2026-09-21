@@ -204,7 +204,7 @@ def test_register_materializes_paid_options_except_scoring_during_trial(
         # account_enabled — РЕАЛЬНОЕ состояние аккаунта, не эффективный расчёт:
         # материализовано, а не только «недоступно из-за триала».
         assert catalog[key]["account_enabled"] is False
-    for key in ("analysis", "analysis_embeddings", "competencies_from_url", "pwin", "margin"):
+    for key in ("analysis", "analysis_embeddings", "profile_from_url", "pwin", "margin"):
         assert catalog[key]["enabled"] is True, key
         assert catalog[key]["account_enabled"] is True, key
 

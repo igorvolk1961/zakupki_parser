@@ -9,16 +9,17 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from zakupki_parser.api.app.competency_source import (
-    CompetenciesUrlError,
-    CompetenciesUrlNotConfigured,
-    generate_competencies_from_url,
-)
 from zakupki_parser.api.app.deps import ApiContext
+from zakupki_parser.api.app.profile_source import (
+    ProfileFromUrlError,
+    ProfileFromUrlNotConfigured,
+    generate_profile_from_url,
+)
 from zakupki_parser.api.app.schemas import (
-    CompetenciesFromUrlIn,
-    CompetenciesFromUrlOut,
+    LicenseIn,
     ProfileExportOut,
+    ProfileFromUrlIn,
+    ProfileFromUrlOut,
     ProfileGeoIn,
     ProfileGeoOut,
     ProfileImportIn,
@@ -611,39 +612,45 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         return await _save_out(profile, notice)
 
     @router.post(
-        "/api/clients/competencies/from-url",
-        response_model=CompetenciesFromUrlOut,
+        "/api/clients/profile/from-url",
+        response_model=ProfileFromUrlOut,
         dependencies=[Depends(require_base)],
     )
-    async def competencies_from_url(
-        payload: CompetenciesFromUrlIn, user: User | None = Depends(require_base)
-    ) -> CompetenciesFromUrlOut:
-        """Формирует компетенции профиля по сайту поставщика (LLM), без сохранения.
+    async def profile_from_url(
+        payload: ProfileFromUrlIn, user: User | None = Depends(require_base)
+    ) -> ProfileFromUrlOut:
+        """Формирует компетенции и лицензии профиля по сайту поставщика (LLM).
 
         Скачивает URL (SSRF-защищённо), извлекает текст, просит LLM собрать
-        компетенции по канонической схеме ``Profile`` — результат подставляется
-        в редактор для проверки пользователем, профиль не меняется автоматически.
+        компетенции по канонической схеме ``Profile`` и лицензии, сопоставленные
+        со справочником ``license_types`` (несуществующие типы отфильтрованы) —
+        результат подставляется в редактор (вкладки «Компетенции» и «Лицензии»)
+        для проверки пользователем, профиль не меняется автоматически.
 
-        Платная опция аккаунта (``competencies_from_url``, options.py) — включена
+        Платная опция аккаунта (``profile_from_url``, options.py) — включена
         по умолчанию при саморегистрации (в отличие от ``scoring``, которую
         пользователь включает сам).
         """
         eff_user = _require_user(user)
         eff = await _effective_options(eff_user)
-        if not eff.has_option("competencies_from_url"):
+        if not eff.has_option("profile_from_url"):
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    "Заполнение компетенций по сайту недоступно в вашем аккаунте: это "
+                    "Заполнение профиля по сайту недоступно в вашем аккаунте: это "
                     "платная опция (LLM). Включите её в личном кабинете."
                 ),
             )
+        license_types = [(t.id, t.name) for t in await _repo().list_license_types()]
         try:
-            competencies = await generate_competencies_from_url(payload.url)
-        except CompetenciesUrlNotConfigured as exc:
+            result = await generate_profile_from_url(payload.url, license_types)
+        except ProfileFromUrlNotConfigured as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except CompetenciesUrlError as exc:
+        except ProfileFromUrlError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return CompetenciesFromUrlOut(competencies=competencies)
+        return ProfileFromUrlOut(
+            competencies=result.competencies,
+            licenses=[LicenseIn(**lic) for lic in result.licenses],
+        )
 
     return router
