@@ -9,8 +9,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from zakupki_parser.api.app.competency_source import (
+    CompetenciesUrlError,
+    CompetenciesUrlNotConfigured,
+    generate_competencies_from_url,
+)
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
+    CompetenciesFromUrlIn,
+    CompetenciesFromUrlOut,
     ProfileExportOut,
     ProfileGeoIn,
     ProfileGeoOut,
@@ -602,5 +609,28 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             profile, refresh_requested=bool(profile.enabled), fully_index_covered=covered
         )
         return await _save_out(profile, notice)
+
+    @router.post(
+        "/api/clients/competencies/from-url",
+        response_model=CompetenciesFromUrlOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def competencies_from_url(
+        payload: CompetenciesFromUrlIn, user: User | None = Depends(require_base)
+    ) -> CompetenciesFromUrlOut:
+        """Формирует компетенции профиля по сайту поставщика (LLM), без сохранения.
+
+        Скачивает URL (SSRF-защищённо), извлекает текст, просит LLM собрать
+        компетенции по канонической схеме ``Profile`` — результат подставляется
+        в редактор для проверки пользователем, профиль не меняется автоматически.
+        """
+        _require_user(user)
+        try:
+            competencies = await generate_competencies_from_url(payload.url)
+        except CompetenciesUrlNotConfigured as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except CompetenciesUrlError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return CompetenciesFromUrlOut(competencies=competencies)
 
     return router

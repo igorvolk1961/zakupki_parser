@@ -1877,6 +1877,23 @@ requirements:
       - tests/unit/test_geo_region_filter.py
       - src/analysis_service/tests/test_geo_verdict.py
       - tests/integration/test_api.py
+  - id: FR-10.12
+    type: FR
+    title: Заполнение компетенций профиля по URL сайта поставщика (LLM)
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/app/competency_source.py
+      - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/api/app/schemas.py
+      - src/zakupki_parser/storage/competencies.py
+      - src/zakupki_parser/api/zakupki.html
+      - src/zakupki_parser/api/static/js/clients.js
+    tests:
+      - tests/unit/test_competency_source.py
+      - tests/integration/test_api.py
 
   # ===== Функциональные требования (группа 11: фоновая индексация по ОКПД2) =====
   - id: FR-11.1

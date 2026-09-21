@@ -738,6 +738,47 @@ function renderCompList() {
   });
 }
 
+function setCompUrlStatus(msg, isError) {
+  const el = $("#pf-comp-url-status");
+  el.textContent = msg || "";
+  el.classList.toggle("error", !!isError);
+}
+
+// Заполняет компетенции по сайту поставщика: сервер скачивает страницу и просит
+// LLM собрать структуру (та же каноническая схема, что у ручного ввода/импорта).
+// Результат только подставляется в форму — профиль не сохраняется автоматически.
+async function fillCompetenciesFromUrl() {
+  const url = $("#pf-comp-url").value.trim();
+  if (!url) {
+    setCompUrlStatus("Укажите URL сайта", true);
+    return;
+  }
+  const btn = $("#pf-comp-from-url");
+  btn.disabled = true;
+  setCompUrlStatus("Скачиваю сайт и формирую компетенции…");
+  try {
+    const r = await apiJSON("/api/clients/competencies/from-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!r.ok) throw new Error(await apiErrorDetail(r));
+    const data = await r.json();
+    const parsed = parseComp(data.competencies);
+    if (!parsed) throw new Error("Сервер вернул компетенции в неожиданном формате");
+    compStructured = parsed;
+    compMode = "structured";
+    renderCompForm();
+    wordCounts();
+    syncEntryFormState();
+    setCompUrlStatus("Компетенции сформированы по сайту — проверьте и сохраните профиль");
+  } catch (e) {
+    setCompUrlStatus("Ошибка: " + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function renderCompForm() {
   const structured = compMode === "structured";
   $("#pf-comp-structured").style.display = structured ? "" : "none";
@@ -1544,6 +1585,7 @@ $("#export-profile-modal-bg").addEventListener("click", (e) => {
 );
 $("#pf-competencies").addEventListener("input", wordCounts);
 $("#pf-comp-mode").addEventListener("click", switchCompMode);
+$("#pf-comp-from-url").addEventListener("click", fillCompetenciesFromUrl);
 $("#pf-comp-add").addEventListener("click", () => {
   compStructured.competencies.push({ area: "", description: "", examples: [] });
   renderCompList();

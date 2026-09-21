@@ -404,6 +404,11 @@ services:
       ZAKUPKI_CHROMIUM_EXECUTABLE: ""
       # Общий том промптов: вкладка «Промпты» пишет сюда, scoring_service читает.
       ZAKUPKI_PROMPTS_DIR: /app/prompts
+      # LLM для заполнения компетенций профиля по URL сайта поставщика (кнопка
+      # «Заполнить по URL» в редакторе профиля) — см. docker/.env.example.
+      ZAKUPKI_COMPETENCIES_LLM_BASE_URL: ${ZAKUPKI_COMPETENCIES_LLM_BASE_URL:-}
+      ZAKUPKI_COMPETENCIES_LLM_API_KEY: ${ZAKUPKI_COMPETENCIES_LLM_API_KEY:-}
+      ZAKUPKI_COMPETENCIES_LLM_MODEL: ${ZAKUPKI_COMPETENCIES_LLM_MODEL:-}
       # Общий том промптов анализатора: вкладка «Промпты» пишет сюда,
       # analysis_service читает при следующем старте.
       ZAKUPKI_ANALYSIS_PROMPTS_DIR: /app/analysis-prompts

@@ -1490,6 +1490,20 @@ def test_set_score_within_distance_written(api_client: tuple[TestClient, Path]) 
     assert asyncio.run(_has_evaluation(pid, profile_id)) is True
 
 
+def test_competencies_from_url_rejects_non_http_scheme(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Маршрут смонтирован и требует авторизации (клиент фикстуры аутентифицирован);
+    некорректная схема URL отклоняется до сети — понятная ошибка 400, а не 500."""
+    client, _ = api_client
+    resp = client.post(
+        "/api/clients/competencies/from-url",
+        json={"url": "file:///etc/passwd"},
+    )
+    assert resp.status_code == 400
+    assert "http/https" in resp.json()["detail"]
+
+
 def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, _ = api_client
     customer_id = client.get(f"/api/procurements/{inserted_id}").json()["customer_id"]

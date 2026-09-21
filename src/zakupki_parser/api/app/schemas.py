@@ -518,6 +518,22 @@ class ProfileImportIn(BaseModel):
     content: str
 
 
+class CompetenciesFromUrlIn(BaseModel):
+    """Запрос на заполнение компетенций профиля по сайту поставщика."""
+
+    url: str = Field(min_length=1, max_length=2048)
+
+
+class CompetenciesFromUrlOut(BaseModel):
+    """Компетенции, сформированные LLM по тексту сайта (канонический JSON схемы Profile).
+
+    Не сохраняются автоматически — форма подставляет результат в редактор
+    компетенций, пользователь проверяет/правит перед «Сохранить профиль».
+    """
+
+    competencies: str
+
+
 class ProfileExportOut(BaseModel):
     """Экспорт профиля единым JSON-файлом (компетенции — подобъект внутри).
 

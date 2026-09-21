@@ -355,9 +355,13 @@
             <div id="pf-platforms"></div>
           </label>
           <div id="pf-pane-comp" style="display:none;">
-            <div class="toolbar" style="margin:0 0 8px; padding:0;">
+            <div class="toolbar" style="margin:0 0 8px; padding:0; flex-wrap:wrap;">
               <button type="button" id="pf-comp-mode" class="ghost btn-mini" title="Переключить между структурной формой и сырым текстом (JSON)">Режим текста</button>
+              <span style="flex:1 1 auto;"></span>
+              <input type="url" id="pf-comp-url" placeholder="https://сайт-поставщика.ru" style="min-width:220px; flex:1 1 220px;" title="URL сайта компании-поставщика">
+              <button type="button" id="pf-comp-from-url" class="ghost btn-mini" title="Скачивает сайт по указанному URL и просит LLM сформировать компетенции по его тексту. Результат подставляется в форму ниже — профиль не сохраняется автоматически, проверьте и поправьте перед «Сохранить профиль».">Заполнить по URL</button>
             </div>
+            <div id="pf-comp-url-status" class="muted" style="margin:0 0 8px;"></div>
             <div id="pf-comp-structured">
               <label title="Позиционирование поставщика одним-двумя предложениями">Позиционирование <textarea id="pf-comp-positioning" rows="2" spellcheck="false"></textarea></label>
               <label title="Широта охвата: широкий — берётся за задачи всей своей области, перечень кейсов не исчерпывающий; узкий — работает строго по перечню">Охват
