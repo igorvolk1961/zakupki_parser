@@ -737,6 +737,8 @@ class ProfileMixin(RepositoryMixin):
                 profile.nmck_max = data["nmck_max"]
             if "search_in_documents" in data:
                 profile.search_in_documents = bool(data["search_in_documents"])
+            if "website_url" in data:
+                profile.website_url = data["website_url"]
             # Профиль становится активным: явно (is_active=true) или по умолчанию
             # для профиля «default» (per-user состояние, BR-07). Активность не
             # зависит от enabled: выключенный от мониторинга профиль тоже может

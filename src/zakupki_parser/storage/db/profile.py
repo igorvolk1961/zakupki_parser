@@ -104,6 +104,11 @@ class Profile(Base):
         Boolean, nullable=False, server_default=text("false"), default=False
     )
     competencies: Mapped[str] = mapped_column(Text, nullable=False)
+    # Сайт поставщика, введённый в форме для кнопки «Заполнить профиль по URL»
+    # (FR-10.12): сохраняется вместе с профилем, чтобы не вводить адрес заново
+    # при повторном заполнении/обновлении. Сам по себе ни на что не влияет —
+    # используется только как удобство формы.
+    website_url: Mapped[str | None] = mapped_column(Text)
     questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

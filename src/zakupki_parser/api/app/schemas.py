@@ -502,6 +502,10 @@ class ProfileIn(BaseModel):
     # не только в subject. Вне проиндексированного диапазона ОКПД2 заметно
     # замедляет сбор (см. Profile.search_in_documents).
     search_in_documents: bool | None = None
+    # Сайт поставщика для кнопки «Заполнить профиль по URL» (FR-10.12) — сам по
+    # себе ни на что не влияет, сохраняется только для удобства формы (не
+    # вводить адрес заново при повторном заполнении).
+    website_url: str | None = Field(default=None, max_length=2048)
     licenses: list[LicenseIn] | None = None
     experience: list[ExperienceIn] | None = None
 
@@ -595,6 +599,7 @@ class ProfileOut(BaseModel):
     nmck_min: float | None = None
     nmck_max: float | None = None
     search_in_documents: bool = False
+    website_url: str | None = None
     created_at: datetime
     updated_at: datetime
     # Факты профиля для сопоставления с фактами ТЗ (только в active_client).

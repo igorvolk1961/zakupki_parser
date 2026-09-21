@@ -183,6 +183,7 @@ def serialize_profile_json(profile: dict[str, Any]) -> str:
             "keywords": profile.get("keywords") or [],
             "exclusion_words": profile.get("exclusion_words") or [],
             "search_in_documents": bool(profile.get("search_in_documents") or False),
+            "website_url": profile.get("website_url"),
             "questions": profile.get("questions") or [],
             "licenses": _serialize_licenses(profile.get("licenses") or []),
             "experience": _serialize_experience(profile.get("experience") or []),
@@ -199,6 +200,15 @@ def _as_bool(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
     raise ValueError(f"Ожидается boolean, получено: {value!r}")
+
+
+def _as_str(value: Any) -> str | None:
+    """Строка (обрезанная, пустая -> None) или None, иначе ``ValueError``."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Ожидается строка, получено: {value!r}")
+    return value.strip() or None
 
 
 def _as_float(value: Any) -> float | None:
@@ -305,6 +315,7 @@ def parse_profile_json(content: str) -> dict[str, Any]:
         "nmck_min": _as_float(src.get("nmck_min")),
         "nmck_max": _as_float(src.get("nmck_max")),
         "search_in_documents": _as_bool(src.get("search_in_documents")) or False,
+        "website_url": _as_str(src.get("website_url")),
     }
     # Факты BR-03: ключ задан явно — импортируем (полная замена), иначе не трогаем.
     licenses = _fact_entries(src.get("licenses"), _LICENSE_FIELDS)

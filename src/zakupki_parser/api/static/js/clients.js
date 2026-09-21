@@ -390,7 +390,7 @@ function setProfileStatus(msg) {
 }
 
 function fillProfileForm(p) {
-  $("#pf-profile-url").value = "";
+  $("#pf-profile-url").value = p ? p.website_url || "" : "";
   setProfileUrlStatus("");
   renderUnmatchedLicenses([]);
   profileEditorName = p ? p.name : "";
@@ -1244,6 +1244,7 @@ function profileFormData() {
     name: $("#pf-name").value.trim(),
     enabled: $("#pf-enabled").checked,
     search_in_documents: $("#pf-search-in-documents").checked,
+    website_url: $("#pf-profile-url").value.trim() || null,
     okpd_codes: profileOkpd.slice(),
     nmck_min: $("#pf-nmck-min").value === "" ? null : Number($("#pf-nmck-min").value),
     nmck_max: $("#pf-nmck-max").value === "" ? null : Number($("#pf-nmck-max").value),

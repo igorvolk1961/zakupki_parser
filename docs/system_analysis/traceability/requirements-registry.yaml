@@ -1904,10 +1904,15 @@ requirements:
       - src/zakupki_parser/api/app/routes/clients.py
       - src/zakupki_parser/api/app/schemas.py
       - src/zakupki_parser/storage/competencies.py
+      - src/zakupki_parser/storage/db/profile.py
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/profile_json.py
+      - docker/liquibase/changelog/db.changelog-1.63.yaml
       - src/zakupki_parser/api/zakupki.html
       - src/zakupki_parser/api/static/js/clients.js
     tests:
       - tests/unit/test_profile_source.py
+      - tests/unit/test_profile_json.py
       - tests/integration/test_api.py
     notes: >-
       Уточнение (2026-09-21): кнопка перенесена с уровня вкладки «Компетенции»
@@ -1928,6 +1933,14 @@ requirements:
       ключ). Фронтенд показывает ``unmatched_licenses`` отдельным списком под
       кнопкой — пользователь может завести недостающий вид в «Справочниках» и
       добавить лицензию вручную.
+
+      Уточнение (2026-09-21, третье): введённый URL сайта сохраняется в самом
+      профиле (``profiles.website_url``, миграция 1.63/changeSet 65) — раньше
+      поле ввода сбрасывалось при каждом открытии редактора и не входило в
+      ``profileFormData()``/``ProfileIn``/экспорт-импорт JSON, из-за чего адрес
+      приходилось вводить заново при каждом обновлении. Поле ни на что не
+      влияет (не критерий сбора, не в ``_crawl_state_key``) — чистое удобство
+      формы.
 
   # ===== Функциональные требования (группа 11: фоновая индексация по ОКПД2) =====
   - id: FR-11.1

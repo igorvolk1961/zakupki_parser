@@ -1,0 +1,9 @@
+databaseChangeLog:
+- changeSet:
+    id: 65
+    author: zakupki-parser
+    comment: 'profiles.website_url: TEXT nullable — сайт поставщика, введённый в форме профиля для кнопки «Заполнить профиль по URL» (FR-10.12). Сохраняется вместе с профилем, чтобы не вводить адрес заново при повторном заполнении/обновлении.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS website_url TEXT;

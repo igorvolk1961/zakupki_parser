@@ -1504,6 +1504,33 @@ def test_profile_from_url_rejects_non_http_scheme(
     assert "http/https" in resp.json()["detail"]
 
 
+def test_profile_website_url_persists_across_save(api_client: tuple[TestClient, Path]) -> None:
+    """Сайт поставщика (кнопка «Заполнить профиль по URL») сохраняется вместе
+    с профилем — не нужно вводить его заново при повторном заполнении."""
+    client, _ = api_client
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "website-url-profile",
+            "competencies": COMP_JSON,
+            "website_url": "https://example.com",
+        },
+    )
+    assert created.status_code == 200, created.text
+    profile_id = created.json()["id"]
+    assert created.json()["website_url"] == "https://example.com"
+
+    fetched = client.get(f"/api/clients/{profile_id}")
+    assert fetched.json()["website_url"] == "https://example.com"
+
+    cleared = client.put(
+        f"/api/clients/{profile_id}",
+        json={"name": "website-url-profile", "competencies": COMP_JSON, "website_url": None},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["website_url"] is None
+
+
 def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, _ = api_client
     customer_id = client.get(f"/api/procurements/{inserted_id}").json()["customer_id"]
