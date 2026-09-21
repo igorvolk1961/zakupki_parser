@@ -27,6 +27,7 @@ from zakupki_parser.api.app.schemas import (
     ProfileListOut,
     ProfileOut,
     ProfileSaveOut,
+    UnmatchedLicenseOut,
 )
 from zakupki_parser.api.app.state import _broadcast, _sync_profile_results
 from zakupki_parser.storage.db import User
@@ -651,6 +652,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         return ProfileFromUrlOut(
             competencies=result.competencies,
             licenses=[LicenseIn(**lic) for lic in result.licenses],
+            unmatched_licenses=[UnmatchedLicenseOut(**lic) for lic in result.unmatched_licenses],
         )
 
     return router

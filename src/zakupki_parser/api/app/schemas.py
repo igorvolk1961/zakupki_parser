@@ -524,19 +524,37 @@ class ProfileFromUrlIn(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
 
 
+class UnmatchedLicenseOut(BaseModel):
+    """Лицензия, упомянутая на сайте, но без соответствия в справочнике license_types.
+
+    Справочник не исчерпывающий — сохранить такую запись как профильную лицензию
+    нельзя (``license_type_id`` обязателен, это внешний ключ), но информация с
+    сайта не должна теряться молча: возвращается пользователю как есть.
+    """
+
+    name: str
+    number: str | None = None
+    authority: str | None = None
+    issue_date: date | None = None
+    expiry_date: date | None = None
+    notes: str | None = None
+
+
 class ProfileFromUrlOut(BaseModel):
     """Компетенции и лицензии, сформированные LLM по тексту сайта.
 
     ``competencies`` — канонический JSON схемы ``Profile`` (как у ручного ввода/
     импорта); ``licenses`` — записи, сопоставленные со справочником
-    ``license_types`` (несуществующие типы LLM отфильтрованы на сервере). Ничего
-    не сохраняется автоматически — форма подставляет результат в редактор
-    (вкладки «Компетенции» и «Лицензии»), пользователь проверяет/правит перед
-    «Сохранить профиль».
+    ``license_types`` (готовы к сохранению); ``unmatched_licenses`` — упомянутые
+    на сайте лицензии без соответствия в справочнике (показать пользователю,
+    сохранить структурно нельзя). Ничего не сохраняется автоматически — форма
+    подставляет результат в редактор (вкладки «Компетенции» и «Лицензии»),
+    пользователь проверяет/правит перед «Сохранить профиль».
     """
 
     competencies: str
     licenses: list[LicenseIn] = Field(default_factory=list)
+    unmatched_licenses: list[UnmatchedLicenseOut] = Field(default_factory=list)
 
 
 class ProfileExportOut(BaseModel):

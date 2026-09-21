@@ -392,6 +392,7 @@ function setProfileStatus(msg) {
 function fillProfileForm(p) {
   $("#pf-profile-url").value = "";
   setProfileUrlStatus("");
+  renderUnmatchedLicenses([]);
   profileEditorName = p ? p.name : "";
   profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
   profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
@@ -751,6 +752,31 @@ function setProfileUrlStatus(msg, isError) {
 // лицензии (сопоставленные со справочником license_types — несуществующие типы
 // сервер уже отфильтровал). Результат только подставляется в форму (вкладки
 // «Компетенции»/«Лицензии») — профиль не сохраняется автоматически.
+// Лицензии, упомянутые на сайте, но без соответствия в справочнике видов
+// лицензий (справочник не исчерпывающий): сохранить их как запись профиля
+// нельзя (license_type_id обязателен), но и терять информацию молча нельзя —
+// показываем как есть, пользователь решает сам (завести тип в «Справочниках»
+// и добавить лицензию вручную, или проигнорировать).
+function renderUnmatchedLicenses(items) {
+  const box = $("#pf-profile-unmatched-licenses");
+  const list = $("#pf-profile-unmatched-licenses-list");
+  list.innerHTML = "";
+  if (!items || !items.length) {
+    box.style.display = "none";
+    return;
+  }
+  items.forEach((lic) => {
+    const li = document.createElement("li");
+    const parts = [lic.name];
+    if (lic.number) parts.push(`№ ${lic.number}`);
+    if (lic.authority) parts.push(lic.authority);
+    if (lic.issue_date) parts.push(`от ${lic.issue_date}`);
+    li.textContent = parts.join(", ");
+    list.appendChild(li);
+  });
+  box.style.display = "";
+}
+
 async function fillProfileFromUrl() {
   const url = $("#pf-profile-url").value.trim();
   if (!url) {
@@ -760,6 +786,7 @@ async function fillProfileFromUrl() {
   const btn = $("#pf-profile-from-url");
   btn.disabled = true;
   setProfileUrlStatus("Скачиваю сайт и формирую профиль…");
+  renderUnmatchedLicenses([]);
   try {
     const r = await apiJSON("/api/clients/profile/from-url", {
       method: "POST",
@@ -795,12 +822,17 @@ async function fillProfileFromUrl() {
       added++;
     });
     renderLicenses();
+    const unmatched = Array.isArray(data.unmatched_licenses) ? data.unmatched_licenses : [];
+    renderUnmatchedLicenses(unmatched);
 
     wordCounts();
     syncEntryFormState();
     const licPart = added ? `, лицензий добавлено: ${added}` : "";
+    const unmatchedPart = unmatched.length
+      ? `; не сопоставлено со справочником: ${unmatched.length} (см. список ниже)`
+      : "";
     setProfileUrlStatus(
-      `Профиль сформирован по сайту${licPart} — проверьте вкладки ` +
+      `Профиль сформирован по сайту${licPart}${unmatchedPart} — проверьте вкладки ` +
         "«Компетенции»/«Лицензии» и сохраните профиль"
     );
   } catch (e) {

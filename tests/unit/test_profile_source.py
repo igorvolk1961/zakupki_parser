@@ -11,8 +11,8 @@ from zakupki_parser.api.app.profile_source import (
     ProfileFromUrlError,
     ProfileFromUrlNotConfigured,
     _ensure_public_host,
-    _extract_licenses,
     _is_public_ip,
+    _split_licenses,
     fetch_url_html,
     generate_profile_from_url,
     html_to_text,
@@ -138,15 +138,24 @@ def test_html_to_text_raises_on_empty_page() -> None:
         html_to_text(b"<html><body></body></html>")
 
 
-def test_extract_licenses_keeps_only_known_type_ids() -> None:
+def test_split_licenses_separates_matched_and_unmatched() -> None:
     raw = [
-        {"license_type_id": 1, "number": "123", "authority": "Росприроднадзор", "notes": "  "},
-        {"license_type_id": 999, "number": "нет такого типа"},  # отбрасывается
-        {"number": "нет id вовсе"},  # отбрасывается
+        {
+            "name": "Лицензия на утилизацию",
+            "license_type_id": 1,
+            "number": "123",
+            "authority": "Росприроднадзор",
+            "notes": "  ",
+        },
+        # license_type_id несуществующий — как «нет соответствия» (в unmatched, по name).
+        {"name": "Неизвестный тип из справочника", "license_type_id": 999, "number": "42"},
+        # LLM явно не нашла тип (null) — тоже unmatched, по name.
+        {"name": "СРО на проектирование", "license_type_id": None},
+        {"number": "нет ни name, ни валидного id"},  # отбрасывается целиком
         "не объект",  # отбрасывается
     ]
-    result = _extract_licenses(raw, {1, 2})
-    assert result == [
+    matched, unmatched = _split_licenses(raw, {1, 2})
+    assert matched == [
         {
             "license_type_id": 1,
             "number": "123",
@@ -156,18 +165,36 @@ def test_extract_licenses_keeps_only_known_type_ids() -> None:
             "notes": None,
         }
     ]
+    assert unmatched == [
+        {
+            "name": "Неизвестный тип из справочника",
+            "number": "42",
+            "authority": None,
+            "issue_date": None,
+            "expiry_date": None,
+            "notes": None,
+        },
+        {
+            "name": "СРО на проектирование",
+            "number": None,
+            "authority": None,
+            "issue_date": None,
+            "expiry_date": None,
+            "notes": None,
+        },
+    ]
 
 
-def test_extract_licenses_cleans_malformed_dates() -> None:
+def test_split_licenses_cleans_malformed_dates() -> None:
     raw = [{"license_type_id": 2, "issue_date": "2024-01-15", "expiry_date": "не дата"}]
-    result = _extract_licenses(raw, {1, 2})
-    assert result[0]["issue_date"] == "2024-01-15"
-    assert result[0]["expiry_date"] is None
+    matched, _ = _split_licenses(raw, {1, 2})
+    assert matched[0]["issue_date"] == "2024-01-15"
+    assert matched[0]["expiry_date"] is None
 
 
-def test_extract_licenses_non_list_returns_empty() -> None:
-    assert _extract_licenses(None, {1, 2}) == []
-    assert _extract_licenses("не список", {1, 2}) == []
+def test_split_licenses_non_list_returns_empty() -> None:
+    assert _split_licenses(None, {1, 2}) == ([], [])
+    assert _split_licenses("не список", {1, 2}) == ([], [])
 
 
 async def test_generate_profile_from_url_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,10 +217,10 @@ async def test_generate_profile_from_url_end_to_end(monkeypatch: pytest.MonkeyPa
         '{"positioning": "Строим виджеты под ключ", "breadth": "narrow", '
         '"competencies": [{"area": "Виджеты", "description": "Проектирование и поставка", '
         '"examples": ["Виджет для завода"]}], "exclusions": ["Консалтинг"], '
-        '"licenses": [{"license_type_id": 1, "number": "77-АБ-001", '
-        '"authority": "Росприроднадзор", "issue_date": "2022-03-01", '
-        '"expiry_date": null, "notes": null}, '
-        '{"license_type_id": 42, "number": "выдуманный тип"}]}'
+        '"licenses": [{"name": "Лицензия на утилизацию отходов", "license_type_id": 1, '
+        '"number": "77-АБ-001", "authority": "Росприроднадзор", '
+        '"issue_date": "2022-03-01", "expiry_date": null, "notes": null}, '
+        '{"name": "Сертификат ISO 9001", "license_type_id": null, "number": "ISO-9001-2024"}]}'
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -216,13 +243,24 @@ async def test_generate_profile_from_url_end_to_end(monkeypatch: pytest.MonkeyPa
     assert '"positioning":"Строим виджеты под ключ"' in result.competencies
     assert '"breadth":"narrow"' in result.competencies
     assert "Виджеты" in result.competencies
-    # Только лицензия с реальным license_type_id — выдуманный (42) отброшен.
+    # Лицензия с реальным license_type_id — в licenses; без соответствия
+    # в справочнике (ISO 9001 там нет) — в unmatched_licenses, не потеряна.
     assert result.licenses == [
         {
             "license_type_id": 1,
             "number": "77-АБ-001",
             "authority": "Росприроднадзор",
             "issue_date": "2022-03-01",
+            "expiry_date": None,
+            "notes": None,
+        }
+    ]
+    assert result.unmatched_licenses == [
+        {
+            "name": "Сертификат ISO 9001",
+            "number": "ISO-9001-2024",
+            "authority": None,
+            "issue_date": None,
             "expiry_date": None,
             "notes": None,
         }

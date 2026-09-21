@@ -49,7 +49,8 @@ _SYSTEM_PROMPT_TEMPLATE = """\
   "competencies": [{{"area": "направление", "description": "что компания делает", \
 "examples": ["пример работы/кейса"]}}],
   "exclusions": ["чего компания НЕ делает"],
-  "licenses": [{{"license_type_id": <id из списка ниже>, "number": "номер или null", \
+  "licenses": [{{"name": "название лицензии/допуска/сертификата, как на сайте", \
+"license_type_id": <id из списка ниже или null>, "number": "номер или null", \
 "authority": "выдавший орган или null", "issue_date": "YYYY-MM-DD или null", \
 "expiry_date": "YYYY-MM-DD или null", "notes": "уточнение или null"}}]
 }}
@@ -57,12 +58,14 @@ _SYSTEM_PROMPT_TEMPLATE = """\
 однозначно понять узкую специализацию — используй "broad". Если данных для какого-то
 поля нет — оставь его пустым (пустая строка/пустой список), не выдумывай.
 
-Для "licenses": включай запись, ТОЛЬКО если на сайте явно упомянута лицензия/допуск/
-сертификат, соответствующий ОДНОМУ из типов из списка ниже. "license_type_id" —
-ОБЯЗАТЕЛЬНО один из перечисленных id; если подходящего типа в списке нет — не
-включай эту лицензию вовсе (не выдумывай id и не подставляй ближайший по смыслу).
-Реквизиты (номер/орган/срок), которых нет на странице, — null, но саму запись
-лицензии всё равно верни, если её тип явно упомянут.
+Для "licenses": включай запись, если на сайте явно упомянута лицензия/допуск/
+сертификат. "name" — обязательно, как лицензия названа на сайте (это поле
+заполняется ВСЕГДА, независимо от совпадения со справочником). "license_type_id"
+заполняй, ТОЛЬКО если название явно соответствует ОДНОМУ из типов из списка ниже —
+тогда это ОБЯЗАТЕЛЬНО один из перечисленных id. Если подходящего типа в списке нет
+— оставь "license_type_id": null (не выдумывай id и не подставляй ближайший по
+смыслу) — запись всё равно верни, с "name" и найденными реквизитами. Реквизиты
+(номер/орган/срок), которых нет на странице, — null.
 
 Список типов лицензий (id: название):
 {license_catalog}\
@@ -79,10 +82,19 @@ class ProfileFromUrlNotConfigured(ProfileFromUrlError):
 
 @dataclass
 class ProfileFromUrl:
-    """Результат разбора сайта: компетенции (канонический JSON) + лицензии."""
+    """Результат разбора сайта: компетенции (канонический JSON) + лицензии.
+
+    ``licenses`` — записи с реальным ``license_type_id`` из справочника, готовые
+    к сохранению как есть. ``unmatched_licenses`` — упомянутые на сайте лицензии,
+    для которых LLM не нашла соответствия в справочнике (справочник не
+    исчерпывающий): без ``license_type_id`` их нельзя сохранить как запись
+    профиля (внешний ключ обязателен), но информация не должна теряться молча —
+    показываются пользователю как есть, для ручного решения.
+    """
 
     competencies: str
     licenses: list[dict[str, Any]] = field(default_factory=list)
+    unmatched_licenses: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -267,33 +279,43 @@ def _clean_date(value: Any) -> str | None:
         return None
 
 
-def _extract_licenses(raw: Any, valid_ids: set[int]) -> list[dict[str, Any]]:
-    """Лицензии из ответа LLM, отфильтрованные по реальному справочнику.
+def _split_licenses(
+    raw: Any, valid_ids: set[int]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Лицензии из ответа LLM: сопоставленные со справочником / нет.
 
-    Запись без валидного (существующего) ``license_type_id`` отбрасывается —
-    ``LicenseIn.license_type_id`` обязателен и это внешний ключ, подставить
-    выдуманный LLM id нельзя.
+    Запись с валидным (существующим) ``license_type_id`` идёт в первый список —
+    готова к сохранению как ``LicenseIn`` напрямую. Запись без соответствия
+    (LLM вернула ``null`` — справочник не исчерпывающий, или выдумала
+    несуществующий id — такое тоже трактуется как «нет соответствия», подставить
+    чужой ``license_type_id`` нельзя, это внешний ключ) идёт во второй: без
+    привязки к типу её нельзя сохранить как запись профиля, но сама информация
+    (название/номер/орган/срок) не теряется — возвращается для показа
+    пользователю.
     """
     if not isinstance(raw, list):
-        return []
-    result: list[dict[str, Any]] = []
+        return [], []
+    matched: list[dict[str, Any]] = []
+    unmatched: list[dict[str, Any]] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
+        common = {
+            "number": _clean_str(item.get("number")),
+            "authority": _clean_str(item.get("authority")),
+            "issue_date": _clean_date(item.get("issue_date")),
+            "expiry_date": _clean_date(item.get("expiry_date")),
+            "notes": _clean_str(item.get("notes")),
+        }
         type_id = item.get("license_type_id")
-        if not isinstance(type_id, int) or type_id not in valid_ids:
+        if isinstance(type_id, int) and type_id in valid_ids:
+            matched.append({"license_type_id": type_id, **common})
             continue
-        result.append(
-            {
-                "license_type_id": type_id,
-                "number": _clean_str(item.get("number")),
-                "authority": _clean_str(item.get("authority")),
-                "issue_date": _clean_date(item.get("issue_date")),
-                "expiry_date": _clean_date(item.get("expiry_date")),
-                "notes": _clean_str(item.get("notes")),
-            }
-        )
-    return result
+        name = _clean_str(item.get("name"))
+        if name is None:
+            continue  # ни названия, ни валидного типа — показывать нечего
+        unmatched.append({"name": name, **common})
+    return matched, unmatched
 
 
 async def generate_profile_from_url(
@@ -306,10 +328,12 @@ async def generate_profile_from_url(
 
     Компетенции уже провалидированы ``normalize_competencies`` — можно напрямую
     вернуть в веб-форму (та же схема, что при ручном заполнении/импорте).
-    Лицензии отфильтрованы по переданному справочнику ``license_types``
-    (``(id, name)``) — записи с несуществующим типом отбрасываются. Ничего не
-    сохраняется автоматически: пользователь проверяет/правит перед «Сохранить
-    профиль».
+    Лицензии сопоставлены с переданным справочником ``license_types``
+    (``(id, name)``): с найденным типом — в ``licenses`` (готовы к сохранению),
+    без — в ``unmatched_licenses`` (справочник не исчерпывающий; сохранить как
+    запись профиля нельзя — обязателен внешний ключ, но текст с сайта не
+    теряется, показывается пользователю). Ничего не сохраняется автоматически:
+    пользователь проверяет/правит перед «Сохранить профиль».
     """
     stripped = url.strip()
     if not stripped:
@@ -329,5 +353,7 @@ async def generate_profile_from_url(
     except CompetenciesError as exc:
         raise ProfileFromUrlError(f"LLM вернула компетенции в неверном формате: {exc}") from exc
     valid_ids = {type_id for type_id, _ in license_types}
-    licenses = _extract_licenses(data.get("licenses"), valid_ids)
-    return ProfileFromUrl(competencies=competencies, licenses=licenses)
+    licenses, unmatched_licenses = _split_licenses(data.get("licenses"), valid_ids)
+    return ProfileFromUrl(
+        competencies=competencies, licenses=licenses, unmatched_licenses=unmatched_licenses
+    )
