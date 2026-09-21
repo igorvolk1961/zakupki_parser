@@ -1134,19 +1134,25 @@ class ProcurementMixin(RepositoryMixin):
                     if existing is not None and existing.status != "rejected":
                         to_delete.add(pid)
                     continue
-                if words:
+                # words — список совпавших слов (см. сигнатуру matched_list); ЗДЕСЬ
+                # он гарантированно не None, но может быть ПУСТЫМ списком — у
+                # профиля без ключевых слов «в области» значит «подходит», просто
+                # совпадать было не с чем (matched_keywords с пустым keywords тоже
+                # возвращает []). Проверка `if words:` здесь была багом: пустой
+                # список — falsy в Python, и такие закупки молча пропускались,
+                # хотя формально входят в область захвата профиля (#1).
+                if existing is not None and existing.status == "rejected":
                     # Вручную отклонённую закупку не пересчитываем и не трогаем
                     # (ручное решение пользователя переживает перестройку).
-                    if existing is not None and existing.status == "rejected":
-                        continue
-                    to_upsert[pid] = words
-                    if (
-                        rescore
-                        and existing is not None
-                        and (existing.matched_keywords or [])
-                        and existing.score_method in SCORE_METHOD_STAGES
-                    ):
-                        to_reset.add(pid)
+                    continue
+                to_upsert[pid] = words
+                if (
+                    rescore
+                    and existing is not None
+                    and (existing.matched_keywords or [])
+                    and existing.score_method in SCORE_METHOD_STAGES
+                ):
+                    to_reset.add(pid)
 
             # Оценки, ссылающиеся на закупки вне области (чужая площадка/осиротевшие),
             # удаляются всегда, кроме вручную отклонённых.

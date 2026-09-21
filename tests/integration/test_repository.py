@@ -1183,6 +1183,45 @@ async def test_rebuild_profile_results_no_okpd_codes_skips_index_path(db: Databa
 
 
 @pytest.mark.asyncio
+async def test_rebuild_profile_results_empty_keywords_matches_by_okpd_only(db: Database) -> None:
+    """Профиль без ключевых слов «забирает» всё в своей области (ОКПД2/регион/НМЦК).
+
+    Регрессия: ``matched_list`` при пустом ``keywords`` возвращает пустой список
+    ``[]`` (закупка в области, просто не с чем сопоставлять слова) — не ``None``
+    («вне области»). Проверка вызывающего кода ``if words:`` трактовала пустой
+    список как falsy и молча пропускала такие закупки, хотя они входят в область
+    захвата — из-за этого профиль без ключевых слов (только критерии ОКПД2)
+    никогда не получал результатов даже при полностью проиндексированном диапазоне.
+    """
+    repo = ProcurementRepository(db)
+    user = await repo.create_user("reb-nokw", "h", ["user"])
+    profile = await repo.upsert_profile(
+        {
+            "name": "default",
+            "competencies": COMP_JSON,
+            "target_etp": [ALL_PLATFORMS_SENTINEL],
+            "okpd_codes": ["38"],
+        },
+        user.id,
+    )
+    pid = await _save_proc(
+        repo,
+        "RB-NOKW-1",
+        subject="Оказание услуг по обезвреживанию отходов",
+        okpd2_codes="38.11.29.000",
+    )
+    out_of_scope = await _save_proc(
+        repo, "RB-NOKW-2", subject="Ремонт автобуса", okpd2_codes="45.20.11"
+    )
+
+    stats = await repo.rebuild_profile_results(profile, [], [])
+
+    assert stats["created"] == 1
+    assert (await repo.get_score(pid, profile.id)) is not None
+    assert (await repo.get_score(out_of_scope, profile.id)) is None
+
+
+@pytest.mark.asyncio
 async def test_rebuild_profile_results_empty_target_etp_matches_nothing(db: Database) -> None:
     """Пустой target_etp теперь означает «ни одной площадки», а не «все» (US-11.x):
 
