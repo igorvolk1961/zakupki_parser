@@ -1,14 +1,17 @@
 """RAG-пайплайн анализа по персональным вопросам профиля.
 
 Персонализированные вопросы профиля (единственное сохраняемое RAG-звено) обрабатываются
-по одному LLM-вызову на вопрос: эмбеддинги вопросов кэшируются, контекст — разделы ТЗ
-(как раньше). Обязательные стоп-условия ушли в отдельный детерминированный поиск
+по одному LLM-вызову на вопрос: эмбеддинги вопросов кэшируются, контекст — разделы ВСЕХ
+документов закупки (не только файла, определённого как ТЗ, — требования к участнику
+часто лежат в других приложениях, см. ``RagAnalyzer._collect_document_chunks``).
+Обязательные стоп-условия ушли в отдельный детерминированный поиск
 «Требований к участнику» по всем документам плюс LLM-заполнение ``data``
 (``fill_requirements_data``). Результат — ``rag_report`` для карточки.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import UTC, datetime
@@ -27,7 +30,8 @@ from analysis_service.settings import Settings
 from scoring_common.costing import stage_metrics_with_components
 from scoring_common.embeddings import Embeddable, cosine_similarity
 from scoring_common.langfuse import parent_span, trace_url_from_trace_id
-from scoring_common.tz import resolve_tz_content
+from scoring_common.requirements import enumerate_document_refs
+from scoring_common.tz import clean_text, extract_text_cached, resolve_tz_content
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +53,6 @@ def _requirement_items(value: Any) -> list[Any]:
     if isinstance(value, dict):
         return [value]
     return []
-
-
-# Признак наличия требований к Исполнителю/Участнику/Подрядчику и фолбэк на
-# документ «Описание» — общая логика в scoring_common.tz (resolve_tz_content),
-# которая используется и анализом, и просмотром ТЗ с карточки.
 
 
 class QuestionVerdict(BaseModel):
@@ -78,7 +77,7 @@ class QuestionVerdict(BaseModel):
 
 
 class RagAnalyzer:
-    """Выполняет RAG-анализ: ТЗ карточки → чанки → вердикты по вопросам."""
+    """Выполняет RAG-анализ: документы карточки → чанки → вердикты по вопросам."""
 
     def __init__(
         self,
@@ -153,38 +152,29 @@ class RagAnalyzer:
         questions: list[dict[str, Any]],
         generated_at: str,
     ) -> dict[str, Any]:
-        ref, tz_text = resolve_tz_content(
-            record,
-            timeout=self._settings.tz_download_timeout,
-            verify_ssl=self._settings.tz_verify_ssl,
-        )
+        # «ТЗ»/«Описание» — только понятное имя файла для карточки (та же эвристика
+        # «нет обязанностей Исполнителя → взять Описание», что и раньше); НЕ сужает
+        # область поиска ответов — она теперь по всем документам закупки ниже.
+        try:
+            ref, _unused_text = await asyncio.to_thread(
+                resolve_tz_content,
+                record,
+                self._settings.tz_download_timeout,
+                self._settings.tz_verify_ssl,
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort, не критично для tz_file
+            logger.warning("Не удалось определить файл ТЗ закупки: %s", exc)
+            ref = None
         tz_file = ref.name if ref is not None else None
-        if ref is None:
-            return {
-                "tz_found": False,
-                "tz_file": None,
-                "questions": [],
-                "generated_at": generated_at,
-                "status": "no_tz",
-            }
-        if not tz_text:
-            return {
-                "tz_found": False,
-                "tz_file": tz_file,
-                "questions": [],
-                "generated_at": generated_at,
-                "status": "no_tz",
-            }
 
-        chunks = split_tz_sections(tz_text, max_chars=self._settings.chunk_max_chars)
+        chunks, chunk_sources = await self._collect_document_chunks(record)
         if not chunks:
             return {
-                "tz_found": True,
+                "tz_found": ref is not None,
                 "tz_file": tz_file,
-                "error": "Не удалось разбить текст ТЗ на чанки",
                 "questions": [],
                 "generated_at": generated_at,
-                "status": "error",
+                "status": "no_tz",
             }
 
         verdicts: list[dict[str, Any]] = []
@@ -192,7 +182,9 @@ class RagAnalyzer:
         chunk_vectors = await self._embedder.embed(chunks)
         if chunk_vectors is None or len(chunk_vectors) != len(chunks):
             # Векторы недоступны: вопросы профиля оценить нельзя (best-effort).
-            embed_error = "Не удалось вычислить эмбеддинги чанков ТЗ (вопросы профиля не оценены)"
+            embed_error = (
+                "Не удалось вычислить эмбеддинги чанков документов (вопросы профиля не оценены)"
+            )
             for question in questions:
                 question_id = str(question.get("id") or "")
                 question_text = str(question.get("text") or "").strip()
@@ -203,7 +195,7 @@ class RagAnalyzer:
                         )
                     )
             return {
-                "tz_found": True,
+                "tz_found": ref is not None,
                 "tz_file": tz_file,
                 "questions": verdicts,
                 "generated_at": generated_at,
@@ -217,16 +209,69 @@ class RagAnalyzer:
             if not question_id or not question_text:
                 continue
             verdicts.append(
-                await self._verdict_for_question(question_id, question_text, chunks, chunk_vectors)
+                await self._verdict_for_question(
+                    question_id, question_text, chunks, chunk_vectors, chunk_sources
+                )
             )
 
         return {
-            "tz_found": True,
+            "tz_found": ref is not None,
             "tz_file": tz_file,
             "questions": verdicts,
             "generated_at": generated_at,
             "status": self._status(True, None, verdicts),
         }
+
+    async def _collect_document_chunks(self, record: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """Чанки со ВСЕХ документов закупки (не только файла ТЗ), с указанием источника.
+
+        Требования к участнику часто лежат не в ТЗ, а в проекте контракта,
+        извещении или другом приложении — тот же охват документов, что уже
+        использует детерминированный поиск требований (``enumerate_document_refs``:
+        архивы разворачиваются, каждый файл — независимо, сбой одного не
+        останавливает остальные). ``chunk_sources`` — имя документа-источника
+        для каждого чанка (тот же индекс, что и в ``chunks``) — используется,
+        чтобы указать LLM и итоговому отчёту, из какого файла взят фрагмент.
+        Лимиты (``max_files_per_procurement``/``max_document_chars``) — те же,
+        что у фоновой индексации, чтобы закупка с большим числом крупных
+        вложений не раздувала стоимость эмбеддингов на один анализ.
+        """
+        chunks: list[str] = []
+        sources: list[str] = []
+        try:
+            refs = await asyncio.to_thread(
+                enumerate_document_refs,
+                record,
+                self._settings.tz_download_timeout,
+                self._settings.tz_verify_ssl,
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort, закупка не теряется
+            logger.warning("Не удалось перечислить документы закупки: %s", exc)
+            return chunks, sources
+
+        total_chars = 0
+        for ref in refs[: self._settings.max_files_per_procurement]:
+            try:
+                raw = await asyncio.to_thread(
+                    extract_text_cached,
+                    ref,
+                    self._settings.tz_download_timeout,
+                    verify_ssl=self._settings.tz_verify_ssl,
+                )
+            except Exception as exc:  # noqa: BLE001 — сбой одного файла не роняет остальные
+                logger.warning("Не удалось извлечь текст документа %s: %s", ref.name, exc)
+                continue
+            text = clean_text(raw) if raw else ""
+            if not text:
+                continue
+            doc_name = ref.name.rsplit("/", 1)[-1]
+            for chunk in split_tz_sections(text, max_chars=self._settings.chunk_max_chars):
+                chunks.append(chunk)
+                sources.append(doc_name)
+                total_chars += len(chunk)
+            if total_chars >= self._settings.max_document_chars:
+                break
+        return chunks, sources
 
     @staticmethod
     def _status(
@@ -295,8 +340,15 @@ class RagAnalyzer:
         question_text: str,
         chunks: list[str],
         chunk_vectors: list[list[float]],
+        chunk_sources: list[str],
     ) -> dict[str, Any]:
-        """Вердикт по одному вопросу профиля (best-effort: сбой → unavailable)."""
+        """Вердикт по одному вопросу профиля (best-effort: сбой → unavailable).
+
+        Топ-k чанков ищется по ВСЕМ документам закупки разом (не по одному
+        файлу) — соседние по индексу ``chunks``/``chunk_sources`` могут быть из
+        разных документов. Источник каждого чанка помечается в контексте LLM
+        (``[Источник: <файл>]``), чтобы модель могла корректно на него сослаться.
+        """
         q_vector = self._question_embedding_cache.get(question_id)
         if q_vector is None:
             q_vector = await self._embedder.embed_one(question_text)
@@ -315,7 +367,9 @@ class RagAnalyzer:
             reverse=True,
         )
         top_idx = [idx for _, idx in scored[: self._settings.top_k]]
-        context = "\n\n---\n\n".join(chunks[idx] for idx in top_idx)
+        context = "\n\n---\n\n".join(
+            f"[Источник: {chunk_sources[idx]}]\n{chunks[idx]}" for idx in top_idx
+        )
 
         system, user = build_verdict_messages(question_text, context)
         data = await self._llm.chat_json(system, user)

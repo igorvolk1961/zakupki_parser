@@ -200,7 +200,7 @@ def test_verdict_embed_unavailable() -> None:
     analyzer._embedder = _NoneEmbedder()  # type: ignore[assignment]  # noqa: SLF001
     v = asyncio.run(
         analyzer._verdict_for_question(  # noqa: SLF001
-            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]]
+            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]], ["ТЗ.docx"]
         )
     )
     assert v["verdict"] == "unavailable"
@@ -213,7 +213,7 @@ def test_verdict_llm_unavailable() -> None:
     analyzer = _analyzer(_FakeLlm([None]))
     v = asyncio.run(
         analyzer._verdict_for_question(  # noqa: SLF001
-            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]]
+            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]], ["ТЗ.docx"]
         )
     )
     assert v["verdict"] == "unavailable"
@@ -454,3 +454,106 @@ def test_analyze_keeps_tz_when_duties_present(monkeypatch: pytest.MonkeyPatch) -
     report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], {}))
     assert report["tz_found"] is True
     assert report["tz_file"] == "ТЗ.docx"
+
+
+# --- Регрессия: ответ по вопросу может лежать НЕ в файле ТЗ -----------------
+
+
+def test_collect_document_chunks_covers_all_documents(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Чанки собираются со ВСЕХ документов закупки, а не только с файла,
+    определённого как ТЗ — требования к участнику часто лежат в других
+    приложениях (проект контракта, извещение и т.п.), не в самом ТЗ."""
+    from analysis_service.pipeline import rag as rag_mod
+
+    from scoring_common.tz.files import FileRef
+
+    tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
+    contract_ref = FileRef("Проект контракта.docx", "http://x/Контракт.docx")
+
+    def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
+        return [tz_ref, contract_ref]
+
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+        if ref.name == "ТЗ.docx":
+            return "Общее описание работ по установке оборудования."
+        return "Исполнитель вправе привлекать соисполнителей без ограничения по объёму."
+
+    monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
+    monkeypatch.setattr(rag_mod, "extract_text_cached", fake_extract)
+
+    analyzer = _analyzer(_FakeLlm([]))
+    chunks, sources = asyncio.run(
+        analyzer._collect_document_chunks({"files_json": []})  # noqa: SLF001
+    )
+    assert any("соисполнителей" in c for c in chunks)
+    assert set(sources) == {"ТЗ.docx", "Проект контракта.docx"}
+
+
+class _RecordingLlm:
+    """Фиксирует последний user-промпт — проверить, что в контекст LLM попал
+    текст ИМЕННО того документа, где реально лежит ответ."""
+
+    def __init__(self) -> None:
+        self.last_user: str | None = None
+
+    async def chat_json(self, system: str, user: str) -> dict[str, Any]:
+        self.last_user = user
+        return {"verdict": "no_stop_condition", "excerpt": "", "reasoning": "ок"}
+
+    def reset_cost(self) -> None:
+        pass
+
+    @property
+    def total_cost_usd(self) -> float:
+        return 0.0
+
+
+def test_analyze_answers_from_non_tz_document(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Регрессия: вопрос, ответ на который лежит в «Проекте контракта», а не в
+    файле ТЗ, должен получить контекст из ВЕРНОГО документа — до фикса чанки
+    собирались только из файла, определённого как ТЗ, и такой вопрос никогда
+    не находил ответ, сколько угодно верно ни формулируй сам вопрос."""
+    from analysis_service.pipeline import rag as rag_mod
+
+    from scoring_common.tz.files import FileRef
+
+    tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
+    contract_ref = FileRef("Проект контракта.docx", "http://x/Контракт.docx")
+
+    def fake_resolve(
+        rec: dict, timeout: float = 30.0, verify_ssl: bool = True
+    ) -> tuple[FileRef, str]:
+        return (tz_ref, "Исполнитель обязан выполнить работы в срок.")
+
+    def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
+        return [tz_ref, contract_ref]
+
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+        if ref.name == "ТЗ.docx":
+            return "Общее описание работ по установке оборудования."
+        return "Исполнитель вправе привлекать соисполнителей без ограничения по объёму."
+
+    monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
+    monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
+    monkeypatch.setattr(rag_mod, "extract_text_cached", fake_extract)
+
+    llm = _RecordingLlm()
+    analyzer = _analyzer(llm)  # type: ignore[arg-type]
+    record = {
+        "files_json": [
+            {"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"},
+            {"name": "Проект контракта.docx", "url": "http://x/Контракт.docx"},
+        ]
+    }
+    report = asyncio.run(
+        analyzer.analyze(record, [{"id": "q1", "text": "Разрешены ли соисполнители?"}], {})
+    )
+    assert report["tz_found"] is True
+    assert report["tz_file"] == "ТЗ.docx"  # отображаемое имя — по-прежнему ТЗ
+    q1 = next(q for q in report["questions"] if q["question_id"] == "q1")
+    assert q1["verdict"] == "no_stop_condition"
+    # Главная проверка: текст из «Проекта контракта» реально попал в промпт LLM,
+    # хотя «официальный» файл ТЗ этот текст не содержит.
+    assert llm.last_user is not None
+    assert "соисполнителей" in llm.last_user
+    assert "Проект контракта.docx" in llm.last_user

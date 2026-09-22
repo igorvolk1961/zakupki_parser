@@ -1383,6 +1383,23 @@ requirements:
       - src/analysis_service/tests/test_chunker.py
       - src/analysis_service/tests/test_embedder.py
       - tests/integration/test_multiclient.py
+    notes: >-
+      Фикс (2026-09-22): «Вопросы по ТЗ» (RagAnalyzer._analyze) собирали чанки
+      ТОЛЬКО из одного файла — определённого эвристикой как ТЗ (или его
+      fallback «Описание») — через resolve_tz_content. Требования к участнику
+      и другие факты часто лежат в ДРУГИХ документах закупки (проект
+      контракта, извещение), которые эвристика не выбирает, — вопрос про них
+      физически не мог найти ответ, сколько угодно верно ни формулируй сам
+      вопрос. Теперь чанки собираются across ВСЕХ документов закупки (тот же
+      охват, что уже использует детерминированный поиск «Требований к
+      участнику» — enumerate_document_refs, scoring_common/requirements.py):
+      каждый чанк помечается именем документа-источника (RagAnalyzer.
+      _collect_document_chunks), top-k ищется по общему пулу. resolve_tz_content
+      сохранён только для отображаемого имени файла в карточке (tz_file) — не
+      сужает область поиска. Новые лимиты analysis_service.settings.Settings
+      (max_files_per_procurement=20, max_document_chars=2_000_000) — те же,
+      что у фоновой индексации, против неограниченного роста стоимости
+      эмбеддингов на закупках с большим числом крупных вложений.
   - id: FR-4.2
     type: FR
     title: Best-effort при недоступности LLM/файла ТЗ
