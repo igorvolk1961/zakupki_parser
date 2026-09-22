@@ -1416,13 +1416,28 @@ requirements:
     title: Системные проверки ТЗ (sys:*)
     stakeholder: Тендеролог (user)
     stage: "5"
-    status: implemented
+    status: out-of-scope
     adr: ADR-10
     code:
       - src/analysis_service/analysis_service/pipeline/system_questions.py
       - src/analysis_service/analysis_service/pipeline/matcher.py
     tests:
       - src/analysis_service/tests/test_rag.py
+    notes: >-
+      Заменено (2026-09-22) требованием FR-10.10 «Требования к участнику по
+      всем документам + LLM-заполнение data» (extract_requirements/
+      fill_requirements_data, scoring_common/requirements.py + rag.py) — тот
+      же результат (лицензии/опыт/Минпромторг без участия тендеролога),
+      другим, реально подключённым кодом. Эта реализация (batch-LLM
+      build_batch_system_messages + детерминированный матчер
+      apply_profile_facts) НИКОГДА не вызывается в проде — только в тестах
+      (проверено: ни одного вызова вне matcher.py/system_questions.py/тестов
+      во всём репозитории). QuestionVerdict.source всегда "profile" —
+      вердикт с source="system" не производится ни разу, «обязат.»-бейдж в
+      procurements.js:690 (source === "system") никогда не отрисовывается.
+      Код оставлен как есть (не удалён) — статус только документирует, что
+      эта ветка не используется; удаление — отдельная задача, если решат
+      делать уборку мёртвого кода.
   - id: FR-4.4
     type: FR
     title: Защита системных проверок от редактирования
