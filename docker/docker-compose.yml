@@ -259,6 +259,14 @@ services:
       SCORE_PROMPTS_DIR: /app/prompts
       # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
       SCORE_LOGGING__FILE: data/logs/scoring_service.log
+      # L2-кэш извлечённого текста ТЗ (S3/MinIO, scoring_common.tz.object_cache) —
+      # межпроцессный: файл закупки не скачивается+конвертируется повторно в
+      # каждом сервисе. См. docker/.env.example.
+      TZ_CACHE_ENABLED: ${TZ_CACHE_ENABLED:-false}
+      TZ_CACHE_ENDPOINT_URL: ${TZ_CACHE_ENDPOINT_URL:-http://minio:9000}
+      TZ_CACHE_BUCKET: ${TZ_CACHE_BUCKET:-tz-text-cache}
+      TZ_CACHE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
+      TZ_CACHE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
     volumes:
       - ../src/scoring_service/scoring_service/pipeline/prompts:/app/prompts
       - ../data/logs:/app/scoring_service/data/logs
@@ -356,6 +364,14 @@ services:
       ANALYSIS_PROMPTS_DIR: /app/analysis-prompts
       # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
       ANALYSIS_LOGGING__FILE: data/logs/analysis_service.log
+      # L2-кэш извлечённого текста ТЗ (S3/MinIO, scoring_common.tz.object_cache) —
+      # межпроцессный: файл закупки не скачивается+конвертируется повторно в
+      # каждом сервисе. См. docker/.env.example.
+      TZ_CACHE_ENABLED: ${TZ_CACHE_ENABLED:-false}
+      TZ_CACHE_ENDPOINT_URL: ${TZ_CACHE_ENDPOINT_URL:-http://minio:9000}
+      TZ_CACHE_BUCKET: ${TZ_CACHE_BUCKET:-tz-text-cache}
+      TZ_CACHE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
+      TZ_CACHE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
     volumes:
       - ../src/analysis_service/analysis_service/pipeline/prompts:/app/analysis-prompts
       - ../data/logs:/app/analysis_service/data/logs
@@ -376,6 +392,14 @@ services:
       INDEX_PARSER_INTERNAL_TOKEN: ${ZAKUPKI_INTERNAL_TOKEN:-}
       # Лог сервиса — в общий каталог data/logs (виден во вкладке «Логи»).
       INDEX_LOGGING__FILE: data/logs/indexing_service.log
+      # L2-кэш извлечённого текста ТЗ (S3/MinIO, scoring_common.tz.object_cache) —
+      # межпроцессный: файл закупки не скачивается+конвертируется повторно в
+      # каждом сервисе. См. docker/.env.example.
+      TZ_CACHE_ENABLED: ${TZ_CACHE_ENABLED:-false}
+      TZ_CACHE_ENDPOINT_URL: ${TZ_CACHE_ENDPOINT_URL:-http://minio:9000}
+      TZ_CACHE_BUCKET: ${TZ_CACHE_BUCKET:-tz-text-cache}
+      TZ_CACHE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
+      TZ_CACHE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
     volumes:
       - ../data/logs:/app/indexing_service/data/logs
     restart: unless-stopped
@@ -412,6 +436,13 @@ services:
       # Общий том промптов анализатора: вкладка «Промпты» пишет сюда,
       # analysis_service читает при следующем старте.
       ZAKUPKI_ANALYSIS_PROMPTS_DIR: /app/analysis-prompts
+      # L2-кэш извлечённого текста ТЗ (S3/MinIO, scoring_common.tz.object_cache) —
+      # используется «просмотром ТЗ» с карточки закупки. См. docker/.env.example.
+      TZ_CACHE_ENABLED: ${TZ_CACHE_ENABLED:-false}
+      TZ_CACHE_ENDPOINT_URL: ${TZ_CACHE_ENDPOINT_URL:-http://minio:9000}
+      TZ_CACHE_BUCKET: ${TZ_CACHE_BUCKET:-tz-text-cache}
+      TZ_CACHE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
+      TZ_CACHE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
     ports:
       - "${API_PORT:-8000}:8000"
     command: >
