@@ -173,6 +173,82 @@ def _extract_doc_text(ref: FileRef, timeout: float, verify_ssl: bool) -> str | N
         return None
 
 
+# Допустимость привлечения соисполнителей/субподрядчиков — отдельная,
+# не завязанная на раздел «Требования к участнику» категория (в реальных
+# документах это обычно обычное условие договора, а не раздел требований):
+# сканируем предложения ВСЕХ документов целиком, без привязки к заголовкам.
+_SUBCONTRACTOR_RE = re.compile(
+    r"соисполнител[а-яё]*"
+    r"|субподрядчик[а-яё]*"
+    r"|субподряд[а-яё]*"
+    r"|привлечени[а-яё]*\s+(?:третьих\s+лиц|соисполнител[а-яё]*|субподрядчик[а-яё]*)",
+    re.IGNORECASE,
+)
+# Явный запрет/ограничение — реальное требование, кандидат на блокировку
+# (``negated`` НЕ ставится, как и у обычного «настоящего» требования).
+_SUBCONTRACTOR_RESTRICT_RE = re.compile(
+    r"запрещ[а-яё]*"
+    r"|не\s+вправе"
+    r"|не\s+допуска[а-яё]*"
+    r"|не\s+может\s+привлека[а-яё]*"
+    r"|не\s+может\s+привлечь"
+    r"|без\s+права\s+привлечени[а-яё]*"
+    r"|ограничен[а-яё]*",
+    re.IGNORECASE,
+)
+# Явное разрешение без оговорок — «настоящего» требования нет, как маркер
+# «не требуется» у остальных категорий (``negated=True``, не блокирует).
+_SUBCONTRACTOR_ALLOW_RE = re.compile(
+    r"вправе\s+привлека[а-яё]*"
+    r"|вправе\s+привлечь"
+    r"|разрешен[а-яё]*\s+привлечени[а-яё]*"
+    r"|может\s+привлека[а-яё]*"
+    r"|допуска[а-яё]*\s+привлечени[а-яё]*",
+    re.IGNORECASE,
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _find_subcontractor_clauses(
+    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+) -> list[dict[str, Any]]:
+    """Найти во ВСЕХ документах закупки условия о привлечении соисполнителей.
+
+    В отличие от остальных категорий (``_candidate_sections``/table-путь), не
+    привязано к разделу «Требования к участнику» — предложение с упоминанием
+    соисполнителей/субподряда ищется по всему тексту КАЖДОГО документа.
+
+    ``negated=True`` — явно разрешено без оговорок (как маркер «не требуется»
+    у остальных категорий — реального ограничения нет, не блокирует);
+    отсутствие ``negated`` — запрет/ограничение или неоднозначная формулировка
+    (реальное условие, кандидат на блокировку, если профиль это включил).
+    """
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for ref in enumerate_document_refs(record, timeout=timeout, verify_ssl=verify_ssl):
+        text = _extract_doc_text(ref, timeout=timeout, verify_ssl=verify_ssl)
+        if not text:
+            continue
+        base_name = ref.name.rsplit("/", 1)[-1]
+        for raw_sentence in _SENTENCE_SPLIT_RE.split(text):
+            sentence = raw_sentence.strip()
+            if not sentence or not _SUBCONTRACTOR_RE.search(sentence):
+                continue
+            dedup_key = re.sub(r"\s+", " ", sentence.lower())[:200]
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            if len(sentence) > _MAX_SECTION_CHARS:
+                sentence = sentence[:_MAX_SECTION_CHARS]
+            item: dict[str, Any] = {"text": sentence, "data": None, "file_name": base_name}
+            if not _SUBCONTRACTOR_RESTRICT_RE.search(sentence) and _SUBCONTRACTOR_ALLOW_RE.search(
+                sentence
+            ):
+                item["negated"] = True
+            items.append(item)
+    return items
+
+
 def _candidate_sections(
     record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
 ) -> list[dict[str, str]]:
@@ -396,6 +472,12 @@ def extract_requirements(
     ``data`` остаётся ``None``; в структуре остаются только требования с отрицанием
     («не установлено», «не требуется» и т.п.), остальное удаляется
     (см. ``scoring_common.law_requirements``). Если ничего не найдено — ``{}``.
+
+    ``subcontractors`` (допустимость привлечения соисполнителей) добавляется
+    отдельно поверх — ищется по всем документам целиком, не только в разделе
+    «Требования к участнику» (см. ``_find_subcontractor_clauses``), и не
+    проходит через сопоставление с нормой 44-ФЗ (``annotate_requirements``):
+    это условие договора, а не пересказ статьи о требованиях к участникам.
     """
     if candidates := _table_requirement_candidates(record, timeout=timeout, verify_ssl=verify_ssl):
         structure = build_structure(candidates)
@@ -403,7 +485,11 @@ def extract_requirements(
         structure = build_structure(
             _candidate_sections(record, timeout=timeout, verify_ssl=verify_ssl)
         )
-    return annotate_requirements(structure)
+    structure = annotate_requirements(structure)
+    subcontractors = _find_subcontractor_clauses(record, timeout=timeout, verify_ssl=verify_ssl)
+    if subcontractors:
+        structure["subcontractors"] = subcontractors
+    return structure
 
 
 __all__ = ["extract_requirements", "build_structure", "split_sections", "enumerate_document_refs"]

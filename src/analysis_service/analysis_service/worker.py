@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -18,6 +19,7 @@ from analysis_service.embedder import build_embedder
 from analysis_service.llm import LlmClient
 from analysis_service.pipeline.prompts import build_geo_address_messages
 from analysis_service.pipeline.rag import RagAnalyzer
+from analysis_service.pipeline.verdict import compute_verdict
 from analysis_service.settings import Settings
 from scoring_common.geo.centers import GeoPoint
 from scoring_common.geo.distance import distance_km
@@ -69,6 +71,23 @@ class AnalysisWorker:
                 await asyncio.sleep(self._settings.queue_poll_seconds)
         finally:
             await self._queue.close()
+
+    async def _resolve_profile(self, profile_id: int) -> dict[str, Any]:
+        """Профиль клиента целиком (кэшировано ``ParserApiClient``, TTL ~секунды).
+
+        Нужен для флага ``analysis_llm_enabled`` (звать ли LLM-стадию) и
+        полей ``requirement_blocking``/``updated_at`` (вердикт приемлемости +
+        гейт кнопки «Анализ», см. ``compute()``). {} при сбое — деградация
+        оставляет весь единый отчёт в детерминированном виде, без LLM.
+        """
+        try:
+            client = await self._parser.get_active_client(
+                internal_token=self._settings.parser_internal_token, profile_id=profile_id
+            )
+            return client or {}
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            logger.warning("Не удалось получить профиль клиента %s: %s", profile_id, exc)
+            return {}
 
     async def _resolve_questions(self, profile_id: int) -> list[dict[str, Any]]:
         """Вопросы профиля (из парсера); None при сбое."""
@@ -268,14 +287,30 @@ class AnalysisWorker:
         )
 
         async def compute(record: dict[str, Any], pid: int, pfd: int) -> dict[str, Any]:
-            questions = await self._resolve_questions(pfd)
-            report_fields = await self._resolve_report_fields(pfd)
-            report = await self._analyzer.analyze(
-                record,
-                questions,
-                report_fields=report_fields,
-                metadata={"procurement_id": pid, "profile_id": pfd},
-            )
+            profile = await self._resolve_profile(pfd)
+            # LLM-часть отчёта (вопросы по ТЗ/отчётные поля) — только с оплаченными
+            # analysis+analysis_embeddings у владельца профиля (ProfileOut.
+            # analysis_llm_enabled, см. zakupki_parser.api.app.deps). Без них
+            # отчёт остаётся полностью детерминированным (требования + geo, без LLM).
+            llm_enabled = bool(profile.get("analysis_llm_enabled"))
+            if llm_enabled:
+                questions = await self._resolve_questions(pfd)
+                report_fields = await self._resolve_report_fields(pfd)
+                report = await self._analyzer.analyze(
+                    record,
+                    questions,
+                    report_fields=report_fields,
+                    metadata={"procurement_id": pid, "profile_id": pfd},
+                )
+            else:
+                report = {
+                    "tz_found": None,
+                    "tz_file": None,
+                    "questions": [],
+                    "fields": [],
+                    "generated_at": datetime.now(UTC).isoformat(),
+                    "status": "llm_disabled",
+                }
             # Этап анализа: проверка расстояния от центра целевого региона
             # (особое требование профиля). Вердикт кладётся в rag_report['geo'];
             # недоступность геокодера/БД-кэша — fail-open (закупка не теряется).
@@ -283,7 +318,8 @@ class AnalysisWorker:
             if geo is not None:
                 report["geo"] = geo
             # Требования к участнику: извлечение по всем документам (если еще не
-            # извлечены) + LLM-заполнение ``data``; персист — per-procurement.
+            # извлечены, детерминированно — лицензии/опыт/минпромторг/соисполнители)
+            # + опциональное LLM-заполнение ``data``; персист — per-procurement.
             # Пустой результат ({}) тоже сохраняется — поле перестаёт быть NULL.
             requirements = record.get("requirements_json")
             if requirements is None:
@@ -293,26 +329,48 @@ class AnalysisWorker:
                     self._settings.tz_download_timeout,
                     self._settings.tz_verify_ssl,
                 )
+            requirements = requirements or {}
             try:
-                filled = await self._analyzer.fill_requirements_data(requirements or {})
-                await self._parser.post_requirements(pid, filled)
+                to_persist = (
+                    await self._analyzer.fill_requirements_data(requirements)
+                    if llm_enabled
+                    else requirements
+                )
+                await self._parser.post_requirements(pid, to_persist)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Не удалось заполнить/сохранить требования закупки %s: %s", pid, exc)
-            result = {
+            # Вердикт приемлемости (единый отчёт, Фаза A — по детерминированным
+            # требованиям): блокирующая категория -> закупку авто-отклоняем.
+            requirement_blocking = profile.get("requirement_blocking") or {}
+            verdict_report = compute_verdict(
+                requirements,
+                requirement_blocking,
+                report.get("questions"),
+                report.get("fields"),
+            )
+            report["requirements_verdict"] = verdict_report["requirements_verdict"]
+            report["verdict"] = verdict_report["verdict"]
+            result: dict[str, Any] = {
                 "procurement_id": pid,
                 "profile_id": pfd,
                 "score": 0.0,
                 "score_method": "fit",
                 "rag_report": report,
+                "auto_rejected": not verdict_report["verdict"]["accepted"],
+                "analysis_profile_snapshot": profile.get("updated_at"),
             }
+            if not verdict_report["verdict"]["accepted"]:
+                labels = [r["label"] for r in verdict_report["verdict"]["blocking_reasons"]]
+                result["auto_rejection_reason"] = "Авто: " + "; ".join(labels)
             logger.info(
                 "Analysis complete for procurement %s (profile %s): tz_found=%s "
-                "file=%r questions=%d%s",
+                "file=%r questions=%d accepted=%s%s",
                 pid,
                 pfd,
                 report.get("tz_found"),
                 report.get("tz_file"),
                 len(report.get("questions") or []),
+                verdict_report["verdict"]["accepted"],
                 f" error={report.get('error')!r}" if report.get("error") else "",
             )
             return result

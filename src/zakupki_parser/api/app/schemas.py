@@ -58,6 +58,23 @@ class ProcurementOut(BaseModel):
     costs: dict[str, Any] | None = None
     # Закупка принята «в работу» активным профилем (Эпик 5, US-5.4–5.6).
     in_work: bool = False
+    # Актуален ли анализ (единый отчёт) под текущий профиль — гейт кнопки
+    # «Анализ»: True (по умолчанию, анализа ещё не было) — кнопка активна;
+    # False — профиль не менялся с последнего анализа, кнопка заблокирована.
+    analysis_stale: bool = True
+    # Статус отбраковки под активный профиль (Эпик 5): "new"/"rejected".
+    status: str = "new"
+    rejection_reason: str | None = None
+    # Отклонена автоматически анализом (вердикт), не вручную «Отбраковать».
+    auto_rejected: bool = False
+    # Требования к участнику (поиск по всем документам, не только ТЗ): структура
+    # {licenses, experience, minprom, subcontractors, other}, каждый тип — список
+    # объектов {text, data, file_name} (+ optional additional/negated). В базовой
+    # схеме (не только Detail) — нужна вкладке «Отчёт» карточки одинаково что в
+    # модалке (ProcurementDetailOut), что во встроенной панели (ProcurementOut,
+    # список), иначе один и тот же отчёт выглядел бы по-разному в зависимости
+    # от того, откуда открыта карточка.
+    requirements_json: dict[str, Any] | None = None
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
@@ -67,11 +84,6 @@ class ProcurementDetailOut(ProcurementOut):
     """Карточка закупки с полным detail_json."""
 
     detail_json: dict[str, Any] | None = None
-    # Требования к участнику (поиск по всем документам, не только ТЗ): структура
-    # {licenses, experience, minprom, other}, где каждый тип — список объектов
-    # {text, data, file_name} (+ optional additional для таблиц). Нужна analysis-воркеру
-    # (get_procurement), чтобы понять, извлечены ли требования и какие data заполнены.
-    requirements_json: dict[str, Any] | None = None
 
 
 class RequirementsOut(BaseModel):
@@ -368,6 +380,12 @@ class ScoreUpdate(BaseModel):
     langfuse_trace_url: str | None = None
     rag_report: dict[str, Any] | None = None
     score_costs: dict[str, Any] | None = None
+    # Вердикт анализа (единый отчёт): сработало ли блокирующее требование/поле —
+    # None означает «стадия не про вердикт» (fit/pwin/margin), не «не заблокировано».
+    auto_rejected: bool | None = None
+    auto_rejection_reason: str | None = None
+    # profiles.updated_at на момент постановки анализа — гейт кнопки «Анализ».
+    analysis_profile_snapshot: datetime | None = None
 
     @field_validator("score_method")
     @classmethod
@@ -468,6 +486,9 @@ class ProfileIn(BaseModel):
     # Конструктор отчётных полей (FR-12.1): [{id, name, hint, type, unit}],
     # сохраняется вместе с профилем полной заменой (как questions).
     report_fields: list[dict[str, Any]] | None = None
+    # Блокирует ли найденное требование (лицензии/опыт/минпромторг/
+    # соисполнители) приемлемость закупки — {"licenses": bool, ...}.
+    requirement_blocking: dict[str, Any] | None = None
     licenses: list[LicenseIn] | None = None
     experience: list[ExperienceIn] | None = None
 
@@ -563,6 +584,10 @@ class ProfileOut(BaseModel):
     search_in_documents: bool = False
     website_url: str | None = None
     report_fields: list[dict[str, Any]] = Field(default_factory=list)
+    # Блокирует ли несоответствие детерминированной категории требований
+    # (лицензии/опыт/минпромторг/соисполнители) приемлемость закупки —
+    # {"licenses": bool, ...}, отсутствующий ключ = не блокирует.
+    requirement_blocking: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     # Факты профиля для сопоставления с фактами ТЗ (только в active_client).
@@ -571,6 +596,11 @@ class ProfileOut(BaseModel):
     # options.py: scoring_embeddings) — только в active_client (конвейер скоринга
     # читает её per-job, см. scoring_service.worker). None вне active_client.
     scoring_embeddings_enabled: bool | None = None
+    # Доступен ли LLM-анализ (вопросы по ТЗ/отчётные поля): опции аккаунта
+    # владельца analysis И analysis_embeddings обе включены — только в
+    # active_client (analysis_service.worker решает, звать ли LLM-стадию).
+    # None вне active_client.
+    analysis_llm_enabled: bool | None = None
 
 
 class ProfileSaveOut(ProfileOut):

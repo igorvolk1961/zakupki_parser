@@ -158,6 +158,9 @@ def test_extract_found_value_and_source() -> None:
             "excerpt": "4000.5 м3",
             "source_file": "doc0.docx",
             "reasoning": "",
+            "expected_value": None,
+            "match": None,
+            "blocking": False,
         }
     ]
 
@@ -238,3 +241,91 @@ def test_extract_concurrency_capped_by_semaphore() -> None:
     asyncio.run(extractor.extract(fields, chunks, vectors, sources))
 
     assert llm.max_in_flight <= 2
+
+
+# --- Ожидаемое значение / match (FR-13.5) -----------------------------------
+
+
+def test_build_field_extract_messages_substitutes_expected_value() -> None:
+    field = {"id": "f1", "name": "объём", "type": "number", "expected_value": "не менее 500"}
+    _, user = build_field_extract_messages(field, "Чанк 1")
+    assert "не менее 500" in user
+    assert "{expected_value}" not in user
+
+
+def test_build_field_extract_messages_expected_value_defaults_to_not_set() -> None:
+    _, user = build_field_extract_messages({"id": "f1", "name": "объём", "type": "number"}, "")
+    assert "не задано" in user
+
+
+def test_extract_match_true_when_expected_value_set_and_llm_confirms() -> None:
+    embedder = _RecordingEmbedder()
+    llm = _RecordingLlm(
+        {"объём": {"found": True, "value": 600, "confidence": "high", "match": True}}
+    )
+    extractor = ReportFieldExtractor(_settings(), embedder, llm)  # type: ignore[arg-type]
+    field = {
+        "id": "f1",
+        "name": "объём",
+        "type": "number",
+        "expected_value": "не менее 500",
+        "blocking": True,
+    }
+    chunks, vectors, sources = _chunks(3)
+
+    results = asyncio.run(extractor.extract([field], chunks, vectors, sources))
+
+    assert results[0]["expected_value"] == "не менее 500"
+    assert results[0]["match"] is True
+    assert results[0]["blocking"] is True
+
+
+def test_extract_match_none_when_expected_value_not_set() -> None:
+    """LLM может вернуть match, но без ожидаемого значения он игнорируется (null)."""
+    embedder = _RecordingEmbedder()
+    llm = _RecordingLlm(
+        {"объём": {"found": True, "value": 600, "confidence": "high", "match": True}}
+    )
+    extractor = ReportFieldExtractor(_settings(), embedder, llm)  # type: ignore[arg-type]
+    field = {"id": "f1", "name": "объём", "type": "number"}
+    chunks, vectors, sources = _chunks(3)
+
+    results = asyncio.run(extractor.extract([field], chunks, vectors, sources))
+
+    assert results[0]["expected_value"] is None
+    assert results[0]["match"] is None
+    assert results[0]["blocking"] is False
+
+
+def test_extract_match_none_when_not_found() -> None:
+    embedder = _RecordingEmbedder()
+    llm = _RecordingLlm({"объём": {"found": False, "confidence": "low"}})
+    extractor = ReportFieldExtractor(_settings(), embedder, llm)  # type: ignore[arg-type]
+    field = {"id": "f1", "name": "объём", "type": "number", "expected_value": "не менее 500"}
+    chunks, vectors, sources = _chunks(3)
+
+    results = asyncio.run(extractor.extract([field], chunks, vectors, sources))
+
+    assert results[0]["found"] is False
+    assert results[0]["match"] is None
+
+
+def test_extract_match_false_mismatch() -> None:
+    embedder = _RecordingEmbedder()
+    llm = _RecordingLlm(
+        {"объём": {"found": True, "value": 100, "confidence": "high", "match": False}}
+    )
+    extractor = ReportFieldExtractor(_settings(), embedder, llm)  # type: ignore[arg-type]
+    field = {
+        "id": "f1",
+        "name": "объём",
+        "type": "number",
+        "expected_value": "не менее 500",
+        "blocking": True,
+    }
+    chunks, vectors, sources = _chunks(3)
+
+    results = asyncio.run(extractor.extract([field], chunks, vectors, sources))
+
+    assert results[0]["match"] is False
+    assert results[0]["blocking"] is True

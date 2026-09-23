@@ -78,7 +78,7 @@ function procRow(row) {
   return `<tr data-id="${row.id}" class="${panelDetailId === row.id ? "sel" : ""}"${rg}>
     <td><input type="checkbox" class="row-sel" data-id="${row.id}" ${selected.has(row.id) ? "checked" : ""}></td>
     <td class="id">${row.id}</td>
-    <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}${row.in_work ? ' <span class="pill active">в работе</span>' : ""}</div></td>
+    <td><div class="num">${escapeHtml(row.number)}</div><div class="subj">${escapeHtml(row.subject || "—")}${row.in_work ? ' <span class="pill active">в работе</span>' : ""}${row.status === "rejected" ? ` <span class="pill inactive" title="${escapeHtml(row.rejection_reason || "")}">отклонена${row.auto_rejected ? " (авто)" : ""}</span>` : ""}</div></td>
     <td><span class="pill">${escapeHtml(row.platform_id)}</span></td>
     <td><span class="pill score">${fitCell(row)}</span>${methodLabel ? `<span class="muted" style="font-size:11px"> ${escapeHtml(methodLabel)}</span>` : ""}</td>
     <td><span class="pill ${row.is_active ? "active" : "inactive"}">${row.is_active ? "Активна" : "Не активна"}</span></td>
@@ -163,6 +163,7 @@ async function procParams() {
   if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
   if ($("#proc-in-work").checked) params.in_work = true;
+  if ($("#proc-rejected").checked) params.include_rejected = true;
   // «Только релевантные» — по желанию пользователя, НЕ автоматически: раньше при
   // доступном скоринге закупки без fit-score (ещё не обработанные конвейером)
   // скрывались всегда, независимо от чекбокса — пользователь не мог их увидеть,
@@ -276,12 +277,15 @@ function cardBodyHtml(row, { closable, containerId }) {
       .join("") || "–";
   const isAnalyzing = analyzingIds.has(row.id);
   const analyst = hasRole("analyst");
-  // Вкладки карточки: «Данные закупки» — всегда; «Результаты скоринга и анализа» —
-  // всегда; «Метрики» — только роли analyst (внутренняя метрика, costs отдаётся
-  // только ей — см. converters).
+  // Вкладки карточки: «Данные закупки»/«Отчёт»/«Результаты скоринга» — всегда;
+  // «Метрики» — только роли analyst (внутренняя метрика, costs отдаётся
+  // только ей — см. converters). «Отчёт» (единый отчёт — требования/поля/
+  // вердикт) отделён от «Результаты скоринга» (Score/Fit/P(win)/Margin —
+  // про relevance-триаж, не про анализ документов).
   const tabs = [
     `<button type="button" class="active" data-cardtab="data" onclick="setCardTab('data', '${containerId}')">Данные закупки</button>`,
-    `<button type="button" data-cardtab="scoring" onclick="setCardTab('scoring', '${containerId}')">Результаты скоринга и анализа</button>`,
+    `<button type="button" data-cardtab="report" onclick="setCardTab('report', '${containerId}')">Отчёт</button>`,
+    `<button type="button" data-cardtab="scoring" onclick="setCardTab('scoring', '${containerId}')">Результаты скоринга</button>`,
   ];
   if (analyst) {
     tabs.push(
@@ -290,7 +294,8 @@ function cardBodyHtml(row, { closable, containerId }) {
   }
   const panels = [
     `<div class="card-tab-panel active" data-cardpanel="data">${cardDataPanel(row, f, files)}</div>`,
-    `<div class="card-tab-panel" data-cardpanel="scoring" style="display:none">${cardScoringPanel(row, f, isAnalyzing, containerId)}</div>`,
+    `<div class="card-tab-panel" data-cardpanel="report" style="display:none">${cardReportPanel(row, isAnalyzing, containerId)}</div>`,
+    `<div class="card-tab-panel" data-cardpanel="scoring" style="display:none">${cardScoringPanel(row, f)}</div>`,
   ];
   if (analyst) {
     panels.push(`<div class="card-tab-panel" data-cardpanel="metrics" style="display:none">${cardMetricsPanel(row)}</div>`);
@@ -319,10 +324,11 @@ function cardBodyHtml(row, { closable, containerId }) {
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
       ${row.in_work
         ? `<button class="ghost" onclick="removeWorkByProc(${row.id})">Снять с работы</button>`
-        : `<button class="primary" onclick="acceptWork(${row.id})">В работу</button>
-           <button class="danger" onclick="openReject(${row.id})" title="Пометить как отклонённую и скрыть из выдачи">Отбраковать</button>`}
-      <button class="ghost" onclick="viewRequirements(${row.id})">Требования к участнику</button>
-      <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id}, '${containerId}')">${isAnalyzing ? "Анализ…" : "Анализ документов"}</button>
+        : `<button class="primary" onclick="acceptWork(${row.id})">В работу</button>`}
+      ${row.status === "rejected"
+        ? `<button class="ghost" onclick="restoreProc(${row.id})" title="${escapeHtml(row.rejection_reason || "")}">Восстановить${row.auto_rejected ? " (авто-отклонена)" : ""}</button>`
+        : `<button class="danger" onclick="openReject(${row.id})" title="Пометить как отклонённую и скрыть из выдачи">Отбраковать</button>`}
+      <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing || !row.analysis_stale ? "disabled" : ""} title="${!isAnalyzing && !row.analysis_stale ? "Анализ актуален — профиль не менялся с последнего запуска" : ""}" onclick="analyzeProc(${row.id}, '${containerId}')">${isAnalyzing ? "Анализ…" : "Анализ документов"}</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
       ${row.langfuse_trace_url && analyst ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
       ${row.rag_report && row.rag_report.trace_url && analyst ? `<button class="ghost" onclick="viewTraceUrl('${escapeHtml(row.rag_report.trace_url)}')">Анализ</button>` : ""}
@@ -351,8 +357,9 @@ function cardDataPanel(row, f, files) {
   </table>`;
 }
 
-// Вкладка «Результаты скоринга и анализа»: оценки каскада + RAG-отчёт стоп-условий.
-function cardScoringPanel(row, f, isAnalyzing, containerId) {
+// Вкладка «Результаты скоринга»: оценки каскада (Score/Fit/P(win)/Margin) —
+// про relevance-триаж, отделено от «Отчёт» (см. cardReportPanel).
+function cardScoringPanel(row, f) {
   const methodLabel = row.score_method
     ? { manual: "ручная", reject: "отклонена", fit: "fit", sim: "sim", pwin: "pwin", margin: "margin" }[row.score_method] || row.score_method
     : "—";
@@ -371,8 +378,7 @@ function cardScoringPanel(row, f, isAnalyzing, containerId) {
     ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
     ${f("Трейс скоринга", scoreTrace)}
     ${f("Трейс анализа документов", analysisTrace)}
-  </table>
-  ${ragReportHtml(row.rag_report, isAnalyzing, containerId)}`;
+  </table>`;
 }
 
 // Вкладка «Метрики» (только analyst): токены, стоимость токенов, латенси,
@@ -607,47 +613,71 @@ async function closeTz(id) {
   if (openDetailId !== null) await openDetail(id);
 }
 
-// Просмотр json-структуры «Требования к участнику» (поиск по всем документам).
-// Поле БД читается как есть; если не заполнено — выполняется детерминированное
-// извлечение и сохранение (эндпоинт GET /requirements). Закрытие возвращает к карточке.
-async function viewRequirements(id) {
-  $("#modal").innerHTML = `
-    <span class="close" onclick="closeTz(${id})">×</span>
-    <h2>Требования к участнику #${id}</h2>
-    <p class="muted">Извлекаю структуру…</p>`;
-  $("#modal-bg").classList.add("open");
-  try {
-    const r = await api("procurements/" + id + "/requirements");
-    const req = r.requirements || {};
-    if (!Object.keys(req).length) {
-      $("#modal").innerHTML = `
-        <span class="close" onclick="closeTz(${id})">×</span>
-        <h2>Требования к участнику #${id}</h2>
-        <p class="muted">Разделы «требования к участнику / к исполнителю / к составу заявки»
-        не найдены ни в одном документе карточки.</p>
-        <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
-          <button class="primary" onclick="closeTz(${id})">Закрыть</button>
-        </div>`;
-      return;
-    }
-    const json = JSON.stringify(req, null, 2);
-    $("#modal").innerHTML = `
-      <span class="close" onclick="closeTz(${id})">×</span>
-      <h2>Требования к участнику #${id}</h2>
-      <p class="muted" style="margin-top:0;">json-структура поля «Требования к участнику»</p>
-      <pre class="tz-view" style="white-space:pre-wrap; overflow:auto; max-height:72vh;">${escapeHtml(json)}</pre>
-      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
-        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+
+// Подписи фиксированных (не зависящих от профиля) категорий требований к
+// участнику — детерминированное извлечение без LLM (scoring_common.requirements).
+const REQUIREMENT_CATEGORY_LABELS = {
+  licenses: "Лицензии",
+  experience: "Опыт исполнения",
+  minprom: "Требования Минпромторга",
+  subcontractors: "Допустимость привлечения соисполнителей",
+};
+
+// Вкладка «Отчёт»: результат анализа закупки целиком — требования к участнику
+// (лицензии/опыт/минпромторг/соисполнители, детерминированно, доступно ЛЮБОМУ
+// аккаунту), geo-дистанция до центра региона (если профиль её ограничивает),
+// вопросы по ТЗ/отчётные поля (LLM — платные опции, см. ragReportHtml) и
+// итоговый вердикт приемлемости. Блокирующие пункты — красным (var(--warn)
+// недостаточно контрастен для «блокирует», используем явный #dc2626, как и
+// остальные ошибки в этом файле).
+function cardReportPanel(row, isAnalyzing, containerId) {
+  const report = row.rag_report;
+  const verdict = report && report.verdict;
+  const reqVerdict = (report && report.requirements_verdict) || {};
+  const requirements = row.requirements_json || {};
+
+  const verdictBanner = !verdict
+    ? ""
+    : verdict.accepted
+      ? `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #16a34a;border-radius:8px;background:rgba(22,163,74,0.08);color:#16a34a;font-weight:600;">✓ Закупка допустима</div>`
+      : `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #dc2626;border-radius:8px;background:rgba(220,38,38,0.08);color:#dc2626;font-weight:600;">✗ Закупка отклонена: ${escapeHtml((verdict.blocking_reasons || []).map((r) => r.label).join(", "))}</div>`;
+
+  const reqBlocks = Object.keys(REQUIREMENT_CATEGORY_LABELS)
+    .map((key) => {
+      const items = requirements[key];
+      if (!items || !items.length) return "";
+      const blocking = !!(reqVerdict[key] || {}).blocking;
+      const text = items
+        .map(
+          (it) =>
+            escapeHtml(it.text || "") +
+            (it.additional ? ` — ${escapeHtml(it.additional)}` : "")
+        )
+        .join("<br>");
+      const style = blocking
+        ? "border:1px solid #dc2626; background:rgba(220,38,38,0.08);"
+        : "border:1px solid var(--line);";
+      return `<div style="margin:0 0 10px; padding:8px 10px; border-radius:8px; ${style}">
+        <b${blocking ? ' style="color:#dc2626;"' : ""}>${REQUIREMENT_CATEGORY_LABELS[key]}${blocking ? " — блокирует" : ""}</b>
+        <div class="muted" style="margin-top:4px;">${text}</div>
       </div>`;
-  } catch (err) {
-    $("#modal").innerHTML = `
-      <span class="close" onclick="closeTz(${id})">×</span>
-      <h2>Требования к участнику #${id}</h2>
-      <p class="muted">Ошибка загрузки: ${escapeHtml(String(err))}</p>
-      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
-        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+    })
+    .join("");
+
+  const geo = report && report.geo;
+  const geoBlock = !geo
+    ? ""
+    : `<div style="margin:0 0 10px; padding:8px 10px; border-radius:8px; ${geo.too_far ? "border:1px solid #dc2626; background:rgba(220,38,38,0.08);" : "border:1px solid var(--line);"}">
+        <b${geo.too_far ? ' style="color:#dc2626;"' : ""}>Расстояние до центра региона${geo.too_far ? " — превышен лимит" : ""}</b>
+        <div class="muted" style="margin-top:4px;">${geo.distance_km != null ? Number(geo.distance_km).toFixed(1) : "—"} км (лимит ${geo.max_distance_km ?? "—"} км)${geo.region ? `, регион: ${escapeHtml(geo.region)}` : ""}</div>
       </div>`;
-  }
+
+  return `
+    ${verdictBanner}
+    <h3 style="margin:0 0 4px;">Требования к участнику</h3>
+    ${reqBlocks || '<p class="muted">Требований к участнику не найдено ни в одном документе.</p>'}
+    ${geoBlock}
+    ${ragReportHtml(report, isAnalyzing, containerId)}`;
 }
 
 // RAG-отчёт анализа по вопросам клиента (персонализированные вопросы профиля).
@@ -688,7 +718,9 @@ function ragReportHtml(report, isAnalyzing, containerId) {
     return `<h3 style="margin:16px 0 4px;">Анализ документов</h3><p class="muted">${reason}</p>`;
   }
   let banner = "";
-  if (report.status === "deferred") {
+  if (report.status === "llm_disabled") {
+    banner = `<div style="margin:8px 0;padding:8px 10px;border:1px solid #d97706;border-radius:8px;background:rgba(217,119,6,0.08);">⚠️ LLM-анализ недоступен в вашем аккаунте (платные опции analysis/эмбеддинги) — показана только детерминированная часть отчёта (требования к участнику, geo).</div>`;
+  } else if (report.status === "deferred") {
     banner = `<div style="margin:8px 0;padding:8px 10px;border:1px solid #d97706;border-radius:8px;background:rgba(217,119,6,0.08);">⚠️ Недоступен LLM/эмбеддинги — часть проверок не выполнена.${report.error ? `<span class="muted" style="display:block;margin-top:2px;">${escapeHtml(report.error)}</span>` : ""}</div>`;
   } else if (report.error) {
     banner = `<p class="muted" style="margin:8px 0;">${escapeHtml(report.error)}</p>`;
@@ -712,12 +744,18 @@ function ragReportHtml(report, isAnalyzing, containerId) {
         ? `${escapeHtml(String(f.value ?? ""))}${f.unit ? " " + escapeHtml(f.unit) : ""}`
         : '<span class="muted">не найдено</span>';
       const title = f.found && f.excerpt ? ` title="«${escapeHtml(f.excerpt)}»"` : "";
-      return `<tr${title}><td>${escapeHtml(f.field_name)}</td><td>${value}</td></tr>`;
+      // Блокирует несовпадение — красным, как и остальные блокирующие пункты отчёта.
+      const mismatch = f.blocking && f.match === false;
+      const rowStyle = mismatch ? ' style="background:rgba(220,38,38,0.08); color:#dc2626;"' : "";
+      const expectedCell = f.expected_value
+        ? `${escapeHtml(f.expected_value)}${f.match === true ? " ✓" : f.match === false ? " ✗" : ""}`
+        : '<span class="muted">—</span>';
+      return `<tr${title}${rowStyle}><td>${escapeHtml(f.field_name)}</td><td>${value}</td><td>${expectedCell}</td></tr>`;
     })
     .join("");
   const fieldsBlock = fieldItems
     ? `<h3 style="margin:16px 0 4px;">Отчётные поля</h3>
-       <div class="table-wrap"><table><tbody>${fieldItems}</tbody></table></div>`
+       <div class="table-wrap"><table><thead><tr><th>Поле</th><th>Значение</th><th>Ожидаемое</th></tr></thead><tbody>${fieldItems}</tbody></table></div>`
     : "";
   return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
@@ -950,6 +988,23 @@ async function removeWorkByProc(id) {
   }
 }
 
+// Восстановление отклонённой закупки (единый способ — и ручная «Отбраковать»,
+// и авто-отклонение анализом снимаются одинаково, см. POST .../restore).
+async function restoreProc(id) {
+  try {
+    const r = await apiJSON("/api/procurements/" + id + "/restore", { method: "POST" });
+    if (!r.ok) {
+      $("#parser-status").textContent = "не удалось восстановить: " + (await apiErrorDetail(r));
+      return;
+    }
+    $("#parser-status").textContent = `Закупка #${id} восстановлена`;
+    await loadProc();
+    if (openDetailId !== null) await openDetail(id);
+  } catch (err) {
+    $("#parser-status").textContent = "не удалось восстановить: " + (err.message || err);
+  }
+}
+
 // Добавление закупки «в работу» по URL карточки на ЭТП (живая подгрузка,
 // см. POST /api/procurements/by-url) — для закупок, найденных не через наш
 // поиск (напр. другим инструментом тендеролога), в т.ч. вне фильтров профиля.
@@ -1127,7 +1182,6 @@ export {
   analyzeProc,
   pwinProc,
   viewTz,
-  viewRequirements,
   closeTz,
   viewTrace,
   viewTraceUrl,
@@ -1135,6 +1189,7 @@ export {
   loadPlatforms,
   acceptWork,
   removeWorkByProc,
+  restoreProc,
   openReject,
   closeReject,
   doReject,
@@ -1288,6 +1343,10 @@ $("#proc-active").addEventListener("change", () => {
   loadProc();
 });
 $("#proc-in-work").addEventListener("change", () => {
+  procPage = 1;
+  loadProc();
+});
+$("#proc-rejected").addEventListener("change", () => {
   procPage = 1;
   loadProc();
 });

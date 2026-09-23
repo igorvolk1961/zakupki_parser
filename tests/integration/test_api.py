@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import os
 import shutil
@@ -553,105 +554,15 @@ def test_procurement_tz_not_found(api_client: tuple[TestClient, Path]) -> None:
     assert body["text"] is None
 
 
-def test_procurement_requirements_extract_and_persist(
-    api_client: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """GET /requirements извлекает требования из документа и персистит в БД.
-
-    Подменяется только извлечение текста (extract_requirements->extract_text_cached),
-    чтобы не ходить в сеть. Повторный запрос читает уже сохранённую структуру.
-    """
-    from scoring_common.tz.files import FileRef
-
-    client, _ = api_client
-
-    async def _seed() -> int:
-        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
-        await db.connect()
-        try:
-            repo = ProcurementRepository(db)
-            assert await repo.upsert(
-                {
-                    "number": "REQ-1",
-                    "platform_id": "zakupki_mos",
-                    "subject": "Закупка с требованиями",
-                    "files_json": [
-                        {"name": "Требования к участникам.docx", "url": "http://x/req.docx"},
-                    ],
-                }
-            )
-            rows, _ = await repo.list_procurements(number="REQ-1")
-            return rows[0].id
-        finally:
-            await db.dispose()
-
-    req_id = asyncio.run(_seed())
-
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
-        return "# Требования к участнику\n\nТребуется лицензия МЧС на монтаж."
-
-    monkeypatch.setattr("scoring_common.requirements.extract_text_cached", fake_extract)
-
-    body = client.get(f"/api/procurements/{req_id}/requirements").json()
-    assert body["found"] is True
-    assert "licenses" in body["requirements"]
-    assert body["requirements"]["licenses"][0]["text"]
-    assert body["requirements"]["licenses"][0]["data"] is None
-    assert body["requirements"]["licenses"][0]["file_name"] == "Требования к участникам.docx"
-
-    # Структура сохранена в БД: повторный запрос не извлекает заново.
-    again = client.get(f"/api/procurements/{req_id}/requirements").json()
-    assert again["requirements"] == body["requirements"]
-
-    # detail-ответ несёт requirements_json (нужен analysis-воркеру).
-    detail = client.get(f"/api/procurements/{req_id}").json()
-    assert detail["requirements_json"] == body["requirements"]
-
-
-def test_procurement_requirements_empty_object(
-    api_client: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Шаблоны не найдены нигде → в БД сохраняется пустой {} и found=False."""
-    from scoring_common.tz.files import FileRef
-
-    client, _ = api_client
-
-    async def _seed() -> int:
-        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
-        await db.connect()
-        try:
-            repo = ProcurementRepository(db)
-            assert await repo.upsert(
-                {
-                    "number": "REQ-NONE",
-                    "platform_id": "zakupki_mos",
-                    "subject": "Без требований",
-                    "files_json": [{"name": "смета.xlsx", "url": "http://x/smeta.xlsx"}],
-                }
-            )
-            rows, _ = await repo.list_procurements(number="REQ-NONE")
-            return rows[0].id
-        finally:
-            await db.dispose()
-
-    req_id = asyncio.run(_seed())
-
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
-        return "Описание предмета закупки и условия оплаты."
-
-    monkeypatch.setattr("scoring_common.requirements.extract_text_cached", fake_extract)
-
-    body = client.get(f"/api/procurements/{req_id}/requirements").json()
-    assert body["found"] is False
-    assert body["requirements"] == {}
-
-    # Поле в БД — пустой объект (не NULL): повторный запрос не извлекает заново.
-    again = client.get(f"/api/procurements/{req_id}/requirements").json()
-    assert again["requirements"] == {}
-
-
 def test_procurement_requirements_post_internal(api_client: tuple[TestClient, Path]) -> None:
-    """POST /requirements (внутренний) сохраняет структуру; GET её отдаёт."""
+    """POST /requirements (внутренний, воркер анализа) сохраняет структуру.
+
+    Извлечение (``scoring_common.requirements.extract_requirements``, вызывается
+    воркером, не этим API) тестируется отдельно — ``src/scoring_common/tests/
+    test_requirements.py``. Здесь — только персист + видимость в detail-ответе
+    (единый отчёт читает ``requirements_json`` оттуда, GET .../requirements
+    убран вместе с кнопкой «Требования к участнику», FR-13).
+    """
     client, _ = api_client
 
     async def _seed() -> int:
@@ -685,9 +596,187 @@ def test_procurement_requirements_post_internal(api_client: tuple[TestClient, Pa
     assert resp.status_code == 200
     assert resp.json()["requirements"] == structure
 
-    got = client.get(f"/api/procurements/{req_id}/requirements").json()
-    assert got["found"] is True
-    assert got["requirements"] == structure
+    detail = client.get(f"/api/procurements/{req_id}").json()
+    assert detail["requirements_json"] == structure
+
+
+def test_procurement_requirements_post_empty_object(api_client: tuple[TestClient, Path]) -> None:
+    """Пустая структура ({}) сохраняется как есть (не NULL) — виден в detail."""
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "REQ-NONE",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Без требований",
+                    "files_json": [],
+                }
+            )
+            rows, _ = await repo.list_procurements(number="REQ-NONE")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    req_id = asyncio.run(_seed())
+    resp = client.post(
+        f"/api/procurements/{req_id}/requirements",
+        json={"structure": {}},
+        headers=INTERNAL_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["requirements"] == {}
+
+    detail = client.get(f"/api/procurements/{req_id}").json()
+    assert detail["requirements_json"] == {}
+
+
+def test_export_procurement_xlsx_highlights_blocking_rows(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Excel-экспорт карточки (FR-13.4): вердикт/требования/geo — красным, если блокируют."""
+    import openpyxl
+
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "XLSX-1",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Экспорт с блокировкой",
+                }
+            )
+            rows, _ = await repo.list_procurements(number="XLSX-1")
+            pid = rows[0].id
+            await repo.save_requirements(
+                pid, {"licenses": [{"text": "Требуется лицензия МЧС", "data": None}]}
+            )
+            user = await repo.first_user()
+            assert user is not None
+            profile = await repo.get_active_profile(user.id)
+            assert profile is not None
+            await repo.update_rag_report(
+                pid,
+                profile.id,
+                {
+                    "verdict": {
+                        "accepted": False,
+                        "blocking_reasons": [{"source": "licenses", "label": "Лицензии"}],
+                    },
+                    "requirements_verdict": {
+                        "licenses": {"blocking": True, "negated": False, "count": 1}
+                    },
+                    "geo": {
+                        "too_far": True,
+                        "distance_km": 120.0,
+                        "max_distance_km": 50.0,
+                        "region": "Московская область",
+                    },
+                },
+            )
+            return pid
+        finally:
+            await db.dispose()
+
+    pid = asyncio.run(_seed())
+    resp = client.get(f"/api/procurements/{pid}/export.xlsx")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    assert ws is not None
+    rows_by_label = {row[0]: row[1] for row in ws.iter_rows(min_row=2, values_only=True)}
+    assert rows_by_label["Вердикт приемлемости"] == "Отклонена: Лицензии"
+    assert rows_by_label["Лицензии"] == "Требуется лицензия МЧС"
+    assert "120.0" in str(rows_by_label["Расстояние до центра региона"])
+
+    # Блокирующие строки — красным (проверяем цвет шрифта конкретных ячеек).
+    label_cells = {cell.value: cell for row in ws.iter_rows(min_row=2) for cell in [row[0]]}
+    assert label_cells["Вердикт приемлемости"].font.color.rgb == "FFDC2626"
+    assert label_cells["Лицензии"].font.color.rgb == "FFDC2626"
+    assert label_cells["Расстояние до центра региона"].font.color.rgb == "FFDC2626"
+    # Неблокирующая строка (обычные данные закупки) — не подсвечена.
+    assert label_cells["Номер"].font.bold is not True
+
+
+def test_export_procurement_xlsx_highlights_blocking_field_mismatch(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Excel-экспорт (FR-13.5): отчётное LLM-поле с blocking=True и
+    match=False — красным, наряду с ожидаемым значением в тексте ячейки."""
+    import openpyxl
+
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "XLSX-FIELD-1",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Экспорт с блокирующим полем",
+                }
+            )
+            rows, _ = await repo.list_procurements(number="XLSX-FIELD-1")
+            pid = rows[0].id
+            user = await repo.first_user()
+            assert user is not None
+            profile = await repo.get_active_profile(user.id)
+            assert profile is not None
+            await repo.update_rag_report(
+                pid,
+                profile.id,
+                {
+                    "verdict": {
+                        "accepted": False,
+                        "blocking_reasons": [{"source": "field:f2", "label": "объём партии"}],
+                    },
+                    "fields": [
+                        {
+                            "field_id": "f2",
+                            "field_name": "объём партии",
+                            "found": True,
+                            "value": 300,
+                            "unit": "м3",
+                            "expected_value": "не менее 500",
+                            "match": False,
+                            "blocking": True,
+                        }
+                    ],
+                },
+            )
+            return pid
+        finally:
+            await db.dispose()
+
+    pid = asyncio.run(_seed())
+    resp = client.get(f"/api/procurements/{pid}/export.xlsx")
+    assert resp.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    assert ws is not None
+    rows_by_label = {row[0]: row[1] for row in ws.iter_rows(min_row=2, values_only=True)}
+    field_value = str(rows_by_label["Поле: объём партии"])
+    assert "300" in field_value
+    assert "не менее 500" in field_value
+    assert "НЕ совпадает" in field_value
+
+    label_cells = {cell.value: cell for row in ws.iter_rows(min_row=2) for cell in [row[0]]}
+    assert label_cells["Поле: объём партии"].font.color.rgb == "FFDC2626"
 
 
 def test_procurement_requirements_post_404(api_client: tuple[TestClient, Path]) -> None:
@@ -1533,7 +1622,8 @@ def test_profile_website_url_persists_across_save(api_client: tuple[TestClient, 
 
 def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) -> None:
     """Конструктор отчётных полей (FR-12.1): поля профиля сохраняются полной
-    заменой вместе с профилем и возвращаются как есть при чтении."""
+    заменой вместе с профилем и возвращаются как есть при чтении.
+    Ожидаемое значение/блокировка (FR-13.5) — часть того же поля профиля."""
     client, _ = api_client
     fields = [
         {
@@ -1549,6 +1639,8 @@ def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) ->
             "hint": "объём вывоза",
             "type": "number",
             "unit": "м3",
+            "expected_value": "не менее 500",
+            "blocking": True,
         },
     ]
     created = client.post(

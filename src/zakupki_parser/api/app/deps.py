@@ -136,6 +136,23 @@ def build_context(state: AppState) -> ApiContext:
         accounts = await _repo().list_accounts(profile.user_id)
         return effective_options(accounts, owner.trial_end_at).has_option("scoring_embeddings")
 
+    async def _analysis_llm_enabled(profile: Profile) -> bool:
+        """Доступен ли владельцу профиля LLM-анализ (вопросы по ТЗ/отчётные поля).
+
+        Обе опции аккаунта нужны сразу (``analysis`` И ``analysis_embeddings``) —
+        читается только конвейером (``/api/clients/active``, ``include_facts=True``):
+        ``analysis_service.worker`` решает per-job, звать ли LLM-стадию, или
+        ограничиться детерминированной частью отчёта (требования/geo, без LLM).
+        """
+        if profile.user_id is None:
+            return False
+        owner = await _repo().get_user(profile.user_id)
+        if owner is None:
+            return False
+        accounts = await _repo().list_accounts(profile.user_id)
+        eff = effective_options(accounts, owner.trial_end_at)
+        return eff.has_option("analysis") and eff.has_option("analysis_embeddings")
+
     async def _profile_out(
         profile: Profile,
         keywords: dict[str, list[str]] | None = None,
@@ -156,6 +173,7 @@ def build_context(state: AppState) -> ApiContext:
         if include_facts:
             data["facts"] = ProfileFactsOut(**await _repo().get_profile_facts(profile.id))
             data["scoring_embeddings_enabled"] = await _scoring_embeddings_enabled(profile)
+            data["analysis_llm_enabled"] = await _analysis_llm_enabled(profile)
         return ProfileOut(**data)
 
     async def _effective_options(user: User) -> EffectiveOptions:

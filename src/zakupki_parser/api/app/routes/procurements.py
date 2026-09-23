@@ -13,8 +13,8 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from openpyxl import Workbook
+from openpyxl.styles import Font
 
-from scoring_common.requirements import extract_requirements
 from scoring_common.tz import resolve_tz_content_cached
 from zakupki_parser.api.app.converters import (
     _meets_stage_notify_threshold,
@@ -58,11 +58,15 @@ logger = logging.getLogger(__name__)
 _TZ_EXTRACT_CONCURRENCY = 4
 _tz_extract_semaphore = asyncio.Semaphore(_TZ_EXTRACT_CONCURRENCY)
 
-# Лимит одновременных извлечений требований к участнику: просмотр скачивает и
-# конвертирует КАЖДЫЙ документ карточки (потенциально архив + десятки записей) в
-# потоках asyncio — всплеск запросов не должен исчерпать общий thread-pool.
-_REQ_EXTRACT_CONCURRENCY = 2
-_req_extract_semaphore = asyncio.Semaphore(_REQ_EXTRACT_CONCURRENCY)
+# Подписи фиксированных категорий требований к участнику (единый отчёт,
+# scoring_common.requirements) — те же ключи/подписи, что и на фронте
+# (procurements.js#REQUIREMENT_CATEGORY_LABELS), для Excel-экспорта.
+REQUIREMENT_CATEGORY_LABELS: dict[str, str] = {
+    "licenses": "Лицензии",
+    "experience": "Опыт исполнения",
+    "minprom": "Требования Минпромторга",
+    "subcontractors": "Допустимость привлечения соисполнителей",
+}
 
 # Плоские колонки для CSV-выгрузки (без detail_json/files_json).
 CSV_COLUMNS = [
@@ -431,6 +435,32 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         return _procurement_detail_out(row, include_costs=_is_analyst(user))
 
     @router.post(
+        "/api/procurements/{procurement_id}/restore",
+        response_model=ProcurementDetailOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def restore_procurement(
+        procurement_id: int,
+        user: User | None = Depends(require_base),
+    ) -> ProcurementDetailOut:
+        """Снимает отбраковку/авто-отклонение закупки (единый способ для обоих).
+
+        Закупка возвращается в обычную выдачу (``status='new'``) — независимо
+        от того, была она отклонена вручную или автоматически анализом
+        (сработавшее блокирующее требование/поле, см. ``upsert_score``).
+        """
+        _, profile = await _active_context(user)
+        assert profile is not None
+        restored = await _repo().restore(procurement_id, profile.id)
+        if restored is None:
+            raise HTTPException(status_code=404, detail="Закупка не отклонена")
+        await _broadcast(state)
+        row = await _repo().get_by_id(procurement_id, profile_id=profile.id)
+        if row is None:  # pragma: no cover - проверено выше
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        return _procurement_detail_out(row, include_costs=_is_analyst(user))
+
+    @router.post(
         "/api/procurements/{procurement_id}/exclusion-word",
         response_model=ExclusionWordOut,
         dependencies=[Depends(require_base)],
@@ -575,11 +605,15 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         assert ws is not None
         ws.title = "Закупка"
         ws.append(["Поле", "Значение"])
+        red_font = Font(color="FFDC2626", bold=True)
 
-        def add(label: str, value: Any) -> None:
+        def add(label: str, value: Any, *, blocking: bool = False) -> None:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value, ensure_ascii=False)
             ws.append([label, value])
+            if blocking:
+                for cell in ws[ws.max_row]:
+                    cell.font = red_font
 
         method_labels = {
             "manual": "ручная",
@@ -606,6 +640,41 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         add("ОКПД2", out.okpd2_codes)
         add("Срок исполнения", out.execution_term)
         add("Ссылка", out.url)
+
+        # Отчёт (единый отчёт — см. «Отчёт» на карточке, cardReportPanel):
+        # вердикт приемлемости + требования к участнику + geo-дистанция.
+        # Блокирующие пункты — красным.
+        report = out.rag_report or {}
+        verdict = report.get("verdict")
+        if isinstance(verdict, dict):
+            blocking_reasons = verdict.get("blocking_reasons") or []
+            reasons = ", ".join(r.get("label", "") for r in blocking_reasons if isinstance(r, dict))
+            add(
+                "Вердикт приемлемости",
+                "Допустима" if verdict.get("accepted") else f"Отклонена: {reasons}",
+                blocking=not verdict.get("accepted"),
+            )
+        requirements = out.requirements_json or {}
+        req_verdict = report.get("requirements_verdict") or {}
+        for key, label in REQUIREMENT_CATEGORY_LABELS.items():
+            items = requirements.get(key)
+            if not items:
+                continue
+            texts = "; ".join(
+                (i.get("text") or "") + (f" — {i['additional']}" if i.get("additional") else "")
+                for i in items
+                if isinstance(i, dict)
+            )
+            info = req_verdict.get(key) or {}
+            add(label, texts, blocking=bool(info.get("blocking")))
+        geo = report.get("geo")
+        if isinstance(geo, dict):
+            geo_text = (
+                f"{geo.get('distance_km')} км (лимит {geo.get('max_distance_km')} км, "
+                f"регион: {geo.get('region') or '—'})"
+            )
+            add("Расстояние до центра региона", geo_text, blocking=bool(geo.get("too_far")))
+
         add("Score", out.score)
         add("Метод скоринга", method_labels.get(out.score_method or "", out.score_method))
         add("Fit-скор", out.fit_score)
@@ -616,8 +685,21 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             if isinstance(q, dict):
                 add(f"Вопрос: {q.get('text', '')}", q.get("marker") or q.get("verdict"))
         for fv in (out.rag_report or {}).get("fields", []) or []:
-            if isinstance(fv, dict) and fv.get("found"):
-                add(f"Поле: {fv.get('field_name', '')}", fv.get("value"))
+            if not isinstance(fv, dict) or not fv.get("found"):
+                continue
+            mismatch = bool(fv.get("blocking")) and fv.get("match") is False
+            value = fv.get("value")
+            expected = fv.get("expected_value")
+            if expected:
+                match_result = fv.get("match")
+                if match_result is True:
+                    match_mark = " (совпадает)"
+                elif match_result is False:
+                    match_mark = " (НЕ совпадает)"
+                else:
+                    match_mark = ""
+                value = f"{value} [ожидается: {expected}{match_mark}]"
+            add(f"Поле: {fv.get('field_name', '')}", value, blocking=mismatch)
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -714,44 +796,6 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             delivery_lon=body.delivery_lon,
             region=row.region,
         )
-
-    async def _resolve_requirements(row: Any) -> dict[str, Any]:
-        """Детерминированное извлечение требований + сохранение в БД (per-procurement).
-
-        Тяжёлые блокирующие операции (скачивание/конвертация всех документов карточки)
-        выполняются в потоке под семафором ``_req_extract_semaphore``. Возвращает
-        структуру (``{}`` — требования не найдены).
-        """
-        record = {"files_json": row.files_json or []}
-        async with _req_extract_semaphore:
-            structure = await asyncio.to_thread(extract_requirements, record, 30.0)
-        await _repo().save_requirements(row.id, structure)
-        return structure
-
-    @router.get(
-        "/api/procurements/{procurement_id}/requirements",
-        response_model=RequirementsOut,
-        dependencies=[Depends(require_user_or_internal)],
-    )
-    async def get_procurement_requirements(
-        procurement_id: int, user: User | None = Depends(require_user_or_internal)
-    ) -> RequirementsOut:
-        """Структура «Требования к участнику» для просмотра в карточке.
-
-        Читает новое поле ``procurements.requirements_json``; если оно не заполнено
-        (NULL) — выполняет детерминированное извлечение требований по всем документам
-        карточки (``scoring_common.requirements``) и сохраняет результат в БД.
-        """
-        _, profile = await _active_context(user)
-        row = await _repo().get_by_id(
-            procurement_id, profile_id=profile.id if profile is not None else None
-        )
-        if row is None:
-            raise HTTPException(status_code=404, detail="Закупка не найдена")
-        structure = row.requirements_json
-        if structure is None:
-            structure = await _resolve_requirements(row)
-        return RequirementsOut(found=bool(structure), requirements=structure or {})
 
     @router.post(
         "/api/procurements/{procurement_id}/requirements",
@@ -904,6 +948,9 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 costs=costs,
                 iteration=batch_iteration,
                 platform=batch_platform,
+                auto_rejected=body.auto_rejected,
+                auto_rejection_reason=body.auto_rejection_reason,
+                analysis_profile_snapshot=body.analysis_profile_snapshot,
             )
         # Результат стадии каскада (fit/pwin/margin/sim) применяется и вместе с
         # rag_report: rag_report не отменяет скоринг. Чисто аналитический результат
@@ -999,17 +1046,19 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     async def analyze_procurements(
         body: ProcurementIdsIn, user: User | None = Depends(require_base)
     ) -> dict[str, Any]:
-        """Обработать выбранные закупки: авто-Fit (если нет) + анализ документов.
+        """Обработать выбранные закупки: авто-Fit (если нет) + анализ документов (отчёт).
 
         Внутренние стадии скрыты от заказчика: для каждой закупки ставится
-        задание fit (если per-profile fit ещё не посчитан) и затем analysis —
-        заполнение ``data`` требований к участнику + персональные вопросы профиля.
+        задание fit (если per-profile fit ещё не посчитан) и затем analysis.
         Ручная корректировка оценок — вне MVP (Эпик 5, пост-MVP).
 
-        Стадии — платные опции (аккаунт/триал): fit использует опцию ``scoring``,
-        analysis — ``analysis`` и ``analysis_embeddings``. Недоступные стадии
-        пропускаются; если не доступна ни одна — операция отклоняется с
-        понятным сообщением (пользователь включает опции в личном кабинете).
+        ``fit`` — платная опция (``scoring``), пропускается, если недоступна.
+        ``analysis`` ставится ВСЕГДА — детерминированная часть отчёта (требования
+        к участнику/лицензии-опыт-минпромторг-соисполнители, geo-дистанция) не
+        требует платных опций; LLM-часть (вопросы по ТЗ/отчётные поля) внутри
+        стадии сам решает по опциям аккаунта владельца профиля
+        (``analysis_service.worker``, см. ``ProfileOut.analysis_llm_enabled`` —
+        отдаётся конвейеру через ``/api/clients/active``).
         """
         eff_user = _require_user(user)
         if state.score_transport is None:
@@ -1018,23 +1067,13 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         assert profile is not None
         eff = await _effective_options(eff_user)
         can_fit = eff.has_option("scoring")
-        can_analysis = eff.has_option("analysis") and eff.has_option("analysis_embeddings")
-        if not can_fit and not can_analysis:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Операция недоступна в вашем аккаунте: анализ документов и скоринг — "
-                    "платные опции (LLM/эмбеддинги). Включите нужные опции в личном кабинете."
-                ),
-            )
         queued: list[int] = []
         for procurement_id in body.procurement_ids:
             if can_fit:
                 current = await _repo().get_score(procurement_id, profile.id)
                 if current is None or current.fit_score is None:
                     await _enqueue_next_stage(state, procurement_id, "fit", 0.5, profile.id)
-            if can_analysis:
-                await _enqueue_next_stage(state, procurement_id, "analysis", 0.5, profile.id)
+            await _enqueue_next_stage(state, procurement_id, "analysis", 0.5, profile.id)
             queued.append(procurement_id)
         logger.info("Поставлено на обработку (fit+analysis): %s", queued)
         return {"status": "queued", "procurement_ids": queued}

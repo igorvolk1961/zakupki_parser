@@ -159,6 +159,7 @@ def build_field_extract_messages(field: dict[str, Any], context: str) -> tuple[s
             "field_name": str(field.get("name") or ""),
             "field_hint": str(field.get("hint") or "нет"),
             "unit": str(field.get("unit") or "не указана"),
+            "expected_value": str(field.get("expected_value") or "").strip() or "не задано",
             "context": context,
         },
     )

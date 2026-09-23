@@ -113,6 +113,9 @@ class ParserApiClient:
         rag_report: dict[str, Any] | None = None,
         score_costs: dict[str, Any] | None = None,
         profile_id: int | None = None,
+        auto_rejected: bool | None = None,
+        auto_rejection_reason: str | None = None,
+        analysis_profile_snapshot: str | None = None,
         retry_max: int = 3,
         retry_backoff: float = 2.0,
         internal_token: str | None = None,
@@ -124,6 +127,9 @@ class ParserApiClient:
         ``rag_report`` — результат RAG-анализа стоп-условий (analysis_service).
         ``score_costs`` — стоимость обработки (скоринг/анализ) для поля ``costs``.
         ``profile_id`` — профиль, для которого посчитан результат (пер-профильно, BR-07).
+        ``auto_rejected``/``auto_rejection_reason``/``analysis_profile_snapshot`` —
+        вердикт единого отчёта (analysis_service.pipeline.verdict), см. ``ScoreUpdate``
+        в zakupki_parser. ``analysis_profile_snapshot`` — ISO-строка (JSON не знает datetime).
         """
         url = f"{self._base}/api/procurements/{procurement_id}/score"
         payload = {"score": score, "score_method": score_method}
@@ -143,6 +149,12 @@ class ParserApiClient:
             payload["rag_report"] = rag_report
         if score_costs is not None:
             payload["score_costs"] = score_costs
+        if auto_rejected is not None:
+            payload["auto_rejected"] = auto_rejected
+        if auto_rejection_reason is not None:
+            payload["auto_rejection_reason"] = auto_rejection_reason
+        if analysis_profile_snapshot is not None:
+            payload["analysis_profile_snapshot"] = analysis_profile_snapshot
         headers = self._headers(internal_token)
         last_exc: Exception | None = None
         for attempt in range(retry_max):

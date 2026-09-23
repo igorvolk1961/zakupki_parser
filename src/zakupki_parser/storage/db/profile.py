@@ -114,6 +114,13 @@ class Profile(Base):
     # {id, name, hint, type, unit}, извлекаются RAG-анализом по всем документам
     # закупки (analysis_service.pipeline.report_fields), аналогично questions.
     report_fields: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    # Блокирует ли несоответствие детерминированной категории требований
+    # (лицензии/опыт/минпромторг/соисполнители, scoring_common.requirements)
+    # приемлемость закупки: {"licenses": bool, "experience": bool, "minprom":
+    # bool, "subcontractors": bool}. Отсутствующий ключ — не блокирует.
+    requirement_blocking: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
     # Сопоставление колонок последнего загруженного шаблона отчёта заказчика
     # с report_fields (FR-12.4): {нормализованный_заголовок: field_id|"base:..."|None}.
     # Не редактируется напрямую через форму профиля — обновляется отдельным

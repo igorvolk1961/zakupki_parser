@@ -147,6 +147,7 @@
             </select>
           </label>
           <label style="margin-left:12px; white-space:nowrap;" title="Показывать только закупки, принятые «в работу» (кнопка «В работу» на карточке или добавленные по URL)."><input type="checkbox" id="proc-in-work"> В работе</label>
+          <label style="margin-left:12px; white-space:nowrap;" title="Показывать и отклонённые закупки (вручную «Отбраковать» или авто-отклонённые анализом) — обычно скрыты из выдачи."><input type="checkbox" id="proc-rejected"> Показать отклонённые</label>
           <span style="margin-left:12px;">
             <label style="white-space:nowrap;" title="Показывать только оценённые скорингом закупки с fit-score не ниже порога. Выключено — видны все закупки, включая ещё не обработанные конвейером скоринга."><input type="checkbox" id="proc-relevant"> Только релевантные</label>
             <label id="min-fit-wrap" style="display:none; margin-left:8px; color:var(--text); white-space:nowrap;">fit-score ≥
@@ -421,6 +422,15 @@
             <div class="table-wrap" id="experience-table"></div>
           </div>
           <div id="pf-pane-report-fields" style="display:none;">
+            <div style="border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:14px;">
+              <p class="muted" style="margin:0 0 8px;" title="Эти категории ищутся детерминированно (без LLM) по всем документам закупки — scoring_common.requirements. Если для категории найдено реальное требование (не «не требуется») и здесь она отмечена — закупка автоматически отклоняется (вердикт приемлемости в отчёте).">Блокирует ли найденное требование приемлемость закупки:</p>
+              <div class="profile-checks">
+                <label><input type="checkbox" id="rb-licenses"> Лицензии</label>
+                <label><input type="checkbox" id="rb-experience"> Опыт исполнения</label>
+                <label><input type="checkbox" id="rb-minprom"> Требования Минпромторга</label>
+                <label><input type="checkbox" id="rb-subcontractors"> Запрет/ограничение на соисполнителей</label>
+              </div>
+            </div>
             <p class="muted" style="margin-top:0;">Значение каждого поля программа сама находит в документах закупки (RAG-анализ) — опишите поле обычным языком, техническая формулировка запроса не нужна.</p>
             <div id="report-field-form" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px;">
               <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
@@ -437,6 +447,12 @@
                   <textarea id="rf-hint" rows="2" placeholder="например, код вида отхода по ФККО"></textarea>
                 </label>
                 <label id="rf-unit-row">Единица измерения <input id="rf-unit" placeholder="например, м3, руб."></label>
+                <label style="grid-column:1/-1;" title="Свободный текст — может быть условием (например, «не менее 500000», «не позднее 2026-12-31»), не только точным значением. Сравнение с найденным значением делает LLM. Пусто — поле информационное, без сравнения.">Ожидаемое значение (необязательно)
+                  <input id="rf-expected" placeholder="например, не менее 500000">
+                </label>
+                <label style="grid-column:1/-1; flex-direction:row; align-items:center; gap:8px;" title="Если найденное значение не совпадёт с ожидаемым — закупка автоматически отклоняется (вердикт приемлемости в отчёте).">
+                  <input type="checkbox" id="rf-blocking" style="width:auto;"> Блокирует приемлемость закупки при несовпадении
+                </label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">
                 <button class="primary" id="report-field-save">Сохранить поле</button>

@@ -26,6 +26,7 @@ from zakupki_parser.storage.db import (
     Procurement,
     ProcurementEvaluation,
     ProcurementSearchIndex,
+    Profile,
 )
 from zakupki_parser.storage.repository.base import (
     RepositoryMixin,
@@ -177,8 +178,15 @@ class ProcurementMixin(RepositoryMixin):
         async with self._db.session() as session:
             result = await session.execute(stmt)
             row = result.scalar_one_or_none()
+            profile_updated_at = None
+            if row is not None and profile_id is not None:
+                profile_updated_at = (
+                    await session.execute(
+                        select(Profile.updated_at).where(Profile.id == profile_id)
+                    )
+                ).scalar_one_or_none()
         if row is not None and profile_id is not None:
-            _apply_profile_score(row, row.evaluations, profile_id)
+            _apply_profile_score(row, row.evaluations, profile_id, profile_updated_at)
         return row
 
     async def list_procurements(
@@ -336,9 +344,16 @@ class ProcurementMixin(RepositoryMixin):
             result = await session.execute(stmt.limit(limit).offset(offset))
             rows = list(result.scalars().all())
             total = (await session.execute(count_stmt)).scalar_one()
+            profile_updated_at = None
+            if profile_id is not None:
+                profile_updated_at = (
+                    await session.execute(
+                        select(Profile.updated_at).where(Profile.id == profile_id)
+                    )
+                ).scalar_one_or_none()
         if profile_id is not None:
             for row in rows:
-                _apply_profile_score(row, row.evaluations, profile_id)
+                _apply_profile_score(row, row.evaluations, profile_id, profile_updated_at)
         return rows, total
 
     async def find_id(self, number: str, platform_id: str) -> int | None:

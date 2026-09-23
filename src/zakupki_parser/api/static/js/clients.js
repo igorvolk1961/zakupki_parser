@@ -448,6 +448,8 @@ function fillProfileForm(p) {
       hint: f.hint || "",
       type: f.type || "string",
       unit: f.unit || null,
+      expected_value: f.expected_value || null,
+      blocking: !!f.blocking,
     })
   );
   reportFieldSeq = Math.max(
@@ -455,6 +457,14 @@ function fillProfileForm(p) {
     ...profileReportFields.map((f) => (parseInt(String(f.id).replace(/\D/g, ""), 10) || 0) + 1)
   );
   renderReportFields();
+  // Блокирующие фиксированные категории требований (единый отчёт, без LLM,
+  // scoring_common.requirements) — {"licenses": bool, ...}, отсутствующий
+  // ключ = не блокирует (дефолт нового профиля).
+  const reqBlocking = p ? p.requirement_blocking || {} : {};
+  $("#rb-licenses").checked = !!reqBlocking.licenses;
+  $("#rb-experience").checked = !!reqBlocking.experience;
+  $("#rb-minprom").checked = !!reqBlocking.minprom;
+  $("#rb-subcontractors").checked = !!reqBlocking.subcontractors;
   // Компетенции: структурированная JSON-форма либо legacy-текст.
   const rawComp = p ? p.competencies || "" : "";
   const parsedComp = parseComp(rawComp);
@@ -1291,7 +1301,7 @@ function renderReportFields() {
     return;
   }
   wrap.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Название</th><th>Тип</th><th>Подсказка</th><th>Единица</th><th></th></tr></thead>
+    <thead><tr><th>Название</th><th>Тип</th><th>Подсказка</th><th>Единица</th><th>Ожидаемое значение</th><th></th></tr></thead>
     <tbody>${profileReportFields
       .map(
         (f) => `<tr data-id="${f.id}">
@@ -1299,6 +1309,7 @@ function renderReportFields() {
       <td>${escapeHtml(REPORT_FIELD_TYPE_LABELS[f.type] || f.type)}</td>
       <td>${escapeHtml(f.hint || "")}</td>
       <td>${escapeHtml(f.unit || "")}</td>
+      <td>${f.expected_value ? escapeHtml(f.expected_value) + (f.blocking ? ' <span class="pill inactive">блокирует</span>' : "") : "—"}</td>
       <td>
         <button class="ghost" data-action="edit">Редактировать</button>
         <button class="ghost" data-action="delete">Удалить поле</button>
@@ -1328,6 +1339,8 @@ function openReportFieldForm(id) {
   $("#rf-type").value = f ? f.type : "string";
   $("#rf-hint").value = f ? f.hint || "" : "";
   $("#rf-unit").value = f ? f.unit || "" : "";
+  $("#rf-expected").value = f ? f.expected_value || "" : "";
+  $("#rf-blocking").checked = f ? !!f.blocking : false;
   updateReportFieldUnitVisibility();
   setReportFieldStatus("");
   $("#report-field-form").style.display = "block";
@@ -1341,11 +1354,16 @@ function saveReportField() {
     return;
   }
   const type = $("#rf-type").value;
+  const expectedValue = $("#rf-expected").value.trim() || null;
   const data = {
     name,
     type,
     hint: $("#rf-hint").value.trim() || null,
     unit: type === "number" ? $("#rf-unit").value.trim() || null : null,
+    expected_value: expectedValue,
+    // Блокировка без ожидаемого значения бессмысленна (нечего сравнивать) —
+    // сохраняем только если expected_value реально задан.
+    blocking: expectedValue ? $("#rf-blocking").checked : false,
   };
   // Поле редактируется в форме профиля и сохраняется на сервер только кнопкой
   // «Сохранить профиль» (та же модель, что у лицензий/опыта).
@@ -1395,7 +1413,15 @@ function profileFormData() {
       hint: f.hint || null,
       type: f.type,
       unit: f.unit || null,
+      expected_value: f.expected_value || null,
+      blocking: !!f.blocking,
     })),
+    requirement_blocking: {
+      licenses: $("#rb-licenses").checked,
+      experience: $("#rb-experience").checked,
+      minprom: $("#rb-minprom").checked,
+      subcontractors: $("#rb-subcontractors").checked,
+    },
     competencies:
       compMode === "structured" ? JSON.stringify(collectComp(), null, 2) : $("#pf-competencies").value,
     // Лицензии/опыт — часть формы профиля (BR-03): сохраняются только вместе

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -83,6 +84,16 @@ class ProcurementEvaluation(Base):
     # пост-MVP (этап 7); сейчас всегда status='new', rejection_reason=NULL.
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")
     rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # Отклонена автоматически анализом (блокирующее требование/поле сработало),
+    # а не вручную тендерологом — отличает авто-отклонение от «Отбраковать»
+    # (см. worker.py#compute_verdict): своё авто-решение можно снять повторным
+    # анализом, если условие больше не блокирует; ручное — только вручную.
+    auto_rejected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # profiles.updated_at на момент завершения последнего анализа под ЭТОТ
+    # профиль — сравнение с текущим profiles.updated_at решает, актуален ли
+    # результат (гейт кнопки «Анализ»: пока профиль не менялся — повторный
+    # анализ не нужен).
+    analysis_profile_snapshot: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

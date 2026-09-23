@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -103,6 +104,35 @@ class EvaluationMixin(RepositoryMixin):
         _deep_merge(current, costs)
         evaluation.costs = current
 
+    @staticmethod
+    def _apply_auto_verdict(
+        evaluation: ProcurementEvaluation,
+        auto_rejected: bool | None,
+        auto_rejection_reason: str | None,
+        analysis_profile_snapshot: datetime | None,
+    ) -> None:
+        """Применяет вердикт анализа (единый отчёт) к статусу оценки.
+
+        ``auto_rejected=True`` — сработало блокирующее требование/поле: ставит
+        ``status='rejected'`` со своей меткой, НО не трогает закупку, отклонённую
+        ВРУЧНУЮ (``status='rejected'`` и ``auto_rejected=False`` уже стоит —
+        чужое решение). ``False`` — блокирующих условий больше нет: снимает
+        СВОЁ же прежнее авто-отклонение (ручное не трогает). Используется и
+        ``upsert_score``, и ``update_rag_report`` (analysis-воркер пишет через
+        оба пути в зависимости от того, есть ли результат стадии fit/pwin/margin).
+        """
+        if auto_rejected is True:
+            if evaluation.status != "rejected" or evaluation.auto_rejected:
+                evaluation.status = "rejected"
+                evaluation.auto_rejected = True
+                evaluation.rejection_reason = auto_rejection_reason
+        elif auto_rejected is False and evaluation.auto_rejected:
+            evaluation.status = "new"
+            evaluation.auto_rejected = False
+            evaluation.rejection_reason = None
+        if analysis_profile_snapshot is not None:
+            evaluation.analysis_profile_snapshot = analysis_profile_snapshot
+
     async def upsert_score(
         self,
         procurement_id: int,
@@ -119,8 +149,15 @@ class EvaluationMixin(RepositoryMixin):
         costs: dict[str, Any] | None = None,
         iteration: int | None = None,
         platform: str | None = None,
+        auto_rejected: bool | None = None,
+        auto_rejection_reason: str | None = None,
+        analysis_profile_snapshot: datetime | None = None,
     ) -> ProcurementEvaluation:
-        """Обновляет/создаёт per-profile результат скоринга закупки."""
+        """Обновляет/создаёт per-profile результат скоринга закупки.
+
+        ``auto_rejected``/``auto_rejection_reason``/``analysis_profile_snapshot``
+        — см. ``_apply_auto_verdict``.
+        """
         async with self._db.session() as session:
             evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             if score is not None:
@@ -138,6 +175,9 @@ class EvaluationMixin(RepositoryMixin):
                 evaluation.langfuse_trace_url = langfuse_trace_url
             if rag_report is not None:
                 evaluation.rag_report = rag_report
+            self._apply_auto_verdict(
+                evaluation, auto_rejected, auto_rejection_reason, analysis_profile_snapshot
+            )
             self._set_batch_meta(evaluation, iteration, platform)
             self._merge_costs_into(evaluation, costs)
             await session.commit()
@@ -218,6 +258,10 @@ class EvaluationMixin(RepositoryMixin):
             evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             evaluation.status = "rejected"
             evaluation.rejection_reason = rejection_reason
+            # Ручное решение перекрывает предыдущее авто-отклонение анализа
+            # (иначе следующий анализ с «неблокирующим» вердиктом тихо снял бы
+            # ручную отбраковку — см. upsert_score).
+            evaluation.auto_rejected = False
             if remove_matched_keywords:
                 matched = [
                     str(w) for w in (evaluation.matched_keywords or []) if isinstance(w, str)
@@ -245,6 +289,31 @@ class EvaluationMixin(RepositoryMixin):
                 rejection_reason,
                 remove_matched_keywords,
                 exclusion_word,
+            )
+            return evaluation
+
+    async def restore(self, procurement_id: int, profile_id: int) -> ProcurementEvaluation | None:
+        """Снимает отбраковку/авто-отклонение (возвращает ``status='new'``).
+
+        Единый способ вернуть закупку в выдачу — независимо от того, была она
+        отклонена вручную («Отбраковать») или автоматически анализом
+        (блокирующее требование/поле). Возвращает ``None``, если по паре
+        (закупка, профиль) вообще нет записи оценки (нечего восстанавливать).
+        """
+        stmt = select(ProcurementEvaluation).where(
+            ProcurementEvaluation.procurement_id == procurement_id,
+            ProcurementEvaluation.profile_id == profile_id,
+        )
+        async with self._db.session() as session:
+            evaluation = (await session.execute(stmt)).scalar_one_or_none()
+            if evaluation is None:
+                return None
+            evaluation.status = "new"
+            evaluation.rejection_reason = None
+            evaluation.auto_rejected = False
+            await session.commit()
+            logger.info(
+                "Закупка %s восстановлена из отклонённых профилем %s", procurement_id, profile_id
             )
             return evaluation
 
@@ -370,11 +439,21 @@ class EvaluationMixin(RepositoryMixin):
         costs: dict[str, Any] | None = None,
         iteration: int | None = None,
         platform: str | None = None,
+        auto_rejected: bool | None = None,
+        auto_rejection_reason: str | None = None,
+        analysis_profile_snapshot: datetime | None = None,
     ) -> ProcurementEvaluation:
-        """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method)."""
+        """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method).
+
+        ``auto_rejected``/``auto_rejection_reason``/``analysis_profile_snapshot``
+        — см. ``_apply_auto_verdict``.
+        """
         async with self._db.session() as session:
             evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
             evaluation.rag_report = rag_report
+            self._apply_auto_verdict(
+                evaluation, auto_rejected, auto_rejection_reason, analysis_profile_snapshot
+            )
             self._set_batch_meta(evaluation, iteration, platform)
             self._merge_costs_into(evaluation, costs)
             await session.commit()

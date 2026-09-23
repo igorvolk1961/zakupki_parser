@@ -15,12 +15,12 @@ import {
   analyzeProc,
   pwinProc,
   viewTz,
-  viewRequirements,
   closeTz,
   viewTrace,
   setCardTab,
   acceptWork,
   removeWorkByProc,
+  restoreProc,
   openReject,
   closeReject,
   doReject,
@@ -141,12 +141,12 @@ window.closeEnvModal = closeEnvModal;
 window.analyzeProc = analyzeProc;
 window.pwinProc = pwinProc;
 window.viewTz = viewTz;
-window.viewRequirements = viewRequirements;
 window.closeTz = closeTz;
 window.viewTrace = viewTrace;
 window.setCardTab = setCardTab;
 window.acceptWork = acceptWork;
 window.removeWorkByProc = removeWorkByProc;
+window.restoreProc = restoreProc;
 window.openReject = openReject;
 window.closeReject = closeReject;
 window.doReject = doReject;

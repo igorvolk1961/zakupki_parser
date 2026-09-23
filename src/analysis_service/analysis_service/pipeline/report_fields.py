@@ -45,6 +45,15 @@ class ReportFieldValue(BaseModel):
     excerpt: str | None = Field(default=None, description="цитата фрагмента-источника")
     source_file: str | None = Field(default=None, description="документ, откуда взято значение")
     reasoning: str = Field(default="", description="причина сбоя/пропуска (best-effort)")
+    # Ожидаемое значение (профиль, FR-13.5) — задаётся свободным текстом
+    # (может быть условием, напр. «не менее 500000», не только точным
+    # значением); ``match`` — оценка LLM «найденное соответствует ожидаемому»,
+    # None — ожидаемое значение не задано ИЛИ поле не найдено.
+    expected_value: str | None = None
+    match: bool | None = None
+    # Блокирует ли несоответствие (match=False) приемлемость закупки — копия
+    # флага из профиля (``report_fields[].blocking``), для удобства фронта/Excel.
+    blocking: bool = False
 
 
 class ReportFieldExtractor:
@@ -90,6 +99,8 @@ class ReportFieldExtractor:
         raw_type = field.get("type")
         field_type = raw_type if raw_type in FIELD_TYPES else "string"
         unit = str(field["unit"]) if field.get("unit") else None
+        expected_value = str(field.get("expected_value") or "").strip() or None
+        blocking = bool(field.get("blocking"))
 
         query = f"{field_name}. {str(field.get('hint') or '').strip()}".strip()
         f_vector = self._field_embedding_cache.get(field_id)
@@ -101,6 +112,8 @@ class ReportFieldExtractor:
                     field_name,
                     field_type,
                     unit,
+                    expected_value=expected_value,
+                    blocking=blocking,
                     reasoning="Не удалось вычислить эмбеддинг запроса поля (анализ пропущен)",
                 )
             self._field_embedding_cache[field_id] = f_vector
@@ -122,6 +135,8 @@ class ReportFieldExtractor:
                 field_name,
                 field_type,
                 unit,
+                expected_value=expected_value,
+                blocking=blocking,
                 reasoning="LLM-извлечение не выполнено (сбой)",
             )
 
@@ -132,6 +147,8 @@ class ReportFieldExtractor:
             raw_confidence if raw_confidence in ("high", "medium", "low") else "low"
         )
         source_file = chunk_sources[top_idx[0]] if found and top_idx else None
+        raw_match = data.get("match")
+        match = raw_match if found and expected_value and isinstance(raw_match, bool) else None
         return self._value(
             field_id,
             field_name,
@@ -142,6 +159,9 @@ class ReportFieldExtractor:
             confidence=confidence,
             excerpt=(str(data.get("excerpt") or "")[:500] or None) if found else None,
             source_file=source_file,
+            expected_value=expected_value,
+            match=match,
+            blocking=blocking,
         )
 
     @staticmethod
@@ -171,6 +191,9 @@ class ReportFieldExtractor:
         excerpt: str | None = None,
         source_file: str | None = None,
         reasoning: str = "",
+        expected_value: str | None = None,
+        match: bool | None = None,
+        blocking: bool = False,
     ) -> dict[str, Any]:
         return ReportFieldValue(
             field_id=field_id,
@@ -183,4 +206,7 @@ class ReportFieldExtractor:
             excerpt=excerpt,
             source_file=source_file,
             reasoning=reasoning,
+            expected_value=expected_value,
+            match=match,
+            blocking=blocking,
         ).model_dump()

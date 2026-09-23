@@ -1941,6 +1941,20 @@ requirements:
       - src/scoring_common/tests/test_law_requirements.py
       - src/analysis_service/tests/test_rag.py
       - tests/integration/test_api.py
+    notes: >-
+      2026-09-23: добавлена 4-я категория — допустимость привлечения
+      соисполнителей (``_find_subcontractor_clauses``), см. FR-13.1/13.2.
+      В отличие от licenses/experience/minprom (ищутся только в разделе
+      «Требования к участнику»), это условие обычно лежит в теле
+      договора/ТЗ — поиск идёт по предложениям ВСЕХ документов целиком, без
+      привязки к разделу; не проходит через сопоставление с нормой 44-ФЗ
+      (``annotate_requirements``) — не пересказ статьи, а условие договора.
+
+      Отдельная кнопка карточки «Требования к участнику» (модалка с сырым
+      JSON, ``GET .../requirements``) убрана — содержимое ушло во вкладку
+      «Отчёт» (FR-13.4); эндпоинт и его lazy-extraction фолбэк снесены как
+      неиспользуемые (воркер продолжает извлекать/сохранять через тот же
+      ``extract_requirements``/``POST .../requirements``).
   - id: FR-10.11
     type: FR
     title: Геопозиционирование — фильтр «место поставки не дальше N км от центра региона»
@@ -2412,6 +2426,147 @@ requirements:
       2026-09-23: кнопка «Выгрузить по шаблону» с модалкой сопоставления
       удалена вместе с FR-12.4 (см. там) — продукт решил не усложнять
       формирование профиля до появления реального спроса.
+
+  - id: FR-13.1
+    type: FR
+    title: Единый отчёт — вердикт приемлемости закупки, авто-отклонение/восстановление
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/analysis_service/analysis_service/pipeline/verdict.py
+      - src/analysis_service/analysis_service/worker.py
+      - src/zakupki_parser/storage/repository/evaluations.py
+      - src/zakupki_parser/storage/db/evaluation.py
+      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/api/app/schemas.py
+      - docker/liquibase/changelog/db.changelog-1.66.yaml
+    tests:
+      - src/analysis_service/tests/test_verdict.py
+      - tests/integration/test_decisions_work.py
+      - tests/integration/test_report_verdict.py
+    notes: >-
+      Результат «Анализ» — единый отчёт: базовые данные + требования к
+      участнику (детерминированно) + geo-дистанция + (при оплаченном
+      LLM/эмбеддингах) вопросы по ТЗ/отчётные поля + итоговый вердикт
+      приемлемости (``compute_verdict``). Блокирует: заблокированная профилем
+      категория требований (FR-13.2) с реальным (не «не требуется») пунктом,
+      ИЛИ вопрос по ТЗ с вердиктом ``absolute`` («запрет» уже блокирующий по
+      смыслу самого вердикта, без отдельного тумблера в профиле). Хотя бы
+      одна причина -> ``procurement_evaluations.status='rejected'``,
+      ``auto_rejected=True``, авто-сгенерированная причина; повторный анализ
+      с «неблокирующим» вердиктом сам снимает СВОЁ авто-отклонение (ручную
+      отбраковку — не трогает, см. ``_apply_auto_verdict``). Отчёт строится в
+      любом случае, даже для отклонённой закупки.
+
+      Восстановление (``POST .../restore``) — новый, ранее отсутствовавший
+      эндпоинт: до этого отклонённую закупку нельзя было вернуть в выдачу ни
+      вручную, ни автоматически. Единый способ для обеих причин отклонения.
+  - id: FR-13.2
+    type: FR
+    title: Блокирующие настройки категорий требований в профиле
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/profile.py
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/schemas.py
+      - src/zakupki_parser/api/static/js/clients.js
+      - src/zakupki_parser/api/zakupki.html
+    tests:
+      - src/analysis_service/tests/test_verdict.py
+    notes: >-
+      ``profiles.requirement_blocking`` — {"licenses": bool, "experience":
+      bool, "minprom": bool, "subcontractors": bool}, отсутствующий ключ = не
+      блокирует. UI — 4 чекбокса на вкладке «Отчётные поля» редактора
+      профиля. Используется ``compute_requirements_verdict`` (FR-13.1).
+  - id: FR-13.3
+    type: FR
+    title: Гейт кнопки «Анализ» — заблокирована, пока профиль не изменился
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/repository/base.py
+      - src/zakupki_parser/storage/repository/procurements.py
+      - src/zakupki_parser/storage/db/procurement.py
+      - src/zakupki_parser/api/app/schemas.py
+      - src/zakupki_parser/api/static/js/procurements.js
+    tests:
+      - tests/integration/test_report_verdict.py
+    notes: >-
+      После завершения анализа сохраняется снимок ``profiles.updated_at``
+      (``evaluation.analysis_profile_snapshot``, проставляется в payload
+      задания при постановке в очередь — не перечитывается заново в воркере,
+      т.к. профиль мог измениться к моменту обработки). Карточка отдаёт
+      ``analysis_stale`` (``_apply_profile_score``: сравнение текущего
+      ``profiles.updated_at`` со снимком) — кнопка «Анализ документов»
+      disabled, пока ``analysis_stale=false``. Любое сохранение профиля
+      (``PUT /api/clients/{id}``) обновляет ``updated_at`` автоматически
+      (``onupdate=func.now()``) — специальной логики «что считать
+      изменением» не потребовалось.
+  - id: FR-13.4
+    type: FR
+    title: Вкладка «Отчёт» на карточке закупки + Excel-экспорт с подсветкой
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/static/js/procurements.js
+      - src/zakupki_parser/api/app/routes/procurements.py
+    tests:
+      - tests/integration/test_api.py
+    notes: >-
+      Новая вкладка «Отчёт» (между «Данные закупки» и «Результаты
+      скоринга» — та переименована из «Результаты скоринга и анализа»,
+      т.к. анализ переехал в «Отчёт», осталось только Score/Fit/P(win)/
+      Margin): баннер вердикта, требования к участнику (блокирующие —
+      красным), geo-дистанция, вопросы/поля (LLM). Отдельная кнопка
+      «Требования к участнику» (модалка с сырым JSON) убрана — контент
+      теперь в отчёте; вместе с ней снесён неиспользуемый более
+      ``GET .../requirements`` (POST для воркера остался).
+      ``export_procurement_xlsx`` — те же данные, блокирующие строки
+      красным шрифтом (``openpyxl.styles.Font``).
+  - id: FR-13.5
+    type: FR
+    title: Отчётные поля — ожидаемое значение, LLM-сравнение, блокировка
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/analysis_service/analysis_service/pipeline/report_fields.py
+      - src/analysis_service/analysis_service/pipeline/prompts.py
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_string.md
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_number.md
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_date.md
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_boolean.md
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_user.md
+      - src/analysis_service/analysis_service/pipeline/verdict.py
+      - src/analysis_service/analysis_service/worker.py
+      - src/zakupki_parser/api/static/js/clients.js
+      - src/zakupki_parser/api/static/js/procurements.js
+      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/api/zakupki.html
+    tests:
+      - src/analysis_service/tests/test_report_fields.py
+      - src/analysis_service/tests/test_verdict.py
+    notes: >-
+      Отчётное поле профиля может задавать необязательное «ожидаемое
+      значение» (свободный текст, может быть условием — «не менее 500000»,
+      «не позднее 2026-12-31») и чекбокс «блокирует приемлемость при
+      несовпадении». Сравнение найденного LLM значения с ожидаемым —
+      тоже через LLM (не детерминированно): каждый ``field_extract_*.md``
+      возвращает ``match: true|false|null`` наряду со значением.
+      ``compute_verdict`` (FR-13.1) добавляет в ``blocking_reasons`` поле с
+      ``blocking=True and match=False``. Карточка («Отчёт») и Excel-экспорт
+      показывают ожидаемое значение и результат сравнения, красным — при
+      блокирующем несовпадении.
 
   # ===== Бизнес-правила =====
   - id: BR-01

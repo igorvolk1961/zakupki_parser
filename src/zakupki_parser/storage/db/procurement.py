@@ -212,6 +212,18 @@ class Procurement(Base):
     langfuse_trace_url: str | None = None
     rag_report: dict[str, Any] | None = None
     costs: dict[str, Any] | None = None
+    # Актуален ли анализ (единый отчёт) под текущий профиль — True, пока анализ
+    # ни разу не выполнялся под этим профилем ИЛИ профиль менялся с последнего
+    # запуска (сравнение с evaluation.analysis_profile_snapshot). Гейт кнопки
+    # «Анализ» на фронте: False -> disabled (актуален, повтор не нужен).
+    analysis_stale: bool = True
+    # Статус отбраковки под активный профиль (Эпик 5) — per-profile, как и
+    # rag_report/score выше; колонки в procurements нет.
+    status: str = "new"
+    rejection_reason: str | None = None
+    # Отклонена автоматически анализом (вердикт), не вручную «Отбраковать» —
+    # UI показывает разную подсказку/действие в зависимости от источника.
+    auto_rejected: bool = False
 
     customer_rel: Mapped[Customer | None] = relationship(back_populates="procurements")
     procedure_type_rel: Mapped[ProcedureType | None] = relationship(back_populates="procurements")

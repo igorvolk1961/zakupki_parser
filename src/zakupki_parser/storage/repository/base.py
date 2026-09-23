@@ -49,13 +49,20 @@ def _profile_score_subquery(profile_id: int) -> Any:
 
 
 def _apply_profile_score(
-    row: Procurement, evaluations: list[ProcurementEvaluation], profile_id: int
+    row: Procurement,
+    evaluations: list[ProcurementEvaluation],
+    profile_id: int,
+    profile_updated_at: datetime | None = None,
 ) -> None:
     """Налагает per-profile результат скоринга на карточку для API-ответа.
 
     Если для закупки есть оценка под указанного профиль (контекст компетенций/
     вопросов) — базовые колонки ``procurements`` (дефолтный скор) заменяются
     per-profile значениями, а ``rag_report`` подкладывается динамическим атрибутом.
+
+    ``profile_updated_at`` — текущий ``profiles.updated_at``: сравнивается с
+    ``evaluation.analysis_profile_snapshot`` (единый отчёт) — гейт кнопки
+    «Анализ» (``row.analysis_stale``, кнопка активна, пока не False).
     """
     for evaluation in evaluations:
         if evaluation.profile_id == profile_id:
@@ -72,6 +79,17 @@ def _apply_profile_score(
             # costs — стоимость обработки закупки (scoring/analysis), как и
             # rag_report, динамический атрибут карточки.
             row.costs = evaluation.costs
+            # Анализ актуален (кнопка заблокирована), только если он вообще
+            # выполнялся (rag_report не NULL) И профиль не менялся с тех пор.
+            row.analysis_stale = not (
+                evaluation.rag_report is not None
+                and evaluation.analysis_profile_snapshot is not None
+                and profile_updated_at is not None
+                and evaluation.analysis_profile_snapshot == profile_updated_at
+            )
+            row.status = evaluation.status
+            row.rejection_reason = evaluation.rejection_reason
+            row.auto_rejected = evaluation.auto_rejected
             return
 
 

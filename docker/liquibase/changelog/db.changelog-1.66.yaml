@@ -1,0 +1,24 @@
+databaseChangeLog:
+- changeSet:
+    id: 70
+    author: zakupki-parser
+    comment: "profiles.requirement_blocking: JSONB — блокирует ли несоответствие детерминированной категории требований (лицензии/опыт/минпромторг/соисполнители) приемлемость закупки."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE profiles ADD COLUMN IF NOT EXISTS requirement_blocking JSONB NOT NULL DEFAULT '{}'::jsonb;
+- changeSet:
+    id: 71
+    author: zakupki-parser
+    comment: "procurement_evaluations.auto_rejected/analysis_profile_snapshot: единый отчёт по закупке — авто-отклонение по вердикту анализа и гейт кнопки «Анализ» по актуальности профиля."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS auto_rejected boolean NOT NULL DEFAULT false;
+          ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS analysis_profile_snapshot timestamptz;
+          COMMENT ON COLUMN procurement_evaluations.auto_rejected IS
+            'Отклонена автоматически анализом (блокирующее требование/поле), не вручную — своё авто-решение анализ может снять сам при повторном прогоне.';
+          COMMENT ON COLUMN procurement_evaluations.analysis_profile_snapshot IS
+            'profiles.updated_at на момент завершения последнего анализа под этот профиль — гейт кнопки «Анализ» (актуален, пока профиль не менялся).';

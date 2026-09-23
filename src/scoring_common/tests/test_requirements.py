@@ -283,3 +283,46 @@ def test_extract_requirements_empty_when_no_patterns(_fake_extract_text: dict[st
     _fake_extract_text["tz.pdf"] = "Описание предмета закупки и условия оплаты."
     record = {"files_json": [{"name": "tz.pdf", "url": "http://x/tz.pdf"}]}
     assert extract_requirements(record) == {}
+
+
+def test_subcontractors_allowed_no_restriction(_fake_extract_text: dict[str, str]) -> None:
+    # Пример из реального договора (пользовательский пример): явное разрешение
+    # без оговорок — «настоящего» ограничения нет, negated=True, не блокирует.
+    _fake_extract_text["dogovor.pdf"] = (
+        "Исполнитель вправе Привлечь к исполнению своих обязательств по "
+        "настоящему Договору других лиц - соисполнителей, обладающих "
+        "специальными знаниями. При этом Исполнитель несёт ответственность "
+        "перед Заказчиком за неисполнение обязательств соисполнителями."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    assert "subcontractors" in structure
+    items = structure["subcontractors"]
+    assert any(it.get("negated") is True and "вправе" in it["text"].lower() for it in items)
+
+
+def test_subcontractors_forbidden_is_real_requirement(_fake_extract_text: dict[str, str]) -> None:
+    _fake_extract_text["dogovor.pdf"] = (
+        "Исполнитель не вправе привлекать соисполнителей к исполнению "
+        "обязательств по настоящему Договору без письменного согласия Заказчика."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    assert "subcontractors" in structure
+    item = structure["subcontractors"][0]
+    # Запрет — реальное требование, без negated (кандидат на блокировку).
+    assert "negated" not in item
+
+
+def test_subcontractors_not_mentioned(_fake_extract_text: dict[str, str]) -> None:
+    _fake_extract_text["tz.pdf"] = "Описание предмета закупки и условия оплаты."
+    record = {"files_json": [{"name": "tz.pdf", "url": "http://x/tz.pdf"}]}
+    structure = extract_requirements(record)
+    assert "subcontractors" not in structure
+
+
+def test_subcontractors_dedup_same_sentence_across_call() -> None:
+    from scoring_common.requirements import _find_subcontractor_clauses
+
+    record = {"files_json": []}
+    assert _find_subcontractor_clauses(record) == []
