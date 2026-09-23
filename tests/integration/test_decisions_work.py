@@ -161,6 +161,9 @@ async def test_set_in_work_flag_and_list(db: Database) -> None:
     repo = ProcurementRepository(db)
     _, profile_id = await _profile_with_keywords(repo, "work-user")
     pid = await _upsert(repo, "WORK-1")
+    # Закупку отбирает профиль — иначе она в его выдачу не попадает вовсе
+    # (признак «в работе» профильный скоуп не обходит, см. следующий тест).
+    await repo.record_matched_keywords(pid, profile_id, ["слово"])
 
     assert await repo.set_in_work(pid, True) is True
 
@@ -171,14 +174,13 @@ async def test_set_in_work_flag_and_list(db: Database) -> None:
     # Повторная установка идемпотентна.
     assert await repo.set_in_work(pid, True) is True
 
-    # Снятие с работы: колонка снята. Закупка не отобрана профилем никак
-    # иначе (нет записи оценки/matched_keywords) — из ЭТОГО профильного
-    # списка она поэтому и пропадает (BR-07, ожидаемо, не баг).
+    # Снятие с работы: признак снят, но закупка остаётся в профильной выдаче —
+    # она отобрана профилем, а признак «в работе» её видимость не определяет.
     assert await repo.set_in_work(pid, False) is True
     row = await repo.get_by_id(pid)
     assert row is not None and row.in_work is False
     rows, total = await repo.list_procurements(profile_id=profile_id)
-    assert total == 0
+    assert total == 1 and rows[0].in_work is False
 
     # Несуществующая закупка — False.
     assert await repo.set_in_work(10**9, True) is False
@@ -237,19 +239,26 @@ async def test_list_in_work_filter(db: Database) -> None:
 
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_in_work_is_global_across_profiles(db: Database) -> None:
-    """Признак «в работе» общий для закупки, не per-profile (в отличие от прежней
-    таблицы procurement_work_items): закупка, добавленная «в работу», видна в
-    выдаче любого профиля, даже если он её не отбирал (BR-07 доп. к score_sub)."""
+async def test_in_work_does_not_bypass_profile_scope(db: Database) -> None:
+    """Признак «в работе» (общий для закупки) НЕ обходит профильный скоуп:
+    закупка «в работе» видна только под профилем, который её отобрал (BR-07),
+    а не под любым. Фильтр ``in_work`` лишь сужает уже отобранную выдачу."""
     repo = ProcurementRepository(db)
     _, profile_a = await _profile_with_keywords(repo, "work-a")
     _, profile_b = await _profile_with_keywords(repo, "work-b")
     pid = await _upsert(repo, "WORK-PP")
 
+    # Закупку отобрал только профиль A; «в работу» её приняли (признак общий).
+    await repo.record_matched_keywords(pid, profile_a, ["слово"])
     await repo.set_in_work(pid, True)
 
-    rows_a, _ = await repo.list_procurements(profile_id=profile_a)
-    rows_b, _ = await repo.list_procurements(profile_id=profile_b)
-    assert [r.id for r in rows_a] == [pid]
-    assert [r.id for r in rows_b] == [pid]
-    assert rows_a[0].in_work is True and rows_b[0].in_work is True
+    rows_a, total_a = await repo.list_procurements(profile_id=profile_a)
+    rows_b, total_b = await repo.list_procurements(profile_id=profile_b)
+    assert total_a == 1 and [r.id for r in rows_a] == [pid]
+    assert rows_a[0].in_work is True
+    # Профиль B закупку не отбирал — она ему не видна, несмотря на «в работе».
+    assert total_b == 0 and rows_b == []
+
+    # Фильтр «В работе» у профиля B (не отобравшего закупку) тоже пуст.
+    rows_b_filter, total_b_filter = await repo.list_procurements(profile_id=profile_b, in_work=True)
+    assert total_b_filter == 0 and rows_b_filter == []

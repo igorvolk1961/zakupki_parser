@@ -173,9 +173,10 @@ class Procurement(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
-    # Принята тендерологом «в работу» (быстрый доступ + закупки вне авто-отбора
-    # профиля, в т.ч. добавленные по URL). Общий признак закупки, не per-profile
-    # (заменяет прежнюю per-profile таблицу procurement_work_items).
+    # Принята тендерологом «в работу». Обычный атрибут закупки (общий, не
+    # per-profile): НЕ обходит профильный скоуп — закупка «в работе» видна по
+    # тем же правилам, что и любая другая, а признак лишь позволяет
+    # дополнительно отфильтровать её (``list_procurements(in_work=True)``).
     in_work: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
