@@ -69,3 +69,40 @@ def test_clean_text_drops_long_void_lines() -> None:
     text = clean_text("короткий текст\n" + "A" * 400)
     assert "короткий текст" in text
     assert "A" * 400 not in text
+
+
+def test_clean_text_strips_unnamed_headers_and_nan_cells() -> None:
+    """Экспорт xlsx через markitdown: «Unnamed: N» заголовки и «NaN» ячейки — мусор."""
+    md = (
+        "| Unnamed: 0 | Цена | Unnamed: 2 |\n"
+        "| --- | --- | --- |\n"
+        "| NaN | 1200 | NaN |\n"
+        "| NaN | 950 | NaN |"
+    )
+    text = clean_text(md)
+    assert "Unnamed" not in text
+    assert "NaN" not in text
+    assert "| Цена |" in text
+    assert "| 1200 |" in text
+    assert "| 950 |" in text
+
+
+def test_clean_text_drops_fully_empty_columns_after_cleanup() -> None:
+    """Столбец, ставший пустым и по заголовку, и по данным, — убирается целиком."""
+    md = "| Unnamed: 0 | Наименование |\n| --- | --- |\n| NaN | Отходы |\n| NaN | Металлолом |"
+    text = clean_text(md)
+    lines = [line for line in text.splitlines() if line.startswith("|")]
+    for line in lines:
+        assert line.count("|") == 2  # один столбец: | Наименование |
+
+
+def test_clean_text_keeps_column_with_empty_header_but_real_data() -> None:
+    """Пустой заголовок при непустых данных — не markitdown-мусор, столбец сохраняется."""
+    md = "|  | Возраст |\n| --- | --- |\n| Иван | 30 |\n| Пётр | 40 |"
+    text = clean_text(md)
+    assert "Иван" in text
+    assert "Пётр" in text
+    assert "Возраст" in text
+    lines = [line for line in text.splitlines() if line.startswith("|")]
+    for line in lines:
+        assert line.count("|") == 3  # два столбца сохранены

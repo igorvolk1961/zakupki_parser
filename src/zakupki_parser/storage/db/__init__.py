@@ -33,7 +33,6 @@ from zakupki_parser.storage.db.profile import (
 )
 from zakupki_parser.storage.db.search_index import ProcurementSearchIndex
 from zakupki_parser.storage.db.user import User
-from zakupki_parser.storage.db.work import ProcurementWorkItem
 
 __all__ = [
     "ALL_PLATFORMS_SENTINEL",
@@ -52,7 +51,6 @@ __all__ = [
     "Procurement",
     "ProcurementEvaluation",
     "ProcurementSearchIndex",
-    "ProcurementWorkItem",
     "Profile",
     "ProfileExperience",
     "ProfileLicense",

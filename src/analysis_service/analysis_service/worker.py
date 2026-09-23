@@ -82,6 +82,18 @@ class AnalysisWorker:
             logger.warning("Не удалось получить вопросы клиента: %s", exc)
             return []
 
+    async def _resolve_report_fields(self, profile_id: int) -> list[dict[str, Any]]:
+        """Отчётные поля профиля (FR-12.1, из парсера); [] при сбое."""
+        try:
+            client = await self._parser.get_active_client(
+                internal_token=self._settings.parser_internal_token, profile_id=profile_id
+            )
+            fields = (client or {}).get("report_fields") or []
+            return [f for f in fields if isinstance(f, dict)]
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            logger.warning("Не удалось получить отчётные поля клиента: %s", exc)
+            return []
+
     @staticmethod
     def _delivery_address(record: dict[str, Any]) -> str | None:
         """Адрес места поставки из карточки закупки (best-effort).
@@ -257,9 +269,11 @@ class AnalysisWorker:
 
         async def compute(record: dict[str, Any], pid: int, pfd: int) -> dict[str, Any]:
             questions = await self._resolve_questions(pfd)
+            report_fields = await self._resolve_report_fields(pfd)
             report = await self._analyzer.analyze(
                 record,
                 questions,
+                report_fields=report_fields,
                 metadata={"procurement_id": pid, "profile_id": pfd},
             )
             # Этап анализа: проверка расстояния от центра целевого региона

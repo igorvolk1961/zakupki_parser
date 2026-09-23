@@ -7,7 +7,6 @@ import { api, apiJSON, apiErrorDetail } from "./api.js";
 import { confirmDialog, confirmDialogAsync } from "./dialogs.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
-import { loadWork } from "./work.js";
 import { switchTo } from "./roles.js";
 
 let profileEditorId = null;
@@ -85,6 +84,12 @@ let experienceEditorId = null;
 let licenseTypeFilter = "";
 // Временные id для новых записей лицензий/опыта в форме (до сохранения профиля).
 let localEntrySeq = 0;
+// Конструктор отчётных полей (FR-12.1): произвольные поля профиля, значение
+// каждого извлекается RAG-анализом по документам закупки. Как questions —
+// хранятся прямо в профиле (JSONB), без отдельного API/сохранения по клику.
+let profileReportFields = [];
+let reportFieldSeq = 1;
+let reportFieldEditorId = null;
 // Кэш профилей для выпадающего списка выбора активного профиля (вкладки
 // «Закупки» и «В работе»). Активным может быть и выключенный профиль.
 let profilesCache = [];
@@ -435,6 +440,21 @@ function fillProfileForm(p) {
   renderTags(profileExcl, "#pf-excl-tags");
   renderTags(profileQuestions, "#pf-questions-tags");
   renderSystemQuestions();
+  profileReportFields.length = 0;
+  (p ? p.report_fields || [] : []).forEach((f) =>
+    profileReportFields.push({
+      id: f.id || `f${reportFieldSeq++}`,
+      name: f.name || "",
+      hint: f.hint || "",
+      type: f.type || "string",
+      unit: f.unit || null,
+    })
+  );
+  reportFieldSeq = Math.max(
+    reportFieldSeq,
+    ...profileReportFields.map((f) => (parseInt(String(f.id).replace(/\D/g, ""), 10) || 0) + 1)
+  );
+  renderReportFields();
   // Компетенции: структурированная JSON-форма либо legacy-текст.
   const rawComp = p ? p.competencies || "" : "";
   const parsedComp = parseComp(rawComp);
@@ -913,10 +933,20 @@ function wordCounts() {
   }
   setWordCount($("#pf-cnt-licenses"), profileLicenses.length);
   setWordCount($("#pf-cnt-experience"), profileExperience.length);
+  setWordCount($("#pf-cnt-report-fields"), profileReportFields.length);
 }
 
 function switchProfileTab(name) {
-  ["keywords", "excl", "questions", "comp", "platforms", "licenses", "experience"].forEach((k) => {
+  [
+    "keywords",
+    "excl",
+    "questions",
+    "comp",
+    "platforms",
+    "licenses",
+    "experience",
+    "report-fields",
+  ].forEach((k) => {
     $("#pf-tab-" + k).classList.toggle("active", k === name);
     $("#pf-pane-" + k).style.display = k === name ? "" : "none";
   });
@@ -945,17 +975,20 @@ function updateProfileExtrasVisibility() {
 function entryFormOpen() {
   return (
     $("#license-form").style.display === "block" ||
-    $("#experience-form").style.display === "block"
+    $("#experience-form").style.display === "block" ||
+    $("#report-field-form").style.display === "block"
   );
 }
 function syncEntryFormState() {
   const formOpen = entryFormOpen();
-  [$("#license-new"), $("#experience-new")].forEach((b) => {
+  [$("#license-new"), $("#experience-new"), $("#report-field-new")].forEach((b) => {
     b.disabled = formOpen;
     b.title = "";
   });
   document
-    .querySelectorAll("#licenses-table button[data-action], #experience-table button[data-action]")
+    .querySelectorAll(
+      "#licenses-table button[data-action], #experience-table button[data-action], #report-fields-table button[data-action]"
+    )
     .forEach((b) => {
       b.disabled = formOpen;
     });
@@ -1239,6 +1272,107 @@ function deleteExperience(exp) {
   });
 }
 
+// --- Конструктор отчётных полей (FR-12.1) --------------------------------
+const REPORT_FIELD_TYPE_LABELS = {
+  string: "Строка",
+  number: "Число",
+  date: "Дата",
+  boolean: "Да/нет",
+};
+
+function setReportFieldStatus(msg) {
+  $("#report-field-status").textContent = msg;
+}
+
+function renderReportFields() {
+  const wrap = $("#report-fields-table");
+  if (!profileReportFields.length) {
+    wrap.innerHTML = `<p class="muted">Отчётных полей нет</p>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>Название</th><th>Тип</th><th>Подсказка</th><th>Единица</th><th></th></tr></thead>
+    <tbody>${profileReportFields
+      .map(
+        (f) => `<tr data-id="${f.id}">
+      <td>${escapeHtml(f.name)}</td>
+      <td>${escapeHtml(REPORT_FIELD_TYPE_LABELS[f.type] || f.type)}</td>
+      <td>${escapeHtml(f.hint || "")}</td>
+      <td>${escapeHtml(f.unit || "")}</td>
+      <td>
+        <button class="ghost" data-action="edit">Редактировать</button>
+        <button class="ghost" data-action="delete">Удалить поле</button>
+      </td>
+    </tr>`
+      )
+      .join("")}</tbody></table></div>`;
+  wrap.querySelectorAll("button[data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const rowId = btn.closest("tr").dataset.id;
+      const field = profileReportFields.find((x) => String(x.id) === rowId);
+      if (btn.dataset.action === "edit") openReportFieldForm(field ? field.id : null);
+      else deleteReportField(field);
+    });
+  });
+  syncEntryFormState();
+}
+
+function updateReportFieldUnitVisibility() {
+  $("#rf-unit-row").style.display = $("#rf-type").value === "number" ? "" : "none";
+}
+
+function openReportFieldForm(id) {
+  reportFieldEditorId = id || null;
+  const f = id ? profileReportFields.find((x) => x.id === id) : null;
+  $("#rf-name").value = f ? f.name : "";
+  $("#rf-type").value = f ? f.type : "string";
+  $("#rf-hint").value = f ? f.hint || "" : "";
+  $("#rf-unit").value = f ? f.unit || "" : "";
+  updateReportFieldUnitVisibility();
+  setReportFieldStatus("");
+  $("#report-field-form").style.display = "block";
+  syncEntryFormState();
+}
+
+function saveReportField() {
+  const name = $("#rf-name").value.trim();
+  if (!name) {
+    setReportFieldStatus("Укажите название поля");
+    return;
+  }
+  const type = $("#rf-type").value;
+  const data = {
+    name,
+    type,
+    hint: $("#rf-hint").value.trim() || null,
+    unit: type === "number" ? $("#rf-unit").value.trim() || null : null,
+  };
+  // Поле редактируется в форме профиля и сохраняется на сервер только кнопкой
+  // «Сохранить профиль» (та же модель, что у лицензий/опыта).
+  if (reportFieldEditorId) {
+    const entry = profileReportFields.find((x) => x.id === reportFieldEditorId);
+    if (entry) Object.assign(entry, data);
+  } else {
+    profileReportFields.push({ ...data, id: `f${reportFieldSeq++}` });
+  }
+  $("#report-field-form").style.display = "none";
+  renderReportFields();
+  wordCounts();
+  syncEntryFormState();
+  setReportFieldStatus("Сохранено — будет записано вместе с профилем");
+}
+
+function deleteReportField(field) {
+  if (!field) return;
+  confirmDialog(`Удалить отчётное поле «${field.name}»?`, () => {
+    profileReportFields = profileReportFields.filter((x) => x.id !== field.id);
+    renderReportFields();
+    wordCounts();
+    syncEntryFormState();
+    setReportFieldStatus("Поле удалено — будет записано вместе с профилем");
+  });
+}
+
 function profileFormData() {
   return {
     name: $("#pf-name").value.trim(),
@@ -1255,6 +1389,13 @@ function profileFormData() {
     keywords: profileKeywords.slice(),
     exclusion_words: profileExcl.slice(),
     questions: profileQuestions.slice(),
+    report_fields: profileReportFields.map((f) => ({
+      id: f.id,
+      name: f.name,
+      hint: f.hint || null,
+      type: f.type,
+      unit: f.unit || null,
+    })),
     competencies:
       compMode === "structured" ? JSON.stringify(collectComp(), null, 2) : $("#pf-competencies").value,
     // Лицензии/опыт — часть формы профиля (BR-03): сохраняются только вместе
@@ -1550,7 +1691,6 @@ async function switchClient(profileId) {
     if (!r.ok) throw new Error(await apiErrorDetail(r));
     await loadProfiles();
     await loadProc();
-    await loadWork();
     await loadCustomers();
     await loadPlatforms();
   } catch (e) {
@@ -1640,7 +1780,16 @@ $("#export-profile-confirm").addEventListener("click", doExportProfile);
 $("#export-profile-modal-bg").addEventListener("click", (e) => {
   if (e.target.id === "export-profile-modal-bg") closeExportProfileModal();
 });
-["pf-tab-keywords", "pf-tab-excl", "pf-tab-questions", "pf-tab-comp", "pf-tab-platforms", "pf-tab-licenses", "pf-tab-experience"].forEach(
+[
+  "pf-tab-keywords",
+  "pf-tab-excl",
+  "pf-tab-questions",
+  "pf-tab-comp",
+  "pf-tab-platforms",
+  "pf-tab-licenses",
+  "pf-tab-experience",
+  "pf-tab-report-fields",
+].forEach(
   (id) => {
     document.getElementById(id).addEventListener("click", () =>
       switchProfileTab(id.replace("pf-tab-", ""))
@@ -1685,6 +1834,13 @@ $("#license-cancel").addEventListener("click", () => {
   $("#license-form").style.display = "none";
   syncEntryFormState();
 });
+$("#report-field-new").addEventListener("click", () => openReportFieldForm(null));
+$("#report-field-save").addEventListener("click", saveReportField);
+$("#report-field-cancel").addEventListener("click", () => {
+  $("#report-field-form").style.display = "none";
+  syncEntryFormState();
+});
+$("#rf-type").addEventListener("change", updateReportFieldUnitVisibility);
 $("#experience-new").addEventListener("click", () => openExperienceForm(null));
 $("#experience-save").addEventListener("click", saveExperience);
 $("#experience-cancel").addEventListener("click", () => {

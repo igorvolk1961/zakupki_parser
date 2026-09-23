@@ -19,7 +19,6 @@ from zakupki_parser.storage.repository.procurements import ProcurementMixin
 from zakupki_parser.storage.repository.profiles import ProfileMixin
 from zakupki_parser.storage.repository.search_index import SearchIndexMixin
 from zakupki_parser.storage.repository.users import UserMixin
-from zakupki_parser.storage.repository.work import WorkMixin
 
 
 class ProcurementRepository(
@@ -29,7 +28,6 @@ class ProcurementRepository(
     ProfileMixin,
     AccountMixin,
     EvaluationMixin,
-    WorkMixin,
     SearchIndexMixin,
     CycleStatsMixin,
     DbStatsMixin,

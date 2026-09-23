@@ -1531,6 +1531,49 @@ def test_profile_website_url_persists_across_save(api_client: tuple[TestClient, 
     assert cleared.json()["website_url"] is None
 
 
+def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) -> None:
+    """Конструктор отчётных полей (FR-12.1): поля профиля сохраняются полной
+    заменой вместе с профилем и возвращаются как есть при чтении."""
+    client, _ = api_client
+    fields = [
+        {
+            "id": "f1",
+            "name": "код ФККО",
+            "hint": "код отхода по ФККО",
+            "type": "string",
+            "unit": None,
+        },
+        {
+            "id": "f2",
+            "name": "объём партии",
+            "hint": "объём вывоза",
+            "type": "number",
+            "unit": "м3",
+        },
+    ]
+    created = client.post(
+        "/api/clients",
+        json={"name": "report-fields-profile", "competencies": COMP_JSON, "report_fields": fields},
+    )
+    assert created.status_code == 200, created.text
+    profile_id = created.json()["id"]
+    assert created.json()["report_fields"] == fields
+
+    fetched = client.get(f"/api/clients/{profile_id}")
+    assert fetched.json()["report_fields"] == fields
+
+    replaced = client.put(
+        f"/api/clients/{profile_id}",
+        json={
+            "name": "report-fields-profile",
+            "competencies": COMP_JSON,
+            "report_fields": [fields[0]],
+        },
+    )
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["report_fields"] == [fields[0]]
+
+
 def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
     client, _ = api_client
     customer_id = client.get(f"/api/procurements/{inserted_id}").json()["customer_id"]
@@ -1869,9 +1912,9 @@ def test_analysis_prompts_list_get_put(tmp_path: Path, analyst_headers: dict[str
 def test_active_context_creates_default_profile(api_client: tuple[TestClient, Path]) -> None:
     """Легаси-аккаунт с ролью user, но без профиля: активный контекст само-лечится.
 
-    Регрессия: «Активный профиль не найден (примените миграции)» при приёме
-    закупки «в работу» (POST /api/procurements/work/by-url) для аккаунтов,
-    созданных до мультитенантности (``create_user`` без default-профиля).
+    Регрессия: «Активный профиль не найден (примените миграции)» для базовых
+    эндпоинтов закупок у аккаунтов, созданных до мультитенантности
+    (``create_user`` без default-профиля).
     """
     client, _ = api_client
 
@@ -1890,8 +1933,8 @@ def test_active_context_creates_default_profile(api_client: tuple[TestClient, Pa
     token = create_token(user_id, [ROLE_USER], AUTH_SECRET, 3600)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # «В работе» — базовый эндпоинт, зависящий от активного профиля.
-    resp = client.get("/api/procurements/work", headers=headers)
+    # Список закупок — базовый эндпоинт, зависящий от активного профиля.
+    resp = client.get("/api/procurements", headers=headers)
     assert resp.status_code == 200
 
     async def _profile_created() -> None:
@@ -1946,7 +1989,7 @@ def test_active_context_uses_disabled_profile(
     token = create_token(user_id, [ROLE_USER], AUTH_SECRET, 3600)
     headers = {"Authorization": f"Bearer {token}"}
 
-    resp = client.get("/api/procurements/work", headers=headers)
+    resp = client.get("/api/procurements", headers=headers)
     assert resp.status_code == 200
 
     async def _active_is_disabled_profile() -> None:

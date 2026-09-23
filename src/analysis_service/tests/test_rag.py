@@ -127,7 +127,7 @@ def test_report_without_tz() -> None:
 
 def test_report_has_cost_and_trace_url() -> None:
     """Отчёт всегда содержит cost (0 при отсутствии вызовов) и trace_url (None без LangFuse)."""
-    report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(_NoTzRecord(), [], {}))
+    report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(_NoTzRecord(), [], metadata={}))
     cost = report["cost"]
     assert cost["usd"] == 0.0
     # Стандартизованные метрики стадии всегда присутствуют.
@@ -173,7 +173,7 @@ def test_verdict_parsed_from_llm() -> None:
         analyzer.analyze(
             record,
             [{"id": "q1", "text": "Лицензии?"}],
-            {"license_names": [], "experience_codes": []},
+            metadata={"license_names": [], "experience_codes": []},
         )
     )
     assert report["tz_found"] in (True, False)
@@ -432,7 +432,7 @@ def test_analyze_falls_back_to_description_when_tz_has_no_duties(
 
     monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
-    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], {}))
+    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], metadata={}))
     assert report["tz_found"] is True
     assert report["tz_file"] == "Описание.docx"
 
@@ -451,7 +451,7 @@ def test_analyze_keeps_tz_when_duties_present(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
-    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], {}))
+    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], metadata={}))
     assert report["tz_found"] is True
     assert report["tz_file"] == "ТЗ.docx"
 
@@ -546,7 +546,7 @@ def test_analyze_answers_from_non_tz_document(monkeypatch: pytest.MonkeyPatch) -
         ]
     }
     report = asyncio.run(
-        analyzer.analyze(record, [{"id": "q1", "text": "Разрешены ли соисполнители?"}], {})
+        analyzer.analyze(record, [{"id": "q1", "text": "Разрешены ли соисполнители?"}], metadata={})
     )
     assert report["tz_found"] is True
     assert report["tz_file"] == "ТЗ.docx"  # отображаемое имя — по-прежнему ТЗ
@@ -557,3 +557,58 @@ def test_analyze_answers_from_non_tz_document(monkeypatch: pytest.MonkeyPatch) -
     assert llm.last_user is not None
     assert "соисполнителей" in llm.last_user
     assert "Проект контракта.docx" in llm.last_user
+
+
+# --- Отчётные поля (FR-12.2): проводка через RagAnalyzer.analyze -----------
+
+
+def test_analyze_no_tz_includes_empty_fields() -> None:
+    """Нет ни одного документа → fields=[] (как questions), без вызова LLM/эмбеддера."""
+    report = asyncio.run(
+        _analyzer(_FakeLlm([])).analyze(
+            _NoTzRecord(), [], report_fields=[{"id": "f1", "name": "объём"}]
+        )
+    )
+    assert report["fields"] == []
+
+
+def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """rag_report несёт fields, переиспользуя уже собранные чанки документов
+    (та же _collect_document_chunks, что и для questions — не пересчитывается)."""
+    from analysis_service.pipeline import rag as rag_mod
+
+    from scoring_common.tz.files import FileRef
+
+    tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
+
+    def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
+        return [tz_ref]
+
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+        return "Объём партии отходов составляет 4000 м3."
+
+    monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
+    monkeypatch.setattr(rag_mod, "extract_text_cached", fake_extract)
+
+    llm = _FakeLlm([{"found": True, "value": 4000, "confidence": "high", "excerpt": "4000 м3"}])
+    analyzer = _analyzer(llm)
+    record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
+    report = asyncio.run(
+        analyzer.analyze(
+            record, [], report_fields=[{"id": "f1", "name": "объём партии", "type": "number"}]
+        )
+    )
+    assert report["fields"] == [
+        {
+            "field_id": "f1",
+            "field_name": "объём партии",
+            "field_type": "number",
+            "unit": None,
+            "found": True,
+            "value": 4000.0,
+            "confidence": "high",
+            "excerpt": "4000 м3",
+            "source_file": "ТЗ.docx",
+            "reasoning": "",
+        }
+    ]

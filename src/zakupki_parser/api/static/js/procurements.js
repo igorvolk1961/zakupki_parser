@@ -12,7 +12,7 @@ import {
   fmtDT,
 } from "./utils.js";
 import { state } from "./store.js";
-import { api, apiJSON, apiErrorDetail } from "./api.js";
+import { api, apiJSON, apiErrorDetail, authHeaders } from "./api.js";
 import { hasRole } from "./roles.js";
 import { renderMarkdown } from "./markdown.js";
 
@@ -97,8 +97,8 @@ function displayItems() {
 // показывать несколько карточек одновременно. Строка карточки уже есть в
 // allItems (список отдаёт те же поля, что и карточка, см. ProcurementOut) —
 // отдельный запрос за деталями не нужен, в отличие от модалки (openDetail),
-// которая может открываться БЕЗ предварительно загруженного списка (с вкладки
-// «В работе», см. work.js#openWorkCard).
+// которая делает собственный запрос карточки (напр. toggleCardFullscreen —
+// переоткрытие текущей закупки шторкой в полноэкранном режиме).
 function renderDetail() {
   const panel = $("#proc-detail");
   if (panelDetailId === null) {
@@ -162,6 +162,7 @@ async function procParams() {
   if ($("#proc-sort").value) params.sort = $("#proc-sort").value;
   if ($("#proc-platform").value) params.platform_id = $("#proc-platform").value;
   if ($("#proc-active").value !== "") params.active = $("#proc-active").value === "1";
+  if ($("#proc-in-work").checked) params.in_work = true;
   // «Только релевантные» — по желанию пользователя, НЕ автоматически: раньше при
   // доступном скоринге закупки без fit-score (ещё не обработанные конвейером)
   // скрывались всегда, независимо от чекбокса — пользователь не мог их увидеть,
@@ -289,7 +290,7 @@ function cardBodyHtml(row, { closable, containerId }) {
   }
   const panels = [
     `<div class="card-tab-panel active" data-cardpanel="data">${cardDataPanel(row, f, files)}</div>`,
-    `<div class="card-tab-panel" data-cardpanel="scoring" style="display:none">${cardScoringPanel(row, f, isAnalyzing)}</div>`,
+    `<div class="card-tab-panel" data-cardpanel="scoring" style="display:none">${cardScoringPanel(row, f, isAnalyzing, containerId)}</div>`,
   ];
   if (analyst) {
     panels.push(`<div class="card-tab-panel" data-cardpanel="metrics" style="display:none">${cardMetricsPanel(row)}</div>`);
@@ -302,11 +303,17 @@ function cardBodyHtml(row, { closable, containerId }) {
   return `
     ${closable ? `<span class="close" onclick="closeModal()">×</span>` : ""}
     <div class="card-scroll">
+      <div class="toolbar card-icon-actions">
+        <button class="ghost icon-btn" title="На весь экран" onclick="toggleCardFullscreen('${containerId}', ${row.id})">⛶</button>
+        <button class="ghost icon-btn" title="Выгрузить в Excel" onclick="exportCardXlsx(${row.id}, '${containerId}')">📊</button>
+        <button class="ghost icon-btn" title="Печать" onclick="printCard('${containerId}')">🖨</button>
+      </div>
       <h2>${escapeHtml(row.number)}</h2>
       ${cardScoreSummaryHtml(row, analyst)}
       <div class="tabs card-tabs">${tabs.join("")}</div>
       ${panels.join("")}
     </div>
+    <div id="${containerId}-op-status" class="muted" style="min-height:18px; margin-top:8px;"></div>
     <div class="toolbar card-footer" style="justify-content:flex-end; flex-wrap:wrap; gap:6px;">
       <button class="ghost" id="${containerId}-excl-btn" disabled title="Выделите фрагмент текста в карточке, чтобы добавить его в исключения профиля" onclick="addSelectionToExclusions(${row.id}, '${containerId}')">В исключения</button>
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
@@ -315,7 +322,7 @@ function cardBodyHtml(row, { closable, containerId }) {
         : `<button class="primary" onclick="acceptWork(${row.id})">В работу</button>
            <button class="danger" onclick="openReject(${row.id})" title="Пометить как отклонённую и скрыть из выдачи">Отбраковать</button>`}
       <button class="ghost" onclick="viewRequirements(${row.id})">Требования к участнику</button>
-      <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id})">${isAnalyzing ? "Анализ…" : "Анализ документов"}</button>
+      <button class="primary" id="analyze-btn-${row.id}" ${isAnalyzing ? "disabled" : ""} onclick="analyzeProc(${row.id}, '${containerId}')">${isAnalyzing ? "Анализ…" : "Анализ документов"}</button>
       <button onclick="pwinProc(${row.id})">Оценить P(win)/Margin</button>
       ${row.langfuse_trace_url && analyst ? `<button class="ghost" onclick="viewTrace(${row.id})">Трейс</button>` : ""}
       ${row.rag_report && row.rag_report.trace_url && analyst ? `<button class="ghost" onclick="viewTraceUrl('${escapeHtml(row.rag_report.trace_url)}')">Анализ</button>` : ""}
@@ -345,7 +352,7 @@ function cardDataPanel(row, f, files) {
 }
 
 // Вкладка «Результаты скоринга и анализа»: оценки каскада + RAG-отчёт стоп-условий.
-function cardScoringPanel(row, f, isAnalyzing) {
+function cardScoringPanel(row, f, isAnalyzing, containerId) {
   const methodLabel = row.score_method
     ? { manual: "ручная", reject: "отклонена", fit: "fit", sim: "sim", pwin: "pwin", margin: "margin" }[row.score_method] || row.score_method
     : "—";
@@ -365,7 +372,7 @@ function cardScoringPanel(row, f, isAnalyzing) {
     ${f("Трейс скоринга", scoreTrace)}
     ${f("Трейс анализа документов", analysisTrace)}
   </table>
-  ${ragReportHtml(row.rag_report, isAnalyzing)}`;
+  ${ragReportHtml(row.rag_report, isAnalyzing, containerId)}`;
 }
 
 // Вкладка «Метрики» (только analyst): токены, стоимость токенов, латенси,
@@ -644,13 +651,18 @@ async function viewRequirements(id) {
 }
 
 // RAG-отчёт анализа по вопросам клиента (персонализированные вопросы профиля).
-function ragReportHtml(report, isAnalyzing) {
+// id у подсказки (${containerId}-rag-hint) — чтобы analyzeProc мог сразу
+// поменять текст на «выполняется» по клику, не дожидаясь следующего опроса
+// (rag_report появляется только по завершении анализа, до этого сигнатура
+// карточки не меняется и полного перерендера не происходит — см.
+// refreshOpenDetail/refreshPanelDetail).
+function ragReportHtml(report, isAnalyzing, containerId) {
   if (!report) {
     const hint = isAnalyzing
       ? "Анализ выполняется. Вердикты по вопросам профиля появятся после завершения."
       : "Анализ не выполнялся. Нажмите «Анализ документов», чтобы получить вердикты по вопросам профиля.";
     return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
-      <p class="muted">${hint}</p>`;
+      <p class="muted" id="${containerId}-rag-hint">${hint}</p>`;
   }
   const verdictBadge = (q) => {
     const v = q.verdict;
@@ -694,10 +706,24 @@ function ragReportHtml(report, isAnalyzing) {
     </div>`
     )
     .join("");
+  const fieldItems = (report.fields || [])
+    .map((f) => {
+      const value = f.found
+        ? `${escapeHtml(String(f.value ?? ""))}${f.unit ? " " + escapeHtml(f.unit) : ""}`
+        : '<span class="muted">не найдено</span>';
+      const title = f.found && f.excerpt ? ` title="«${escapeHtml(f.excerpt)}»"` : "";
+      return `<tr${title}><td>${escapeHtml(f.field_name)}</td><td>${value}</td></tr>`;
+    })
+    .join("");
+  const fieldsBlock = fieldItems
+    ? `<h3 style="margin:16px 0 4px;">Отчётные поля</h3>
+       <div class="table-wrap"><table><tbody>${fieldItems}</tbody></table></div>`
+    : "";
   return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
     ${banner}
-    ${items || '<p class="muted">Вопросов к документам пока нет.</p>'}`;
+    ${items || '<p class="muted">Вопросов к документам пока нет.</p>'}
+    ${fieldsBlock}`;
 }
 
 async function loadPlatforms() {
@@ -731,7 +757,62 @@ async function loadPlatforms() {
 }
 
 function closeModal() {
-  $("#modal-bg").classList.remove("open");
+  $("#modal-bg").classList.remove("open", "fullscreen");
+}
+
+// «На весь экран» — по умолчанию карточка закупки открывается боковой
+// панелью (шторка #modal справа или встроенная #proc-detail), эта кнопка
+// на время возвращает прежний центральный вид (класс .fullscreen, см. CSS).
+// Из встроенной панели (#proc-detail) полноэкранный режим есть только у
+// шторки — переоткрываем ту же закупку в ней, сразу в режиме .fullscreen.
+function toggleCardFullscreen(containerId, id) {
+  if (containerId === "proc-detail") {
+    openDetail(id).then(() => $("#modal-bg").classList.add("fullscreen"));
+    return;
+  }
+  $("#modal-bg").classList.toggle("fullscreen");
+}
+
+// Печать карточки закупки: клонируем её текущее содержимое в отдельное
+// печатное окно (минимальные стили, без кнопок действий) — чтобы не тащить
+// печать всей страницы приложения через сложные @media print правила.
+function printCard(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const w = window.open("", "_blank", "width=800,height=900");
+  if (!w) return;
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Печать закупки</title>
+    <style>
+      body { font-family: system-ui, sans-serif; padding:24px; color:#1f2937; }
+      table { width:100%; border-collapse:collapse; font-size:13px; margin:0 0 14px; }
+      td, th { text-align:left; padding:6px 8px; border-bottom:1px solid #d8dde6; vertical-align:top; }
+      td:first-child { color:#6b7280; width:34%; }
+      h2 { margin-top:0; }
+      .close, .card-footer, .card-icon-actions, [id$="-op-status"] { display:none !important; }
+      .card-tab-panel { display:block !important; }
+      .tabs { display:none !important; }
+    </style></head><body>${el.innerHTML}</body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
+}
+
+// Выгрузка одной карточки закупки в XLSX (кнопка-иконка на панели).
+async function exportCardXlsx(id, containerId) {
+  const r = await fetch(`/api/procurements/${id}/export.xlsx`, { headers: authHeaders() });
+  if (!r.ok) {
+    setOpStatus(containerId, "не удалось выгрузить Excel: " + (await apiErrorDetail(r)), true);
+    return;
+  }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `procurement_${id}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 // Открыть LangFuse-трейс закупки в новой вкладке. Доступно ТОЛЬКО роли analyst:
@@ -760,10 +841,26 @@ function setAnalyzeBtn(id, analyzing) {
   btn.textContent = analyzing ? "Анализ…" : "Анализ документов";
 }
 
-async function analyzeProc(id) {
+// Статус операции — ПРЯМО в карточке закупки (модалка/панель), т.к. кнопка
+// нажимается из карточки. В шапку (#parser-status) дублировать не нужно —
+// карточка уже показывает результат, а из-под модалки шапка всё равно не
+// видна. Шапка — только запасной вариант, если локального блока вдруг нет.
+function setOpStatus(containerId, text, isError) {
+  const local = containerId ? document.getElementById(`${containerId}-op-status`) : null;
+  if (local) {
+    local.textContent = text;
+    local.style.color = isError ? "#dc2626" : "";
+    return;
+  }
+  const header = $("#parser-status");
+  header.textContent = text;
+  header.style.color = isError ? "#dc2626" : "";
+}
+
+async function analyzeProc(id, containerId) {
   analyzingIds.add(id);
   setAnalyzeBtn(id, true);
-  $("#parser-status").textContent = `Закупка #${id}: анализ документов поставлен в очередь…`;
+  setOpStatus(containerId, `Закупка #${id}: анализ документов поставлен в очередь…`, false);
   let ok = false;
   try {
     const r = await apiJSON("/api/procurements/analyze", {
@@ -772,11 +869,21 @@ async function analyzeProc(id) {
       body: JSON.stringify({ procurement_ids: [id] }),
     });
     ok = r.ok;
-    $("#parser-status").textContent = ok
-      ? `Закупка #${id}: анализ документов запущен, жду результат…`
-      : "не удалось поставить анализ документов (транспорт не настроен?)";
+    if (ok) {
+      setOpStatus(containerId, `Закупка #${id}: анализ документов запущен, жду результат…`, false);
+      // Пока rag_report не пришёл, сигнатура карточки не меняется и полного
+      // перерендера не будет (см. refreshOpenDetail/refreshPanelDetail) —
+      // подсказку «анализ не выполнялся» иначе не заменить на «выполняется»
+      // до самого завершения, что вводит пользователя в заблуждение.
+      const hintEl = containerId && document.getElementById(`${containerId}-rag-hint`);
+      if (hintEl) {
+        hintEl.textContent = "Анализ выполняется. Вердикты по вопросам профиля появятся после завершения.";
+      }
+    } else {
+      setOpStatus(containerId, `Закупка #${id}: ` + (await apiErrorDetail(r)), true);
+    }
   } catch (err) {
-    $("#parser-status").textContent = "не удалось запустить анализ документов: " + (err.message || err);
+    setOpStatus(containerId, "не удалось запустить анализ документов: " + (err.message || err), true);
   }
   if (!ok) {
     analyzingIds.delete(id);
@@ -840,6 +947,40 @@ async function removeWorkByProc(id) {
     if (openDetailId !== null) await openDetail(id);
   } catch (err) {
     $("#parser-status").textContent = "не удалось снять с работы: " + (err.message || err);
+  }
+}
+
+// Добавление закупки «в работу» по URL карточки на ЭТП (живая подгрузка,
+// см. POST /api/procurements/by-url) — для закупок, найденных не через наш
+// поиск (напр. другим инструментом тендеролога), в т.ч. вне фильтров профиля.
+async function addProcurementByUrl() {
+  const input = $("#proc-add-url");
+  const url = (input.value || "").trim();
+  const status = $("#proc-add-url-status");
+  if (!url) {
+    status.textContent = "Укажите URL закупки на ЭТП";
+    status.style.color = "#dc2626";
+    return;
+  }
+  status.style.color = "";
+  status.textContent = "добавляю…";
+  try {
+    const r = await apiJSON("/api/procurements/by-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!r.ok) {
+      status.textContent = await apiErrorDetail(r);
+      status.style.color = "#dc2626";
+      return;
+    }
+    input.value = "";
+    status.textContent = "Закупка добавлена «в работу» ✓";
+    await loadProc();
+  } catch (err) {
+    status.textContent = "не удалось добавить: " + (err.message || err);
+    status.style.color = "#dc2626";
   }
 }
 
@@ -998,6 +1139,9 @@ export {
   closeReject,
   doReject,
   addSelectionToExclusions,
+  toggleCardFullscreen,
+  printCard,
+  exportCardXlsx,
 };
 
 // Гейт «мониторинг без скоринга» (BR-09): узнав доступность опции scoring,
@@ -1061,6 +1205,7 @@ $("#sel-all").addEventListener("change", (e) => {
 });
 $("#batch-analyze").addEventListener("click", async () => {
   const ids = [...selected];
+  $("#parser-status").style.color = "";
   $("#parser-status").textContent = `Ставлю анализ документов для ${ids.length} закупок…`;
   try {
     const r = await apiJSON("/api/procurements/analyze", {
@@ -1068,11 +1213,15 @@ $("#batch-analyze").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ procurement_ids: ids }),
     });
-    $("#parser-status").textContent = r.ok
-      ? `Поставлен анализ документов для ${ids.length} закупок…`
-      : "не удалось поставить анализ (транспорт не настроен?)";
+    if (r.ok) {
+      $("#parser-status").textContent = `Поставлен анализ документов для ${ids.length} закупок…`;
+    } else {
+      $("#parser-status").textContent = await apiErrorDetail(r);
+      $("#parser-status").style.color = "#dc2626";
+    }
   } catch (err) {
     $("#parser-status").textContent = "не удалось поставить анализ: " + (err.message || err);
+    $("#parser-status").style.color = "#dc2626";
   }
 });
 $("#batch-pwin-margin").addEventListener("click", async () => {
@@ -1137,4 +1286,12 @@ $("#proc-platform").addEventListener("change", () => {
 $("#proc-active").addEventListener("change", () => {
   procPage = 1;
   loadProc();
+});
+$("#proc-in-work").addEventListener("change", () => {
+  procPage = 1;
+  loadProc();
+});
+$("#proc-add-url-btn").addEventListener("click", addProcurementByUrl);
+$("#proc-add-url").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") addProcurementByUrl();
 });

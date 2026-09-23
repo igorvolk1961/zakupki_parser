@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
+import json
 import logging
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from openpyxl import Workbook
 
 from scoring_common.requirements import extract_requirements
 from scoring_common.tz import resolve_tz_content_cached
@@ -21,24 +24,22 @@ from zakupki_parser.api.app.converters import (
 )
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
-    AcceptWorkByUrlIn,
-    AcceptWorkIn,
     ExclusionWordIn,
     ExclusionWordOut,
     ExportIn,
     IndexResultIn,
     IndexResultOut,
+    ProcurementByUrlIn,
     ProcurementDetailOut,
     ProcurementGeoIn,
     ProcurementGeoOut,
     ProcurementIdsIn,
     ProcurementListOut,
+    ProcurementOut,
     RejectIn,
     RequirementsIn,
     RequirementsOut,
     ScoreUpdate,
-    WorkItemOut,
-    WorkItemsListOut,
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage, _sync_profile_results
 from zakupki_parser.browser.manager import BrowserManager
@@ -91,6 +92,49 @@ CSV_COLUMNS = [
     "score_method",
     "is_active",
 ]
+
+
+def _match_platform_ids_by_url(platforms: dict[str, Any], url: str) -> list[str]:
+    """id площадок, чей базовый хост совпадает с хостом переданного URL.
+
+    Сравнение — по хосту (без учёта регистра), а не по всей строке: у площадки
+    свои пути детальных страниц, разные для 44-ФЗ/223-ФЗ и т.п. Несколько
+    площадок могут иметь общий хост (напр. zakupki_gov_44fz/zakupki_gov_223fz,
+    roseltorg_44fz/roseltorg_223fz — один портал, два раздела) — какая именно,
+    уточняется уже при подгрузке карточки (``fetch_procurement_by_url``), не
+    на этапе распознавания хоста.
+    """
+    host = urlsplit((url or "").strip()).netloc.lower()
+    if not host:
+        return []
+    return [
+        platform_id
+        for platform_id, platform in (platforms or {}).items()
+        if urlsplit(platform.url).netloc.lower() == host
+    ]
+
+
+async def fetch_procurement_by_url(state: Any, platform_ids: list[str], url: str) -> dict[str, Any]:
+    """Живая подгрузка полной карточки закупки по URL (реализуется по площадкам).
+
+    Нужна тендерологу, чтобы добавить «в работу» закупку, найденную другим
+    инструментом — независимо от того, проходит ли она авто-отбор какого-либо
+    профиля (регион/ОКПД/ключевые слова) — и прогнать её через наш ИИ-анализ.
+    В отличие от обычного обхода (список -> детали), здесь есть только URL
+    детальной страницы: площадка обходится с неё напрямую (детальная
+    страница/API площадки), без прохода по списку результатов поиска.
+
+    Пока не реализовано ни для одной площадки (заглушка) — см. план по фазам:
+    сначала площадки с фикстурами (EIS, roseltorg, etpgpb), затем API-форматные
+    (mos/lot_online/tender_223), затем b2b_center/fabrikant.
+    """
+    platforms = state.cfg.dom.platforms or {}
+    names = ", ".join(platforms[pid].name for pid in platform_ids if pid in platforms) or ", ".join(
+        platform_ids
+    )
+    raise NotImplementedError(
+        f"Добавление закупки по URL для площадки «{names}» ещё не реализовано"
+    )
 
 
 async def _fetch_details_for_score(state: Any, row: Any, *, need_region: bool = False) -> None:
@@ -424,81 +468,18 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         words = await _repo().get_profile_keywords(profile.id)
         return ExclusionWordOut(added=added, exclusion_words=words["exclusion_words"])
 
-    @router.get(
-        "/api/procurements/work",
-        response_model=WorkItemsListOut,
-        dependencies=[Depends(require_base)],
-    )
-    async def list_work_items(
-        user: User | None = Depends(require_base),
-    ) -> WorkItemsListOut:
-        """Закупки «в работе» активного профиля (вкладка «В работе»)."""
-        _, profile = await _active_context(user)
-        assert profile is not None
-        items = await _repo().list_work_items(profile.id)
-        return WorkItemsListOut(
-            total=len(items),
-            items=[WorkItemOut.model_validate(item) for item in items],
-        )
-
     @router.post(
         "/api/procurements/{procurement_id}/work",
-        response_model=WorkItemOut,
-        dependencies=[Depends(require_base)],
-    )
-    async def accept_into_work(
-        procurement_id: int,
-        body: AcceptWorkIn | None = None,
-        user: User | None = Depends(require_base),
-    ) -> WorkItemOut:
-        """Принимает закупку «в работу» из результатов поиска (US-5.4)."""
-        _, profile = await _active_context(user)
-        assert profile is not None
-        notes = body.notes if body is not None else None
-        item = await _repo().accept_into_work(
-            procurement_id, profile.id, source="search", notes=notes
-        )
-        if item is None:
-            raise HTTPException(status_code=404, detail="Закупка не найдена")
-        await _broadcast(state)
-        return WorkItemOut.model_validate(item)
-
-    @router.post(
-        "/api/procurements/work/by-url",
-        response_model=WorkItemOut,
-        dependencies=[Depends(require_base)],
-    )
-    async def accept_into_work_by_url(
-        body: AcceptWorkByUrlIn,
-        user: User | None = Depends(require_base),
-    ) -> WorkItemOut:
-        """Принимает закупку «в работу» по URL на ЭТП (не из результатов поиска).
-
-        Если закупка с таким URL есть в ``procurements`` — привязывается к ней;
-        иначе создаётся запись-снимок (``procurement_id=NULL``), которая останется
-        в «в работе», даже когда соответствующий результат поиска появится и будет
-        удалён (FK SET NULL + снимок).
-        """
-        _, profile = await _active_context(user)
-        assert profile is not None
-        item = await _repo().accept_into_work_by_url(body.url, profile.id, notes=body.notes)
-        await _broadcast(state)
-        return WorkItemOut.model_validate(item)
-
-    @router.delete(
-        "/api/procurements/work/{work_item_id}",
         status_code=204,
         dependencies=[Depends(require_base)],
     )
-    async def remove_work_item(
-        work_item_id: int, user: User | None = Depends(require_base)
+    async def accept_into_work(
+        procurement_id: int, user: User | None = Depends(require_base)
     ) -> None:
-        """Удаляет запись «в работе» по её id (в т.ч. запись-снимок по URL)."""
-        _, profile = await _active_context(user)
-        assert profile is not None
-        removed = await _repo().remove_work_item(profile.id, work_item_id)
-        if not removed:
-            raise HTTPException(status_code=404, detail="Запись не найдена")
+        """Принимает закупку «в работу» (US-5.4). Признак общий для закупки (не per-profile)."""
+        ok = await _repo().set_in_work(procurement_id, True)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _broadcast(state)
 
     @router.delete(
@@ -509,13 +490,47 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     async def remove_from_work(
         procurement_id: int, user: User | None = Depends(require_base)
     ) -> None:
-        """Снимает закупку с «в работе» (удаляется только запись, не закупка)."""
-        _, profile = await _active_context(user)
-        assert profile is not None
-        removed = await _repo().remove_from_work(profile.id, procurement_id)
-        if not removed:
-            raise HTTPException(status_code=404, detail="Закупка не в работе")
+        """Снимает закупку с «в работе» (закупка остаётся в общей выдаче)."""
+        ok = await _repo().set_in_work(procurement_id, False)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
         await _broadcast(state)
+
+    @router.post(
+        "/api/procurements/by-url",
+        response_model=ProcurementOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def add_procurement_by_url(
+        body: ProcurementByUrlIn, user: User | None = Depends(require_base)
+    ) -> ProcurementOut:
+        """Добавляет закупку «в работу» по URL карточки на ЭТП — живая подгрузка.
+
+        Для тендеролога, который нашёл закупку в другом инструменте и хочет
+        прогнать её через наш ИИ-анализ независимо от того, проходит ли она
+        авто-отбор какого-либо профиля (регион/ОКПД/ключевые слова). Площадка
+        определяется по хосту URL (``configs/dom/<platform_id>.yaml#url``);
+        не найдена — 400, закупка не сохраняется. Сама подгрузка карточки
+        (детальная страница/API площадки) реализуется по площадкам отдельно
+        (см. ``fetch_procurement_by_url``) — пока не реализована ни для одной.
+        """
+        platform_ids = _match_platform_ids_by_url(state.cfg.dom.platforms, body.url)
+        if not platform_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Адрес не относится ни к одной из поддерживаемых площадок",
+            )
+        try:
+            record = await fetch_procurement_by_url(state, platform_ids, body.url)
+        except NotImplementedError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from None
+        await _repo().upsert(record)
+        procurement_id = record["id"]
+        await _repo().set_in_work(procurement_id, True)
+        await _broadcast(state)
+        fresh = await _repo().get_by_id(procurement_id)
+        assert fresh is not None
+        return _procurement_out(fresh, include_costs=False)
 
     @router.get(
         "/api/procurements/{procurement_id}",
@@ -532,6 +547,87 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         return _procurement_detail_out(row, include_costs=_is_analyst(user))
+
+    @router.get(
+        "/api/procurements/{procurement_id}/export.xlsx",
+        include_in_schema=False,
+        dependencies=[Depends(require_base)],
+    )
+    async def export_procurement_xlsx(
+        procurement_id: int, user: User | None = Depends(require_base)
+    ) -> Response:
+        """Выгружает одну карточку закупки в XLSX (кнопка-иконка на панели).
+
+        Те же поля/подписи, что в карточке (вкладки «Данные закупки» и
+        «Результаты скоринга и анализа», см. cardDataPanel/cardScoringPanel в
+        procurements.js) — один лист, пары подпись/значение.
+        """
+        _, profile = await _active_context(user)
+        row = await _repo().get_by_id(
+            procurement_id, profile_id=profile.id if profile is not None else None
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Закупка не найдена")
+        out = _procurement_out(row, include_costs=False)
+
+        wb = Workbook()
+        ws = wb.active
+        assert ws is not None
+        ws.title = "Закупка"
+        ws.append(["Поле", "Значение"])
+
+        def add(label: str, value: Any) -> None:
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False)
+            ws.append([label, value])
+
+        method_labels = {
+            "manual": "ручная",
+            "reject": "отклонена",
+            "fit": "fit",
+            "sim": "sim",
+            "pwin": "pwin",
+            "margin": "margin",
+        }
+        add("Номер", out.number)
+        add("Предмет", out.subject)
+        add("Заказчик", out.customer)
+        add("Регион", out.region)
+        add("Площадка", out.platform_name or out.platform_id)
+        add("Тип процедуры", out.procedure_type)
+        add("Закон", out.law)
+        add("НМЦК", out.nmck)
+        add("Опубликовано", out.publication_date)
+        add("Обновлено", out.update_date)
+        add("Срок подачи", out.deadline)
+        add("Активна", "да" if out.is_active else "нет")
+        add("Обеспечение", out.security_amount)
+        add("Единица обеспечения", out.security_amount_unit)
+        add("ОКПД2", out.okpd2_codes)
+        add("Срок исполнения", out.execution_term)
+        add("Ссылка", out.url)
+        add("Score", out.score)
+        add("Метод скоринга", method_labels.get(out.score_method or "", out.score_method))
+        add("Fit-скор", out.fit_score)
+        add("P(win)", out.p_win)
+        add("Margin", out.margin)
+        add("Близость эмбеддингов", out.embedding_similarity)
+        for q in (out.rag_report or {}).get("questions", []) or []:
+            if isinstance(q, dict):
+                add(f"Вопрос: {q.get('text', '')}", q.get("marker") or q.get("verdict"))
+        for fv in (out.rag_report or {}).get("fields", []) or []:
+            if isinstance(fv, dict) and fv.get("found"):
+                add(f"Поле: {fv.get('field_name', '')}", fv.get("value"))
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="procurement_{procurement_id}.xlsx"'
+            },
+        )
 
     @router.get(
         "/api/procurements/{procurement_id}/tz",
@@ -928,8 +1024,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 status_code=403,
                 detail=(
                     "Операция недоступна в вашем аккаунте: анализ документов и скоринг — "
-                    "платные опции (LLM/эмбеддинги). Включите нужные опции в личном кабинете "
-                    "(в триал-режиме доступны все опции)."
+                    "платные опции (LLM/эмбеддинги). Включите нужные опции в личном кабинете."
                 ),
             )
         queued: list[int] = []
@@ -976,7 +1071,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 status_code=403,
                 detail=(
                     "Оценка P(win)/Margin недоступна в вашем аккаунте: это платные опции "
-                    "(LLM). Включите их в личном кабинете (в триал-режиме доступны все опции)."
+                    "(LLM). Включите их в личном кабинете."
                 ),
             )
         queued: list[int] = []

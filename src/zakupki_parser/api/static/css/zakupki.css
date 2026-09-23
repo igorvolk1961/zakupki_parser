@@ -146,6 +146,19 @@
      карточки скроллится под ней (.card-scroll) или сама модалка скроллит
      длинный контент (max-height/overflow выше). */
   .modal .close { position:absolute; top:16px; right:18px; cursor:pointer; color: var(--muted); font-size:22px; line-height:1; z-index:1;}
+  /* Карточка закупки (#modal) по умолчанию — НЕ центральная модалка, а
+     боковая панель справа (как #proc-detail на вкладке «Закупки»), на всю
+     высоту экрана: нужна на вкладках без встроенной панели (напр. «В
+     работе», см. work.js#openWorkCard -> openDetail). Кнопка «На весь
+     экран» (.fullscreen) временно возвращает классический вид по центру. */
+  #modal-bg { justify-content:flex-end; align-items:stretch; padding:0; }
+  #modal { width:640px; max-width:92vw; height:100vh; max-height:100vh; border-radius:0; }
+  #modal-bg.fullscreen { justify-content:center; align-items:flex-start; padding:40px 16px; }
+  #modal-bg.fullscreen #modal { width:100%; max-width:1100px; height:auto; max-height:85vh; border-radius:14px; }
+  /* Иконки-действия карточки (на весь экран/Excel/печать) — отдельная строка
+     над заголовком, единая для панели и шторки (cardBodyHtml). */
+  .card-icon-actions { justify-content:flex-end; margin:0 0 8px; gap:4px; }
+  .icon-btn { padding:5px 9px; font-size:15px; line-height:1; }
   /* Просмотр текста ТЗ (в т.ч. извлечённого из архива). */
   .tz-view { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:12px;
     padding:14px 16px; overflow:auto; max-height:65vh; word-break:break-word; }
@@ -183,6 +196,10 @@
   #profiles .table-wrap table th:nth-child(5) { width:20%; }
   #profiles .table-wrap table th:nth-child(6) { width:12%; }
   #profiles .table-wrap table td:last-child { white-space:nowrap; }
+  /* Отчётные поля: полная сетка (вертикальные + горизонтальные линии), не только border-bottom. */
+  #report-fields-table table { border-collapse:collapse; }
+  #report-fields-table th, #report-fields-table td { border:1px solid var(--line); padding:7px 8px; text-align:left; vertical-align:top; }
+  #report-fields-table th { background:var(--panel2); color:var(--muted); font-weight:600; white-space:nowrap; }
   .muted { color: var(--muted); }
   a { color: var(--accent); }
   .editor-actions { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin-top: 12px; z-index: 2; }

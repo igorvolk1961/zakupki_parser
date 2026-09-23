@@ -37,6 +37,8 @@ indexing:
   enabled: true
   okpd2_prefixes:
   - '62'
+  - '38'
+  - '29'
   excluded_platforms:
   - b2b_center
   max_attempts: 5

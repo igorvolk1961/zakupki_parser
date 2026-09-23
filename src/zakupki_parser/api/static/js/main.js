@@ -25,15 +25,11 @@ import {
   closeReject,
   doReject,
   addSelectionToExclusions,
+  toggleCardFullscreen,
+  printCard,
+  exportCardXlsx,
 } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
-import {
-  loadWork,
-  addWorkByUrl,
-  removeWorkItem,
-  removeFromWork,
-  openWorkCard,
-} from "./work.js";
 import { loadMetrics } from "./metrics.js";
 import { loadProfiles, loadActiveProfileSelector, closeDeleteProfileModal, closeExportProfileModal, profileFormDirty } from "./clients.js";
 import { loadAccount } from "./account.js";
@@ -51,7 +47,12 @@ import {
 import { loadUsers, closeUserModal } from "./users.js";
 import { loadMonitoring, monitoringDirty } from "./monitoring.js";
 import { loadLogs, loadLogFiles } from "./logs.js";
-import { updateControls, refreshParserStatus, closeDbModal, closeExportModal } from "./admin.js";
+import {
+  updateControls,
+  refreshParserStatus,
+  closeDbModal,
+  closeExportModal,
+} from "./admin.js";
 import { closeConfirmDialog } from "./dialogs.js";
 import { closeDocsModal, closeInfoModal } from "./topmenu.js";
 import { loadRefTables, refDirty } from "./reference.js";
@@ -62,10 +63,6 @@ import { ALL_TABS, canAccessBase, switchTo, updateRolesUI } from "./roles.js";
 // предупреждаем: «Отмена» — confirmDialog ниже, закрытие страницы — beforeunload.
 const TAB_LOADERS = {
   proc: loadActiveProfileSelector,
-  work: () => {
-    loadActiveProfileSelector();
-    loadWork();
-  },
   cust: loadCustomers,
   profiles: loadProfiles,
   account: loadAccount,
@@ -154,10 +151,9 @@ window.openReject = openReject;
 window.closeReject = closeReject;
 window.doReject = doReject;
 window.addSelectionToExclusions = addSelectionToExclusions;
-window.addWorkByUrl = addWorkByUrl;
-window.removeWorkItem = removeWorkItem;
-window.removeFromWork = removeFromWork;
-window.openWorkCard = openWorkCard;
+window.toggleCardFullscreen = toggleCardFullscreen;
+window.printCard = printCard;
+window.exportCardXlsx = exportCardXlsx;
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
@@ -205,7 +201,6 @@ themeSel.addEventListener("change", () => applyTheme(themeSel.value));
       await loadActiveProfileSelector();
       await loadProc();
       await loadCustomers();
-      await loadWork();
     } catch (err) {
       $("#proc-rows").innerHTML = `<tr><td colspan="4" class="muted">Не удалось загрузить данные: ${escapeHtml(String(err))}</td></tr>`;
     }

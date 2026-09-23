@@ -20,8 +20,10 @@
 #
 # Фоновые сервисы остаются жить, пока работает скрипт; Ctrl+C — останавливает их
 # (включая python-процессы-воркеры, а не только uv-обёртки). Перед стартом скрипт
-# проверяет, что порты 5432/6379/3000/8200 не заняты посторонними контейнерами, и
-# прерывается с диагностикой владельца порта при конфликте.
+# проверяет, что порты 5432/6379/<LangFuse UI>/8200 не заняты посторонними
+# контейнерами, и прерывается с диагностикой владельца порта при конфликте.
+# Порт LangFuse UI берётся из docker/.env (LANGFUSE_UI_PORT, дефолт 3000) —
+# сдвигается при параллельном demo-стеке (scripts/compose.sh demo).
 # Порты можно переопределить: PORT_PARSER, PORT_TRANSPORT.
 #
 # Команды:
@@ -39,6 +41,18 @@ LOG_DIR="$ROOT_DIR/data/logs"
 
 PORT_PARSER="${PORT_PARSER:-8000}"
 PORT_TRANSPORT="${PORT_TRANSPORT:-8200}"
+
+# Порт LangFuse UI: docker-compose пробрасывает контейнер на хост-порт из
+# docker/.env (LANGFUSE_UI_PORT, см. docker-compose.yml langfuse-web); дефолт
+# в самом docker-compose.yml — 3000. Читаем тем же способом, что и ключи
+# LANG_INIT_* ниже — сама переменная нужна РАНЬШЕ (проверка занятости порта),
+# поэтому читаем её здесь, а не там.
+LANGFUSE_UI_PORT="3000"
+if [[ -f "$ROOT_DIR/docker/.env" ]]; then
+    _langfuse_ui_port="$(sed -n 's/^LANGFUSE_UI_PORT[[:space:]]*=[[:space:]]*//p' "$ROOT_DIR/docker/.env" | tail -n1)"
+    [[ -n "$_langfuse_ui_port" ]] && LANGFUSE_UI_PORT="$_langfuse_ui_port"
+    unset _langfuse_ui_port
+fi
 
 # Внутренний service-to-service секрет (ZAKUPKI_INTERNAL_TOKEN) — Bearer-токен
 # авторизации scoring_transport (serve без токена не стартует). Он же уходит от
@@ -245,7 +259,7 @@ stop_services
 ensure_port_free "5432" "PostgreSQL (zakupki_db)" "$DB_CONTAINER" || exit 1
 ensure_port_free "6379" "Redis (zakupki_redis)" "$REDIS_CONTAINER" || exit 1
 if [[ "${SKIP_LANGFUSE:-0}" != "1" ]]; then
-    ensure_port_free "3000" "LangFuse UI" "docker-langfuse-web-1" || exit 1
+    ensure_port_free "$LANGFUSE_UI_PORT" "LangFuse UI" "docker-langfuse-web-1" || exit 1
 fi
 ensure_port_free "8200" "scoring_transport" || exit 1
 
@@ -339,7 +353,7 @@ if [[ "${SKIP_LANGFUSE:-0}" != "1" ]]; then
     echo "Ожидание готовности LangFuse..."
     ready=0
     for i in $(seq 1 60); do
-        if curl -sf -m 2 "http://localhost:3000/api/public/health" >/dev/null 2>&1; then
+        if curl -sf -m 2 "http://localhost:$LANGFUSE_UI_PORT/api/public/health" >/dev/null 2>&1; then
             echo "LangFuse готов."
             ready=1
             break
@@ -349,7 +363,7 @@ if [[ "${SKIP_LANGFUSE:-0}" != "1" ]]; then
     if [[ "$ready" != 1 ]]; then
         echo "Внимание: LangFuse не ответил на /api/public/health за 2 мин — проверьте лог langfuse-web." >&2
     fi
-    echo "LangFuse UI: http://localhost:3000"
+    echo "LangFuse UI: http://localhost:$LANGFUSE_UI_PORT"
 else
     echo "LangFuse пропущен (SKIP_LANGFUSE=1)."
 fi
@@ -366,7 +380,7 @@ fi
 export LANGFUSE_PUBLIC_KEY="${LANGFUSE_PUBLIC_KEY:-}"
 export LANGFUSE_SECRET_KEY="${LANGFUSE_SECRET_KEY:-}"
 # Локально LangFuse доступен на хосте (в Docker — по имени сервиса langfuse-web).
-export LANGFUSE_HOST="http://localhost:3000"
+export LANGFUSE_HOST="http://localhost:$LANGFUSE_UI_PORT"
 
 # Общие компоненты каскада (scoring_common) — локально не установлены как пакет,
 # поэтому добавляем их в PYTHONPATH (как это делают Dockerfile подпроектов).

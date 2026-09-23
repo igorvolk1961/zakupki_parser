@@ -372,7 +372,7 @@ requirements:
     adr: "-"
     code:
       - src/zakupki_parser/storage/db/evaluation.py
-      - src/zakupki_parser/storage/db/work.py
+      - src/zakupki_parser/storage/db/procurement.py
       - src/zakupki_parser/storage/repository/evaluations.py#reject
       - src/zakupki_parser/api/app/routes/procurements.py
     tests:
@@ -406,39 +406,70 @@ requirements:
     status: implemented
     adr: "-"
     code:
-      - src/zakupki_parser/storage/db/work.py
-      - src/zakupki_parser/storage/repository/work.py#accept_into_work
+      - src/zakupki_parser/storage/db/procurement.py
+      - src/zakupki_parser/storage/repository/procurements.py#set_in_work
       - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work
     tests:
       - tests/integration/test_decisions_work.py
+    notes: >-
+      2026-09-23: перепроектировано (решение пользователя) — вместо отдельной
+      таблицы ``procurement_work_items`` (per-profile, BR-07) признак «в
+      работе» стал обычной колонкой ``procurements.in_work`` (общий для
+      закупки, не per-profile): проще модель, но закупка «в работе» видна
+      теперь в выдаче ЛЮБОГО профиля, не только принявшего. Отдельный
+      раздел «В работе» убран — это теперь фильтр на вкладке «Закупки»
+      (см. US-5.6).
   - id: US-5.5
     type: US
-    title: Принять «в работу» по URL
+    title: Добавить закупку по URL (живая подгрузка, вне авто-отбора профиля)
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: implemented
+    status: partial
     adr: "-"
     code:
-      - src/zakupki_parser/storage/repository/work.py#accept_into_work_by_url
-      - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
+      - src/zakupki_parser/api/static/js/procurements.js
     tests:
-      - tests/integration/test_decisions_work.py
+      - tests/unit/test_procurement_by_url.py
+    notes: >-
+      2026-09-23: переработано (решение пользователя) — тендерологу нужно
+      сравнивать, как одну и ту же закупку обрабатывают наш ИИ-анализ и
+      другие инструменты; закупка может не проходить авто-отбор ни одного
+      профиля (регион/ОКПД/ключевые слова) — раньше по URL просто сохранялся
+      текстовый снимок (``procurement_id=NULL``) и закупка ждала, пока её
+      когда-нибудь найдёт обычный обход (мог и не найти). Теперь — живая
+      подгрузка полной карточки прямо по URL детальной страницы (без
+      снимков): площадка определяется по хосту URL
+      (``_match_platform_ids_by_url``, по ``configs/dom/<platform_id>.yaml#url``),
+      не найдена — 400, закупка не сохраняется. Сама подгрузка
+      (``fetch_procurement_by_url``) — заглушка (``NotImplementedError`` для
+      всех площадок): реализуется по площадкам отдельно, см. FR-13 (план по
+      фазам — фикстурные площадки EIS/roseltorg/etpgpb, затем API-форматные
+      mos/lot_online/tender_223, затем b2b_center/fabrikant).
   - id: US-5.6
     type: US
-    title: Раздел «В работе» и снятие с работы
+    title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)
     stakeholder: Тендеролог (user)
     stage: "7"
     status: implemented
     adr: "-"
     code:
-      - src/zakupki_parser/storage/db/work.py
-      - src/zakupki_parser/storage/repository/work.py#list_work_items
-      - src/zakupki_parser/storage/repository/work.py#remove_from_work
-      - src/zakupki_parser/storage/repository/work.py#remove_work_item
-      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/storage/repository/procurements.py#set_in_work
+      - src/zakupki_parser/api/app/routes/procurements.py#remove_from_work
+      - src/zakupki_parser/api/zakupki.html
+      - src/zakupki_parser/api/static/js/procurements.js
     tests:
       - tests/integration/test_decisions_work.py
       - tests/unit/test_decisions_schemas.py
+    notes: >-
+      2026-09-23: отдельная вкладка «В работе» (и её отдельная таблица) убраны
+      — по опыту использования пользователь решил, что фильтр на общей
+      таблице «Закупки» удобнее (закупки «в работе» не уезжают из вида при
+      появлении новых, но не требуют переключения вкладки). Чекбокс
+      «В работе» (``#proc-in-work``) — обычный фильтр списка (``in_work``
+      query-параметр), тот же список/карточка, что и без фильтра.
 
   - id: US-5.7
     type: US
@@ -1497,8 +1528,7 @@ requirements:
     adr: "-"
     code:
       - src/zakupki_parser/storage/repository/evaluations.py#reject
-      - src/zakupki_parser/storage/db/work.py
-      - src/zakupki_parser/storage/repository/work.py#accept_into_work
+      - src/zakupki_parser/storage/repository/procurements.py#set_in_work
       - src/zakupki_parser/storage/repository/procurements.py#list_procurements
       - src/zakupki_parser/api/app/routes/procurements.py#reject_procurement
     tests:
@@ -1527,50 +1557,63 @@ requirements:
       - tests/integration/test_decisions_work.py
   - id: FR-5.4
     type: FR
-    title: Принять «в работу» из результатов поиска (per-profile, in_work в выдаче)
+    title: Принять «в работу» из результатов поиска (in_work — колонка procurements)
     stakeholder: Тендеролог (user)
     stage: "7"
     status: implemented
     adr: "-"
     code:
-      - src/zakupki_parser/storage/db/work.py
-      - src/zakupki_parser/storage/repository/work.py#accept_into_work
+      - src/zakupki_parser/storage/db/procurement.py
+      - src/zakupki_parser/storage/repository/procurements.py#set_in_work
       - src/zakupki_parser/storage/repository/procurements.py#list_procurements
       - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work
     tests:
       - tests/integration/test_decisions_work.py
+    notes: >-
+      2026-09-23: было per-profile (``procurement_work_items``), стало общей
+      колонкой закупки (не per-profile) — см. US-5.4.
   - id: FR-5.5
     type: FR
-    title: Принять «в работу» по URL ЭТП (резолв или запись-снимок)
+    title: Добавить закупку по URL — живая подгрузка карточки (не резолв/снимок)
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: implemented
+    status: partial
     adr: "-"
     code:
-      - src/zakupki_parser/storage/repository/work.py#accept_into_work_by_url
-      - src/zakupki_parser/storage/repository/work.py#find_by_url
-      - src/zakupki_parser/api/app/routes/procurements.py#accept_into_work_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
     tests:
-      - tests/integration/test_decisions_work.py
+      - tests/unit/test_procurement_by_url.py
+    notes: >-
+      2026-09-23: переработано — раньше «принятие по URL» либо резолвило
+      существующую закупку, либо создавало текстовую запись-снимок без
+      реальной карточки (``procurement_id=NULL``). Теперь — живая подгрузка
+      полной карточки с детальной страницы площадки; площадка определяется
+      по хосту URL, не определена — 400, ничего не сохраняется. Подгрузка
+      по площадкам (``fetch_procurement_by_url``) — заглушка, см. US-5.5/FR-13.
   - id: FR-5.6
     type: FR
-    title: Раздел «В работе» (единый список) и снятие с работы
+    title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)
     stakeholder: Тендеролог (user)
     stage: "7"
     status: implemented
     adr: "-"
     code:
-      - src/zakupki_parser/storage/db/work.py
-      - src/zakupki_parser/storage/repository/work.py#list_work_items
-      - src/zakupki_parser/storage/repository/work.py#remove_from_work
-      - src/zakupki_parser/storage/repository/work.py#remove_work_item
-      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/storage/repository/procurements.py#set_in_work
+      - src/zakupki_parser/api/app/routes/procurements.py#remove_from_work
+      - src/zakupki_parser/api/zakupki.html
+      - src/zakupki_parser/api/static/js/procurements.js
     tests:
       - tests/integration/test_decisions_work.py
       - tests/unit/test_decisions_schemas.py
+    notes: >-
+      2026-09-23: отдельная вкладка/таблица «В работе» убраны в пользу
+      фильтра на общей таблице «Закупки» (см. US-5.6) — по опыту
+      использования отдельная вкладка оказалась неудобной.
   - id: FR-5.7
     type: FR
-    title: Очистка БД с запросом про удаление «в работе» (BR-08)
+    title: Очистка БД с запросом про удаление «в работе»
     stakeholder: DevOps
     stage: "7"
     status: implemented
@@ -1578,10 +1621,15 @@ requirements:
     code:
       - src/zakupki_parser/storage/repository/procurements.py#clear_all
       - src/zakupki_parser/api/app/routes/admin.py#clear_db
-      - src/zakupki_parser/api/app/schemas.py
+      - src/zakupki_parser/api/app/schemas.py#ClearDbIn
     tests:
       - tests/integration/test_decisions_work.py
       - tests/unit/test_decisions_schemas.py
+    notes: >-
+      2026-09-23: ``ClearDbIn.include_work_items`` -> ``include_in_work``
+      (та же гарантия: по умолчанию закупки «в работе» переживают очистку —
+      теперь просто фильтром ``in_work=False`` в DELETE, без FK SET NULL/
+      снимка — снимков больше нет, строка не удаляется вовсе).
 
   - id: FR-6.1
     type: FR
@@ -2225,6 +2273,146 @@ requirements:
       сервис — свой контейнер) видно только сам api и его потомков —
       не баг, а ограничение видимости процессов между контейнерами.
 
+  - id: FR-12.1
+    type: FR
+    title: Конструктор отчётных полей — данные профиля
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/storage/db/profile.py
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/api/app/schemas.py
+      - docker/liquibase/changelog/db.changelog-1.64.yaml
+    tests:
+      - tests/integration/test_api.py
+    notes: >-
+      Пользователь сам заводит произвольные именованные поля отчёта
+      ({id, name, hint, type, unit}, type — string/number/date/boolean) в
+      профиле — generic-механизм, без схем под конкретный домен (заказчик
+      прислал пример отчёта для домена «отходы», но фича не завязана на
+      него: любой другой домен заводится теми же 4 полями формы). Хранится
+      как JSONB-колонка profiles.report_fields, полная замена вместе с
+      профилем — тот же паттерн, что у questions.
+  - id: FR-12.2
+    type: FR
+    title: RAG-извлечение значений отчётных полей по документам закупки
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: ADR-10
+    code:
+      - src/analysis_service/analysis_service/pipeline/report_fields.py
+      - src/analysis_service/analysis_service/pipeline/prompts.py
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_string.md
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_number.md
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_date.md
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_boolean.md
+      - src/analysis_service/analysis_service/pipeline/rag.py
+      - src/analysis_service/analysis_service/worker.py
+      - src/analysis_service/analysis_service/settings.py
+    tests:
+      - src/analysis_service/tests/test_report_fields.py
+      - src/analysis_service/tests/test_rag.py
+    notes: >-
+      Переиспользует уже собранные чанки/эмбеддинги документов закупки
+      (RagAnalyzer._collect_document_chunks, тот же охват ВСЕХ документов,
+      что и вопросы профиля, FR-4.1) — эмбеддинги не пересчитываются.
+      Retrieval-запрос авто-выводится из name+hint поля (без отдельного
+      шага «сформулировать запрос к RAG» для пользователя). Промпт
+      извлечения зависит только от ТИПА поля (4 генерик-промпта), не от
+      домена. N полей одной закупки извлекаются ПАРАЛЛЕЛЬНО
+      (asyncio.gather под Settings.report_field_concurrency) — сознательно
+      не повторяет антипаттерн fill_requirements_data (FR-10.10:
+      последовательный вызов на каждый элемент). Результат — сосед
+      questions внутри rag_report (evaluations.rag_report['fields']), не
+      отдельная колонка (в отличие от requirements_json у FR-10.10):
+      значения per-profile, как и вопросы, а не профиль-независимы.
+
+      Живая проверка (2026-09-22, реальные Giga-эмбеддинги + DeepSeek LLM
+      на кэшированных документах закупок по отходам) подтвердила
+      корректное извлечение (например, «объём партии» -> «4000.0 м3» с
+      точной цитатой). Попутно обнаружен пред-существующий дефект:
+      Giga Embeddings API отдаёт 413 на батче ~20+ чанков в одном вызове
+      embed() — затрагивает и вопросы профиля (тот же вызов в
+      RagAnalyzer._analyze), не только отчётные поля; не исправлялся
+      (отдельная задача, вне рамок этой фичи).
+  - id: FR-12.3
+    type: FR
+    title: Очистка табличного шума (Unnamed/NaN) при извлечении текста документов
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/scoring_common/scoring_common/tz/text.py
+    tests:
+      - src/scoring_common/tests/test_text.py
+    notes: >-
+      markitdown при конвертации xlsx-смет отдаёт заголовки вида
+      "Unnamed: N" и пустые ячейки как "NaN" — шум, который засорял
+      контекст LLM (в т.ч. для FR-10.10 и вопросов профиля) и мешал
+      извлечению как раз тех полей, что чаще всего лежат в табличных
+      сметах (например, «цена за единицу»). Единая точка очистки
+      (clean_text/_table_to_markdown) — фикс работает для ВСЕХ
+      потребителей (RagAnalyzer, extract_requirements, TZ-резолюция), не
+      только для конструктора отчётных полей.
+  - id: FR-12.4
+    type: FR
+    title: Экспорт отчётной таблицы по шаблону заказчика (XLSX)
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: planned
+    adr: "-"
+    code: []
+    tests: []
+    notes: >-
+      Было реализовано и откатано 2026-09-23 по решению продукта:
+      усложняло сценарий (загрузка XLSX-шаблона заказчика + подтверждение
+      сопоставления колонок) без подтверждённого спроса пользователей.
+      profiles.report_field_mapping (колонка БД, миграция
+      db.changelog-1.64.yaml) оставлена как есть — данные не мигрировались,
+      реализация вернётся к этой же схеме при следующем запросе.
+      Эндпоинт (было: procurements.py#export_procurement_fields),
+      repository-метод (было: profiles.py#merge_report_field_mapping),
+      кнопка «Выгрузить по шаблону» с модалкой сопоставления (zakupki.html,
+      admin.js) и тест (test_api.py#test_export_fields_by_template) —
+      удалены. Базовый экспорт закупок остался (FR не заведён отдельно) —
+      CSV с фиксированными колонками, без report_fields; выгрузка
+      report_fields без шаблона (просто доп. колонки в XLSX) обсуждается,
+      но пока тоже не реализована.
+  - id: FR-12.5
+    type: FR
+    title: UI конструктора отчётных полей и отображения значений
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/api/static/js/clients.js
+      - src/zakupki_parser/api/static/js/procurements.js
+      - src/zakupki_parser/api/static/js/admin.js
+      - src/zakupki_parser/api/static/js/roles.js
+      - src/zakupki_parser/api/static/js/main.js
+      - src/zakupki_parser/api/zakupki.html
+    tests: []
+    covered_by:
+      - FR-12.1
+    notes: >-
+      Вкладка «Отчётные поля» в редакторе профиля (имя/подсказка/тип/
+      единица — паттерн формы лицензий, не tag-input вопросов, т.к. полю
+      нужно 4 подполя); блок «Отчётные поля» на карточке закупки (рядом
+      с вопросами по ТЗ).
+
+      Живая проверка в браузере (Playwright, 2026-09-22, реальный
+      dev-стек): добавление/сохранение/перезагрузка полей профиля,
+      отображение значений на карточке закупки — без ошибок консоли.
+
+      2026-09-23: кнопка «Выгрузить по шаблону» с модалкой сопоставления
+      удалена вместе с FR-12.4 (см. там) — продукт решил не усложнять
+      формирование профиля до появления реального спроса.
+
   # ===== Бизнес-правила =====
   - id: BR-01
     type: BR
@@ -2336,10 +2524,11 @@ requirements:
       проиндексированный каталог. Добавлено базовое условие: видна закупка,
       если есть строка evaluations для активного профиля (совпадение по
       словам/индексу — ``rebuild_profile_results``, независимо от статуса
-      скоринга) ИЛИ есть строка ``procurement_work_items`` для активного
-      профиля (вручную принята «в работу», в т.ч. по прямой ссылке в обход
-      авто-отбора). Условие применяется всегда, когда передан ``profile_id``
-      (не зависит от ``scored``/``in_work``/``include_rejected``).
+      скоринга) ИЛИ закупка отмечена ``procurements.in_work`` (вручную
+      принята «в работу», в т.ч. по прямой ссылке в обход авто-отбора; с
+      2026-09-23 признак общий для закупки, не per-profile — см. US-5.4).
+      Условие применяется всегда, когда передан ``profile_id`` (не зависит
+      от ``scored``/``in_work``/``include_rejected``).
   - id: BR-09
     type: BR
     title: Аккаунты пользователя и платные опции

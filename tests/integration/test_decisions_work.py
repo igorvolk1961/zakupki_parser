@@ -157,99 +157,66 @@ async def test_add_exclusion_word_does_not_reject_procurement(db: Database) -> N
 
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_accept_into_work_flag_and_list(db: Database) -> None:
+async def test_set_in_work_flag_and_list(db: Database) -> None:
     repo = ProcurementRepository(db)
     _, profile_id = await _profile_with_keywords(repo, "work-user")
     pid = await _upsert(repo, "WORK-1")
 
-    item = await repo.accept_into_work(pid, profile_id)
-    assert item is not None
-    assert item.procurement_id == pid
-    assert item.source == "search"
+    assert await repo.set_in_work(pid, True) is True
 
     rows, total = await repo.list_procurements(profile_id=profile_id)
     assert total == 1
     assert rows[0].in_work is True
 
-    items = await repo.list_work_items(profile_id)
-    assert [i.procurement_id for i in items] == [pid]
+    # Повторная установка идемпотентна.
+    assert await repo.set_in_work(pid, True) is True
 
-    # Повторное принятие идемпотентно: запись одна.
-    await repo.accept_into_work(pid, profile_id)
-    assert len(await repo.list_work_items(profile_id)) == 1
-
-    # Снятие с работы удаляет только запись; закупка остаётся в выдаче.
-    assert await repo.remove_from_work(profile_id, pid) is True
-    assert await repo.list_work_items(profile_id) == []
+    # Снятие с работы: колонка снята. Закупка не отобрана профилем никак
+    # иначе (нет записи оценки/matched_keywords) — из ЭТОГО профильного
+    # списка она поэтому и пропадает (BR-07, ожидаемо, не баг).
+    assert await repo.set_in_work(pid, False) is True
+    row = await repo.get_by_id(pid)
+    assert row is not None and row.in_work is False
     rows, total = await repo.list_procurements(profile_id=profile_id)
-    assert total == 1 and rows[0].id == pid
-    assert rows[0].in_work is False
+    assert total == 0
+
+    # Несуществующая закупка — False.
+    assert await repo.set_in_work(10**9, True) is False
 
 
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_accept_by_url_existing_and_snapshot(db: Database) -> None:
+async def test_clear_all_keeps_in_work_unless_requested(db: Database) -> None:
     repo = ProcurementRepository(db)
-    _, profile_id = await _profile_with_keywords(repo, "work-url")
-    pid = await _upsert(repo, "WORK-2", url="https://zakupki.example.com/need/2", subject="По URL")
-
-    # Закупка с таким URL уже есть — привязываемся к ней (source='url').
-    item = await repo.accept_into_work_by_url("https://zakupki.example.com/need/2", profile_id)
-    assert item.procurement_id == pid
-    assert item.source == "url"
-    assert item.number == "WORK-2"
-
-    # Неизвестный URL — создаётся запись-снимок (procurement_id IS NULL).
-    snapshot = await repo.accept_into_work_by_url(
-        "https://etp.example.com/purchase/999", profile_id, notes="проверить"
-    )
-    assert snapshot.procurement_id is None
-    assert snapshot.url == "https://etp.example.com/purchase/999"
-    assert snapshot.notes == "проверить"
-    assert snapshot.status == "in_work"
-
-    # Снимок удаляется по id записи «в работе» (профильный скоуп BR-07) —
-    # привязанная к закупке запись остаётся.
-    assert await repo.remove_work_item(profile_id, snapshot.id) is True
-    items = await repo.list_work_items(profile_id)
-    assert len(items) == 1
-    assert items[0].procurement_id == pid
-
-
-@pytest.mark.slow
-@pytest.mark.asyncio
-async def test_clear_all_keeps_work_items_unless_requested(db: Database) -> None:
-    repo = ProcurementRepository(db)
-    _, profile_id = await _profile_with_keywords(repo, "work-clear")
     pid = await _upsert(repo, "WORK-CL", subject="Сохранить в работе")
-    await repo.accept_into_work(pid, profile_id)
+    await _upsert(repo, "WORK-CL-2", subject="Обычная")
+    await repo.set_in_work(pid, True)
 
-    # Очистка без include_work_items: procurement удалён, запись «в работе» живёт
-    # (снимок в самой записи, procurement_id обнулён FK SET NULL).
+    # Очистка без include_in_work: обычная закупка удалена, «в работе» — нет.
     deleted = await repo.clear_all()
     assert deleted["procurements"] == 1
-    items = await repo.list_work_items(profile_id)
-    assert len(items) == 1
-    assert items[0].procurement_id is None
-    assert items[0].subject == "Сохранить в работе"
+    assert deleted["work_items"] == 0
+    assert await repo.find_id("WORK-CL", "zakupki_mos") == pid
+    assert await repo.find_id("WORK-CL-2", "zakupki_mos") is None
 
-    # Явная очистка «в работе» удаляет и записи тоже.
-    deleted = await repo.clear_all(include_work_items=True)
+    # Явная очистка «в работе» удаляет и её тоже.
+    deleted = await repo.clear_all(include_in_work=True)
+    assert deleted["procurements"] == 1
     assert deleted["work_items"] == 1
-    assert await repo.list_work_items(profile_id) == []
+    assert await repo.find_id("WORK-CL", "zakupki_mos") is None
 
 
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_list_in_work_filter(db: Database) -> None:
-    """Единый список: фильтр in_work возвращает закупки профиля «в работе»."""
+    """Единый список: фильтр in_work возвращает закупки, принятые «в работу»."""
     repo = ProcurementRepository(db)
     _, profile_id = await _profile_with_keywords(repo, "work-filter")
     in_work_id = await _upsert(repo, "WORK-F1")
     other_id = await _upsert(repo, "WORK-F2")
     await repo.record_matched_keywords(in_work_id, profile_id, ["слово"])
     await repo.record_matched_keywords(other_id, profile_id, ["слово"])
-    await repo.accept_into_work(in_work_id, profile_id)
+    await repo.set_in_work(in_work_id, True)
 
     rows, total = await repo.list_procurements(profile_id=profile_id, in_work=True)
     assert total == 1
@@ -270,21 +237,19 @@ async def test_list_in_work_filter(db: Database) -> None:
 
 @pytest.mark.slow
 @pytest.mark.asyncio
-async def test_work_is_per_profile(db: Database) -> None:
-    """Признак «в работе» изолирован по профилю (BR-07)."""
+async def test_in_work_is_global_across_profiles(db: Database) -> None:
+    """Признак «в работе» общий для закупки, не per-profile (в отличие от прежней
+    таблицы procurement_work_items): закупка, добавленная «в работу», видна в
+    выдаче любого профиля, даже если он её не отбирал (BR-07 доп. к score_sub)."""
     repo = ProcurementRepository(db)
     _, profile_a = await _profile_with_keywords(repo, "work-a")
     _, profile_b = await _profile_with_keywords(repo, "work-b")
     pid = await _upsert(repo, "WORK-PP")
 
-    await repo.accept_into_work(pid, profile_a)
-    # profile_b видит закупку в своей выдаче только если она отобрана его же
-    # профилем (BR-07) — иначе принятие «в работу» другим профилем её бы
-    # спрятало из выдачи profile_b (нет строки оценки/работы для profile_b).
-    await repo.record_matched_keywords(pid, profile_b, ["слово"])
+    await repo.set_in_work(pid, True)
 
-    # Другой профиль этого не видит.
-    rows, _ = await repo.list_procurements(profile_id=profile_b)
-    assert rows[0].in_work is False
-    assert await repo.list_work_items(profile_b) == []
-    assert len(await repo.list_work_items(profile_a)) == 1
+    rows_a, _ = await repo.list_procurements(profile_id=profile_a)
+    rows_b, _ = await repo.list_procurements(profile_id=profile_b)
+    assert [r.id for r in rows_a] == [pid]
+    assert [r.id for r in rows_b] == [pid]
+    assert rows_a[0].in_work is True and rows_b[0].in_work is True

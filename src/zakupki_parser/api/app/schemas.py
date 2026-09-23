@@ -114,39 +114,6 @@ class ProcurementListOut(BaseModel):
     items: list[ProcurementOut]
 
 
-class WorkItemOut(BaseModel):
-    """Запись «в работе» профиля (закупка, принятая тендерологом).
-
-    ``procurement_id`` NULL — закупка удалена из общей базы либо ещё не сохранена
-    парсером (принята по URL): карточка отдаётся из снимка полей в записи.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    procurement_id: int | None = None
-    source: str
-    status: str
-    notes: str | None = None
-    accepted_at: datetime
-    # Снимок карточки закупки на момент принятия (resilience к удалению закупки).
-    number: str | None = None
-    platform_id: str | None = None
-    url: str | None = None
-    subject: str | None = None
-    nmck: float | None = None
-    deadline: datetime | None = None
-    law: str | None = None
-    customer_name: str | None = None
-    created_at: datetime
-    updated_at: datetime
-
-
-class WorkItemsListOut(BaseModel):
-    total: int
-    items: list[WorkItemOut]
-
-
 class RejectIn(BaseModel):
     """Отбраковка закупки профилем (Эпик 5, US-5.1/5.2).
 
@@ -178,27 +145,19 @@ class ExclusionWordOut(BaseModel):
     exclusion_words: list[str]
 
 
-class AcceptWorkIn(BaseModel):
-    """Принятие закупки «в работу»: необязательная заметка."""
-
-    notes: str | None = None
-
-
-class AcceptWorkByUrlIn(BaseModel):
-    """Принятие «в работу» по URL закупки на ЭТП (не из результатов поиска)."""
+class ProcurementByUrlIn(BaseModel):
+    """Добавление закупки «в работу» по URL карточки на ЭТП (живая подгрузка)."""
 
     url: str = Field(min_length=1, max_length=1024)
-    notes: str | None = None
 
 
 class ClearDbIn(BaseModel):
-    """Очистка БД (devops): удалять ли закупки, принятые «в работу».
+    """Очистка БД (devops): удалять ли закупки, принятые «в работу» (``in_work``).
 
-    По умолчанию False — записи «в работе» сохраняются (procurement_id обнуляется,
-    карточка читается из снимка), даже если результаты поиска удалены.
+    По умолчанию False — такие закупки сохраняются, удаляются только остальные.
     """
 
-    include_work_items: bool = False
+    include_in_work: bool = False
 
 
 class CustomerOut(BaseModel):
@@ -506,6 +465,9 @@ class ProfileIn(BaseModel):
     # себе ни на что не влияет, сохраняется только для удобства формы (не
     # вводить адрес заново при повторном заполнении).
     website_url: str | None = Field(default=None, max_length=2048)
+    # Конструктор отчётных полей (FR-12.1): [{id, name, hint, type, unit}],
+    # сохраняется вместе с профилем полной заменой (как questions).
+    report_fields: list[dict[str, Any]] | None = None
     licenses: list[LicenseIn] | None = None
     experience: list[ExperienceIn] | None = None
 
@@ -600,6 +562,7 @@ class ProfileOut(BaseModel):
     nmck_max: float | None = None
     search_in_documents: bool = False
     website_url: str | None = None
+    report_fields: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     # Факты профиля для сопоставления с фактами ТЗ (только в active_client).

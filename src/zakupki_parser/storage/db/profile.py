@@ -110,6 +110,17 @@ class Profile(Base):
     # используется только как удобство формы.
     website_url: Mapped[str | None] = mapped_column(Text)
     questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    # Конструктор отчётных полей (FR-12.1): произвольные именованные поля профиля
+    # {id, name, hint, type, unit}, извлекаются RAG-анализом по всем документам
+    # закупки (analysis_service.pipeline.report_fields), аналогично questions.
+    report_fields: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    # Сопоставление колонок последнего загруженного шаблона отчёта заказчика
+    # с report_fields (FR-12.4): {нормализованный_заголовок: field_id|"base:..."|None}.
+    # Не редактируется напрямую через форму профиля — обновляется отдельным
+    # методом при подтверждении сопоставления в экспорте.
+    report_field_mapping: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

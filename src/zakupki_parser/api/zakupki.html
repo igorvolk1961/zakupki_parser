@@ -94,7 +94,6 @@
   <div class="tabs tabs-bar">
     <div class="tabs-group" id="tabs-base">
       <button class="active" id="tab-proc">Закупки <span class="tab-count" id="cnt-proc"></span></button>
-      <button id="tab-work">В работе <span class="tab-count" id="cnt-work"></span></button>
       <button id="tab-cust">Заказчики <span class="tab-count" id="cnt-cust"></span></button>
       <button id="tab-profiles">Профили</button>
       <button id="tab-account" title="Личный кабинет: аккаунты и опции">Личный кабинет</button>
@@ -124,6 +123,13 @@
           <button id="proc-refresh-profile" class="ghost" type="button" title="Принудительно поставить активный профиль на внеочередной обход прямо сейчас — без изменения самого профиля. Повторные нажатия ограничены тем же интервалом, что и правки профиля.">Обновить сейчас</button>
           <span id="proc-refresh-status" class="muted"></span>
         </div>
+        <div class="toolbar" style="margin:0 0 8px;">
+          <label title="URL карточки закупки на ЭТП (одна из поддерживаемых площадок). Закупка подгружается с площадки и сразу помечается «в работе» — независимо от того, подходит ли она под фильтры активного профиля." style="display:flex;align-items:center;gap:6px;flex:1;white-space:nowrap;">Добавить по URL
+            <input type="text" id="proc-add-url" placeholder="https://…" spellcheck="false" style="flex:1;">
+          </label>
+          <button class="primary" id="proc-add-url-btn">Добавить в работу</button>
+          <span id="proc-add-url-status" class="muted"></span>
+        </div>
         <label class="sort-toggle">Сортировка:
           <select id="proc-sort">
             <option value="fit_score" selected>По релевантности (fit-score)</option>
@@ -140,6 +146,7 @@
               <option value="0">Не активна</option>
             </select>
           </label>
+          <label style="margin-left:12px; white-space:nowrap;" title="Показывать только закупки, принятые «в работу» (кнопка «В работу» на карточке или добавленные по URL)."><input type="checkbox" id="proc-in-work"> В работе</label>
           <span style="margin-left:12px;">
             <label style="white-space:nowrap;" title="Показывать только оценённые скорингом закупки с fit-score не ниже порога. Выключено — видны все закупки, включая ещё не обработанные конвейером скоринга."><input type="checkbox" id="proc-relevant"> Только релевантные</label>
             <label id="min-fit-wrap" style="display:none; margin-left:8px; color:var(--text); white-space:nowrap;">fit-score ≥
@@ -187,40 +194,6 @@
 
   <div id="view-cust" style="display:none;">
     <div class="table-wrap" id="customers"></div>
-  </div>
-
-  <div id="view-work" style="display:none;">
-    <div class="panel">
-      <div class="panel-title">Закупки «в работе»</div>
-      <div class="toolbar" style="margin-bottom:0;">
-        <label title="Активный профиль для приёма закупок «в работе». Активным может быть и выключенный профиль." style="display:flex;align-items:center;gap:6px;white-space:nowrap;">Активный профиль
-          <select id="work-profile" class="active-profile-select"></select>
-        </label>
-        <label title="URL закупки на ЭТП (не из результатов поиска)" style="display:flex;align-items:center;gap:6px;flex:1;white-space:nowrap;">URL закупки на ЭТП
-          <input type="text" id="work-url" placeholder="https://…" spellcheck="false" style="flex:1;" title="URL закупки на платформе ЭТП. Если закупка уже сохранена парсером — она появится в списке «в работе»; иначе создаётся запись-снимок по URL">
-        </label>
-        <button class="primary" id="work-by-url">Принять в работу по URL</button>
-        <button class="ghost" id="work-refresh" title="Обновить список">Обновить</button>
-        <span id="work-status" class="muted"></span>
-      </div>
-    </div>
-    <div class="proc-table">
-      <table>
-        <thead><tr>
-          <th>ID</th><th>Закупка</th><th>Площадка</th><th>fit-score</th><th>НМЦК</th><th>Срок подачи</th><th>Действия</th>
-        </tr></thead>
-        <tbody id="work-rows"></tbody>
-      </table>
-      <div class="empty" id="work-empty" style="display:none;">Нет закупок «в работе».<br><span class="muted" style="font-size:12px">Примите закупку из результатов поиска (кнопка «В работу» в карточке) или по URL выше.</span></div>
-    </div>
-    <div class="proc-table" id="work-orphans-wrap" style="display:none;">
-      <div class="panel-title" style="padding:10px 2px 4px;">По URL — закупка ещё не в базе парсера</div>
-      <table>
-        <thead><tr><th>URL</th><th>Принято</th><th>Действия</th></tr></thead>
-        <tbody id="work-orphans"></tbody>
-      </table>
-      <p class="muted" style="font-size:12px; padding:4px 2px;">Записи-снимки по URL, для которых парсер ещё не сохранил закупку (или закупка удалена при очистке БД). Полная карточка появится автоматически, когда закупка будет в базе.</p>
-    </div>
   </div>
 
   <div id="view-metrics" style="display:none;">
@@ -327,6 +300,7 @@
             <button type="button" id="pf-tab-platforms" title="Площадки, которые использует профиль (выбираются только активные)">Площадки <span class="tab-count" id="pf-cnt-platforms"></span></button>
             <button type="button" id="pf-tab-licenses" title="Лицензии и допуски">Лицензии <span class="tab-count" id="pf-cnt-licenses"></span></button>
             <button type="button" id="pf-tab-experience" title="Подтверждённый опыт по 44-ФЗ/223-ФЗ">Опыт <span class="tab-count" id="pf-cnt-experience"></span></button>
+            <button type="button" id="pf-tab-report-fields" title="Произвольные поля отчёта: значение каждого извлекается RAG-анализом из документов закупки">Отчётные поля <span class="tab-count" id="pf-cnt-report-fields"></span></button>
           </div>
           <label id="pf-pane-keywords" title="Enter — добавить, × — удалить">Ключевые слова
             <div class="tag-search-row">
@@ -445,6 +419,35 @@
               <button class="primary" id="experience-new">Добавить опыт</button>
             </div>
             <div class="table-wrap" id="experience-table"></div>
+          </div>
+          <div id="pf-pane-report-fields" style="display:none;">
+            <p class="muted" style="margin-top:0;">Значение каждого поля программа сама находит в документах закупки (RAG-анализ) — опишите поле обычным языком, техническая формулировка запроса не нужна.</p>
+            <div id="report-field-form" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px;">
+              <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <label>Название поля <input id="rf-name" placeholder="например, код ФККО"></label>
+                <label>Тип значения
+                  <select id="rf-type">
+                    <option value="string">Строка</option>
+                    <option value="number">Число</option>
+                    <option value="date">Дата</option>
+                    <option value="boolean">Да/нет</option>
+                  </select>
+                </label>
+                <label style="grid-column:1/-1;">Подсказка (что именно искать)
+                  <textarea id="rf-hint" rows="2" placeholder="например, код вида отхода по ФККО"></textarea>
+                </label>
+                <label id="rf-unit-row">Единица измерения <input id="rf-unit" placeholder="например, м3, руб."></label>
+              </div>
+              <div class="toolbar editor-actions" style="margin:8px 0 0;">
+                <button class="primary" id="report-field-save">Сохранить поле</button>
+                <button id="report-field-cancel">Отмена</button>
+                <span class="muted" id="report-field-status"></span>
+              </div>
+            </div>
+            <div class="toolbar" style="margin:0 0 8px;">
+              <button class="primary" id="report-field-new">Добавить поле</button>
+            </div>
+            <div class="table-wrap" id="report-fields-table"></div>
           </div>
           <div class="toolbar editor-actions profile-actions">
             <button class="primary" id="profile-save">Сохранить профиль</button>
@@ -829,7 +832,7 @@
         </span>
       </label>
     </div>
-    <label id="db-clear-work-wrap" style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:10px;" title="По умолчанию закупки «в работе» сохраняются (procurement_id обнуляется, карточка остаётся из снимка) даже после удаления результатов поиска">
+    <label id="db-clear-work-wrap" style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:10px;" title="По умолчанию закупки «в работе» (in_work) сохраняются, даже когда остальная база очищается">
       <input type="checkbox" id="db-clear-work"> Удалить также закупки, принятые «в работу»
     </label>
     <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">

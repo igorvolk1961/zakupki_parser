@@ -26,7 +26,6 @@ from zakupki_parser.storage.db import (
     Procurement,
     ProcurementEvaluation,
     ProcurementSearchIndex,
-    ProcurementWorkItem,
 )
 from zakupki_parser.storage.repository.base import (
     RepositoryMixin,
@@ -180,7 +179,6 @@ class ProcurementMixin(RepositoryMixin):
             row = result.scalar_one_or_none()
         if row is not None and profile_id is not None:
             _apply_profile_score(row, row.evaluations, profile_id)
-            await self.mark_in_work([row], profile_id)
         return row
 
     async def list_procurements(
@@ -216,18 +214,17 @@ class ProcurementMixin(RepositoryMixin):
         ``profile_id`` — скоуп профиля (BR-07): базовая выдача ограничена
         закупками, которые профиль либо отобрал (есть строка в
         ``procurement_evaluations`` — ключевые слова/индекс документов, см.
-        ``rebuild_profile_results``), либо вручную принял «в работу» (строка в
-        ``procurement_work_items`` — доступно и для закупок вне авто-отбора,
-        например по прямой ссылке). Фильтр/сортировка по fit_score и
-        score_method применяются к per-profile ``procurement_evaluations``.
+        ``rebuild_profile_results``), либо вручную принята «в работу»
+        (``procurements.in_work`` — общий признак, не per-profile: доступно
+        и для закупок вне авто-отбора, например добавленных по прямой ссылке).
+        Фильтр/сортировка по fit_score и score_method применяются к per-profile
+        ``procurement_evaluations``.
 
         ``include_rejected`` — показывать ли отклонённые профилем закупки (Эпик 5):
         по умолчанию False — отклонённые (``status='rejected'``) скрываются.
 
-        ``in_work`` — ограничить выдачу закупками, принятыми «в работу» профилем
-        (единый механизм вкладок «Закупки»/«В работе»: тот же список и те же
-        карточки, см. ``procurement_work_items``). Строки результата помечаются
-        динамическим атрибутом ``in_work``.
+        ``in_work`` — ограничить выдачу закупками, принятыми «в работу»
+        (фильтр «В работе» на вкладке «Закупки»).
         """
         conditions: list[ColumnElement[bool]] = []
         # Per-profile подзапрос скоринга активного профиля: фильтр/сортировка по
@@ -239,18 +236,14 @@ class ProcurementMixin(RepositoryMixin):
         if score_sub is not None:
             # Базовый скоуп профиля (BR-07): «отобрано профилем» = есть запись
             # оценки (совпадение по словам/индексу — независимо от того,
-            # выполнен ли скоринг) ИЛИ закупка вручную принята «в работу» этим
-            # профилем (может быть добавлена по ссылке в обход авто-отбора).
-            # Без этого условия вкладка «Закупки» показывала бы весь
-            # проиндексированный каталог, а не то, что нашёл профиль.
-            profile_work_sub = select(ProcurementWorkItem.procurement_id).where(
-                ProcurementWorkItem.profile_id == profile_id,
-                ProcurementWorkItem.procurement_id.is_not(None),
-            )
+            # выполнен ли скоринг) ИЛИ закупка вручную принята «в работу»
+            # (общий признак — может быть добавлена по ссылке в обход
+            # авто-отбора). Без этого условия вкладка «Закупки» показывала бы
+            # весь проиндексированный каталог, а не то, что нашёл профиль.
             conditions.append(
                 or_(
                     score_sub.c.procurement_id.is_not(None),
-                    Procurement.id.in_(profile_work_sub),
+                    Procurement.in_work.is_(True),
                 )
             )
         if score_sub is not None and not include_rejected:
@@ -262,12 +255,8 @@ class ProcurementMixin(RepositoryMixin):
                     score_sub.c.status != "rejected",
                 )
             )
-        if in_work is True and profile_id is not None:
-            work_sub = select(ProcurementWorkItem.procurement_id).where(
-                ProcurementWorkItem.profile_id == profile_id,
-                ProcurementWorkItem.procurement_id.is_not(None),
-            )
-            conditions.append(Procurement.id.in_(work_sub))
+        if in_work is True:
+            conditions.append(Procurement.in_work.is_(True))
         if number:
             conditions.append(Procurement.number.ilike(f"%{number}%"))
         if platform_id:
@@ -350,7 +339,6 @@ class ProcurementMixin(RepositoryMixin):
         if profile_id is not None:
             for row in rows:
                 _apply_profile_score(row, row.evaluations, profile_id)
-            await self.mark_in_work(rows, profile_id)
         return rows, total
 
     async def find_id(self, number: str, platform_id: str) -> int | None:
@@ -819,71 +807,63 @@ class ProcurementMixin(RepositoryMixin):
             for r in rows
         ]
 
-    async def clear_all(self, include_work_items: bool = False) -> dict[str, int]:
+    async def clear_all(self, include_in_work: bool = False) -> dict[str, int]:
         """Полностью очищает БД (закупки и заказчики). Возвращает число удалённых.
 
-        Закупки, принятые «в работу» (``procurement_work_items``), по умолчанию
-        СОХРАНЯЮТСЯ: их ``procurement_id`` обнуляется (FK ON DELETE SET NULL),
-        карточка отдаётся из снимка в записи. Полное удаление «в работе» —
-        только по явному запросу (``include_work_items=True``, devops в UI).
+        Закупки, принятые «в работу» (``procurements.in_work``), по умолчанию
+        СОХРАНЯЮТСЯ — удаляются только остальные. Полное удаление, включая
+        «в работе», — только по явному запросу (``include_in_work=True``,
+        devops в UI).
         """
         async with self._db.session() as session:
-            procs = (await session.execute(select(func.count(Procurement.id)))).scalar_one()
-            await session.execute(delete(Procurement))
-            work_items = 0
-            if include_work_items:
-                work_items = (
-                    await session.execute(select(func.count(ProcurementWorkItem.id)))
-                ).scalar_one()
-                await session.execute(delete(ProcurementWorkItem))
+            in_work_total = (
+                await session.execute(
+                    select(func.count(Procurement.id)).where(Procurement.in_work.is_(True))
+                )
+            ).scalar_one()
+            stmt = delete(Procurement)
+            if not include_in_work:
+                stmt = stmt.where(Procurement.in_work.is_(False))
+            result = cast("CursorResult[Any]", await session.execute(stmt))
+            deleted_procs = int(result.rowcount or 0)
             cust = (await session.execute(select(func.count(Customer.id)))).scalar_one()
             await session.execute(delete(Customer))
             await session.commit()
+        work_items = int(in_work_total) if include_in_work else 0
         logger.info(
-            "БД очищена: %s закупок, %s заказчиков, %s записей «в работе»",
-            procs,
+            "БД очищена: %s закупок удалено, %s заказчиков, %s закупок «в работе» %s",
+            deleted_procs,
             cust,
-            work_items,
+            work_items if include_in_work else int(in_work_total),
+            "удалено" if include_in_work else "сохранено",
         )
-        return {"procurements": int(procs), "customers": int(cust), "work_items": int(work_items)}
+        return {"procurements": deleted_procs, "customers": int(cust), "work_items": work_items}
 
-    async def _in_work_ids(self, profile_id: int) -> set[int]:
-        """id закупок профиля, принятых «в работу» (procurement_id не NULL)."""
-        stmt = select(ProcurementWorkItem.procurement_id).where(
-            ProcurementWorkItem.profile_id == profile_id,
-            ProcurementWorkItem.procurement_id.is_not(None),
-        )
+    async def set_in_work(self, procurement_id: int, value: bool) -> bool:
+        """Ставит/снимает признак «в работе» у закупки. False, если закупка не найдена."""
+        stmt = update(Procurement).where(Procurement.id == procurement_id).values(in_work=value)
         async with self._db.session() as session:
-            return {int(r[0]) for r in (await session.execute(stmt)).all() if r[0] is not None}
-
-    async def mark_in_work(self, rows: list[Procurement], profile_id: int) -> None:
-        """Помечает строки списка закупок признаком «в работе» (динамический атрибут).
-
-        Признак «в работе» — per-profile (BR-07): подкладывается в выдачу из
-        ``procurement_work_items`` по (profile_id, procurement_id).
-        """
-        if not rows:
-            return
-        ids = await self._in_work_ids(profile_id)
-        for row in rows:
-            if row.id in ids:
-                row.in_work = True
+            result = cast("CursorResult[Any]", await session.execute(stmt))
+            await session.commit()
+        return int(result.rowcount or 0) > 0
 
     async def delete_inactive(self, now: datetime | None = None) -> int:
         """Удаляет неактивные закупки (is_active=false или истёкший срок актуальности).
 
         Клиентская операция: активность учитывает текущую дату, как в фильтре
-        ``active`` в ``list_procurements``. Заказчики не затрагиваются.
+        ``active`` в ``list_procurements``. Заказчики не затрагиваются. Закупки
+        «в работе» (``in_work``) не удаляются — как и раньше с procurement_work_items.
         """
         now = now or datetime.now(UTC)
         stmt = delete(Procurement).where(
+            Procurement.in_work.is_(False),
             or_(
                 Procurement.is_active.is_(False),
                 and_(
                     Procurement.deadline.is_not(None),
                     Procurement.deadline < now,
                 ),
-            )
+            ),
         )
         async with self._db.session() as session:
             result = cast("CursorResult[Any]", await session.execute(stmt))
@@ -899,11 +879,13 @@ class ProcurementMixin(RepositoryMixin):
         из стадий каскада fit/pwin/margin): релевантна закупка с fit_score >= порога,
         нерелевантна — с fit_score < порога (или NULL). Записи без внешнего скоринга
         (default/deadline_expired) не затрагиваются. Заказчики не затрагиваются.
-        При ``profile_id`` фильтр применяется к per-profile скорингу профиля.
+        Закупки «в работе» (``in_work``) не удаляются. При ``profile_id`` фильтр
+        применяется к per-profile скорингу профиля.
         """
         if profile_id is not None:
             score_sub = _profile_score_subquery(profile_id)
             stmt = delete(Procurement).where(
+                Procurement.in_work.is_(False),
                 Procurement.id.in_(
                     select(score_sub.c.procurement_id).where(
                         score_sub.c.score_method.in_(SCORE_METHOD_STAGES),
@@ -912,7 +894,7 @@ class ProcurementMixin(RepositoryMixin):
                             score_sub.c.fit_score < min_fit_score,
                         ),
                     )
-                )
+                ),
             )
         else:
             # Без профиля определять релевантность нечем (дефолтный скор удалён).
@@ -952,9 +934,9 @@ class ProcurementMixin(RepositoryMixin):
         Решения пользователя при перестройке НЕ затрагиваются:
         - закупки, отклонённые вручную (``status='rejected'``), сохраняются как есть
           (не удаляются и не пересчитываются — признак ручного отсева не сбрасывается);
-        - закупки, принятые «в работу» (``procurement_work_items``), остаются в этой
-          таблице, даже если их оценка удаляется из результатов (работ items живут
-          отдельно от ``procurement_evaluations``).
+        - закупки, принятые «в работу» (``procurements.in_work``), остаются в
+          работе, даже если их оценка удаляется из результатов — признак не
+          хранится в ``procurement_evaluations``, перестройка его не касается.
 
         Повторная постановка в очередь выполняется recovery (``find_unscored``),
         поэтому метод сам постановку не делает. Возвращает статистику

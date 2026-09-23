@@ -10,6 +10,35 @@ _PIPE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 # Разделитель заголовка в pipe-таблице: ячейки вида ``---``, ``:---``, ``---:``, ``:---:``.
 _DASH_CELL_RE = re.compile(r"^:?-{2,}:?$")
 
+# Заголовок-заглушка pandas/markitdown при экспорте xlsx без явных названий колонок
+# («Unnamed: 0», «Unnamed: 12») и пропуск данных («NaN») — не несут содержания,
+# только засоряют контекст LLM и таблицу в карточке.
+_UNNAMED_HEADER_RE = re.compile(r"^unnamed:\s*\d+$", re.IGNORECASE)
+_NAN_CELL_RE = re.compile(r"^nan$", re.IGNORECASE)
+
+
+def _clean_header_cell(cell: str) -> str:
+    return "" if _UNNAMED_HEADER_RE.fullmatch(cell.strip()) else cell
+
+
+def _clean_data_cell(cell: str) -> str:
+    return "" if _NAN_CELL_RE.fullmatch(cell.strip()) else cell
+
+
+def _drop_empty_columns(
+    header: list[str], data_rows: list[list[str]]
+) -> tuple[list[str], list[list[str]]]:
+    """Убрать столбцы, у которых пуст и заголовок, и все ячейки данных.
+
+    После очистки ``Unnamed: N``/``NaN`` в исходно шумной xlsx-таблице такие
+    столбцы — чистый мусор экспорта, а не содержательная пустая колонка
+    (у настоящей пустой колонки заголовок обычно есть, данных просто нет).
+    """
+    keep = [i for i in range(len(header)) if header[i] or any(row[i] for row in data_rows)]
+    if len(keep) == len(header):
+        return header, data_rows
+    return [header[i] for i in keep], [[row[i] for i in keep] for row in data_rows]
+
 
 def _is_pipe_row(line: str) -> bool:
     return bool(_PIPE_ROW_RE.match(line))
@@ -46,6 +75,12 @@ def _table_to_markdown(rows: list[str]) -> str:
     ncols = max(len(r) for r in body)
     body = [r + [""] * (ncols - len(r)) for r in body]
     header, data_rows = body[0], body[1:]
+    header = [_clean_header_cell(h) for h in header]
+    data_rows = [[_clean_data_cell(c) for c in row] for row in data_rows]
+    header, data_rows = _drop_empty_columns(header, data_rows)
+    if not header:
+        return ""
+    ncols = len(header)
     lines = [f"| {' | '.join(header)} |", "| " + " | ".join(["---"] * ncols) + " |"]
     for row in data_rows:
         lines.append(f"| {' | '.join(row)} |")

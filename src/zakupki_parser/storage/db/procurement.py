@@ -173,6 +173,12 @@ class Procurement(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
     )
+    # Принята тендерологом «в работу» (быстрый доступ + закупки вне авто-отбора
+    # профиля, в т.ч. добавленные по URL). Общий признак закупки, не per-profile
+    # (заменяет прежнюю per-profile таблицу procurement_work_items).
+    in_work: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     detail_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # Контекст досборки деталей ПОСЛЕ скоринга (BR-08): api_fields (need_id и т.п.),
     # сохранённые при персисте на уровне списка. NULL — детали дособраны/не требуются.
@@ -206,10 +212,6 @@ class Procurement(Base):
     langfuse_trace_url: str | None = None
     rag_report: dict[str, Any] | None = None
     costs: dict[str, Any] | None = None
-    # Признак «закупка принята в работу» под активный профиль (Эпик 5): не колонка,
-    # подкладывается репозиторием при выдаче (см. WorkMixin._apply_work_flag) из
-    # таблицы procurement_work_items (ключ (profile_id, procurement_id)).
-    in_work: bool = False
 
     customer_rel: Mapped[Customer | None] = relationship(back_populates="procurements")
     procedure_type_rel: Mapped[ProcedureType | None] = relationship(back_populates="procurements")

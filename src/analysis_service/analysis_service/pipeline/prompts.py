@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import Any
 
 _PROMPTS_DIR = (
     Path(os.environ["ANALYSIS_PROMPTS_DIR"])
@@ -31,6 +32,17 @@ BATCH_SYSTEM = _load_md("batch_system.md")
 REQUIREMENTS_DATA = _load_md("requirements_data.md")
 GEO_ADDRESS_SYSTEM = _load_md("geo_address_system.md")
 GEO_ADDRESS_USER_TEMPLATE = _load_md("geo_address_user.md")
+
+# Конструктор отчётных полей (FR-12.2): промпт зависит только от ТИПА поля
+# (строка/число/дата/да-нет), а не от предметной области — домен задаёт сам
+# пользователь через name/hint поля, попадающие в user-промпт.
+FIELD_EXTRACT_USER_TEMPLATE = _load_md("field_extract_user.md")
+FIELD_EXTRACT_SYSTEM_BY_TYPE: dict[str, str] = {
+    "string": _load_md("field_extract_string.md"),
+    "number": _load_md("field_extract_number.md"),
+    "date": _load_md("field_extract_date.md"),
+    "boolean": _load_md("field_extract_boolean.md"),
+}
 
 # Структуры data для трёх основных типов требований + обобщённая для «прочих».
 # Точная схема лицензий/опыта/Минпромторга — рабочий контракт (финализируется при
@@ -129,3 +141,25 @@ def build_requirements_data_messages(kind: str, text: str) -> tuple[str, str]:
         {"kind": meta["label"], "structure": meta["schema"], "text": text},
     )
     return REQUIREMENTS_DATA, user
+
+
+def build_field_extract_messages(field: dict[str, Any], context: str) -> tuple[str, str]:
+    """Системный и пользовательский промпты для значения одного отчётного поля.
+
+    Системный промпт выбирается по ``field["type"]`` (строка/число/дата/да-нет) —
+    неизвестный/отсутствующий тип трактуется как ``string`` (самый общий случай).
+    Домен поля (что именно ищем) не зашит в промпт — задаётся исключительно
+    пользовательскими ``name``/``hint`` поля, подставляемыми в user-промпт.
+    """
+    ftype = str(field.get("type") or "")
+    system = FIELD_EXTRACT_SYSTEM_BY_TYPE.get(ftype, FIELD_EXTRACT_SYSTEM_BY_TYPE["string"])
+    user = _substitute(
+        FIELD_EXTRACT_USER_TEMPLATE,
+        {
+            "field_name": str(field.get("name") or ""),
+            "field_hint": str(field.get("hint") or "нет"),
+            "unit": str(field.get("unit") or "не указана"),
+            "context": context,
+        },
+    )
+    return system, user

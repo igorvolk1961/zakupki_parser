@@ -1,0 +1,20 @@
+databaseChangeLog:
+- changeSet:
+    id: 68
+    author: zakupki-parser
+    comment: "Колонка procurements.in_work (boolean): закупка принята тендерологом «в работу» (заменяет отдельную таблицу procurement_work_items — признак стал общим для закупки, не per-profile; см. changeSet 69)."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurements ADD COLUMN IF NOT EXISTS in_work boolean NOT NULL DEFAULT false;
+          COMMENT ON COLUMN procurements.in_work IS
+            'Принята тендерологом «в работу» (быстрый доступ + добавление закупок вне авто-отбора профиля, в т.ч. по URL). Общий признак закупки, не per-profile.';
+- changeSet:
+    id: 69
+    author: zakupki-parser
+    comment: "Удаляет procurement_work_items (заменена колонкой procurements.in_work, changeSet 68) — признак «в работе» больше не per-profile и не хранит снимок карточки."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: DROP TABLE IF EXISTS procurement_work_items;

@@ -1,0 +1,17 @@
+databaseChangeLog:
+- changeSet:
+    id: 66
+    author: zakupki-parser
+    comment: 'profiles.report_fields: JSONB — пользовательские отчётные поля (конструктор отчётных полей, FR-12.1): [{id, name, hint, type, unit}], аналогично questions.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS report_fields JSONB NOT NULL DEFAULT '[]'::jsonb;
+- changeSet:
+    id: 67
+    author: zakupki-parser
+    comment: 'profiles.report_field_mapping: JSONB — сопоставление колонок последнего загруженного шаблона отчёта заказчика с report_fields (FR-12.4), ключ — нормализованный текст заголовка колонки.'
+    changes:
+    - sql:
+        splitStatements: false
+        sql: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS report_field_mapping JSONB NOT NULL DEFAULT '{}'::jsonb;

@@ -26,6 +26,7 @@ from analysis_service.pipeline.prompts import (
     build_requirements_data_messages,
     build_verdict_messages,
 )
+from analysis_service.pipeline.report_fields import ReportFieldExtractor
 from analysis_service.settings import Settings
 from scoring_common.costing import stage_metrics_with_components
 from scoring_common.embeddings import Embeddable, cosine_similarity
@@ -91,11 +92,15 @@ class RagAnalyzer:
         # Кэш эмбеддингов пользовательских вопросов (вопросы профиля одинаковы
         # для всех закупок). Системные вопросы эмбеддингов не требуют вовсе.
         self._question_embedding_cache: dict[str, list[float]] = {}
+        # Конструктор отчётных полей (FR-12.2) — переиспользует уже посчитанные
+        # чанки/эмбеддинги документов закупки, см. _analyze().
+        self._field_extractor = ReportFieldExtractor(settings, embedder, llm)
 
     async def analyze(
         self,
         record: dict[str, Any],
         questions: list[dict[str, Any]],
+        report_fields: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """RAG-отчёт по персональным вопросам профиля. best-effort.
@@ -117,7 +122,7 @@ class RagAnalyzer:
             self._llm.reset_cost()
             getattr(self._embedder, "reset_cost", lambda: None)()
             getattr(self._embedder, "reset_metrics", lambda: None)()
-            report = await self._analyze(record, questions, generated_at)
+            report = await self._analyze(record, questions, report_fields or [], generated_at)
         duration_ms = (time.perf_counter() - stage_start) * 1000.0
         llm_metrics: dict[str, Any] = getattr(self._llm, "metrics", lambda: {})()
         emb_metrics: dict[str, Any] = getattr(self._embedder, "metrics", lambda: {})()
@@ -150,6 +155,7 @@ class RagAnalyzer:
         self,
         record: dict[str, Any],
         questions: list[dict[str, Any]],
+        report_fields: list[dict[str, Any]],
         generated_at: str,
     ) -> dict[str, Any]:
         # «ТЗ»/«Описание» — только понятное имя файла для карточки (та же эвристика
@@ -173,6 +179,7 @@ class RagAnalyzer:
                 "tz_found": ref is not None,
                 "tz_file": tz_file,
                 "questions": [],
+                "fields": [],
                 "generated_at": generated_at,
                 "status": "no_tz",
             }
@@ -198,6 +205,7 @@ class RagAnalyzer:
                 "tz_found": ref is not None,
                 "tz_file": tz_file,
                 "questions": verdicts,
+                "fields": [],
                 "generated_at": generated_at,
                 "error": embed_error,
                 "status": "deferred",
@@ -214,10 +222,15 @@ class RagAnalyzer:
                 )
             )
 
+        field_values = await self._field_extractor.extract(
+            report_fields, chunks, chunk_vectors, chunk_sources
+        )
+
         return {
             "tz_found": ref is not None,
             "tz_file": tz_file,
             "questions": verdicts,
+            "fields": field_values,
             "generated_at": generated_at,
             "status": self._status(True, None, verdicts),
         }

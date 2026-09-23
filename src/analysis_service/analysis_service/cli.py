@@ -48,7 +48,9 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
         timeout=settings.llm_request_timeout,
         max_tokens=settings.llm_max_tokens,
     )
-    report = await RagAnalyzer(settings, embedder, llm).analyze(record, questions, profile_facts)
+    report = await RagAnalyzer(settings, embedder, llm).analyze(
+        record, questions, metadata=profile_facts
+    )
     flush()
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

@@ -194,16 +194,15 @@ def build_admin_router(ctx: ApiContext) -> APIRouter:
     async def clear_db(body: ClearDbIn | None = None) -> dict[str, Any]:
         """Очищает БД (закупки и заказчики). Доступно только при остановленном парсере.
 
-        Закупки, принятые «в работу» (``procurement_work_items``), по умолчанию
-        сохраняются (``procurement_id`` обнуляется, карточка — из снимка). Полное
-        удаление «в работе» — только при явном ``include_work_items=true``
-        (запрашивается в web-интерфейсе).
+        Закупки, принятые «в работу» (``procurements.in_work``), по умолчанию
+        сохраняются. Полное удаление, включая «в работе», — только при явном
+        ``include_in_work=true`` (запрашивается в web-интерфейсе).
         """
         if state.parser_task is not None and not state.parser_task.done():
             raise HTTPException(status_code=409, detail="Остановите парсер перед очисткой БД")
-        include_work_items = bool(body.include_work_items) if body is not None else False
-        deleted = await _repo().clear_all(include_work_items=include_work_items)
-        logger.info("БД очищена из web-интерфейса: %s (в работе: %s)", deleted, include_work_items)
+        include_in_work = bool(body.include_in_work) if body is not None else False
+        deleted = await _repo().clear_all(include_in_work=include_in_work)
+        logger.info("БД очищена из web-интерфейса: %s (в работе: %s)", deleted, include_in_work)
         await _broadcast(state)
         return {"status": "cleared", "deleted": deleted}
 
