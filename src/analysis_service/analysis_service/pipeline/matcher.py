@@ -64,6 +64,19 @@ LICENSE_KIND_MARKERS: dict[str, list[str]] = {
     "education": ["образован"],
 }
 
+# Человекочитаемые названия видов лицензий для сводки в отчёте (карточка закупки).
+LICENSE_KIND_LABELS: dict[str, str] = {
+    "fstek": "Лицензия ФСТЭК (техническая защита информации)",
+    "fsb": "Лицензия ФСБ (криптография)",
+    "fsb_gostayna": "Лицензия ФСБ (государственная тайна)",
+    "mincifry": "Лицензия Минцифры",
+    "roscomnadzor": "Лицензия Роскомнадзора (услуги связи)",
+    "minpromtorg": "Разрешение Минпромторга",
+    "mchs": "Лицензия МЧС (пожарная безопасность)",
+    "rosgvardia": "Лицензия Росгвардии (частная охрана)",
+    "education": "Лицензия на образовательную деятельность",
+}
+
 VERDICT_NONE = "no_stop_condition"
 VERDICT_SOFT = "soft"
 VERDICT_ABSOLUTE = "absolute"
@@ -140,6 +153,185 @@ def kind_in_profile(kind: str, license_names: list[str]) -> bool:
         return False
     haystack = " ".join(license_names).lower()
     return any(marker in haystack for marker in LICENSE_KIND_MARKERS.get(kind, []))
+
+
+def license_kinds_in_text(text: str) -> list[str]:
+    """Все виды лицензий, лексически упомянутые в тексте (детерминированный fallback).
+
+    Используется, когда LLM-разбор требования недоступен (аккаунт без платной
+    опции): вид определяется по тем же синонимам (``LICENSE_ALIASES``), что и
+    ``resolve_license_kind``. «Гостайна» — частный случай ФСБ, поэтому при её
+    наличии общий «фсб» не дублируется.
+    """
+    haystack = re.sub(r"[^а-яёa-z0-9 ]", " ", (text or "").lower())
+    found: list[str] = []
+    for pattern, mapped in LICENSE_ALIASES:
+        if pattern.search(haystack) and mapped not in found:
+            found.append(mapped)
+    if "fsb_gostayna" in found and "fsb" in found:
+        found.remove("fsb")
+    return found
+
+
+def _name_in_profile(name: str, license_names: list[str]) -> bool:
+    """Лексическое совпадение названия требования с названиями лицензий профиля.
+
+    Fallback для видов, которые не удалось нормализовать (``resolve_license_kind``
+    вернул None): проверяем вхождение строки в любую сторону.
+    """
+    needle = re.sub(r"\s+", " ", (name or "").strip().lower())
+    if len(needle) < 4:
+        return False
+    return any(needle in p.lower() or p.lower() in needle for p in license_names if p)
+
+
+def build_license_summary(
+    requirements: dict[str, Any] | None, license_names: list[str] | None
+) -> dict[str, Any]:
+    """Компактная сводка по лицензиям для отчёта: что требуется и есть ли в профиле.
+
+    Источник требуемых видов — LLM-поле ``data`` элемента требований
+    (``kinds``/``code``), если оно заполнено (аккаунт с платной LLM-опцией); иначе —
+    детерминированный лексический разбор текста (``license_kinds_in_text``).
+    Признаки «не требуется» (``negated`` от маркеров «не установлено»/«не
+    требуется», либо ``data.required=false``) исключают требование из сводки.
+
+    Элемент сводки: ``{label, kind, type, name, authority, available}``, где
+    ``available`` — ``True``/``False`` (сопоставление с ``license_names`` профиля,
+    ``kind_in_profile``) либо ``None`` (вид не распознан — нужна проверка).
+    """
+    names = [str(n) for n in (license_names or []) if str(n).strip()]
+    raw = (requirements or {}).get("licenses")
+    if isinstance(raw, dict):
+        items_in: list[Any] = [raw]
+    elif isinstance(raw, list):
+        items_in = raw
+    else:
+        items_in = []
+
+    entries: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    any_required = False
+    any_item = False
+
+    def add(
+        label: str,
+        kind: str | None,
+        ktype: str,
+        name: str,
+        authority: str | None,
+        available: bool | None,
+    ) -> None:
+        key = kind or label.lower()
+        if not label or key in seen:
+            return
+        seen.add(key)
+        entries.append(
+            {
+                "label": label,
+                "kind": kind,
+                "type": ktype,
+                "name": name,
+                "authority": authority,
+                "available": available,
+            }
+        )
+
+    for item in items_in:
+        if not isinstance(item, dict):
+            continue
+        any_item = True
+        negated = bool(item.get("negated"))
+        raw_data = item.get("data")
+        data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+        required = data.get("required") if isinstance(data.get("required"), bool) else not negated
+        if not required:
+            continue
+        any_required = True
+
+        raw_kinds = data.get("kinds")
+        kinds: list[Any] = raw_kinds if isinstance(raw_kinds, list) else []
+        for kind in kinds:
+            if not isinstance(kind, dict):
+                continue
+            name = str(kind.get("name") or "").strip()
+            ktype = str(kind.get("type") or "license").strip() or "license"
+            authority = str(kind.get("authority") or "").strip() or None
+            desc = resolve_license_kind(
+                {
+                    "license_code": kind.get("code"),
+                    "license_name": name,
+                    "authority": authority,
+                }
+            )
+            if desc:
+                add(
+                    LICENSE_KIND_LABELS[desc],
+                    desc,
+                    ktype,
+                    name,
+                    authority,
+                    kind_in_profile(desc, names),
+                )
+            else:
+                available = _name_in_profile(name, names) if name else None
+                add(name or "Вид не распознан", None, ktype, name, authority, available)
+
+        if not kinds:
+            # Детерминированный fallback: LLM-разбора нет — виды из текста требования.
+            for desc in license_kinds_in_text(item.get("text") or ""):
+                add(
+                    LICENSE_KIND_LABELS[desc],
+                    desc,
+                    "license",
+                    "",
+                    None,
+                    kind_in_profile(desc, names),
+                )
+
+    if any_required and not entries:
+        # Требование есть, но вид не распознан ни LLM, ни лексически.
+        add("Допуск/лицензия (вид не распознан)", None, "license", "", None, None)
+
+    return {
+        "found": any_item,
+        "required": any_required,
+        "negated": any_item and not any_required,
+        "items": entries,
+    }
+
+
+def requirement_category_status(requirements: dict[str, Any] | None, key: str) -> dict[str, Any]:
+    """Статус категории требований: найдено / требуется / «не требуется».
+
+    ``required`` — есть хотя бы один НЕ-отрицаемый пункт (LLM ``data.required``,
+    если заполнено, иначе отсутствие ``negated``). Нужен отчёту, чтобы явно
+    показать «требований не найдено» / «не требуется» (лицензии/опыт/Минпромторг).
+    """
+    raw = (requirements or {}).get(key)
+    if isinstance(raw, dict):
+        items: list[Any] = [raw]
+    elif isinstance(raw, list):
+        items = raw
+    else:
+        items = []
+    if not items:
+        return {"found": False, "required": False, "negated": False}
+    any_required = False
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw_data = item.get("data")
+        data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+        req = (
+            data.get("required")
+            if isinstance(data.get("required"), bool)
+            else not bool(item.get("negated"))
+        )
+        if req:
+            any_required = True
+            break
+    return {"found": True, "required": any_required, "negated": not any_required}
 
 
 def _verdict(

@@ -623,6 +623,40 @@ const REQUIREMENT_CATEGORY_LABELS = {
   subcontractors: "Допустимость привлечения соисполнителей",
 };
 
+// Категории, по которым отчёт всегда явно сообщает статус (найдено/требуется/
+// «не требуется»), — см. report.requirements_status (analysis_service). Для
+// лицензий дополнительно показывается сравнение вида лицензии с профилем.
+const REQUIREMENT_STATUS_KEYS = ["licenses", "experience", "minprom"];
+
+// Бейдж наличия лицензии у поставщика (true/false/null — вид не распознан).
+function licenseAvailabilityBadge(available) {
+  if (available === true) {
+    return '<span class="pill active" title="Лицензия этого вида есть в профиле">есть у поставщика</span>';
+  }
+  if (available === false) {
+    return '<span class="pill inactive" title="В профиле нет лицензии этого вида">нет у поставщика</span>';
+  }
+  return '<span class="pill" title="Вид лицензии не распознан — требуется проверка">требует проверки</span>';
+}
+
+// Строка статуса категории, когда требования не найдены / не требуются.
+function requirementStatusText(status) {
+  if (status && status.negated) {
+    return "Не требуется (в требованиях пометка «не установлено» / «не требуется»).";
+  }
+  return "Требования не найдены в документах закупки.";
+}
+
+// Сырой текст пунктов требования (для опыта/Минпромторга и старых отчётов).
+function requirementRawTextHtml(items) {
+  return items
+    .map(
+      (it) =>
+        escapeHtml(it.text || "") + (it.additional ? ` — ${escapeHtml(it.additional)}` : "")
+    )
+    .join("<br>");
+}
+
 // Вкладка «Отчёт»: результат анализа закупки целиком — требования к участнику
 // (лицензии/опыт/минпромторг/соисполнители, детерминированно, доступно ЛЮБОМУ
 // аккаунту), geo-дистанция до центра региона (если профиль её ограничивает),
@@ -642,25 +676,55 @@ function cardReportPanel(row, isAnalyzing, containerId) {
       ? `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #16a34a;border-radius:8px;background:rgba(22,163,74,0.08);color:#16a34a;font-weight:600;">✓ Закупка допустима</div>`
       : `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #dc2626;border-radius:8px;background:rgba(220,38,38,0.08);color:#dc2626;font-weight:600;">✗ Закупка отклонена: ${escapeHtml((verdict.blocking_reasons || []).map((r) => r.label).join(", "))}</div>`;
 
+  const reqStatus = (report && report.requirements_status) || {};
+
+  const categoryBlock = (key, blocking, inner) =>
+    `<div style="margin:0 0 10px; padding:8px 10px; border-radius:8px; ${
+      blocking ? "border:1px solid #dc2626; background:rgba(220,38,38,0.08);" : "border:1px solid var(--line);"
+    }">
+      <b${blocking ? ' style="color:#dc2626;"' : ""}>${REQUIREMENT_CATEGORY_LABELS[key]}${blocking ? " — блокирует" : ""}</b>
+      <div class="muted" style="margin-top:4px;">${inner}</div>
+    </div>`;
+
+  const licenseInner = (status) => {
+    if (status && status.items && status.items.length) {
+      return status.items
+        .map(
+          (it) =>
+            `<div style="display:flex; align-items:center; gap:8px; margin:2px 0;">
+              <span>${escapeHtml(it.label)}</span>${licenseAvailabilityBadge(it.available)}
+            </div>`
+        )
+        .join("");
+    }
+    return requirementStatusText(status);
+  };
+
   const reqBlocks = Object.keys(REQUIREMENT_CATEGORY_LABELS)
     .map((key) => {
       const items = requirements[key];
-      if (!items || !items.length) return "";
+      const hasItems = !!(items && items.length);
       const blocking = !!(reqVerdict[key] || {}).blocking;
-      const text = items
-        .map(
-          (it) =>
-            escapeHtml(it.text || "") +
-            (it.additional ? ` — ${escapeHtml(it.additional)}` : "")
-        )
-        .join("<br>");
-      const style = blocking
-        ? "border:1px solid #dc2626; background:rgba(220,38,38,0.08);"
-        : "border:1px solid var(--line);";
-      return `<div style="margin:0 0 10px; padding:8px 10px; border-radius:8px; ${style}">
-        <b${blocking ? ' style="color:#dc2626;"' : ""}>${REQUIREMENT_CATEGORY_LABELS[key]}${blocking ? " — блокирует" : ""}</b>
-        <div class="muted" style="margin-top:4px;">${text}</div>
-      </div>`;
+      if (key === "licenses") {
+        const status = reqStatus.licenses;
+        // Новый отчёт: компактная сводка «какие лицензии нужны + есть ли».
+        if (status) return categoryBlock(key, blocking, licenseInner(status));
+        // Старый отчёт без requirements_status: как раньше, сырой текст.
+        return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
+      }
+      if (REQUIREMENT_STATUS_KEYS.includes(key)) {
+        const status = reqStatus[key];
+        if (status) {
+          // Требование найдено → показываем пункты (сырой текст); иначе — статус.
+          return categoryBlock(
+            key,
+            blocking,
+            status.required && hasItems ? requirementRawTextHtml(items) : requirementStatusText(status)
+          );
+        }
+        return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
+      }
+      return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
     })
     .join("");
 

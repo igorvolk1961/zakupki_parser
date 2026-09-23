@@ -17,6 +17,10 @@ import httpx
 
 from analysis_service.embedder import build_embedder
 from analysis_service.llm import LlmClient
+from analysis_service.pipeline.matcher import (
+    build_license_summary,
+    requirement_category_status,
+)
 from analysis_service.pipeline.prompts import build_geo_address_messages
 from analysis_service.pipeline.rag import RagAnalyzer
 from analysis_service.pipeline.verdict import compute_verdict
@@ -330,15 +334,25 @@ class AnalysisWorker:
                     self._settings.tz_verify_ssl,
                 )
             requirements = requirements or {}
+            filled_requirements = requirements
             try:
-                to_persist = (
-                    await self._analyzer.fill_requirements_data(requirements)
-                    if llm_enabled
-                    else requirements
-                )
-                await self._parser.post_requirements(pid, to_persist)
+                if llm_enabled:
+                    filled_requirements = await self._analyzer.fill_requirements_data(requirements)
+                await self._parser.post_requirements(pid, filled_requirements)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Не удалось заполнить/сохранить требования закупки %s: %s", pid, exc)
+            # Компактная сводка по лицензиям для отчёта (какие нужны + есть ли в
+            # профиле) и статус категорий опыт/Минпромторг (найдено/требуется/«не
+            # требуется»). Источник видов лицензий: LLM-поле data элемента (аккаунт
+            # с платной опцией) либо детерминированный лексический fallback.
+            # Сопоставление с лицензиями профиля — чистым кодом (профиль в промпт
+            # не попадает).
+            license_names = (profile.get("facts") or {}).get("license_names") or []
+            report["requirements_status"] = {
+                "licenses": build_license_summary(filled_requirements, license_names),
+                "experience": requirement_category_status(filled_requirements, "experience"),
+                "minprom": requirement_category_status(filled_requirements, "minprom"),
+            }
             # Вердикт приемлемости (единый отчёт, Фаза A — по детерминированным
             # требованиям): блокирующая категория -> закупку авто-отклоняем.
             requirement_blocking = profile.get("requirement_blocking") or {}

@@ -346,10 +346,18 @@ requirements:
     adr: ADR-10
     code:
       - src/analysis_service/analysis_service/pipeline/matcher.py
+      - src/analysis_service/analysis_service/worker.py
       - src/zakupki_parser/api/app/routes/facts.py
     tests:
       - src/analysis_service/tests/test_rag.py
       - tests/integration/test_profile_licenses_experience.py
+    notes: >-
+      2026-09-24: в отчёте карточки — компактная сводка по лицензиям (какой вид
+      требуется и есть ли у поставщика), без сырого текста требования
+      (``build_license_summary`` → ``rag_report.requirements_status.licenses``;
+      см. FR-10.10). Устаревшая ветка ``apply_profile_facts``/``_license_verdict``
+      по-прежнему не вызывается в проде (FR-4.3, out-of-scope) — сводка
+      использует ``resolve_license_kind``/``kind_in_profile`` напрямую.
   - id: US-4.5
     type: US
     title: Маркеры в карточке
@@ -1965,6 +1973,18 @@ requirements:
       «Отчёт» (FR-13.4); эндпоинт и его lazy-extraction фолбэк снесены как
       неиспользуемые (воркер продолжает извлекать/сохранять через тот же
       ``extract_requirements``/``POST .../requirements``).
+
+      2026-09-24: лицензии в отчёте больше не показываются сырым текстом —
+      компактная сводка «какой вид лицензии нужен + есть ли у поставщика»
+      (``matcher.build_license_summary`` → ``rag_report.requirements_status.
+      licenses``): виды берутся из LLM-поля ``data.kinds`` (аккаунт с платной
+      опцией), иначе — лексически из текста (``license_kinds_in_text``,
+      тот же дескрипторный справочник, что и ``resolve_license_kind``);
+      наличие — сравнение с ``license_names`` профиля (``kind_in_profile``),
+      профиль в промпт по-прежнему не попадает. По лицензиям/опыту/
+      Минпромторгу отчёт теперь всегда явно сообщает статус («требований не
+      найдено»/«не требуется») — ``requirement_category_status``; в XLSX-
+      выгрузке лицензии тоже сводкой (FR-13.4).
   - id: FR-10.11
     type: FR
     title: Геопозиционирование — фильтр «место поставки не дальше N км от центра региона»
@@ -2531,6 +2551,7 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py
     tests:
       - tests/integration/test_api.py
+      - tests/unit/test_report_requirements_text.py
     notes: >-
       Новая вкладка «Отчёт» (между «Данные закупки» и «Результаты
       скоринга» — та переименована из «Результаты скоринга и анализа»,

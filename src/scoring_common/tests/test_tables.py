@@ -39,6 +39,24 @@ def test_split_trailing_marker_no_match() -> None:
     ]
 
 
+def test_split_trailing_marker_extra_phrases() -> None:
+    # «лицензия не используется» / «значение не задается» — тоже маркеры-
+    # отрицания (как «не установлено»/«не требуется»).
+    assert _split_trailing_marker(["3.1", "Лицензия не используется"]) == [
+        "3.1",
+        "Лицензия",
+        "не используется",
+    ]
+    assert _split_trailing_marker(["3.2", "Опыт: не задается"]) == [
+        "3.2",
+        "Опыт:",
+        "не задается",
+    ]
+    assert _split_trailing_marker(["3.3", "Требование не задано"])[2] == "не задано"
+    # «Не задание» — не маркер: слово продолжается, ложного отрицания нет.
+    assert _split_trailing_marker(["3.4", "Не задание"]) == ["3.4", "Не задание"]
+
+
 def test_merge_rows_vertical_continuation() -> None:
     rows = [["13", "Требования…услуг."], ["", "Не установлено"]]
     assert _merge_rows(rows) == [["13", "Требования…услуг. Не установлено"]]

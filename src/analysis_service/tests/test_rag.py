@@ -8,6 +8,9 @@ from typing import Any
 import pytest
 from analysis_service.pipeline.matcher import (
     apply_profile_facts,
+    build_license_summary,
+    license_kinds_in_text,
+    requirement_category_status,
     resolve_license_kind,
 )
 from analysis_service.pipeline.prompts import (
@@ -612,3 +615,86 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
             "reasoning": "",
         }
     ]
+
+
+# --- Сводка по лицензиям и статус категорий требований (отчёт карточки) -----
+
+
+def test_license_kinds_in_text_detects_and_dedupes_gostayna() -> None:
+    kinds = license_kinds_in_text(
+        "Требуется лицензия ФСБ на работы с государственной тайной (степень секретности)."
+    )
+    # Гостайна — частный случай ФСБ: общий «фсб» не добавляется отдельно.
+    assert kinds == ["fsb_gostayna"]
+    assert "mchs" in license_kinds_in_text("Нужна лицензия МЧС на монтаж пожарной сигнализации.")
+
+
+def test_build_license_summary_from_llm_data() -> None:
+    requirements = {
+        "licenses": [
+            {
+                "text": "Требуется лицензия ...",
+                "data": {
+                    "required": True,
+                    "kinds": [
+                        {
+                            "type": "license",
+                            "name": "Лицензия МЧС",
+                            "code": "mchs",
+                            "mandatory": True,
+                        }
+                    ],
+                },
+            }
+        ]
+    }
+    without = build_license_summary(requirements, [])
+    assert without["found"] is True and without["required"] is True
+    assert [i["kind"] for i in without["items"]] == ["mchs"]
+    assert without["items"][0]["available"] is False
+
+    with_mchs = build_license_summary(
+        requirements,
+        ["деятельность по монтажу и ремонту средств обеспечения пожарной безопасности"],
+    )
+    assert with_mchs["items"][0]["available"] is True
+
+
+def test_build_license_summary_deterministic_fallback() -> None:
+    # data нет (аккаунт без LLM) — вид определяется лексически по тексту.
+    requirements = {
+        "licenses": [{"text": "Требуется лицензия ФСТЭК на техническую защиту информации."}]
+    }
+    summary = build_license_summary(requirements, [])
+    assert summary["required"] is True
+    assert [i["kind"] for i in summary["items"]] == ["fstek"]
+    assert summary["items"][0]["available"] is False
+
+
+def test_build_license_summary_negated_is_not_required() -> None:
+    # Пометка «не установлено/не требуется» (negated) → требования нет.
+    summary = build_license_summary({"licenses": [{"text": "Лицензии НЕТ", "negated": True}]}, [])
+    assert summary["found"] is True
+    assert summary["required"] is False and summary["negated"] is True
+    assert summary["items"] == []
+
+
+def test_build_license_summary_empty() -> None:
+    summary = build_license_summary({}, [])
+    assert summary == {"found": False, "required": False, "negated": False, "items": []}
+
+
+def test_requirement_category_status() -> None:
+    assert requirement_category_status({}, "experience") == {
+        "found": False,
+        "required": False,
+        "negated": False,
+    }
+    assert requirement_category_status(
+        {"experience": [{"text": "опыт НЕТ", "negated": True}]}, "experience"
+    ) == {"found": True, "required": False, "negated": True}
+    assert requirement_category_status({"minprom": [{"text": "требуется выписка"}]}, "minprom") == {
+        "found": True,
+        "required": True,
+        "negated": False,
+    }

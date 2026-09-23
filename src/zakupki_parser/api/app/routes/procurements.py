@@ -68,6 +68,35 @@ REQUIREMENT_CATEGORY_LABELS: dict[str, str] = {
     "subcontractors": "Допустимость привлечения соисполнителей",
 }
 
+# Категории, по которым отчёт явно сообщает «требований не найдено»/«не требуется»
+# (``rag_report.requirements_status``, analysis_service); лицензии — ещё и сравнение
+# вида с лицензиями профиля.
+_STATUS_REQUIREMENT_KEYS = ("licenses", "experience", "minprom")
+_AVAILABILITY_LABELS: dict[bool | None, str] = {
+    True: "есть у поставщика",
+    False: "нет у поставщика",
+    None: "требует проверки",
+}
+
+
+def _requirement_status_text(status: dict[str, Any]) -> str:
+    """Текст статуса категории требований, когда требований нет / «не требуется»."""
+    if status.get("negated"):
+        return "Не требуется (пометка «не установлено»/«не требуется»)"
+    return "Требования не найдены"
+
+
+def _license_summary_text(status: dict[str, Any]) -> str:
+    """Компактная сводка по лицензиям: что требуется и есть ли у поставщика."""
+    items = [it for it in (status.get("items") or []) if isinstance(it, dict)]
+    if not items:
+        return _requirement_status_text(status)
+    return "; ".join(
+        f"{it.get('label') or 'лицензия'} — {_AVAILABILITY_LABELS.get(it.get('available'))}"
+        for it in items
+    )
+
+
 # Плоские колонки для CSV-выгрузки (без detail_json/files_json).
 CSV_COLUMNS = [
     "id",
@@ -657,7 +686,22 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         requirements = out.requirements_json or {}
         req_verdict = report.get("requirements_verdict") or {}
         for key, label in REQUIREMENT_CATEGORY_LABELS.items():
+            info = req_verdict.get(key) or {}
+            status = (
+                (report.get("requirements_status") or {}).get(key)
+                if key in _STATUS_REQUIREMENT_KEYS
+                else None
+            )
+            # Лицензии — компактная сводка (что требуется + есть ли у поставщика),
+            # без сырого текста требования.
+            if key == "licenses" and status is not None:
+                add(label, _license_summary_text(status), blocking=bool(info.get("blocking")))
+                continue
             items = requirements.get(key)
+            if status is not None and not status.get("required"):
+                # «не требуется» / «не найдено» — явно указываем в отчёте.
+                add(label, _requirement_status_text(status), blocking=bool(info.get("blocking")))
+                continue
             if not items:
                 continue
             texts = "; ".join(
@@ -665,7 +709,6 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 for i in items
                 if isinstance(i, dict)
             )
-            info = req_verdict.get(key) or {}
             add(label, texts, blocking=bool(info.get("blocking")))
         geo = report.get("geo")
         if isinstance(geo, dict):

@@ -710,6 +710,67 @@ def test_export_procurement_xlsx_highlights_blocking_rows(
     assert label_cells["Номер"].font.bold is not True
 
 
+def test_export_procurement_xlsx_license_summary(api_client: tuple[TestClient, Path]) -> None:
+    """Excel-экспорт: лицензии — компактной сводкой (вид + наличие у поставщика),
+    а не сырым текстом требования (``rag_report.requirements_status.licenses``)."""
+    import openpyxl
+
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {"number": "XLSX-LIC", "platform_id": "zakupki_mos", "subject": "Сводка лицензий"}
+            )
+            rows, _ = await repo.list_procurements(number="XLSX-LIC")
+            pid = rows[0].id
+            await repo.save_requirements(
+                pid, {"licenses": [{"text": "Требуется лицензия МЧС", "data": None}]}
+            )
+            user = await repo.first_user()
+            assert user is not None
+            profile = await repo.get_active_profile(user.id)
+            assert profile is not None
+            await repo.update_rag_report(
+                pid,
+                profile.id,
+                {
+                    "requirements_status": {
+                        "licenses": {
+                            "found": True,
+                            "required": True,
+                            "negated": False,
+                            "items": [
+                                {
+                                    "label": "Лицензия МЧС (пожарная безопасность)",
+                                    "kind": "mchs",
+                                    "available": False,
+                                }
+                            ],
+                        }
+                    },
+                    "requirements_verdict": {
+                        "licenses": {"blocking": False, "negated": False, "count": 1}
+                    },
+                },
+            )
+            return pid
+        finally:
+            await db.dispose()
+
+    pid = asyncio.run(_seed())
+    resp = client.get(f"/api/procurements/{pid}/export.xlsx")
+    assert resp.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    assert ws is not None
+    rows_by_label = {row[0]: row[1] for row in ws.iter_rows(min_row=2, values_only=True)}
+    assert rows_by_label["Лицензии"] == "Лицензия МЧС (пожарная безопасность) — нет у поставщика"
+
+
 def test_export_procurement_xlsx_highlights_blocking_field_mismatch(
     api_client: tuple[TestClient, Path],
 ) -> None:
