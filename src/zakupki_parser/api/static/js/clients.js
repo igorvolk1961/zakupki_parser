@@ -888,10 +888,20 @@ function compCount() {
   return collectComp().competencies.length;
 }
 
+// Профиль без компетенций сохранить можно (запрет снят) — но скоринг по нему
+// не выполняется (Scheduler._profile_has_valid_competencies), предупреждаем
+// об этом прямо в редакторе вместо блокировки сохранения.
+function compIsEmpty() {
+  const c = compMode === "structured" ? collectComp() : parseComp($("#pf-competencies").value);
+  if (!c) return true;
+  return !((c.positioning || "").trim() || c.competencies.length || (c.exclusions || []).length);
+}
+
 function wordCounts() {
   setWordCount($("#pf-cnt-keywords"), profileKeywords.length);
   setWordCount($("#pf-cnt-excl"), profileExcl.length);
   setWordCount($("#pf-cnt-comp"), compCount());
+  $("#pf-comp-empty-warning").style.display = compIsEmpty() ? "" : "none";
   // Счётчик площадок — только видимые (активные) строки таблицы профиля;
   // «Все площадки» показываем текстом, а не 0 (пустой список от «выбрано
   // 0 конкретных» не отличить иначе).

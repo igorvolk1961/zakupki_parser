@@ -318,18 +318,6 @@ class EffectiveOptions:
             return True
         return key in self.paid_enabled
 
-    def account_provides_competency_scoring(self) -> bool:
-        """Включён ли LLM-скоринг компетенций в самом аккаунте пользователя.
-
-        Не учитывает триал-режим: триал лишь предоставляет платные опции
-        бесплатно, но не меняет набор данных, которые пользователь обязан держать
-        в профиле. Пока аккаунт (или легаси без аккаунтов) не включает обработку
-        компетенций языковой моделью — профиль можно сохранить без компетенций (#9).
-        """
-        if self.active_account is None:
-            return True
-        return "scoring" in enabled_paid_options(self.active_account.options or {})
-
 
 def effective_options(
     accounts: list[UserAccount],

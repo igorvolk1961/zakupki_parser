@@ -100,18 +100,6 @@ def test_geo_premium_never_enabled() -> None:
     assert not eff.has_option("geo_premium")
 
 
-def test_account_provides_competency_scoring() -> None:
-    free = _account(paid_default_options(False))
-    full = _account(paid_default_options(True))
-    assert effective_options([free], None, now=NOW).account_provides_competency_scoring() is False
-    assert effective_options([full], None, now=NOW).account_provides_competency_scoring() is True
-    # Легаси без аккаунтов — по-прежнему требует компетенций (старое поведение).
-    assert effective_options([], None, now=NOW).account_provides_competency_scoring() is True
-    # Триал не меняет требование компетенций по аккаунту.
-    trial = NOW + timedelta(days=5)
-    assert effective_options([free], trial, now=NOW).account_provides_competency_scoring() is False
-
-
 def test_requires_competencies_flag_on_scoring() -> None:
     assert option_requires_competencies("scoring") is True
     assert option_requires_competencies("analysis") is False
@@ -144,4 +132,3 @@ def test_trial_default_options_effective_access() -> None:
     assert eff.has_option("profile_from_url")
     assert eff.has_option("pwin")
     assert eff.has_option("margin")
-    assert eff.account_provides_competency_scoring() is False

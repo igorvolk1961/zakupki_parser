@@ -419,12 +419,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> ProfileSaveOut:
         eff_user = _require_user(user)
         await _validate_profile_entries(body)
-        eff = await _effective_options(eff_user)
         try:
             profile = await _repo().upsert_profile(
                 body.model_dump(exclude_none=True),
                 eff_user.id,
-                require_competencies=eff.account_provides_competency_scoring(),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -454,13 +452,11 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         old_words = await _repo().get_profile_keywords(existing.id)
         old_key = _crawl_state_key(existing, old_words)
         await _validate_profile_entries(body)
-        eff = await _effective_options(eff_user)
         try:
             updated = await _repo().upsert_profile(
                 body.model_dump(exclude_unset=True),
                 eff_user.id,
                 profile_id=client_id,
-                require_competencies=eff.account_provides_competency_scoring(),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -581,13 +577,11 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         name = seed.get("name") or "default"
-        eff = await _effective_options(eff_user)
         existing = await _repo().get_profile_by_name(eff_user.id, name)
         try:
             profile = await _repo().upsert_profile(
                 {**seed, "name": name},
                 eff_user.id,
-                require_competencies=eff.account_provides_competency_scoring(),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

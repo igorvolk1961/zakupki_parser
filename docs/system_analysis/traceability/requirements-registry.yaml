@@ -848,7 +848,7 @@ requirements:
       изменений, для создания пользователя администратором).
   - id: US-10.7
     type: US
-    title: Профиль без компетенций по аккаунту
+    title: Профиль без компетенций — предупреждение, не запрет сохранения
     stakeholder: Тендеролог (user)
     stage: "6"
     status: implemented
@@ -856,8 +856,24 @@ requirements:
     code:
       - src/zakupki_parser/storage/repository/profiles.py
       - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/api/static/js/clients.js
+      - src/zakupki_parser/api/zakupki.html
     tests:
       - tests/integration/test_multiclient.py
+      - tests/unit/test_user_options.py
+    notes: >-
+      2026-09-24 (решение пользователя): раньше сохранение профиля без
+      компетенций блокировалось (``CompetenciesError``, 400), если владельцу
+      доступен LLM-скоринг компетенций (``AccountEffectiveOptions.
+      account_provides_competency_scoring`` — для легаси-пользователей без
+      аккаунта блокировало всегда). Запрет снят полностью — сохранить можно
+      всегда, независимо от аккаунта; ``account_provides_competency_scoring``
+      удалён как код, потерявший смысл. Вместо запрета — предупреждение в
+      веб-редакторе (вкладка «Компетенции», ``#pf-comp-empty-warning``): при
+      пустых компетенциях явно сказано, что скоринг по профилю не выполнится
+      (это и раньше было так технически — ``Scheduler.
+      _profile_has_valid_competencies`` уже исключал такие профили из
+      LLM-скоринга независимо от запрета на сохранение).
   - id: US-10.8
     type: US
     title: Админ управляет аккаунтами, опциями и триалом пользователей

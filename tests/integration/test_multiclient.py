@@ -166,6 +166,27 @@ def test_clients_crud(mc_client: TestClient) -> None:
     assert listed.json()["total"] >= 2
 
 
+def test_save_profile_without_competencies_is_allowed(mc_client: TestClient) -> None:
+    """US-10.7: запрет сохранять профиль без компетенций снят (даже для
+    легаси-пользователя без аккаунта — раньше блокировался в первую очередь,
+    см. account_provides_competency_scoring). LLM-скоринг по такому профилю
+    просто не выполняется (Scheduler._profile_has_valid_competencies) —
+    предупреждение об этом показывается в веб-редакторе, не запретом сохранения."""
+    client = mc_client
+    created = client.post("/api/clients", json={"name": "no-comp-profile"})
+    assert created.status_code == 200, created.text
+    body = created.json()
+    profile = json.loads(body["competencies"])
+    assert profile["competencies"] == []
+    assert profile["positioning"] == ""
+
+    updated = client.put(
+        f"/api/clients/{body['id']}",
+        json={"name": "no-comp-profile", "competencies": ""},
+    )
+    assert updated.status_code == 200, updated.text
+
+
 @pytest.mark.slow  # test_clients_crud (обычный «первый») уже slow и деселектится
 # под -m "not slow" — из-за этого setup module-scoped mc_client теперь платит
 # ЭТОТ тест (артефакт атрибуции module-scoped фикстуры, не своя логика).
