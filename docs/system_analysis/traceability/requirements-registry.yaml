@@ -448,9 +448,11 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
+      - src/zakupki_parser/storage/repository/procurements.py#find_by_url
       - src/zakupki_parser/api/static/js/procurements.js
     tests:
       - tests/unit/test_procurement_by_url.py
+      - tests/integration/test_api.py
     notes: >-
       2026-09-23: переработано (решение пользователя) — тендерологу нужно
       сравнивать, как одну и ту же закупку обрабатывают наш ИИ-анализ и
@@ -466,6 +468,13 @@ requirements:
       всех площадок): реализуется по площадкам отдельно, см. FR-13 (план по
       фазам — фикстурные площадки EIS/roseltorg/etpgpb, затем API-форматные
       mos/lot_online/tender_223, затем b2b_center/fabrikant).
+
+      2026-09-24: возвращён быстрый путь для уже известных закупок (решение
+      пользователя — не отказываться от старого поведения полностью): ПЕРЕД
+      живой подгрузкой ``add_procurement_by_url`` ищет закупку с точным
+      совпадением URL (``find_by_url``) — если найдена, повторное скачивание
+      не выполняется, запись просто помечается «в работе». Живая подгрузка
+      (и её заглушка/501) остаётся только для URL, которых в базе ещё нет.
   - id: US-5.6
     type: US
     title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)
@@ -1566,7 +1575,7 @@ requirements:
       колонкой закупки (не per-profile) — см. US-5.4.
   - id: FR-5.5
     type: FR
-    title: Добавить закупку по URL — живая подгрузка карточки (не резолв/снимок)
+    title: Добавить закупку по URL — резолв уже известной закупки либо живая подгрузка
     stakeholder: Тендеролог (user)
     stage: "7"
     status: partial
@@ -1575,15 +1584,23 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
+      - src/zakupki_parser/storage/repository/procurements.py#find_by_url
     tests:
       - tests/unit/test_procurement_by_url.py
+      - tests/integration/test_api.py
     notes: >-
       2026-09-23: переработано — раньше «принятие по URL» либо резолвило
       существующую закупку, либо создавало текстовую запись-снимок без
-      реальной карточки (``procurement_id=NULL``). Теперь — живая подгрузка
+      реальной карточки (``procurement_id=NULL``). Заменено на живую подгрузку
       полной карточки с детальной страницы площадки; площадка определяется
       по хосту URL, не определена — 400, ничего не сохраняется. Подгрузка
       по площадкам (``fetch_procurement_by_url``) — заглушка, см. US-5.5/FR-13.
+
+      2026-09-24: снимок отменён окончательно (per-profile таблица снимков
+      удалена ранее, US-5.4-5.6), но резолв существующей закупки — вернули:
+      ``find_by_url`` (точное совпадение ``procurements.url``) проверяется
+      ПЕРЕД живой подгрузкой — данные уже в базе, скачивать их повторно
+      незачем. Живая подгрузка остаётся только для URL, которых в базе нет.
   - id: FR-5.6
     type: FR
     title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)

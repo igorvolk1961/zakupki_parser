@@ -849,6 +849,56 @@ def test_procurement_requirements_post_404(api_client: tuple[TestClient, Path]) 
     assert resp.status_code == 404
 
 
+def test_add_procurement_by_url_reuses_existing_record(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """US-5.5: URL уже есть в базе — данные не скачиваются повторно (живая
+    подгрузка, ``fetch_procurement_by_url``, не вызывается — иначе был бы 501,
+    т.к. заглушка для всех площадок), закупка просто помечается «в работе»."""
+    client, _ = api_client
+    url = "https://zakupki.mos.ru/need/URL-EXISTING-1"
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "URL-EXISTING-1",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Уже скачанная закупка",
+                    "url": url,
+                }
+            )
+            rows, _ = await repo.list_procurements(number="URL-EXISTING-1")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    procurement_id = asyncio.run(_seed())
+
+    resp = client.post("/api/procurements/by-url", json={"url": url})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == procurement_id
+    assert body["number"] == "URL-EXISTING-1"
+    assert body["in_work"] is True
+
+
+def test_add_procurement_by_url_unknown_record_falls_back_to_live_fetch_stub(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """URL распознан по площадке, но в базе такой закупки нет — не найденную
+    запись не подменяем: идёт живая подгрузка (пока заглушка, 501)."""
+    client, _ = api_client
+    resp = client.post(
+        "/api/procurements/by-url",
+        json={"url": "https://zakupki.mos.ru/need/URL-NEVER-SEEN"},
+    )
+    assert resp.status_code == 501
+
+
 def _seed_procurement(number: str, okpd2_codes: str | None = None) -> int:
     async def _seed() -> int:
         db = Database(DbConfig(dsn=TEST_DSN, enabled=True))

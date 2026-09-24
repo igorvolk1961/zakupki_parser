@@ -563,16 +563,28 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     async def add_procurement_by_url(
         body: ProcurementByUrlIn, user: User | None = Depends(require_base)
     ) -> ProcurementOut:
-        """Добавляет закупку «в работу» по URL карточки на ЭТП — живая подгрузка.
+        """Добавляет закупку «в работу» по URL карточки на ЭТП.
 
         Для тендеролога, который нашёл закупку в другом инструменте и хочет
         прогнать её через наш ИИ-анализ независимо от того, проходит ли она
-        авто-отбор какого-либо профиля (регион/ОКПД/ключевые слова). Площадка
-        определяется по хосту URL (``configs/dom/<platform_id>.yaml#url``);
-        не найдена — 400, закупка не сохраняется. Сама подгрузка карточки
-        (детальная страница/API площадки) реализуется по площадкам отдельно
-        (см. ``fetch_procurement_by_url``) — пока не реализована ни для одной.
+        авто-отбор какого-либо профиля (регион/ОКПД/ключевые слова).
+
+        Данные закупки с таким URL уже могут быть в базе (обычный обход парсера
+        уже её нашёл, либо она была добавлена по URL ранее) — тогда повторная
+        живая подгрузка не выполняется, запись просто помечается «в работе»
+        (``find_by_url``). Иначе площадка определяется по хосту URL
+        (``configs/dom/<platform_id>.yaml#url``; не найдена — 400, закупка не
+        сохраняется) и выполняется живая подгрузка карточки (детальная
+        страница/API площадки), реализуется по площадкам отдельно (см.
+        ``fetch_procurement_by_url``) — пока не реализована ни для одной.
         """
+        existing = await _repo().find_by_url(body.url)
+        if existing is not None:
+            await _repo().set_in_work(existing.id, True)
+            await _broadcast(state)
+            fresh = await _repo().get_by_id(existing.id)
+            assert fresh is not None
+            return _procurement_out(fresh, include_costs=False)
         platform_ids = _match_platform_ids_by_url(state.cfg.dom.platforms, body.url)
         if not platform_ids:
             raise HTTPException(

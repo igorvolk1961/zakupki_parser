@@ -367,6 +367,16 @@ class ProcurementMixin(RepositoryMixin):
         """Проверяет наличие закупки с указанным номером на площадке."""
         return await self.find_id(number, platform_id) is not None
 
+    async def find_by_url(self, url: str) -> Procurement | None:
+        """Закупка с точным совпадением URL (для добавления «в работу» по ссылке ЭТП).
+
+        Данные уже в базе — повторная живая подгрузка карточки
+        (``fetch_procurement_by_url``) не нужна, см. ``add_procurement_by_url``.
+        """
+        stmt = select(Procurement).where(Procurement.url == url).limit(1)
+        async with self._db.session() as session:
+            return (await session.execute(stmt)).scalar_one_or_none()
+
     async def known_numbers(self, platform_id: str) -> set[str]:
         """Все номера закупок площадки — для пропуска повторной обработки.
 
