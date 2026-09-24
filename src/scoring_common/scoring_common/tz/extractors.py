@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+from scoring_common.tables import pdf_to_markdown_tables
 from scoring_common.tz.files import _PLAIN_TEXT_EXTENSIONS, _normalize
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,21 @@ def _extract_docx(raw: bytes) -> str | None:
 
 
 def _extract_pdf(raw: bytes) -> str | None:
-    """Markdown из PDF (pdfplumber: таблицы по layout, fallback pdfminer)."""
+    """Markdown из PDF: сначала pdfplumber (``pdf_to_markdown_tables``), потом MarkItDown.
+
+    MarkItDown нередко расплющивает layout-таблицы (ЕАИСТ/Росэлторг и др.) в
+    сплошной текст без ``|``-разметки — LLM и просмотр ТЗ в карточке теряют
+    структуру. pdfplumber распознаёт такие таблицы как сетку и отдаёт корректный
+    GFM Markdown — этот путь пробуется первым для ЛЮБОГО PDF, до какой-либо
+    записи текста в кэш/хранилище (нормализация значений-маркеров вида «не
+    установлено» — отдельный, более узкий шаг именно при сборке JSON
+    требований к участнику, см. ``scoring_common.requirements``, не здесь).
+    Возвращает ``None``, только если в PDF нет текстового слоя вовсе (сканы) —
+    тогда фолбэк на MarkItDown (может справиться через другой конвертер/OCR).
+    """
+    markdown = pdf_to_markdown_tables(raw)
+    if markdown:
+        return markdown
     return _convert_markdown(raw, ".pdf")
 
 

@@ -100,3 +100,27 @@ def test_decode_extension_takes_precedence_over_signature(monkeypatch) -> None:
 def test_decode_unknown_signature_falls_back_to_plain() -> None:
     """Произвольные байты без расширения читаются как plain-text (cp1251)."""
     assert _decode("текст закупки".encode("cp1251"), "Техническое задание") == "текст закупки"
+
+
+def test_extract_pdf_prefers_pdfplumber_tables(monkeypatch) -> None:
+    """PDF с текстовым слоем: таблицы восстанавливаются pdfplumber (GFM), не
+    расплющиваются MarkItDown'ом в сплошной текст без структуры."""
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(
+        extractors, "pdf_to_markdown_tables", lambda raw: "| a | b |\n| --- | --- |\n| 1 | 2 |"
+    )
+    monkeypatch.setattr(
+        extractors, "_convert_markdown", lambda raw, ext: "markitdown-should-not-be-used"
+    )
+    assert extractors._extract_pdf(b"%PDF-1.7...") == "| a | b |\n| --- | --- |\n| 1 | 2 |"
+
+
+def test_extract_pdf_falls_back_to_markitdown_when_no_text_layer(monkeypatch) -> None:
+    """Скан без текстового слоя: pdfplumber ничего не находит (None) — фолбэк
+    на MarkItDown (может справиться через другой конвертер/OCR)."""
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(extractors, "pdf_to_markdown_tables", lambda raw: None)
+    monkeypatch.setattr(extractors, "_convert_markdown", lambda raw, ext: "markitdown-text")
+    assert extractors._extract_pdf(b"%PDF-1.7...") == "markitdown-text"

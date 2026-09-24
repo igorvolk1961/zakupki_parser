@@ -2634,6 +2634,39 @@ requirements:
       ``_minprom_verdict``/``_license_verdict`` — см. FR-4.5), который ни разу
       не вызывался в проде и функционально был давно заменён детерминированным
       ``scoring_common.requirements`` (US-4.2/4.3).
+  - id: FR-13.6
+    type: FR
+    title: Корректные GFM-таблицы при извлечении текста PDF (до записи в кэш/хранилище)
+    stakeholder: Тендеролог (user)
+    stage: "5"
+    status: implemented
+    adr: "-"
+    code:
+      - src/scoring_common/scoring_common/tz/extractors.py#_extract_pdf
+      - src/scoring_common/scoring_common/tables.py
+    tests:
+      - src/scoring_common/tests/test_extractors.py
+      - src/scoring_common/tests/test_tables.py
+    notes: >-
+      2026-09-24 (решение пользователя): MarkItDown нередко расплющивает
+      layout-таблицы PDF (ЕАИСТ/Росэлторг и др.) в сплошной текст без
+      ``|``-разметки — и просмотр ТЗ в карточке (рендерит Markdown,
+      ``static/js/markdown.js``, GFM pipe-таблицы), и RAG-чанкер анализа
+      получают текст без структуры таблицы. Раньше pdfplumber-реконструкция
+      таблиц (``pdf_to_markdown_tables``, ``scoring_common.tables``) была
+      подключена только к отдельному детерминированному извлечению
+      «Требований к участнику» (FR-10.10), не к общему извлечению текста.
+
+      Теперь ``_extract_pdf`` пробует ``pdf_to_markdown_tables`` ПЕРВЫМ для
+      ЛЮБОГО PDF (общий путь ``extract_text``/``extract_text_cached`` —
+      используется и просмотром ТЗ, и RAG, и построением требований — то
+      есть до любой записи результата в L1/L2-кэш текста) — MarkItDown
+      остаётся фолбэком только для PDF без текстового слоя (сканы), где
+      pdfplumber ничего не находит (``None``). Нормализация значений-
+      маркеров («не установлено» → «НЕТ») — отдельная, более узкая операция
+      именно при сборке JSON требований к участнику
+      (``requirements._replace_marker_values``), в общий путь извлечения
+      текста НЕ включена (по явному разделению ответственности).
 
   # ===== Бизнес-правила =====
   - id: BR-01
