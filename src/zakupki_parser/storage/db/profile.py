@@ -109,10 +109,12 @@ class Profile(Base):
     # при повторном заполнении/обновлении. Сам по себе ни на что не влияет —
     # используется только как удобство формы.
     website_url: Mapped[str | None] = mapped_column(Text)
-    questions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     # Конструктор отчётных полей (FR-12.1): произвольные именованные поля профиля
-    # {id, name, hint, type, unit}, извлекаются RAG-анализом по всем документам
-    # закупки (analysis_service.pipeline.report_fields), аналогично questions.
+    # {id, name, hint, type, unit, expected_value, blocking}, извлекаются RAG-
+    # анализом по всем документам закупки (analysis_service.pipeline.
+    # report_fields). Заменяет прежнее свободное поле «Вопросы по ТЗ»
+    # (profiles.questions, удалено FR-13.5) — стоп-условие теперь задаётся
+    # прямо на отчётном поле (expected_value + blocking), не отдельным вопросом.
     report_fields: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     # Блокирует ли несоответствие детерминированной категории требований
     # (лицензии/опыт/минпромторг/соисполнители, scoring_common.requirements)

@@ -1,12 +1,12 @@
-"""RAG-пайплайн анализа по персональным вопросам профиля.
+"""RAG-пайплайн анализа: отчётные поля профиля по документам закупки.
 
-Персонализированные вопросы профиля (единственное сохраняемое RAG-звено) обрабатываются
-по одному LLM-вызову на вопрос: эмбеддинги вопросов кэшируются, контекст — разделы ВСЕХ
-документов закупки (не только файла, определённого как ТЗ, — требования к участнику
-часто лежат в других приложениях, см. ``RagAnalyzer._collect_document_chunks``).
-Обязательные стоп-условия ушли в отдельный детерминированный поиск
-«Требований к участнику» по всем документам плюс LLM-заполнение ``data``
-(``fill_requirements_data``). Результат — ``rag_report`` для карточки.
+Отчётные поля (``analysis_service.pipeline.report_fields``) извлекаются по
+одному LLM-вызову на поле; контекст — разделы ВСЕХ документов закупки (не
+только файла, определённого как ТЗ, — требования к участнику часто лежат в
+других приложениях, см. ``RagAnalyzer._collect_document_chunks``). Обязательные
+стоп-условия ушли в отдельный детерминированный поиск «Требований к участнику»
+по всем документам плюс LLM-заполнение ``data`` (``fill_requirements_data``).
+Результат — ``rag_report`` для карточки.
 """
 
 from __future__ import annotations
@@ -15,33 +15,20 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime
-from typing import Any, Literal, cast
-
-from pydantic import BaseModel, Field
+from typing import Any, Literal
 
 from analysis_service.llm import LlmClient
 from analysis_service.pipeline.chunker import split_tz_sections
-from analysis_service.pipeline.matcher import MARKERS, SEVERITY
-from analysis_service.pipeline.prompts import (
-    build_requirements_data_messages,
-    build_verdict_messages,
-)
+from analysis_service.pipeline.prompts import build_requirements_data_messages
 from analysis_service.pipeline.report_fields import ReportFieldExtractor
 from analysis_service.settings import Settings
 from scoring_common.costing import stage_metrics_with_components
-from scoring_common.embeddings import Embeddable, cosine_similarity
+from scoring_common.embeddings import Embeddable
 from scoring_common.langfuse import parent_span, trace_url_from_trace_id
 from scoring_common.requirements import enumerate_document_refs
 from scoring_common.tz import clean_text, extract_text_cached, resolve_tz_content
 
 logger = logging.getLogger(__name__)
-
-VERDICT_NONE: Literal["no_stop_condition"] = "no_stop_condition"
-VERDICT_SOFT: Literal["soft"] = "soft"
-VERDICT_ABSOLUTE: Literal["absolute"] = "absolute"
-VERDICT_UNAVAILABLE: Literal["unavailable"] = "unavailable"
-VERDICTS = (VERDICT_NONE, VERDICT_SOFT, VERDICT_ABSOLUTE, VERDICT_UNAVAILABLE)
-Verdict = Literal["no_stop_condition", "absolute", "soft", "unavailable"]
 
 # Ключи полей структуры «Требования к участнику»: каждый тип — список объектов.
 _REQUIREMENT_KEYS = ("licenses", "experience", "minprom", "other")
@@ -56,27 +43,6 @@ def _requirement_items(value: Any) -> list[Any]:
     return []
 
 
-class QuestionVerdict(BaseModel):
-    """Вердикт по одному профильному вопросу."""
-
-    question_id: str
-    question_text: str
-    verdict: Literal["no_stop_condition", "absolute", "soft", "unavailable"]
-    severity: int = Field(ge=0, le=2)
-    marker: str = Field(default="", description="🔴/🟡/🟢/⚪ для карточки")
-    excerpt: str | None = Field(default=None, description="цитата фрагмента ТЗ")
-    reasoning: str = Field(default="", description="краткое обоснование")
-    source: Literal["system", "profile"] = Field(
-        default="profile", description="источник вопроса: системный или из профиля"
-    )
-    question_version: str | None = Field(
-        default=None, description="версия набора системных вопросов"
-    )
-    facts: dict[str, Any] = Field(
-        default_factory=dict, description="факты, извлечённые из ТЗ (системные вопросы)"
-    )
-
-
 class RagAnalyzer:
     """Выполняет RAG-анализ: документы карточки → чанки → вердикты по вопросам."""
 
@@ -89,9 +55,6 @@ class RagAnalyzer:
         self._settings = settings
         self._embedder = embedder
         self._llm = llm
-        # Кэш эмбеддингов пользовательских вопросов (вопросы профиля одинаковы
-        # для всех закупок). Системные вопросы эмбеддингов не требуют вовсе.
-        self._question_embedding_cache: dict[str, list[float]] = {}
         # Конструктор отчётных полей (FR-12.2) — переиспользует уже посчитанные
         # чанки/эмбеддинги документов закупки, см. _analyze().
         self._field_extractor = ReportFieldExtractor(settings, embedder, llm)
@@ -99,13 +62,12 @@ class RagAnalyzer:
     async def analyze(
         self,
         record: dict[str, Any],
-        questions: list[dict[str, Any]],
         report_fields: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """RAG-отчёт по персональным вопросам профиля. best-effort.
+        """RAG-отчёт по отчётным полям профиля. best-effort.
 
-        Весь прогон (эмбеддинги, LLM-вердикты) вкладывается в единый родительский
+        Весь прогон (эмбеддинги, LLM-вызовы) вкладывается в единый родительский
         span LangFuse ``rag_analysis``: трейсы эмбеддингов становятся дочерними
         спанами с общим родителем вместо отдельных корневых наблюдений.
         """
@@ -122,7 +84,7 @@ class RagAnalyzer:
             self._llm.reset_cost()
             getattr(self._embedder, "reset_cost", lambda: None)()
             getattr(self._embedder, "reset_metrics", lambda: None)()
-            report = await self._analyze(record, questions, report_fields or [], generated_at)
+            report = await self._analyze(record, report_fields or [], generated_at)
         duration_ms = (time.perf_counter() - stage_start) * 1000.0
         llm_metrics: dict[str, Any] = getattr(self._llm, "metrics", lambda: {})()
         emb_metrics: dict[str, Any] = getattr(self._embedder, "metrics", lambda: {})()
@@ -154,7 +116,6 @@ class RagAnalyzer:
     async def _analyze(
         self,
         record: dict[str, Any],
-        questions: list[dict[str, Any]],
         report_fields: list[dict[str, Any]],
         generated_at: str,
     ) -> dict[str, Any]:
@@ -178,49 +139,23 @@ class RagAnalyzer:
             return {
                 "tz_found": ref is not None,
                 "tz_file": tz_file,
-                "questions": [],
                 "fields": [],
                 "generated_at": generated_at,
                 "status": "no_tz",
             }
 
-        verdicts: list[dict[str, Any]] = []
-
         chunk_vectors = await self._embedder.embed(chunks)
         if chunk_vectors is None or len(chunk_vectors) != len(chunks):
-            # Векторы недоступны: вопросы профиля оценить нельзя (best-effort).
-            embed_error = (
-                "Не удалось вычислить эмбеддинги чанков документов (вопросы профиля не оценены)"
-            )
-            for question in questions:
-                question_id = str(question.get("id") or "")
-                question_text = str(question.get("text") or "").strip()
-                if question_id and question_text:
-                    verdicts.append(
-                        self._profile_verdict(
-                            question_id, question_text, VERDICT_UNAVAILABLE, embed_error, None
-                        )
-                    )
+            # Векторы недоступны: отчётные поля оценить нельзя (best-effort).
+            embed_error = "Не удалось вычислить эмбеддинги чанков документов (поля не оценены)"
             return {
                 "tz_found": ref is not None,
                 "tz_file": tz_file,
-                "questions": verdicts,
                 "fields": [],
                 "generated_at": generated_at,
                 "error": embed_error,
                 "status": "deferred",
             }
-
-        for question in questions:
-            question_id = str(question.get("id") or "")
-            question_text = str(question.get("text") or "").strip()
-            if not question_id or not question_text:
-                continue
-            verdicts.append(
-                await self._verdict_for_question(
-                    question_id, question_text, chunks, chunk_vectors, chunk_sources
-                )
-            )
 
         field_values = await self._field_extractor.extract(
             report_fields, chunks, chunk_vectors, chunk_sources
@@ -229,10 +164,9 @@ class RagAnalyzer:
         return {
             "tz_found": ref is not None,
             "tz_file": tz_file,
-            "questions": verdicts,
             "fields": field_values,
             "generated_at": generated_at,
-            "status": self._status(True, None, verdicts),
+            "status": self._status(True, None),
         }
 
     async def _collect_document_chunks(self, record: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -287,14 +221,14 @@ class RagAnalyzer:
         return chunks, sources
 
     @staticmethod
-    def _status(
-        tz_found: bool, error: str | None, questions: list[dict[str, Any]]
-    ) -> Literal["no_tz", "deferred", "error", "ok"]:
-        """Итоговый статус RAG-отчёта: ок / отложен / ошибка / ТЗ не найдено."""
+    def _status(tz_found: bool, error: str | None) -> Literal["no_tz", "error", "ok"]:
+        """Итоговый статус RAG-отчёта: ок / ошибка / ТЗ не найдено.
+
+        ``deferred`` (эмбеддинги недоступны) выставляется отдельным ранним
+        возвратом в ``_analyze`` — сюда управление в этом случае не доходит.
+        """
         if not tz_found:
             return "no_tz"
-        if any(q.get("verdict") == VERDICT_UNAVAILABLE for q in questions):
-            return "deferred"
         if error:
             return "error"
         return "ok"
@@ -343,84 +277,3 @@ class RagAnalyzer:
         system, user = build_requirements_data_messages(kind, text)
         data = await self._llm.chat_json(system, user)
         return data if isinstance(data, dict) else None
-
-    # ------------------------------------------------------------------ #
-    # Пользовательские вопросы профиля (по одному LLM-вызову на вопрос)
-    # ------------------------------------------------------------------ #
-    async def _verdict_for_question(
-        self,
-        question_id: str,
-        question_text: str,
-        chunks: list[str],
-        chunk_vectors: list[list[float]],
-        chunk_sources: list[str],
-    ) -> dict[str, Any]:
-        """Вердикт по одному вопросу профиля (best-effort: сбой → unavailable).
-
-        Топ-k чанков ищется по ВСЕМ документам закупки разом (не по одному
-        файлу) — соседние по индексу ``chunks``/``chunk_sources`` могут быть из
-        разных документов. Источник каждого чанка помечается в контексте LLM
-        (``[Источник: <файл>]``), чтобы модель могла корректно на него сослаться.
-        """
-        q_vector = self._question_embedding_cache.get(question_id)
-        if q_vector is None:
-            q_vector = await self._embedder.embed_one(question_text)
-            if q_vector is None:
-                return self._profile_verdict(
-                    question_id,
-                    question_text,
-                    VERDICT_UNAVAILABLE,
-                    "Не удалось вычислить эмбеддинг вопроса (анализ пропущен)",
-                    None,
-                )
-            self._question_embedding_cache[question_id] = q_vector
-
-        scored = sorted(
-            ((cosine_similarity(q_vector, cv), idx) for idx, cv in enumerate(chunk_vectors)),
-            reverse=True,
-        )
-        top_idx = [idx for _, idx in scored[: self._settings.top_k]]
-        context = "\n\n---\n\n".join(
-            f"[Источник: {chunk_sources[idx]}]\n{chunks[idx]}" for idx in top_idx
-        )
-
-        system, user = build_verdict_messages(question_text, context)
-        data = await self._llm.chat_json(system, user)
-        if data is None:
-            return self._profile_verdict(
-                question_id,
-                question_text,
-                VERDICT_UNAVAILABLE,
-                "LLM-верификация не выполнена (сбой)",
-                None,
-            )
-
-        verdict = data.get("verdict")
-        if verdict not in VERDICTS:
-            verdict = VERDICT_NONE
-        return self._profile_verdict(
-            question_id,
-            question_text,
-            cast(Verdict, verdict),
-            str(data.get("reasoning") or ""),
-            str(data.get("excerpt") or "")[:500] or None,
-        )
-
-    def _profile_verdict(
-        self,
-        question_id: str,
-        question_text: str,
-        verdict: Verdict,
-        reasoning: str,
-        excerpt: str | None,
-    ) -> dict[str, Any]:
-        return QuestionVerdict(
-            question_id=question_id,
-            question_text=question_text,
-            verdict=verdict,
-            severity=SEVERITY[verdict],
-            marker=MARKERS[verdict],
-            excerpt=excerpt,
-            reasoning=reasoning,
-            source="profile",
-        ).model_dump()

@@ -1,9 +1,9 @@
 """Фоновый воркер RAG-анализа: потребляет задачи из Redis-очереди.
 
 Цикл: ``ZPOPMAX analysis:jobs`` → карточка закупки + активный клиентский профиль
-(вопросы и факты BR-03) → обязательные системные проверки (1 LLM-вызов + матчер
-по фактам профиля) и вопросы клиента (эмбеддинги, LLM-вердикты) → ``LPUSH
-analysis:results`` (транспорт возвращает rag_report в парсер).
+→ требования к участнику (детерминированно, без LLM) + отчётные поля профиля
+(эмбеддинги, LLM, только с оплаченными analysis/analysis_embeddings) → вердикт
+приемлемости → ``LPUSH analysis:results`` (транспорт возвращает rag_report в парсер).
 """
 
 from __future__ import annotations
@@ -92,18 +92,6 @@ class AnalysisWorker:
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             logger.warning("Не удалось получить профиль клиента %s: %s", profile_id, exc)
             return {}
-
-    async def _resolve_questions(self, profile_id: int) -> list[dict[str, Any]]:
-        """Вопросы профиля (из парсера); None при сбое."""
-        try:
-            client = await self._parser.get_active_client(
-                internal_token=self._settings.parser_internal_token, profile_id=profile_id
-            )
-            questions = (client or {}).get("questions") or []
-            return [q for q in questions if isinstance(q, dict)]
-        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
-            logger.warning("Не удалось получить вопросы клиента: %s", exc)
-            return []
 
     async def _resolve_report_fields(self, profile_id: int) -> list[dict[str, Any]]:
         """Отчётные поля профиля (FR-12.1, из парсера); [] при сбое."""
@@ -298,11 +286,9 @@ class AnalysisWorker:
             # отчёт остаётся полностью детерминированным (требования + geo, без LLM).
             llm_enabled = bool(profile.get("analysis_llm_enabled"))
             if llm_enabled:
-                questions = await self._resolve_questions(pfd)
                 report_fields = await self._resolve_report_fields(pfd)
                 report = await self._analyzer.analyze(
                     record,
-                    questions,
                     report_fields=report_fields,
                     metadata={"procurement_id": pid, "profile_id": pfd},
                 )
@@ -310,7 +296,6 @@ class AnalysisWorker:
                 report = {
                     "tz_found": None,
                     "tz_file": None,
-                    "questions": [],
                     "fields": [],
                     "generated_at": datetime.now(UTC).isoformat(),
                     "status": "llm_disabled",
@@ -359,7 +344,6 @@ class AnalysisWorker:
             verdict_report = compute_verdict(
                 requirements,
                 requirement_blocking,
-                report.get("questions"),
                 report.get("fields"),
             )
             report["requirements_verdict"] = verdict_report["requirements_verdict"]
@@ -378,12 +362,12 @@ class AnalysisWorker:
                 result["auto_rejection_reason"] = "Авто: " + "; ".join(labels)
             logger.info(
                 "Analysis complete for procurement %s (profile %s): tz_found=%s "
-                "file=%r questions=%d accepted=%s%s",
+                "file=%r fields=%d accepted=%s%s",
                 pid,
                 pfd,
                 report.get("tz_found"),
                 report.get("tz_file"),
-                len(report.get("questions") or []),
+                len(report.get("fields") or []),
                 verdict_report["verdict"]["accepted"],
                 f" error={report.get('error')!r}" if report.get("error") else "",
             )

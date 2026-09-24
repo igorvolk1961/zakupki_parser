@@ -67,7 +67,6 @@ def ref_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
                     "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
-                    "questions": [],
                 },
                 user.id,
             )
@@ -120,7 +119,6 @@ def ref_auth_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestCl
                     "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
-                    "questions": [],
                 },
                 user.id,
             )

@@ -169,7 +169,6 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
                     "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
-                    "questions": [],
                 },
                 user.id,
             )
@@ -2130,7 +2129,6 @@ def test_active_context_uses_disabled_profile(
                     "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
-                    "questions": [],
                 },
                 user.id,
             )

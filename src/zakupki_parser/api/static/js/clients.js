@@ -17,11 +17,8 @@ let profileKeywords = [];
 let profileExcl = [];
 let profileOkpd = [];
 let profileRegions = [];
-let profileQuestions = [];
 let profileKeywordsLoaded = 0;
 let profileExclLoaded = 0;
-let profileQuestionsLoaded = 0;
-let questionSeq = 1;
 // Площадки, используемые профилем (target_etp): выбираются из активных.
 // ALL_PLATFORMS_SENTINEL — значение «все площадки» (см. storage/db/profile.py,
 // тот же литерал): устойчиво к появлению новых площадок в системе, в отличие
@@ -45,25 +42,6 @@ let compStructured = {
 };
 let compMode = "structured"; // "structured" | "raw"
 let compExclusions = [];
-// Обязательные системные проверки ТЗ (read-only; источник — analysis_service).
-const SYSTEM_QUESTIONS_UI = [
-  { id: "sys:exp_2571", text: "Опыт исполнения контрактов (ПП 2571)" },
-  { id: "sys:minprom_registry", text: "Реестр Минпромторга" },
-  { id: "sys:license_sro", text: "Лицензии / СРО / допуски" },
-];
-function renderSystemQuestions() {
-  const box = $("#pf-system-questions");
-  if (!box) return;
-  const tagsEl = box.querySelector(".tags");
-  tagsEl.innerHTML = "";
-  SYSTEM_QUESTIONS_UI.forEach((q) => {
-    const tag = document.createElement("span");
-    tag.className = "tag tag-system";
-    tag.textContent = q.text;
-    tag.title = "Обязательная системная проверка (не редактируется)";
-    tagsEl.appendChild(tag);
-  });
-}
 // Слепок формы профиля (включая лицензии/опыт) на момент загрузки/сохранения:
 // индикатор несохранённых изменений на кнопке «Сохранить профиль».
 let profileSavedSnapshot = "";
@@ -85,8 +63,8 @@ let licenseTypeFilter = "";
 // Временные id для новых записей лицензий/опыта в форме (до сохранения профиля).
 let localEntrySeq = 0;
 // Конструктор отчётных полей (FR-12.1): произвольные поля профиля, значение
-// каждого извлекается RAG-анализом по документам закупки. Как questions —
-// хранятся прямо в профиле (JSONB), без отдельного API/сохранения по клику.
+// каждого извлекается RAG-анализом по документам закупки. Хранятся прямо в
+// профиле (JSONB), без отдельного API/сохранения по клику.
 let profileReportFields = [];
 let reportFieldSeq = 1;
 let reportFieldEditorId = null;
@@ -401,7 +379,6 @@ function fillProfileForm(p) {
   profileEditorName = p ? p.name : "";
   profileKeywordsLoaded = (p ? p.keywords || [] : []).length;
   profileExclLoaded = (p ? p.exclusion_words || [] : []).length;
-  profileQuestionsLoaded = (p ? p.questions || [] : []).length;
   // Новый профиль (p отсутствует) по умолчанию — «Все площадки»; у
   // существующего показываем то, что реально сохранено (в т.ч. пустой список
   // — «ни одной», ALL_PLATFORMS_SENTINEL — «все»).
@@ -428,18 +405,8 @@ function fillProfileForm(p) {
   (p ? p.keywords || [] : []).forEach((w) => profileKeywords.push(w));
   profileExcl.length = 0;
   (p ? p.exclusion_words || [] : []).forEach((w) => profileExcl.push(w));
-  profileQuestions.length = 0;
-  (p ? p.questions || [] : []).forEach((q) =>
-    profileQuestions.push({ id: q.id || `q${questionSeq++}`, text: q.text || "" })
-  );
-  questionSeq = Math.max(
-    questionSeq,
-    ...profileQuestions.map((q) => (parseInt(String(q.id).replace(/\D/g, ""), 10) || 0) + 1)
-  );
   renderTags(profileKeywords, "#pf-keywords-tags");
   renderTags(profileExcl, "#pf-excl-tags");
-  renderTags(profileQuestions, "#pf-questions-tags");
-  renderSystemQuestions();
   profileReportFields.length = 0;
   (p ? p.report_fields || [] : []).forEach((f) =>
     profileReportFields.push({
@@ -924,7 +891,6 @@ function compCount() {
 function wordCounts() {
   setWordCount($("#pf-cnt-keywords"), profileKeywords.length);
   setWordCount($("#pf-cnt-excl"), profileExcl.length);
-  setWordCount($("#pf-cnt-questions"), profileQuestions.length);
   setWordCount($("#pf-cnt-comp"), compCount());
   // Счётчик площадок — только видимые (активные) строки таблицы профиля;
   // «Все площадки» показываем текстом, а не 0 (пустой список от «выбрано
@@ -950,7 +916,6 @@ function switchProfileTab(name) {
   [
     "keywords",
     "excl",
-    "questions",
     "comp",
     "platforms",
     "licenses",
@@ -1406,7 +1371,6 @@ function profileFormData() {
     target_etp: profilePlatforms.slice(),
     keywords: profileKeywords.slice(),
     exclusion_words: profileExcl.slice(),
-    questions: profileQuestions.slice(),
     report_fields: profileReportFields.map((f) => ({
       id: f.id,
       name: f.name,
@@ -1522,14 +1486,6 @@ async function saveProfile() {
     if (
       !(await confirmDialogAsync(
         `В профиле было ключевых слов: ${profileKeywordsLoaded}, а сейчас список пуст. Сохранить пустой список (все слова будут удалены)?`
-      ))
-    )
-      return false;
-  }
-  if (profileQuestionsLoaded > 0 && data.questions.length === 0) {
-    if (
-      !(await confirmDialogAsync(
-        `В профиле было вопросов по ТЗ: ${profileQuestionsLoaded}, а сейчас список пуст. Сохранить пустой список (все вопросы будут удалены)?`
       ))
     )
       return false;
@@ -1809,7 +1765,6 @@ $("#export-profile-modal-bg").addEventListener("click", (e) => {
 [
   "pf-tab-keywords",
   "pf-tab-excl",
-  "pf-tab-questions",
   "pf-tab-comp",
   "pf-tab-platforms",
   "pf-tab-licenses",
@@ -1877,13 +1832,5 @@ bindTagInput("#pf-keywords-tags", profileKeywords);
 bindTagInput("#pf-excl-tags", profileExcl);
 bindTagFilter("#pf-keywords-tags", profileKeywords);
 bindTagFilter("#pf-excl-tags", profileExcl);
-// Раньше здесь не было вообще никакой привязки — вопрос нельзя было добавить
-// через это поле никаким способом (fillProfileForm только отображала уже
-// загруженные из профиля вопросы). makeItem — тот же формат {id, text}, что
-// fillProfileForm даёт вопросам, пришедшим с сервера.
-bindTagInput("#pf-questions-tags", profileQuestions, (text) => ({
-  id: `q${questionSeq++}`,
-  text,
-}));
 bindOkpdTagInput();
 bindTagInput("#pf-regions-tags", profileRegions);

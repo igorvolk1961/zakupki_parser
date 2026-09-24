@@ -35,9 +35,6 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
     from analysis_service.pipeline.rag import RagAnalyzer
 
     record = json.loads(card_path.read_text(encoding="utf-8"))
-    # Пользовательские вопросы не передаём: обязательные проверки (опыт 2571,
-    # реестр Минпромторга, лицензии/СРО) выполняются автоматически.
-    questions: list[dict[str, str]] = []
     profile_facts: dict[str, list[str]] = {"license_names": [], "experience_codes": []}
     embedder = build_embedder(settings)
     llm = LlmClient(
@@ -48,9 +45,7 @@ async def _cmd_analyze(settings: Settings, card_path: Path) -> int:
         timeout=settings.llm_request_timeout,
         max_tokens=settings.llm_max_tokens,
     )
-    report = await RagAnalyzer(settings, embedder, llm).analyze(
-        record, questions, metadata=profile_facts
-    )
+    report = await RagAnalyzer(settings, embedder, llm).analyze(record, metadata=profile_facts)
     flush()
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0

@@ -1,0 +1,10 @@
+databaseChangeLog:
+- changeSet:
+    id: 72
+    author: zakupki-parser
+    comment: "profiles.questions удалена: пользовательские «Вопросы по ТЗ» заменены стоп-условиями отчётных полей (ожидаемое значение + блокировка, FR-13.5)."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE profiles DROP COLUMN IF EXISTS questions;

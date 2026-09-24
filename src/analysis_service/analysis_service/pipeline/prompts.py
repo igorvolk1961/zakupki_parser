@@ -26,9 +26,6 @@ def _load_md(name: str) -> str:
     return (_PROMPTS_DIR / name).read_text(encoding="utf-8").lstrip("\n")
 
 
-VERDICT_SYSTEM = _load_md("verdict_system.md")
-VERDICT_USER_TEMPLATE = _load_md("verdict_user.md")
-BATCH_SYSTEM = _load_md("batch_system.md")
 REQUIREMENTS_DATA = _load_md("requirements_data.md")
 GEO_ADDRESS_SYSTEM = _load_md("geo_address_system.md")
 GEO_ADDRESS_USER_TEMPLATE = _load_md("geo_address_user.md")
@@ -97,17 +94,6 @@ def _substitute(template: str, values: dict[str, str]) -> str:
     )
 
 
-def build_verdict_messages(question: str, context: str) -> tuple[str, str]:
-    """Системный и пользовательский промпты для вердикта по одному вопросу.
-
-    ``context`` — конкатенация top-k фрагментов ТЗ. Подстановка — однопроходная
-    (regex), чтобы фигурные скобки в тексте ТЗ не ломали шаблон и вставленные
-    значения не пересканировались второй подстановкой.
-    """
-    user = _substitute(VERDICT_USER_TEMPLATE, {"question": question, "context": context})
-    return VERDICT_SYSTEM, user
-
-
 def build_geo_address_messages(tz_text: str) -> tuple[str, str]:
     """Промпты извлечения места поставки из ТЗ (этап анализа, треб. BR-…).
 
@@ -115,17 +101,6 @@ def build_geo_address_messages(tz_text: str) -> tuple[str, str]:
     для геокодирования; ``null``/нет адреса — фолбэк на регион закупки.
     """
     return GEO_ADDRESS_SYSTEM, _substitute(GEO_ADDRESS_USER_TEMPLATE, {"tz_text": tz_text})
-
-
-def build_batch_system_messages(context: str) -> tuple[str, str]:
-    """Системный и пользовательский промпты для извлечения фактов по трём
-    обязательным проверкам за один LLM-вызов.
-
-    ``context`` — релевантные секции ТЗ (лексический ретривал по паттернам
-    системных проверок). Профиль поставщика в промпт не попадает.
-    """
-    user = _substitute(BATCH_SYSTEM, {"context": context})
-    return BATCH_SYSTEM, user
 
 
 def build_requirements_data_messages(kind: str, text: str) -> tuple[str, str]:

@@ -74,7 +74,6 @@ def roles_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClien
                     "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
-                    "questions": [],
                 },
                 user.id,
             )

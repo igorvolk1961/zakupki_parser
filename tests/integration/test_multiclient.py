@@ -56,7 +56,6 @@ async def _seed_default_profile(repo: ProcurementRepository) -> int:
             "competencies": COMP_JSON,
             "keywords": [],
             "exclusion_words": ["медицинский"],
-            "questions": [{"id": "q1", "text": "Требуется ли лицензия?"}],
         },
         user.id,
     )
@@ -118,7 +117,6 @@ async def _seed_profile_with_account(username: str, options: dict[str, bool]) ->
                 "competencies": COMP_JSON,
                 "keywords": [],
                 "exclusion_words": [],
-                "questions": [],
             },
             user.id,
         )
@@ -152,7 +150,6 @@ def test_clients_crud(mc_client: TestClient) -> None:
     assert active.status_code == 200
     assert active.json()["name"] == "default"
     assert active.json()["exclusion_words"] == ["медицинский"]
-    assert active.json()["questions"] == [{"id": "q1", "text": "Требуется ли лицензия?"}]
 
     # Создание профиля (POST /api/clients — upsert по user_id + name).
     created = client.post(
@@ -641,20 +638,21 @@ def test_profile_export_structured_competencies(mc_client: TestClient) -> None:
 
 @pytest.mark.slow
 def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
+    """rag_report — свободная JSONB: score-эндпоинт сохраняет и отдаёт её как
+    есть, не привязываясь к конкретным ключам (fields/requirements_verdict/…)."""
     client = mc_client
     procurement_id = _seed_procurement()
     report = {
         "tz_found": True,
         "tz_file": "ТЗ.docx",
         "status": "ok",
-        "questions": [
+        "fields": [
             {
-                "question_id": "q1",
-                "question_text": "Требуется ли лицензия?",
-                "verdict": "absolute",
-                "severity": 2,
-                "excerpt": "Лицензия обязательна",
-                "reasoning": "жёсткое требование",
+                "field_id": "f1",
+                "field_name": "Объём партии",
+                "found": True,
+                "value": "4000",
+                "blocking": False,
             }
         ],
         "generated_at": "2026-08-19T00:00:00+00:00",
@@ -674,7 +672,7 @@ def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
     card = r.json()
     assert card["rag_report"]["tz_found"] is True
     assert card["rag_report"]["status"] == "ok"
-    assert card["rag_report"]["questions"][0]["verdict"] == "absolute"
+    assert card["rag_report"]["fields"][0]["field_name"] == "Объём партии"
     # rag_report не меняет score_method.
     assert card["score_method"] == "fit"
 

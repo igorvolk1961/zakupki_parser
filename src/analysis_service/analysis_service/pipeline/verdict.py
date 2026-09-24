@@ -3,12 +3,11 @@
 Учитывает: требования к участнику (лицензии/опыт/минпромторг/соисполнители,
 ``scoring_common.requirements``, детерминированно, без LLM — профиль решает,
 какие из НАЙДЕННЫХ (не отрицаемых) требований блокируют приемлемость,
-``profiles.requirement_blocking``); «вопросы по ТЗ»/стоп-условия с вердиктом
-``absolute`` (LLM, ``analysis_service.pipeline.rag`` — «запрет» уже по своей
-природе блокирующий, отдельного тумблера в профиле не требует, в отличие от
-report_fields); отчётные LLM-поля с ``blocking=True`` и ``match=False``
-(``analysis_service.pipeline.report_fields`` — найденное значение не
-совпало с ожидаемым, заданным в профиле).
+``profiles.requirement_blocking``); отчётные LLM-поля с ``blocking=True`` и
+``match=False`` (``analysis_service.pipeline.report_fields`` — найденное
+значение не совпало с ожидаемым, заданным в профиле — это и есть стоп-условие,
+задаваемое пользователем: свободные «вопросы по ТЗ» упразднены в пользу
+отчётных полей с ожидаемым значением).
 """
 
 from __future__ import annotations
@@ -58,16 +57,13 @@ def compute_requirements_verdict(
 def compute_verdict(
     requirements: dict[str, Any],
     requirement_blocking: dict[str, Any],
-    questions: list[dict[str, Any]] | None = None,
     fields: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Вердикт приемлемости закупки: ``{requirements_verdict, verdict}``.
 
     ``verdict.accepted=False``, если хотя бы одна категория требований
     заблокирована (профиль отметил её блокирующей, и реальное требование
-    найдено) ИЛИ хотя бы один вопрос по ТЗ получил вердикт ``absolute``
-    («запрет» — уже блокирующий по смыслу самого вердикта, без профильного
-    тумблера) ИЛИ хотя бы одно отчётное поле с ``blocking=True`` получило
+    найдено) ИЛИ хотя бы одно отчётное поле с ``blocking=True`` получило
     ``match=False`` (найденное значение не совпало с ожидаемым в профиле)
     — закупку следует авто-отклонить (см. вызывающий код,
     ``analysis_service.worker``/``upsert_score.auto_rejected``).
@@ -78,12 +74,6 @@ def compute_verdict(
         for key, info in requirements_verdict.items()
         if info.get("blocking")
     ]
-    for question in questions or []:
-        if isinstance(question, dict) and question.get("verdict") == "absolute":
-            text = str(question.get("question_text") or "").strip()
-            label = f"«{text}»" if text else "Вопрос по ТЗ"
-            source = f"question:{question.get('question_id')}"
-            blocking_reasons.append({"source": source, "label": label})
     for field in fields or []:
         if isinstance(field, dict) and field.get("blocking") and field.get("match") is False:
             name = str(field.get("field_name") or "").strip() or "Отчётное поле"

@@ -58,26 +58,6 @@ def test_verdict_rejected_with_reason_label() -> None:
     ]
 
 
-def test_verdict_absolute_question_blocks_without_profile_toggle() -> None:
-    # verdict=absolute уже означает "запрет" по смыслу самого вердикта — не
-    # нужен отдельный тумблер в профиле (в отличие от лицензий/опыта/etc.).
-    questions = [
-        {"question_id": "q1", "question_text": "Требуется опыт 5 лет?", "verdict": "absolute"},
-        {"question_id": "q2", "question_text": "Есть скидка?", "verdict": "soft"},
-    ]
-    out = compute_verdict({}, {}, questions)
-    assert out["verdict"]["accepted"] is False
-    assert out["verdict"]["blocking_reasons"] == [
-        {"source": "question:q1", "label": "«Требуется опыт 5 лет?»"}
-    ]
-
-
-def test_verdict_no_absolute_questions_does_not_block() -> None:
-    questions = [{"question_id": "q1", "question_text": "Есть скидка?", "verdict": "soft"}]
-    out = compute_verdict({}, {}, questions)
-    assert out["verdict"]["accepted"] is True
-
-
 def test_verdict_multiple_blocking_reasons() -> None:
     requirements = {
         "licenses": [{"text": "Требуется лицензия"}],
@@ -94,14 +74,14 @@ def test_verdict_blocking_field_mismatch_blocks() -> None:
         {"field_id": "f1", "field_name": "Объём", "blocking": True, "match": False},
         {"field_id": "f2", "field_name": "Цена", "blocking": True, "match": True},
     ]
-    out = compute_verdict({}, {}, None, fields)
+    out = compute_verdict({}, {}, fields)
     assert out["verdict"]["accepted"] is False
     assert out["verdict"]["blocking_reasons"] == [{"source": "field:f1", "label": "Объём"}]
 
 
 def test_verdict_field_not_blocking_when_toggle_off() -> None:
     fields = [{"field_id": "f1", "field_name": "Объём", "blocking": False, "match": False}]
-    out = compute_verdict({}, {}, None, fields)
+    out = compute_verdict({}, {}, fields)
     assert out["verdict"]["accepted"] is True
 
 
@@ -110,15 +90,14 @@ def test_verdict_field_not_blocking_when_match_none_or_true() -> None:
         {"field_id": "f1", "field_name": "Объём", "blocking": True, "match": None},
         {"field_id": "f2", "field_name": "Цена", "blocking": True, "match": True},
     ]
-    out = compute_verdict({}, {}, None, fields)
+    out = compute_verdict({}, {}, fields)
     assert out["verdict"]["accepted"] is True
 
 
-def test_verdict_combines_requirements_questions_and_fields() -> None:
+def test_verdict_combines_requirements_and_fields() -> None:
     requirements = {"licenses": [{"text": "Требуется лицензия"}]}
-    questions = [{"question_id": "q1", "question_text": "Запрет?", "verdict": "absolute"}]
     fields = [{"field_id": "f1", "field_name": "Объём", "blocking": True, "match": False}]
-    out = compute_verdict(requirements, {"licenses": True}, questions, fields)
+    out = compute_verdict(requirements, {"licenses": True}, fields)
     sources = {r["source"] for r in out["verdict"]["blocking_reasons"]}
-    assert sources == {"licenses", "question:q1", "field:f1"}
+    assert sources == {"licenses", "field:f1"}
     assert out["verdict"]["accepted"] is False

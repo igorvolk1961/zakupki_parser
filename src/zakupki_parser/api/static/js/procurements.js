@@ -758,21 +758,6 @@ function ragReportHtml(report, isAnalyzing, containerId) {
     return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
       <p class="muted" id="${containerId}-rag-hint">${hint}</p>`;
   }
-  const verdictBadge = (q) => {
-    const v = q.verdict;
-    const cls = v === "absolute" ? "active" : "";
-    let label = q.marker || "нет";
-    if (v === "unavailable") {
-      label = "не проверено";
-    } else if (v === "absolute") {
-      label = q.marker || "запрет";
-    } else if (v === "soft") {
-      label = q.marker || "понижает";
-    } else {
-      label = q.marker || "нет";
-    }
-    return `<span class="pill ${cls}"${v === "unavailable" ? ' title="Проверка не выполнена (недоступен LLM/эмбеддинги)"' : ""}>${escapeHtml(label)}</span>`;
-  };
   if (report.tz_found === false) {
     // Различаем «файл найден, но текст не извлечён» и «файла ТЗ в карточке нет»:
     // часто в карточке есть документ с «ТЗ» в имени, но конвертация не удалась.
@@ -789,19 +774,6 @@ function ragReportHtml(report, isAnalyzing, containerId) {
   } else if (report.error) {
     banner = `<p class="muted" style="margin:8px 0;">${escapeHtml(report.error)}</p>`;
   }
-  const items = (report.questions || [])
-    .map(
-      (q) => `
-    <div style="border-top:1px solid var(--line); padding:8px 0;">
-      <div style="display:flex; align-items:center; gap:8px;">
-        <b>${escapeHtml(q.question_text)}</b> ${verdictBadge(q)}
-        ${q.source === "system" ? '<span class="pill inactive" title="Обязательная системная проверка">обязат.</span>' : ""}
-      </div>
-      ${q.excerpt ? `<div class="muted" style="margin-top:4px;">«${escapeHtml(q.excerpt)}»</div>` : ""}
-      ${q.reasoning ? `<div style="margin-top:4px;">${escapeHtml(q.reasoning)}</div>` : ""}
-    </div>`
-    )
-    .join("");
   const fieldItems = (report.fields || [])
     .map((f) => {
       const value = f.found
@@ -824,8 +796,7 @@ function ragReportHtml(report, isAnalyzing, containerId) {
   return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
     ${banner}
-    ${items || '<p class="muted">Вопросов к документам пока нет.</p>'}
-    ${fieldsBlock}`;
+    ${fieldsBlock || '<p class="muted">Отчётных полей пока нет.</p>'}`;
 }
 
 async function loadPlatforms() {

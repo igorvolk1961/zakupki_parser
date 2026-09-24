@@ -7,46 +7,18 @@ from typing import Any
 
 import pytest
 from analysis_service.pipeline.matcher import (
-    apply_profile_facts,
     build_license_summary,
     license_kinds_in_text,
     requirement_category_status,
     resolve_license_kind,
 )
-from analysis_service.pipeline.prompts import (
-    build_requirements_data_messages,
-    build_verdict_messages,
-)
+from analysis_service.pipeline.prompts import build_requirements_data_messages
 from analysis_service.pipeline.rag import RagAnalyzer
 from analysis_service.settings import Settings
 
 from scoring_common.embeddings import cosine_similarity
 
 # --- Промпты ------------------------------------------------------------
-
-
-def test_build_verdict_messages_substitutes() -> None:
-    system, user = build_verdict_messages("Лицензии?", "Чанк 1\n\nЧанк 2")
-    assert "Вопрос клиента: Лицензии?" in user
-    assert "Чанк 1\n\nЧанк 2" in user
-    assert "{question}" not in user and "{context}" not in user
-    assert "стоп-условие" in system
-
-
-def test_build_verdict_messages_braces_in_context() -> None:
-    # Фигурные скобки в тексте ТЗ не должны ломать подстановку шаблона.
-    system, user = build_verdict_messages("Вопрос", "Текст с {фигурными} скобками")
-    assert "Текст с {фигурными} скобками" in user
-    assert "{question}" not in user and "{context}" not in user
-
-
-def test_build_verdict_messages_no_rescan_of_inserted_values() -> None:
-    # Литерал {context} в тексте вопроса не должен быть пересканирован
-    # второй подстановкой (однопроходная замена).
-    system, user = build_verdict_messages("Что такое {context}?", "Контекст ТЗ")
-    assert "Что такое {context}?" in user
-    assert "Контекст ТЗ" in user
-    assert user.count("Контекст ТЗ") == 1
 
 
 def test_build_requirements_data_messages() -> None:
@@ -120,17 +92,15 @@ def _analyzer(llm: _FakeLlm) -> RagAnalyzer:
 
 def test_report_without_tz() -> None:
     record = _NoTzRecord()
-    report = asyncio.run(
-        _analyzer(_FakeLlm([{}])).analyze(record, [{"id": "q1", "text": "Лицензии?"}])
-    )
+    report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(record))
     assert report["tz_found"] is False
-    assert report["questions"] == []
+    assert report["fields"] == []
     assert report["tz_file"] is None
 
 
 def test_report_has_cost_and_trace_url() -> None:
     """Отчёт всегда содержит cost (0 при отсутствии вызовов) и trace_url (None без LangFuse)."""
-    report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(_NoTzRecord(), [], metadata={}))
+    report = asyncio.run(_analyzer(_FakeLlm([{}])).analyze(_NoTzRecord(), metadata={}))
     cost = report["cost"]
     assert cost["usd"] == 0.0
     # Стандартизованные метрики стадии всегда присутствуют.
@@ -148,45 +118,6 @@ def test_report_has_cost_and_trace_url() -> None:
     assert report["trace_url"] is None
 
 
-def test_verdict_parsed_from_llm() -> None:
-    record = {
-        "files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}],
-        "subject": "Разработка ИИ",
-    }
-    llm = _FakeLlm(
-        [
-            {
-                "experience_2571": {"found": True, "facts": {"required": False}, "excerpt": "—"},
-                "minprom_registry": {"found": False, "facts": {}},
-                "license_sro": {
-                    "found": True,
-                    "facts": {"required": True, "license_name": "лицензия МЧС"},
-                    "excerpt": "лицензия",
-                },
-            },
-            {
-                "verdict": "absolute",
-                "excerpt": "Наличие лицензии обязательно",
-                "reasoning": "жёсткое требование",
-            },
-        ]
-    )
-    analyzer = _analyzer(llm)
-    report = asyncio.run(
-        analyzer.analyze(
-            record,
-            [{"id": "q1", "text": "Лицензии?"}],
-            metadata={"license_names": [], "experience_codes": []},
-        )
-    )
-    assert report["tz_found"] in (True, False)
-    if report["tz_found"] and report["questions"]:
-        q1 = next(q for q in report["questions"] if q["question_id"] == "q1")
-        assert q1["verdict"] == "absolute"
-        assert q1["source"] == "profile"
-        assert q1["marker"] == "🔴"
-
-
 class _NoneEmbedder:
     """Эмбеддер, недоступный для анализа (возвращает None)."""
 
@@ -197,40 +128,37 @@ class _NoneEmbedder:
         return None
 
 
-def test_verdict_embed_unavailable() -> None:
-    """Недоступен эмбеддер → вопрос профиля «не проверено»."""
+def test_report_embed_unavailable_gives_deferred_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Недоступен эмбеддер → отчётные поля не оценены, статус «deferred»."""
+    from analysis_service.pipeline import rag as rag_mod
+
+    from scoring_common.tz.files import FileRef
+
+    tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
+
+    def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
+        return [tz_ref]
+
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+        return "Общее описание работ."
+
+    monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
+    monkeypatch.setattr(rag_mod, "extract_text_cached", fake_extract)
+
     analyzer = _analyzer(_FakeLlm([None]))
     analyzer._embedder = _NoneEmbedder()  # type: ignore[assignment]  # noqa: SLF001
-    v = asyncio.run(
-        analyzer._verdict_for_question(  # noqa: SLF001
-            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]], ["ТЗ.docx"]
-        )
-    )
-    assert v["verdict"] == "unavailable"
-    assert v["marker"] == "⚪"
-    assert v["source"] == "profile"
-
-
-def test_verdict_llm_unavailable() -> None:
-    """LLM-верификация вернула None → вопрос профиля «не проверено»."""
-    analyzer = _analyzer(_FakeLlm([None]))
-    v = asyncio.run(
-        analyzer._verdict_for_question(  # noqa: SLF001
-            "q1", "Лицензии?", ["секция ТЗ"], [[1.0, 2.0]], ["ТЗ.docx"]
-        )
-    )
-    assert v["verdict"] == "unavailable"
-    assert v["marker"] == "⚪"
+    record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
+    report = asyncio.run(analyzer.analyze(record, report_fields=[{"id": "f1", "name": "объём"}]))
+    assert report["status"] == "deferred"
+    assert report["fields"] == []
 
 
 def test_report_status() -> None:
-    """Верхнеуровневый статус rag_report (ok/deferred/error/no_tz)."""
+    """Верхнеуровневый статус rag_report (ok/error/no_tz)."""
     status = RagAnalyzer._status
-    assert status(False, None, []) == "no_tz"
-    assert status(True, None, []) == "ok"
-    assert status(True, "ошибка", []) == "error"
-    assert status(True, None, [{"verdict": "unavailable"}]) == "deferred"
-    assert status(True, None, [{"verdict": "soft"}, {"verdict": "no_stop_condition"}]) == "ok"
+    assert status(False, None) == "no_tz"
+    assert status(True, None) == "ok"
+    assert status(True, "ошибка") == "error"
 
 
 # --- Заполнение data требований к участнику (LLM-этап) ---------------------
@@ -283,89 +211,6 @@ def test_requirements_data_fill_llm_failure_keeps_none() -> None:
     assert filled["licenses"][0]["file_name"] == "req.pdf"
     assert filled["other"][0]["data"] is None
     assert filled["other"][0]["file_name"] == "docs.pdf"
-
-
-# --- Stage B: матчер фактов ТЗ × фактов профиля -----------------------------
-
-
-def _batch(
-    exp: dict[str, Any] | None = None,
-    mp: dict[str, Any] | None = None,
-    lic: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {"experience_2571": exp, "minprom_registry": mp, "license_sro": lic}
-
-
-def test_matcher_experience_rules() -> None:
-    empty = {"license_names": [], "experience_codes": []}
-    platform_ok = {"license_names": [], "experience_codes": ["platform"]}
-
-    v = apply_profile_facts(
-        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "platform"}}), empty
-    )
-    assert v[0]["verdict"] == "absolute" and v[0]["marker"] == "🔴"
-    v = apply_profile_facts(
-        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "platform"}}),
-        platform_ok,
-    )
-    assert v[0]["verdict"] == "no_stop_condition"
-    v = apply_profile_facts(
-        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "evaluation_only"}}),
-        empty,
-    )
-    assert v[0]["verdict"] == "no_stop_condition"
-    v = apply_profile_facts(
-        _batch(exp={"found": True, "facts": {"required": True, "confirmation": "documents"}}), empty
-    )
-    assert v[0]["verdict"] == "soft" and v[0]["marker"] == "🟡"
-    v = apply_profile_facts(_batch(exp={"found": True, "facts": {"required": False}}), empty)
-    assert v[0]["verdict"] == "no_stop_condition"
-    # Сбой/нет данных по проверке не должен давать ложный барьер.
-    v = apply_profile_facts(_batch(exp=None), empty)
-    assert v[0]["verdict"] == "no_stop_condition"
-
-
-def test_matcher_minprom_rules() -> None:
-    empty = {"license_names": [], "experience_codes": []}
-    v = apply_profile_facts(_batch(mp={"found": True, "facts": {"required": True}}), empty)
-    assert v[1]["verdict"] == "absolute" and v[1]["marker"] == "🔴"
-    v = apply_profile_facts(
-        _batch(mp={"found": True, "facts": {"required": False, "not_established_note": True}}),
-        empty,
-    )
-    assert v[1]["verdict"] == "no_stop_condition" and v[1]["marker"] == "🟢"
-
-
-def test_matcher_license_rules() -> None:
-    no_license = {"license_names": [], "experience_codes": []}
-    has_mchs = {
-        "license_names": [
-            "деятельность по монтажу, техническому обслуживанию и ремонту средств "
-            "обеспечения пожарной безопасности зданий и сооружений"
-        ],
-        "experience_codes": [],
-    }
-
-    lic = {
-        "found": True,
-        "facts": {"required": True, "license_name": "лицензия МЧС на монтаж пожарной сигнализации"},
-    }
-    v = apply_profile_facts(_batch(lic=lic), no_license)
-    assert v[2]["verdict"] == "absolute" and v[2]["marker"] == "🔴"
-    v = apply_profile_facts(_batch(lic=lic), has_mchs)
-    assert v[2]["verdict"] == "no_stop_condition" and v[2]["marker"] == "🟢"
-
-    # Нераспознанный вид лицензии — мягкий маркер, не отсеивает закупку.
-    odd = {
-        "found": True,
-        "facts": {"required": True, "license_name": "какое-то экзотическое разрешение"},
-    }
-    v = apply_profile_facts(_batch(lic=odd), no_license)
-    assert v[2]["verdict"] == "soft" and v[2]["marker"] == "🟡"
-
-    # Нет требования — нет барьера.
-    v = apply_profile_facts(_batch(lic={"found": True, "facts": {"required": False}}), no_license)
-    assert v[2]["verdict"] == "no_stop_condition"
 
 
 def test_resolve_license_kind_aliases() -> None:
@@ -435,7 +280,7 @@ def test_analyze_falls_back_to_description_when_tz_has_no_duties(
 
     monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
-    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], metadata={}))
+    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, metadata={}))
     assert report["tz_found"] is True
     assert report["tz_file"] == "Описание.docx"
 
@@ -454,7 +299,7 @@ def test_analyze_keeps_tz_when_duties_present(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
-    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, [], metadata={}))
+    report = asyncio.run(_analyzer(_FakeLlm([])).analyze(record, metadata={}))
     assert report["tz_found"] is True
     assert report["tz_file"] == "ТЗ.docx"
 
@@ -492,84 +337,14 @@ def test_collect_document_chunks_covers_all_documents(monkeypatch: pytest.Monkey
     assert set(sources) == {"ТЗ.docx", "Проект контракта.docx"}
 
 
-class _RecordingLlm:
-    """Фиксирует последний user-промпт — проверить, что в контекст LLM попал
-    текст ИМЕННО того документа, где реально лежит ответ."""
-
-    def __init__(self) -> None:
-        self.last_user: str | None = None
-
-    async def chat_json(self, system: str, user: str) -> dict[str, Any]:
-        self.last_user = user
-        return {"verdict": "no_stop_condition", "excerpt": "", "reasoning": "ок"}
-
-    def reset_cost(self) -> None:
-        pass
-
-    @property
-    def total_cost_usd(self) -> float:
-        return 0.0
-
-
-def test_analyze_answers_from_non_tz_document(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Регрессия: вопрос, ответ на который лежит в «Проекте контракта», а не в
-    файле ТЗ, должен получить контекст из ВЕРНОГО документа — до фикса чанки
-    собирались только из файла, определённого как ТЗ, и такой вопрос никогда
-    не находил ответ, сколько угодно верно ни формулируй сам вопрос."""
-    from analysis_service.pipeline import rag as rag_mod
-
-    from scoring_common.tz.files import FileRef
-
-    tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
-    contract_ref = FileRef("Проект контракта.docx", "http://x/Контракт.docx")
-
-    def fake_resolve(
-        rec: dict, timeout: float = 30.0, verify_ssl: bool = True
-    ) -> tuple[FileRef, str]:
-        return (tz_ref, "Исполнитель обязан выполнить работы в срок.")
-
-    def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
-        return [tz_ref, contract_ref]
-
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
-        if ref.name == "ТЗ.docx":
-            return "Общее описание работ по установке оборудования."
-        return "Исполнитель вправе привлекать соисполнителей без ограничения по объёму."
-
-    monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
-    monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
-    monkeypatch.setattr(rag_mod, "extract_text_cached", fake_extract)
-
-    llm = _RecordingLlm()
-    analyzer = _analyzer(llm)  # type: ignore[arg-type]
-    record = {
-        "files_json": [
-            {"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"},
-            {"name": "Проект контракта.docx", "url": "http://x/Контракт.docx"},
-        ]
-    }
-    report = asyncio.run(
-        analyzer.analyze(record, [{"id": "q1", "text": "Разрешены ли соисполнители?"}], metadata={})
-    )
-    assert report["tz_found"] is True
-    assert report["tz_file"] == "ТЗ.docx"  # отображаемое имя — по-прежнему ТЗ
-    q1 = next(q for q in report["questions"] if q["question_id"] == "q1")
-    assert q1["verdict"] == "no_stop_condition"
-    # Главная проверка: текст из «Проекта контракта» реально попал в промпт LLM,
-    # хотя «официальный» файл ТЗ этот текст не содержит.
-    assert llm.last_user is not None
-    assert "соисполнителей" in llm.last_user
-    assert "Проект контракта.docx" in llm.last_user
-
-
 # --- Отчётные поля (FR-12.2): проводка через RagAnalyzer.analyze -----------
 
 
 def test_analyze_no_tz_includes_empty_fields() -> None:
-    """Нет ни одного документа → fields=[] (как questions), без вызова LLM/эмбеддера."""
+    """Нет ни одного документа → fields=[], без вызова LLM/эмбеддера."""
     report = asyncio.run(
         _analyzer(_FakeLlm([])).analyze(
-            _NoTzRecord(), [], report_fields=[{"id": "f1", "name": "объём"}]
+            _NoTzRecord(), report_fields=[{"id": "f1", "name": "объём"}]
         )
     )
     assert report["fields"] == []
@@ -577,7 +352,7 @@ def test_analyze_no_tz_includes_empty_fields() -> None:
 
 def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     """rag_report несёт fields, переиспользуя уже собранные чанки документов
-    (та же _collect_document_chunks, что и для questions — не пересчитывается)."""
+    (та же _collect_document_chunks)."""
     from analysis_service.pipeline import rag as rag_mod
 
     from scoring_common.tz.files import FileRef
@@ -598,7 +373,7 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
     report = asyncio.run(
         analyzer.analyze(
-            record, [], report_fields=[{"id": "f1", "name": "объём партии", "type": "number"}]
+            record, report_fields=[{"id": "f1", "name": "объём партии", "type": "number"}]
         )
     )
     assert report["fields"] == [
@@ -613,6 +388,9 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
             "excerpt": "4000 м3",
             "source_file": "ТЗ.docx",
             "reasoning": "",
+            "expected_value": None,
+            "match": None,
+            "blocking": False,
         }
     ]
 

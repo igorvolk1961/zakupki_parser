@@ -634,7 +634,6 @@ class Scheduler:
             target_regions=[],
             okpd_codes=list(indexing.okpd2_prefixes),
             competencies="",
-            questions=[],
         )
         return ProfileRunContext(
             profile=profile,

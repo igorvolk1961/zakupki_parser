@@ -49,7 +49,6 @@ def test_serialize_invalid_competencies_skipped() -> None:
         "keywords": ["ИИ"],
         "exclusion_words": ["ремонт"],
         "okpd_codes": ["62"],
-        "questions": [],
     }
     payload = json.loads(serialize_profile_json(profile))
     assert payload["schema"] == SCHEMA
@@ -80,7 +79,6 @@ def test_parse_roundtrip_json() -> None:
         "target_laws": [],
         "target_regions": ["Москва", "Московская область"],
         "max_region_distance_km": 100.0,
-        "questions": [{"id": "q1", "text": "Нужна лицензия?"}],
         "search_in_documents": True,
         "website_url": "https://example.com",
     }
@@ -97,7 +95,6 @@ def test_parse_roundtrip_json() -> None:
     assert seed["exclusion_words"] == ["ремонт"]
     assert seed["okpd_codes"] == ["62"]
     assert seed["nmck_min"] == 100000
-    assert seed["questions"] == [{"id": "q1", "text": "Нужна лицензия?"}]
     assert seed["target_etp"] == []
     assert seed["target_laws"] == []
     assert seed["target_regions"] == ["Москва", "Московская область"]

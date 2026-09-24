@@ -712,13 +712,6 @@ class ProfileMixin(RepositoryMixin):
                 profile.enabled = bool(data["enabled"])
             if "competencies" in data:
                 profile.competencies = str(data["competencies"])
-            if "questions" in data:
-                # Защита от редактирования обязательных системных вопросов (sys:*):
-                # они живут вне профиля (analysis_service) и не сохраняются в профиль.
-                questions = list(data["questions"])
-                profile.questions = [
-                    q for q in questions if not str(q.get("id", "")).startswith("sys:")
-                ]
             if "target_etp" in data:
                 profile.target_etp = list(data["target_etp"])
             if "target_laws" in data:

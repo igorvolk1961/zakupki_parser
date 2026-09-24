@@ -322,10 +322,19 @@ requirements:
     status: implemented
     adr: ADR-10
     code:
-      - src/analysis_service/analysis_service/pipeline/matcher.py
-      - src/analysis_service/analysis_service/pipeline/system_questions.py
+      - src/scoring_common/scoring_common/requirements.py
+      - src/analysis_service/analysis_service/pipeline/matcher.py#requirement_category_status
+      - src/analysis_service/analysis_service/pipeline/verdict.py
     tests:
+      - src/scoring_common/tests/test_requirements.py
       - src/analysis_service/tests/test_rag.py
+      - src/analysis_service/tests/test_verdict.py
+    notes: >-
+      2026-09-24: LLM-опрос sys:exp_2571 (FR-4.3, удалено вместе с мёртвым
+      кодом) заменён детерминированным извлечением категории «experience» из
+      ``requirements_json`` (``scoring_common.requirements``, все документы,
+      без LLM) — блокирует приемлемость, если профиль отметил категорию
+      блокирующей (``compute_requirements_verdict``, FR-13.1/13.2).
   - id: US-4.3
     type: US
     title: Реестр Минпромторга
@@ -334,9 +343,14 @@ requirements:
     status: implemented
     adr: ADR-10
     code:
-      - src/analysis_service/analysis_service/pipeline/matcher.py
+      - src/scoring_common/scoring_common/requirements.py
+      - src/analysis_service/analysis_service/pipeline/matcher.py#requirement_category_status
+      - src/analysis_service/analysis_service/pipeline/verdict.py
     tests:
+      - src/scoring_common/tests/test_requirements.py
       - src/analysis_service/tests/test_rag.py
+      - src/analysis_service/tests/test_verdict.py
+    notes: 2026-09-24 — та же замена LLM-опроса на деterministic-извлечение, что и US-4.2, для категории «minprom».
   - id: US-4.4
     type: US
     title: Проверка лицензий
@@ -355,21 +369,10 @@ requirements:
       2026-09-24: в отчёте карточки — компактная сводка по лицензиям (какой вид
       требуется и есть ли у поставщика), без сырого текста требования
       (``build_license_summary`` → ``rag_report.requirements_status.licenses``;
-      см. FR-10.10). Устаревшая ветка ``apply_profile_facts``/``_license_verdict``
-      по-прежнему не вызывается в проде (FR-4.3, out-of-scope) — сводка
-      использует ``resolve_license_kind``/``kind_in_profile`` напрямую.
-  - id: US-4.5
-    type: US
-    title: Маркеры в карточке
-    stakeholder: Тендеролог (user)
-    stage: "5"
-    status: implemented
-    adr: ADR-10
-    code:
-      - src/analysis_service/analysis_service/pipeline/matcher.py
-      - src/zakupki_parser/api/app/routes/procurements.py#get_procurement
-    tests:
-      - src/analysis_service/tests/test_rag.py
+      см. FR-10.10). Мёртвая ветка ``apply_profile_facts``/``_license_verdict``
+      (никогда не вызывалась в проде, FR-4.3) удалена вместе с
+      ``system_questions.py`` — сводка использует ``resolve_license_kind``/
+      ``kind_in_profile`` напрямую.
 
   - id: US-5.1
     type: US
@@ -1457,48 +1460,9 @@ requirements:
       - src/analysis_service/analysis_service/pipeline/rag.py
     tests:
       - src/analysis_service/tests/test_rag.py
-  - id: FR-4.3
-    type: FR
-    title: Системные проверки ТЗ (sys:*)
-    stakeholder: Тендеролог (user)
-    stage: "5"
-    status: out-of-scope
-    adr: ADR-10
-    code:
-      - src/analysis_service/analysis_service/pipeline/system_questions.py
-      - src/analysis_service/analysis_service/pipeline/matcher.py
-    tests:
-      - src/analysis_service/tests/test_rag.py
-    notes: >-
-      Заменено (2026-09-22) требованием FR-10.10 «Требования к участнику по
-      всем документам + LLM-заполнение data» (extract_requirements/
-      fill_requirements_data, scoring_common/requirements.py + rag.py) — тот
-      же результат (лицензии/опыт/Минпромторг без участия тендеролога),
-      другим, реально подключённым кодом. Эта реализация (batch-LLM
-      build_batch_system_messages + детерминированный матчер
-      apply_profile_facts) НИКОГДА не вызывается в проде — только в тестах
-      (проверено: ни одного вызова вне matcher.py/system_questions.py/тестов
-      во всём репозитории). QuestionVerdict.source всегда "profile" —
-      вердикт с source="system" не производится ни разу, «обязат.»-бейдж в
-      procurements.js:690 (source === "system") никогда не отрисовывается.
-      Код оставлен как есть (не удалён) — статус только документирует, что
-      эта ветка не используется; удаление — отдельная задача, если решат
-      делать уборку мёртвого кода.
-  - id: FR-4.4
-    type: FR
-    title: Защита системных проверок от редактирования
-    stakeholder: Тендеролог (user)
-    stage: "5"
-    status: implemented
-    adr: ADR-10
-    code:
-      - src/zakupki_parser/api/app/routes/clients.py
-      - src/zakupki_parser/storage/repository/profiles.py
-    tests:
-      - tests/integration/test_multiclient.py
   - id: FR-4.5
     type: FR
-    title: Stage B — матчер фактов ТЗ с фактами профиля
+    title: Сопоставление лицензий требования с лицензиями профиля
     stakeholder: Тендеролог (user)
     stage: "5"
     status: implemented
@@ -1508,6 +1472,16 @@ requirements:
     tests:
       - src/analysis_service/tests/test_rag.py
       - tests/integration/test_profile_licenses_experience.py
+    notes: >-
+      2026-09-24: бывшая «Stage B» (LLM batch-опрос sys:* + матчер
+      apply_profile_facts, FR-4.3/FR-4.4) удалена как мёртвый код — ни разу
+      не вызывалась в проде (только в тестах); вместе с ней снесён
+      system_questions.py и пользовательские «Вопросы по ТЗ» профиля
+      (profiles.questions, см. FR-13.5 — стоп-условия теперь задаются прямо
+      на отчётном поле). Осталось и активно используется: детерминированный
+      разбор вида лицензии (resolve_license_kind/kind_in_profile/
+      license_kinds_in_text) для сводки в отчёте (build_license_summary,
+      US-4.4/FR-10.10) — профиль в промпт не попадает, чистый код без LLM.
   - id: FR-4.6
     type: FR
     title: GET /api/clients/active → facts
@@ -2338,7 +2312,7 @@ requirements:
       прислал пример отчёта для домена «отходы», но фича не завязана на
       него: любой другой домен заводится теми же 4 полями формы). Хранится
       как JSONB-колонка profiles.report_fields, полная замена вместе с
-      профилем — тот же паттерн, что у questions.
+      профилем.
   - id: FR-12.2
     type: FR
     title: RAG-извлечение значений отчётных полей по документам закупки
@@ -2361,16 +2335,15 @@ requirements:
       - src/analysis_service/tests/test_rag.py
     notes: >-
       Переиспользует уже собранные чанки/эмбеддинги документов закупки
-      (RagAnalyzer._collect_document_chunks, тот же охват ВСЕХ документов,
-      что и вопросы профиля, FR-4.1) — эмбеддинги не пересчитываются.
-      Retrieval-запрос авто-выводится из name+hint поля (без отдельного
-      шага «сформулировать запрос к RAG» для пользователя). Промпт
-      извлечения зависит только от ТИПА поля (4 генерик-промпта), не от
-      домена. N полей одной закупки извлекаются ПАРАЛЛЕЛЬНО
-      (asyncio.gather под Settings.report_field_concurrency) — сознательно
-      не повторяет антипаттерн fill_requirements_data (FR-10.10:
-      последовательный вызов на каждый элемент). Результат — сосед
-      questions внутри rag_report (evaluations.rag_report['fields']), не
+      (RagAnalyzer._collect_document_chunks, тот же охват ВСЕХ документов
+      закупки, FR-4.1) — эмбеддинги не пересчитываются. Retrieval-запрос
+      авто-выводится из name+hint поля (без отдельного шага «сформулировать
+      запрос к RAG» для пользователя). Промпт извлечения зависит только от
+      ТИПА поля (4 генерик-промпта), не от домена. N полей одной закупки
+      извлекаются ПАРАЛЛЕЛЬНО (asyncio.gather под
+      Settings.report_field_concurrency) — сознательно не повторяет
+      антипаттерн fill_requirements_data (FR-10.10: последовательный вызов
+      на каждый элемент). Результат — evaluations.rag_report['fields'], не
       отдельная колонка (в отличие от requirements_json у FR-10.10):
       значения per-profile, как и вопросы, а не профиль-независимы.
 
@@ -2479,12 +2452,12 @@ requirements:
     notes: >-
       Результат «Анализ» — единый отчёт: базовые данные + требования к
       участнику (детерминированно) + geo-дистанция + (при оплаченном
-      LLM/эмбеддингах) вопросы по ТЗ/отчётные поля + итоговый вердикт
-      приемлемости (``compute_verdict``). Блокирует: заблокированная профилем
-      категория требований (FR-13.2) с реальным (не «не требуется») пунктом,
-      ИЛИ вопрос по ТЗ с вердиктом ``absolute`` («запрет» уже блокирующий по
-      смыслу самого вердикта, без отдельного тумблера в профиле). Хотя бы
-      одна причина -> ``procurement_evaluations.status='rejected'``,
+      LLM/эмбеддингах) отчётные поля + итоговый вердикт приемлемости
+      (``compute_verdict``). Блокирует: заблокированная профилем категория
+      требований (FR-13.2) с реальным (не «не требуется») пунктом, ИЛИ
+      отчётное LLM-поле с ``blocking=True`` и несовпавшим ``match=False``
+      (FR-13.5 — свободные «вопросы по ТЗ» профиля упразднены в пользу
+      стоп-условия прямо на отчётном поле). Хотя бы одна причина -> ``procurement_evaluations.status='rejected'``,
       ``auto_rejected=True``, авто-сгенерированная причина; повторный анализ
       с «неблокирующим» вердиктом сам снимает СВОЁ авто-отклонение (ручную
       отбраковку — не трогает, см. ``_apply_auto_verdict``). Отчёт строится в
@@ -2557,7 +2530,7 @@ requirements:
       скоринга» — та переименована из «Результаты скоринга и анализа»,
       т.к. анализ переехал в «Отчёт», осталось только Score/Fit/P(win)/
       Margin): баннер вердикта, требования к участнику (блокирующие —
-      красным), geo-дистанция, вопросы/поля (LLM). Отдельная кнопка
+      красным), geo-дистанция, отчётные LLM-поля. Отдельная кнопка
       «Требования к участнику» (модалка с сырым JSON) убрана — контент
       теперь в отчёте; вместе с ней снесён неиспользуемый более
       ``GET .../requirements`` (POST для воркера остался).
@@ -2584,9 +2557,15 @@ requirements:
       - src/zakupki_parser/api/static/js/procurements.js
       - src/zakupki_parser/api/app/routes/procurements.py
       - src/zakupki_parser/api/zakupki.html
+      - src/zakupki_parser/storage/db/profile.py
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/profile_json.py
+      - src/zakupki_parser/api/app/schemas.py
+      - docker/liquibase/changelog/db.changelog-1.67.yaml
     tests:
       - src/analysis_service/tests/test_report_fields.py
       - src/analysis_service/tests/test_verdict.py
+      - tests/unit/test_profile_json.py
     notes: >-
       Отчётное поле профиля может задавать необязательное «ожидаемое
       значение» (свободный текст, может быть условием — «не менее 500000»,
@@ -2598,6 +2577,21 @@ requirements:
       ``blocking=True and match=False``. Карточка («Отчёт») и Excel-экспорт
       показывают ожидаемое значение и результат сравнения, красным — при
       блокирующем несовпадении.
+
+      2026-09-24: свободные пользовательские «Вопросы по ТЗ» профиля
+      (``profiles.questions`` — отдельная вкладка редактора, LLM-вердикт
+      absolute/soft/no_stop_condition по каждому вопросу через RAG,
+      ``RagAnalyzer._verdict_for_question``) полностью убраны — стоп-условие
+      теперь задаётся прямо на отчётном поле (``expected_value`` + ``blocking``
+      выше), той же самой LLM-цепочкой извлечения/сравнения значения, без
+      отдельного механизма «вопрос -> вердикт». Колонка ``profiles.questions``
+      удалена миграцией (данные не мигрировались — по явному решению, не было
+      значимых существующих записей). Вместе с этим снесён мёртвый код
+      обязательных системных LLM-проверок (``system_questions.py``,
+      ``matcher.apply_profile_facts``/``_experience_verdict``/
+      ``_minprom_verdict``/``_license_verdict`` — см. FR-4.5), который ни разу
+      не вызывался в проде и функционально был давно заменён детерминированным
+      ``scoring_common.requirements`` (US-4.2/4.3).
 
   # ===== Бизнес-правила =====
   - id: BR-01

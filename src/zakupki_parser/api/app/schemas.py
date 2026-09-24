@@ -466,7 +466,6 @@ class ProfileIn(BaseModel):
     competencies: str | None = None
     keywords: list[str] | None = None
     exclusion_words: list[str] | None = None
-    questions: list[dict[str, Any]] | None = None
     target_etp: list[str] | None = None
     target_laws: list[str] | None = None
     target_regions: list[str] | None = None
@@ -483,8 +482,8 @@ class ProfileIn(BaseModel):
     # себе ни на что не влияет, сохраняется только для удобства формы (не
     # вводить адрес заново при повторном заполнении).
     website_url: str | None = Field(default=None, max_length=2048)
-    # Конструктор отчётных полей (FR-12.1): [{id, name, hint, type, unit}],
-    # сохраняется вместе с профилем полной заменой (как questions).
+    # Конструктор отчётных полей (FR-12.1): [{id, name, hint, type, unit,
+    # expected_value, blocking}], сохраняется вместе с профилем полной заменой.
     report_fields: list[dict[str, Any]] | None = None
     # Блокирует ли найденное требование (лицензии/опыт/минпромторг/
     # соисполнители) приемлемость закупки — {"licenses": bool, ...}.
@@ -548,7 +547,7 @@ class ProfileExportOut(BaseModel):
     """Экспорт профиля единым JSON-файлом (компетенции — подобъект внутри).
 
     ``profile_content`` — полный JSON профиля: поля ``profile`` (name, okpd_codes,
-    nmck_min/max, keywords, exclusion_words, questions, …) и ``competencies``
+    nmck_min/max, keywords, exclusion_words, …) и ``competencies``
     (подобъект компетенций). Файл самодостаточен: его можно повторно загрузить
     через ``/api/clients/import`` без внешних ссылок.
     """
@@ -572,7 +571,6 @@ class ProfileOut(BaseModel):
     # не падал на отсутствующих атрибутах ORM-объекта.
     keywords: list[str] = Field(default_factory=list)
     exclusion_words: list[str] = Field(default_factory=list)
-    questions: list[dict[str, Any]]
     target_etp: list[str]
     target_laws: list[str]
     target_regions: list[str] = Field(default_factory=list)

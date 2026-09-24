@@ -617,9 +617,9 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
     ) -> Response:
         """Выгружает одну карточку закупки в XLSX (кнопка-иконка на панели).
 
-        Те же поля/подписи, что в карточке (вкладки «Данные закупки» и
-        «Результаты скоринга и анализа», см. cardDataPanel/cardScoringPanel в
-        procurements.js) — один лист, пары подпись/значение.
+        Те же поля/подписи, что в карточке (вкладки «Данные закупки», «Отчёт»
+        и «Результаты скоринга», см. cardDataPanel/cardReportPanel/
+        cardScoringPanel в procurements.js) — один лист, пары подпись/значение.
         """
         _, profile = await _active_context(user)
         row = await _repo().get_by_id(
@@ -724,9 +724,6 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         add("P(win)", out.p_win)
         add("Margin", out.margin)
         add("Близость эмбеддингов", out.embedding_similarity)
-        for q in (out.rag_report or {}).get("questions", []) or []:
-            if isinstance(q, dict):
-                add(f"Вопрос: {q.get('text', '')}", q.get("marker") or q.get("verdict"))
         for fv in (out.rag_report or {}).get("fields", []) or []:
             if not isinstance(fv, dict) or not fv.get("found"):
                 continue

@@ -63,7 +63,6 @@ def ple_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]
                     "competencies": COMP_JSON,
                     "keywords": [],
                     "exclusion_words": [],
-                    "questions": [],
                 },
                 user.id,
             )

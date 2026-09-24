@@ -131,3 +131,5 @@ databaseChangeLog:
       file: db.changelog-1.65.yaml
   - include:
       file: db.changelog-1.66.yaml
+  - include:
+      file: db.changelog-1.67.yaml
