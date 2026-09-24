@@ -93,13 +93,18 @@ def _etpgpb_regions(attrs: dict[str, Any]) -> str:
     Атрибут ``region`` — строка («Омская область»), ``regions``/``lot_regions`` —
     списки (лот может находиться в нескольких регионах). Склеиваем список через
     ", "; если списка нет — строка region.
+
+    API деталей отдаёт ``regions: [null]`` при заполненном ``lot_regions``
+    (проверено 2026-09-24) — null-элементы отбрасываются (иначе регионом
+    становилась строка «None»), пустой после очистки список — не источник.
     """
-    regions = attrs.get("regions") or attrs.get("lot_regions") or []
-    if isinstance(regions, str):
-        regions = [regions]
-    cleaned = [str(r).strip() for r in regions if str(r).strip()]
-    if cleaned:
-        return ", ".join(dict.fromkeys(cleaned))
+    for key in ("regions", "lot_regions"):
+        regions = attrs.get(key) or []
+        if isinstance(regions, str):
+            regions = [regions]
+        cleaned = [str(r).strip() for r in regions if r is not None and str(r).strip()]
+        if cleaned:
+            return ", ".join(dict.fromkeys(cleaned))
     value = attrs.get("region")
     return str(value).strip() if isinstance(value, str) else ""
 

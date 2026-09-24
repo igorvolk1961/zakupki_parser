@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from zakupki_parser.config.models.dom import (
     CriteriaMapping,
+    DomByUrlConfig,
     DomConfig,
     DomDetailConfig,
     DomListConfig,
@@ -71,6 +72,7 @@ __all__ = [
     "BrowserConfig",
     "CriteriaMapping",
     "DbConfig",
+    "DomByUrlConfig",
     "DomConfig",
     "DomDetailConfig",
     "DomListConfig",

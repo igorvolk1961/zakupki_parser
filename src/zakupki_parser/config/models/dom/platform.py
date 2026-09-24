@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
+from zakupki_parser.config.models.dom.by_url import DomByUrlConfig
 from zakupki_parser.config.models.dom.detail import DomDetailConfig
 from zakupki_parser.config.models.dom.list import DomListConfig
 from zakupki_parser.config.models.dom.search import SearchFilterConfig
@@ -45,6 +46,13 @@ class PlatformDom(BaseModel):
     )
     organization: OrganizationConfig | None = Field(
         default=None, description="извлечение ИНН заказчика (ADR-4)"
+    )
+    by_url: DomByUrlConfig | None = Field(
+        default=None,
+        description=(
+            "подгрузка закупки по явно заданному URL детальной страницы (US-5.5); "
+            "None — добавление по URL для площадки не поддерживается"
+        ),
     )
 
 

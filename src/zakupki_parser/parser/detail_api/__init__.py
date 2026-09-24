@@ -20,7 +20,7 @@ from typing import Any, cast
 from playwright.async_api import Page
 
 from zakupki_parser.config.models import PlatformDom
-from zakupki_parser.parser.detail_api.etpgpb import _etpgpb_details
+from zakupki_parser.parser.detail_api.etpgpb import _etpgpb_by_url, _etpgpb_details
 from zakupki_parser.parser.detail_api.lot_online import _lot_online_details
 from zakupki_parser.parser.detail_api.mos import _mos_details
 from zakupki_parser.parser.detail_api.tender_223 import _tender_223_details
@@ -30,6 +30,12 @@ _API_DETAILS: dict[str, Any] = {
     "etpgpb": _etpgpb_details,
     "mos": _mos_details,
     "tender_223": _tender_223_details,
+}
+
+# Подгрузка закупки по URL детальной страницы (US-5.5): поля уровня списка И
+# детали одним проходом. Площадки без записи здесь — по URL не подгружаются.
+_API_BY_URL: dict[str, Any] = {
+    "etpgpb": _etpgpb_by_url,
 }
 
 
@@ -50,4 +56,26 @@ async def fetch_api_details(
     )
 
 
-__all__ = ["fetch_api_details", "_API_DETAILS"]
+async def fetch_api_by_url(
+    page: Page,
+    platform: PlatformDom,
+    api_fields: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, str]], str | None]:
+    """Закупка по URL через API площадки: ``(list_vars, detail_vars, files, inn)``.
+
+    ``NotImplementedError`` — для ``api_format`` площадки подгрузка по URL не
+    реализована (поля уровня списка из API деталей не собираются).
+    """
+    fmt = platform.detail.api_format
+    handler = _API_BY_URL.get(fmt or "")
+    if handler is None:
+        raise NotImplementedError(
+            f"Добавление закупки по URL для площадки «{platform.name}» ещё не реализовано"
+        )
+    return cast(
+        tuple[dict[str, Any], dict[str, Any], list[dict[str, str]], str | None],
+        await handler(page, platform, api_fields),
+    )
+
+
+__all__ = ["fetch_api_by_url", "fetch_api_details", "_API_BY_URL", "_API_DETAILS"]

@@ -57,3 +57,10 @@ search:
     active_only: { raw_array: "procedure[stage]" }
   state_ids:
     active: ["accepting"]
+
+# Добавление закупки по URL (US-5.5): /procedures/<kind>/<platform_id>-<slug>/ —
+# тот же вид ссылки, что строит обход (rebranding_truncated_path). kind и
+# platform_id — параметры запроса деталей API (/api/v2/procedures/{kind}/{platform_id}/);
+# поля уровня списка и детали — из того же ответа (detail_api/etpgpb.py#_etpgpb_by_url).
+by_url:
+  url_pattern: "/procedures/(?P<kind>[a-z0-9_]+)/(?P<platform_id>\\d+)"

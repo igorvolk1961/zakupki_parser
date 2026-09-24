@@ -37,6 +37,8 @@ _RU_MONTHS = {
 
 _PUB_DATE_RE = re.compile(r"с\s+(\d{2}\.\d{2}\.\d{4})")
 _DEADLINE_RE = re.compile(r"до\s+(\d{2}\.\d{2}\.\d{4})\s+(\d{1,2}:\d{2})")
+# «ДД.ММ.ГГ» (двузначный год) в начале строки даты — дополняется до «ДД.ММ.20ГГ».
+_SHORT_YEAR_RE = re.compile(r"^(\d{2}\.\d{2})\.(\d{2})(?=\s|$)")
 
 
 def handler_date_iso(value: Any) -> str | None:
@@ -72,13 +74,15 @@ def handler_regex_datetime(value: Any, arg: str | None = None) -> datetime | Non
     """Извлекает дату/время regex-паттерном (группа 1) и парсит в aware datetime (МСК).
 
     Для полей-текстов вида «Опубликована 12.08.2026 00:55», «12.08.2026 00:55 - …».
+    Двузначный год («до 02.10.26 08:30», roseltorg) дополняется до 20ГГ — иначе
+    ``%Y`` принял бы «26» за 26-й год н.э.
     """
     if value is None or not arg:
         return None
     m = re.search(arg, str(value))
     if not m:
         return None
-    text = m.group(1).strip()
+    text = _SHORT_YEAR_RE.sub(r"\1.20\2", m.group(1).strip())
     for fmt in _DATE_FORMATS:
         try:
             return datetime.strptime(text, fmt).replace(tzinfo=MSK)

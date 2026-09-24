@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from zakupki_parser.config.models.dom.by_url import DomByUrlConfig
 from zakupki_parser.config.models.dom.detail import DomDetailConfig
 from zakupki_parser.config.models.dom.list import DomListConfig
 from zakupki_parser.config.models.dom.platform import DomConfig, PlatformDom
@@ -29,6 +30,7 @@ from zakupki_parser.config.models.dom.variables import (
 __all__ = [
     "CriteriaMapping",
     "DetailPageSpec",
+    "DomByUrlConfig",
     "DomConfig",
     "DomDetailConfig",
     "DomListConfig",

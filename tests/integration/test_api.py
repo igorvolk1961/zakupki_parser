@@ -18,8 +18,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from zakupki_parser.api.app import create_app
+from zakupki_parser.api.app.routes import procurements as procurements_routes
 from zakupki_parser.auth import ROLE_ADMIN, ROLE_ANALYST, ROLE_DEVOPS, ROLE_USER, create_token
 from zakupki_parser.config.models import DbConfig
+from zakupki_parser.parser.by_url import ProcurementUrlError
 from zakupki_parser.storage.db import Base, Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -911,7 +913,8 @@ def test_add_procurement_by_url_reuses_existing_record(
 ) -> None:
     """US-5.5: URL уже есть в базе — данные не скачиваются повторно (живая
     подгрузка, ``fetch_procurement_by_url``, не вызывается — иначе был бы 501,
-    т.к. заглушка для всех площадок), закупка просто помечается «в работе»."""
+    т.к. для zakupki_mos подгрузка по URL не настроена), закупка просто
+    помечается «в работе»."""
     client, _ = api_client
     url = "https://zakupki.mos.ru/need/URL-EXISTING-1"
 
@@ -943,17 +946,89 @@ def test_add_procurement_by_url_reuses_existing_record(
     assert body["in_work"] is True
 
 
-def test_add_procurement_by_url_unknown_record_falls_back_to_live_fetch_stub(
+def test_add_procurement_by_url_unknown_record_live_fetch_not_configured(
     api_client: tuple[TestClient, Path],
 ) -> None:
     """URL распознан по площадке, но в базе такой закупки нет — не найденную
-    запись не подменяем: идёт живая подгрузка (пока заглушка, 501)."""
+    запись не подменяем: идёт живая подгрузка, а для zakupki_mos она не
+    настроена (нет ``by_url`` в конфиге площадки) — 501."""
     client, _ = api_client
     resp = client.post(
         "/api/procurements/by-url",
         json={"url": "https://zakupki.mos.ru/need/URL-NEVER-SEEN"},
     )
     assert resp.status_code == 501
+
+
+def test_add_procurement_by_url_live_fetch_saves_in_work(
+    api_client: tuple[TestClient, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Живая подгрузка по URL: запись с площадки сохраняется и сразу «в работе»."""
+    client, _ = api_client
+    url = "https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=URL-LIVE-1"
+    seen: dict[str, Any] = {}
+
+    async def _fake_fetch(state: Any, platform_ids: list[str], fetch_url: str) -> dict[str, Any]:
+        seen["platform_ids"] = platform_ids
+        seen["url"] = fetch_url
+        return {
+            "number": "URL-LIVE-1",
+            "platform_id": "zakupki_gov_44fz",
+            "url": fetch_url,
+            "subject": "Закупка, подгруженная по URL",
+            "customer": "Заказчик по URL",
+            "nmck": 1000.0,
+            "is_active": True,
+            "detail_json": {"number": "URL-LIVE-1"},
+        }
+
+    monkeypatch.setattr(procurements_routes, "fetch_procurement_by_url", _fake_fetch)
+    resp = client.post("/api/procurements/by-url", json={"url": url})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["number"] == "URL-LIVE-1"
+    assert body["subject"] == "Закупка, подгруженная по URL"
+    assert body["in_work"] is True
+    # Хост ЕИС общий у 44-ФЗ и 223-ФЗ — подгрузке передаются обе площадки.
+    assert set(seen["platform_ids"]) == {"zakupki_gov_44fz", "zakupki_gov_223fz"}
+    assert seen["url"] == url
+
+    # Повторное добавление того же URL — уже из базы, без живой подгрузки.
+    async def _must_not_fetch(*_: Any) -> dict[str, Any]:
+        raise AssertionError("живая подгрузка не должна вызываться для известного URL")
+
+    monkeypatch.setattr(procurements_routes, "fetch_procurement_by_url", _must_not_fetch)
+    again = client.post("/api/procurements/by-url", json={"url": url})
+    assert again.status_code == 200, again.text
+    assert again.json()["id"] == body["id"]
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (ProcurementUrlError("не похоже на карточку"), 400),
+        (RuntimeError("таймаут площадки"), 502),
+    ],
+)
+def test_add_procurement_by_url_live_fetch_errors(
+    api_client: tuple[TestClient, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    status: int,
+) -> None:
+    """URL не похож на карточку закупки — 400 (ошибка ввода); сбой площадки —
+    502. В обоих случаях ничего не сохраняется."""
+    client, _ = api_client
+
+    async def _failing_fetch(*_: Any) -> dict[str, Any]:
+        raise error
+
+    monkeypatch.setattr(procurements_routes, "fetch_procurement_by_url", _failing_fetch)
+    resp = client.post(
+        "/api/procurements/by-url",
+        json={"url": "https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?x=1"},
+    )
+    assert resp.status_code == status, resp.text
 
 
 def _seed_procurement(number: str, okpd2_codes: str | None = None) -> int:

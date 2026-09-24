@@ -100,3 +100,23 @@ search:
   state_ids:
     all: [5, 0, 1, 2, 3, 4]
     active: [5, 0, 1]
+
+# Добавление закупки по URL (US-5.5): страница /procedure/<номер>[/<лот>]. Раздел
+# (44-ФЗ/223-ФЗ) по URL не виден — различается форматом номера: любой номер, кроме 19-значного номера 44-ФЗ (32616404478 / B0308261802236 / COM… / SP…).
+# Поля уровня списка — с детальной страницы (проверено 2026-09-24 на живой
+# странице и фикстуре roseltorg_detail.html). Регион заказчика есть только в
+# выдаче поиска — по URL не заполняется.
+by_url:
+  url_pattern: "/procedure/(?P<number>(?!\\d{19}(?:[/?#]|$))[A-Za-z0-9]+)(?:[/?#]|$)"
+  defaults: { law: "223-ФЗ" }
+  variables:
+    - { name: "subject",         selector: "h1.lot-expand-text__text", handler: "strip", default: "" }
+    - { name: "customer",        selector: "div.customer-name a", handler: "strip", default: "" }
+    - { name: "inn",             selector: "div.customer-inn", handler: "regex", handler_arg: "(\\d{10,12})", default: null }
+    # «3 230 000,00 ₽» (копейки в <sub>); у закупок без цены блока нет.
+    - { name: "nmck",            selector: "div.lot-item__sum p", handler: "money", default: null }
+    # «Прием заявок 7 дн.» -> «Прием заявок» (как в выдаче поиска).
+    - { name: "status",          selector: "div.lot-status", handler: "regex", handler_arg: "([А-Яа-яЁё][А-Яа-яЁё ]+)", default: "" }
+    - { name: "purchase_type",   selector: "div.lot-type-name div.lot-card-info__value", handler: "strip", default: "" }
+    # «до 02.10.26 08:30 (МСК)» — год двузначный.
+    - { name: "deadline",        selector: "div.lot-start-registration div.lot-card-info__value", handler: "regex_datetime", handler_arg: "до\\s+(\\d{2}\\.\\d{2}\\.\\d{2,4}\\s+\\d{1,2}:\\d{2})", default: null }

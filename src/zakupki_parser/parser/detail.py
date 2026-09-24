@@ -14,7 +14,7 @@ from typing import Any
 
 from playwright.async_api import Page
 
-from zakupki_parser.config.models import PlatformDom
+from zakupki_parser.config.models import DomVariable, PlatformDom
 from zakupki_parser.parser.detail_api import fetch_api_details
 from zakupki_parser.parser.extractor import extract_from_scope
 from zakupki_parser.parser.organization import capture_customer_link, resolve_inn
@@ -175,6 +175,7 @@ async def extract_details(
     list_vars: dict[str, Any],
     detail_url: str | None,
     api_fields: dict[str, Any] | None,
+    page_variables: list[DomVariable] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], str | None]:
     """Единый интерфейс извлечения деталей закупки (BR-08).
 
@@ -182,6 +183,10 @@ async def extract_details(
     - API-площадки (``detail.api_format``) — ``fetch_api_details`` (JSON);
     - DOM-площадки — переход на детальную страницу + ``detail.variables``,
       доп. страницы, файловая страница, файлы и ИНН заказчика.
+
+    ``page_variables`` (DOM-площадки) — доп. переменные основной детальной
+    страницы, извлекаемые до перехода на доп./файловые страницы: поля уровня
+    списка при подгрузке закупки по URL (``by_url.variables``, US-5.5).
 
     Возвращает ``(detail_vars, files, inn)`` — те же поля, что у API-пути,
     чтобы обработчик POST /score не зависел от типа площадки.
@@ -194,6 +199,9 @@ async def extract_details(
         return {}, [], None
     await open_detail(page, detail_url, platform)
     detail_vars = await extract_detail_vars(page, platform)
+    if page_variables:
+        extra = await extract_from_scope(page, page_variables)
+        detail_vars.update({k: v for k, v in extra.items() if detail_vars.get(k) is None})
     customer_link = await capture_customer_link(page, platform)
     # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход по
     # ссылке с детальной страницы и извлечение дополнительных переменных.

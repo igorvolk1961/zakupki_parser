@@ -449,10 +449,15 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
       - src/zakupki_parser/storage/repository/procurements.py#find_by_url
+      - src/zakupki_parser/parser/by_url.py#resolve_platform_by_url
+      - src/zakupki_parser/parser/by_url.py#fetch_record_by_url
+      - src/zakupki_parser/config/models/dom/by_url.py#DomByUrlConfig
+      - src/zakupki_parser/parser/detail_api/etpgpb.py#_etpgpb_by_url
       - src/zakupki_parser/api/static/js/procurements.js
     tests:
       - tests/unit/test_procurement_by_url.py
       - tests/integration/test_api.py
+      - tests/integration/test_extractor.py
     notes: >-
       2026-09-23: переработано (решение пользователя) — тендерологу нужно
       сравнивать, как одну и ту же закупку обрабатывают наш ИИ-анализ и
@@ -475,6 +480,23 @@ requirements:
       совпадением URL (``find_by_url``) — если найдена, повторное скачивание
       не выполняется, запись просто помечается «в работе». Живая подгрузка
       (и её заглушка/501) остаётся только для URL, которых в базе ещё нет.
+
+      2026-09-24: живая подгрузка реализована для фазы 1 — ЕИС 44/223-ФЗ,
+      roseltorg 44/223-ФЗ, etpgpb (проверено на живых карточках). Площадка
+      описывает подгрузку блоком ``by_url`` своего конфига
+      (``configs/dom/<platform_id>.yaml``): ``url_pattern`` распознаёт URL
+      детальной страницы, извлекает номер (группа ``number``) / параметры API
+      (прочие группы) и различает площадки с общим хостом (ЕИС — по пути
+      44/223, roseltorg — по формату номера: 19 цифр — 44-ФЗ); поля уровня
+      списка (предмет/заказчик/НМЦК/даты/статус) — ``by_url.variables`` с
+      детальной страницы (DOM) или из API деталей (etpgpb, один запрос);
+      детали (ОКПД2/файлы/ИНН) — тем же ``extract_details``, что и досборка
+      перед скорингом. Коды ответа: URL не похож на карточку / номер не
+      извлёкся — 400, для площадки нет ``by_url`` — 501 (mos/lot_online/
+      tender_223/b2b_center/fabrikant — следующие фазы), сбой площадки — 502.
+      Попутно исправлено: etpgpb отдаёт ``regions: [null]`` при заполненном
+      ``lot_regions`` — регионом закупки становилась строка «None» (и в обходе
+      по API списка, и в деталях).
   - id: US-5.6
     type: US
     title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)
@@ -1601,9 +1623,14 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
       - src/zakupki_parser/storage/repository/procurements.py#find_by_url
+      - src/zakupki_parser/parser/by_url.py#resolve_platform_by_url
+      - src/zakupki_parser/parser/by_url.py#fetch_record_by_url
+      - src/zakupki_parser/config/models/dom/by_url.py#DomByUrlConfig
+      - src/zakupki_parser/parser/detail_api/etpgpb.py#_etpgpb_by_url
     tests:
       - tests/unit/test_procurement_by_url.py
       - tests/integration/test_api.py
+      - tests/integration/test_extractor.py
     notes: >-
       2026-09-23: переработано — раньше «принятие по URL» либо резолвило
       существующую закупку, либо создавало текстовую запись-снимок без
@@ -1617,6 +1644,12 @@ requirements:
       ``find_by_url`` (точное совпадение ``procurements.url``) проверяется
       ПЕРЕД живой подгрузкой — данные уже в базе, скачивать их повторно
       незачем. Живая подгрузка остаётся только для URL, которых в базе нет.
+
+      2026-09-24: живая подгрузка по URL реализована для ЕИС 44/223-ФЗ,
+      roseltorg 44/223-ФЗ и etpgpb (конфиг площадки ``by_url``, см. US-5.5);
+      запись — та же, что пишет обход, сразу с деталями и ``detail_api``.
+      Закупка с тем же номером на площадке, сохранённая обходом под другим
+      видом URL, не дублируется (``upsert`` отдаёт id существующей записи).
   - id: FR-5.6
     type: FR
     title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)

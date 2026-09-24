@@ -13,6 +13,7 @@ from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import AppConfig
 from zakupki_parser.parser.detail import detail_files, extract_detail_vars
 from zakupki_parser.parser.extractor import extract_from_scope
+from zakupki_parser.parser.handlers.dates import MSK
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -363,3 +364,67 @@ async def test_b2b_center_region_from_delivery_address(page: Page) -> None:
     assert "Санкт" in region, f"Ожидался адрес с «Санкт», получено: {region!r}"
     assert "Петербург" in region, f"Ожидался адрес с «Петербург», получено: {region!r}"
     assert "Понтонный" in region, f"Ожидался адрес с «Понтонный», получено: {region!r}"
+
+
+# --- Добавление закупки по URL (US-5.5): поля уровня списка с детальной страницы ---
+
+
+@pytest.mark.asyncio
+async def test_by_url_variables_eis_44(page: Page) -> None:
+    """ЕИС 44-ФЗ: поля шапки карточки «Общая информация» (блок cardMainInfo).
+
+    Фикстура — живая карточка (2026-09-24) без скриптов/стилей.
+    """
+    platform = load_config(REPO_ROOT / "configs").dom.platforms["zakupki_gov_44fz"]
+    assert platform.by_url is not None
+    await set_html(page, load_fixture("eis_card_44.html"))
+    data = await extract_from_scope(page, platform.by_url.variables)
+
+    assert data["subject"] == "Поставка системных блоков и мониторов, подключаемых к компьютеру"
+    assert data["customer"] == "КОНТРОЛЬНО-СЧЕТНАЯ ПАЛАТА ХАБАРОВСКОГО КРАЯ"
+    assert data["nmck"] == 429654.18
+    assert data["status"] == "Определение поставщика завершено"
+    assert data["purchase_type"] == "Электронный аукцион"
+    assert data["publication_date"].date().isoformat() == "2026-09-14"
+    assert data["update_date"].date().isoformat() == "2026-09-24"
+    assert data["deadline"].date().isoformat() == "2026-09-22"
+
+
+@pytest.mark.asyncio
+async def test_by_url_variables_eis_223(page: Page) -> None:
+    """ЕИС 223-ФЗ: шапка карточки свёрстана блоком registry-entry (как выдача поиска)."""
+    platform = load_config(REPO_ROOT / "configs").dom.platforms["zakupki_gov_223fz"]
+    assert platform.by_url is not None
+    await set_html(page, load_fixture("eis_card_223.html"))
+    data = await extract_from_scope(page, platform.by_url.variables)
+
+    assert data["subject"] == (
+        "Предоставление права на использование Аналитическая платформа Visiology"
+    )
+    assert data["customer"] == 'АКЦИОНЕРНОЕ ОБЩЕСТВО "РОССЕТИ ЯНТАРЬ"'
+    assert data["nmck"] == 675000.0
+    assert data["status"] == "Закупка завершена"
+    assert data["purchase_type"] == "Иной способ"
+    assert data["publication_date"].date().isoformat() == "2026-07-07"
+    assert data["update_date"].date().isoformat() == "2026-08-03"
+    assert data["deadline"].date().isoformat() == "2026-07-15"
+
+
+@pytest.mark.asyncio
+async def test_by_url_variables_roseltorg(page: Page) -> None:
+    """roseltorg: предмет/заказчик/ИНН/статус/способ/срок подачи с детальной страницы.
+
+    У этой закупки цена не указана (0.00 в JSON-LD, блока цены нет) — nmck None.
+    """
+    platform = load_config(REPO_ROOT / "configs").dom.platforms["roseltorg_223fz"]
+    assert platform.by_url is not None
+    await set_html(page, load_fixture("roseltorg_detail.html"))
+    data = await extract_from_scope(page, platform.by_url.variables)
+
+    assert data["subject"].startswith("Выполнение работ по созданию, разработке, внедрению")
+    assert data["customer"] == 'АНО "БОЛЬШЕ, ЧЕМ ПУТЕШЕСТВИЕ", АНО "БЧП"'
+    assert data["inn"] == "9704178727"
+    assert data["nmck"] is None
+    assert data["status"].strip() == "Работа комиссии"
+    assert data["purchase_type"] == "Процедура по закупке без выбора победителя"
+    assert data["deadline"] == datetime(2026, 8, 11, 9, 0, tzinfo=MSK)

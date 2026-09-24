@@ -18,6 +18,23 @@ from zakupki_parser.config.models import PlatformDom
 from zakupki_parser.parser.orchestrator.state import OrchestratorState
 
 
+def normalize_status(status: str) -> str:
+    """Нормализует статус для сопоставления: нижний регистр, без ``...``/``…``."""
+    return re.sub(r"[.…\s]+$", "", status.strip().lower())
+
+
+def is_active_status(platform: PlatformDom, status: str | None) -> bool:
+    """Активна ли закупка по статусу (без кеша — для разовых записей вне обхода).
+
+    Та же логика, что ``ActivityMixin._is_active``: неактивна, только если у
+    площадки задан ``list_config.active_statuses`` и статус в него не входит.
+    """
+    statuses = platform.list_config.active_statuses
+    if not statuses:
+        return True
+    return normalize_status(status or "") in {normalize_status(s) for s in statuses}
+
+
 class ActivityMixin(OrchestratorState):
     """Активность закупки: ``_is_active`` + нормализация статуса."""
 
@@ -52,4 +69,4 @@ class ActivityMixin(OrchestratorState):
     @staticmethod
     def _normalize_status(status: str) -> str:
         """Нормализует статус для сопоставления: нижний регистр, без ``...``/``…``."""
-        return re.sub(r"[.…\s]+$", "", status.strip().lower())
+        return normalize_status(status)

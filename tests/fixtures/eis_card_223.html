@@ -1,0 +1,1073 @@
+
+<!DOCTYPE html>
+<html>
+<head><meta name='hmac-token-name' content='Ajax-Token'/>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <meta name="apple-itunes-app" content="app-id=1457694118">
+  <meta name="google-play-app" content="app-id=ru.gov.zakupki.mobile">
+  <title>Карточка закупки</title>
+</head>
+<body class="cardLayout">
+<div id="critical_notice"></div>
+        <header class="header header-top">
+            <div class="container">
+                <div class="row align-items-center">
+                    <div class="col-5" style="z-index: 1;">
+                        <span class="logo text-base-micro">Официальный сайт Единой информационной системы в сфере закупок</span>
+                    </div>
+                    <div class="col-1"></div>
+                    <div class="col-3">
+                        <a data-modalup href="/epz/nsi/kladr/chooseRegion.html">
+                            <div class="region d-flex align-items-center pr-0" data-toggle="modal-region"
+                                 data-target=".modal-region">
+                      <span class="region-city w-space-nowrap">
+                        <span class="region-city__icon">
+                          
+                        </span>
+                        <span class="region-city__text region-city__text_base text-base-micro">Мой регион: </span>
+                      </span>
+                                <span id = "chooseRegion">
+                                <span class="region-city pl-1">
+                        <span class="region-city__text region-city__text_prime text-base-micro region_name"
+                              id="popUpUserRegion">
+                        </span>
+                      </span>
+                                <span class="region-city__icon pl-1">
+                            
+                      </span>
+                                </span>
+                            </div>
+                        </a>
+                    </div>
+                    <div class="col-1">
+                        <div class="header-links-group offset-block">
+                            <a href="#" class="header-link header-link_top">
+                                <span class="header-link__icon poorVisionLink">
+                                  
+                                </span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-2">
+                        <div class="account">
+                            <div class="account-block">
+                        <span class="icon">
+                            
+                        </span>
+                                <span class="text padLeft4">Личный кабинет</span>
+                                <span class="button-open icon">
+                            
+                        </span>
+                            </div>
+                            <ul class="account-vars">
+                                <li class="account__var" data-toggle="modal-account44">
+                                    <a class="account__link" data-modalup
+                                       href="/epz/main/public/chooseAuth44.html" target="_blank">
+                                <span class="icon">
+                                  
+                                </span>
+                                        <span class="text text_bottom">Личный кабинет</span>
+                                        <span class="subtext">44-Ф3</span>
+                                    </a>
+                                </li>
+                                <li class="account__var" data-toggle="modal-account223">
+                                    <a class="account__link" data-modalup
+                                       href="/epz/main/public/chooseAuth223.html" target="_blank">
+                                <span class="icon">
+                                  
+                                </span>
+                                        <span class="text text_bottom">Личный кабинет</span>
+                                        <span class="subtext">223-ФЗ</span>
+                                    </a>
+                                </li>
+                                <li class="account__var" data-toggle="modal-account-private">
+                                    <a href="https://zakupki.gov.ru/auth/welcome" class="account__link">
+                                <span class="icon">
+                                  
+                                </span>
+                                        <span class="text text_bottom">Личный кабинет участника закупок</span>
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        <header class="header header-mid">
+            <div class="container">
+                <div class="row">
+                    <div class="col-6">
+                        <div class="custom-tooltip-main blockMain btn-wrap-params">
+                            <span id="eis-tooltiptext" class="tooltiptext">  Официальный сайт единой информационной системы в сфере закупок в информационно-телекоммуникационной сети Интернет (далее – Официальный сайт ЕИС) предназначен для обеспечения свободного и безвозмездного доступа к полной и достоверной информации о контрактной системе в сфере закупок и закупках товаров, работ, услуг отдельными видами юридических лиц, а также для формирования, обработки и хранения такой информации.   Порядок размещения информации на Официальном сайте ЕИС и ее содержание регламентируется Федеральным законом от 05.04.2013 № 44-ФЗ «О контрактной системе в сфере закупок товаров, работ, услуг для обеспечения государственных и муниципальных нужд» и Федеральным законом от 18.07.2011 № 223-ФЗ «О закупках товаров, работ, услуг отдельными видами юридических лиц», а также соответствующими подзаконными актами.</span>
+                        </div>
+                    </div>
+                    <div class="col-sm-auto" style="font-size: 13px;">
+                        <a href="/epz/main/public/user-feedback.html">
+                            
+                            <span class="banners-top-item__title">Техническая поддержка</span>
+                        </a>
+                    </div>
+                    <div class="col-sm-auto pr-0" style="font-size: 13px;">
+                        <a href="/epz/main/public/qa/view.html">
+                            
+                            <span class="banners-top-item__title">Часто задаваемые вопросы</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </header>
+<header class="header header-bottom">
+    <div class="container">
+        <div class="row">
+            <div class="col-12">
+                <ul class="menu-mega mb-0">
+                    <ul class="menu-list">
+                        <li class="main-item" style="cursor: pointer;">
+                            
+                            <a href="/epz/main/public/siteMap.html"
+                               class="main-link">Все разделы</a>
+                        </li>
+    <li class="main-item parent-node" style="cursor: pointer;">
+    <a
+         href="http://zakupki.gov.ru/epz/order/extendedsearch/results.html" 
+        class="main-link  _order "
+        data-law = "   "
+    >
+        Закупки
+    </a>
+    </li>
+    <li class="main-item parent-node" style="cursor: pointer;">
+    <a
+        class="main-link "
+        data-law = " "
+    >
+        Контракты и договоры
+    </a>
+    <ul>
+    <li class="submenu-col">
+            <ul class="submenu-list menu-list child-node">
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/contract/search/results.html" 
+                class="submenu-list__link  _contract  "
+            data-law="FZ44"
+            >
+            <span class="link__text">Реестр контрактов</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/contractfz223/search/results.html" 
+                class="submenu-list__link  _contractfz223  "
+            data-law="FZ223"
+            >
+            <span class="link__text">Реестр договоров</span>
+            <span class="link__desc">223-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/capitalrepairs/search/results.html" 
+                class="submenu-list__link  _capitalrepairs  "
+            data-law="PPRF615"
+            >
+            <span class="link__text">Реестр договоров о проведении капитального ремонта</span>
+            <span class="link__desc">ПП РФ-615</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/dizk/search/results.html" 
+                class="submenu-list__link  _dizk  "
+            data-law="FZ44"
+            >
+            <span class="link__text">Дополнительная информация о контрактах</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/btk/search/results.html" 
+                class="submenu-list__link  _btk  "
+            data-law="FZ44"
+            >
+            <span class="link__text">Библиотека типовых контрактов, типовых условий контрактов</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+            </ul>
+    </li>
+    </ul>
+    </li>
+    <li class="main-item parent-node" style="cursor: pointer;">
+    <a
+        class="main-link "
+        data-law = " "
+    >
+        Планирование
+    </a>
+    <ul>
+    <li class="submenu-col">
+            <ul class="submenu-list menu-list child-node">
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&search-filter=%D0%94%D0%B0%D1%82%D0%B5+%D1%80%D0%B0%D0%B7%D0%BC%D0%B5%D1%89%D0%B5%D0%BD%D0%B8%D1%8F&structured=true&fz44=on&customerPlaceWithNested=on&actualPeriodRangeYearFrom=2020&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10&searchType=false" 
+                class="submenu-list__link  _orderplan  "
+            data-law="FZ44"
+            >
+            <span class="link__text">Планы-графики закупок</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/orderplan/search/results.html?morphology=on&structured=true&searchType=false&fz223=on&region_regions_5277335=region_regions_5277335&regionDeleted=false&sortBy=BY_MODIFY_DATE&pageNumber=1&sortDirection=false&recordsPerPage=_10" 
+                class="submenu-list__link  _orderplan  "
+            data-law="FZ223"
+            >
+            <span class="link__text">Планы закупки</span>
+            <span class="link__desc">223-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/oboz/search/results.html" 
+                class="submenu-list__link  _oboz  "
+            data-law="FZ44"
+            >
+            <span class="link__text">Обязательное общественное обсуждение закупок</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/pricereq/search/results.html" 
+                class="submenu-list__link  _pricereq  "
+            data-law="FZ44"
+            >
+            <span class="link__text">Запросы цен товаров, работ, услуг</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/normalizationrules/search/results.html" 
+                class="submenu-list__link  _normalizationrules  "
+            data-law="FZ44"
+            >
+            <span class="link__text">Правила нормирования в сфере закупок</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/orderclause/search/results.html" 
+                class="submenu-list__link  _orderclause  "
+            data-law="FZ223"
+            >
+            <span class="link__text">Положения о закупке</span>
+            <span class="link__desc">223-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/typalclause/search/results.html" 
+                class="submenu-list__link  _typalclause  "
+            data-law="FZ223"
+            >
+            <span class="link__text">Типовые положения о закупке</span>
+            <span class="link__desc">223-ФЗ</span>
+        </a>
+        </li>
+            </ul>
+    </li>
+    </ul>
+    </li>
+    <li class="main-item parent-node" style="cursor: pointer;">
+    <a
+         href="http://zakupki.gov.ru/epz/ktru/start/startPage.html" 
+        class="main-link  _ktru "
+        data-law = " FZ44  "
+    >
+        Каталог
+    </a>
+    </li>
+    <li class="main-item parent-node" style="cursor: pointer;">
+    <a
+        class="main-link "
+        data-law = " "
+    >
+        Документы
+    </a>
+    <ul>
+    <li class="submenu-col">
+            <ul class="submenu-list menu-list child-node">
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=1255" 
+                class="submenu-list__link  _document  "
+            data-law="1255"
+            >
+            <span class="link__text">Законодательство в сфере закупок</span>
+            <span class="link__desc"></span>
+        </a>
+            <ul class="submenu-list menu-list child-node">
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=907" 
+                class="submenu-list__link  _document  "
+            data-law="907"
+            >
+            <span class="link__text">Нормативные правовые акты</span>
+            <span class="link__desc">44-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=908" 
+                class="submenu-list__link  _document  "
+            data-law="908"
+            >
+            <span class="link__text">Нормативные правовые акты</span>
+            <span class="link__desc">223-ФЗ</span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=1261" 
+                class="submenu-list__link  _document  "
+            data-law="1261"
+            >
+            <span class="link__text">Национальный режим</span>
+            <span class="link__desc"></span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=910" 
+                class="submenu-list__link  _document  "
+            data-law="910"
+            >
+            <span class="link__text">Разъяснения законодательства</span>
+            <span class="link__desc"></span>
+        </a>
+        </li>
+            </ul>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/legalacts/search/results.html" 
+                class="submenu-list__link  _legalacts  "
+            data-law=""
+            >
+            <span class="link__text">Нормативно-методическая информация, предусмотренная для размещения в ЕИС</span>
+            <span class="link__desc"></span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=1254" 
+                class="submenu-list__link  _document  "
+            data-law="1254"
+            >
+            <span class="link__text">Сведения о банках и финансовых организациях</span>
+            <span class="link__desc"></span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=1253" 
+                class="submenu-list__link  _document  "
+            data-law="1253"
+            >
+            <span class="link__text">Материалы для работы в ЕИС</span>
+            <span class="link__desc"></span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="http://zakupki.gov.ru/epz/main/public/document/view.html?sectionId=1252" 
+                class="submenu-list__link  _document  "
+            data-law="1252"
+            >
+            <span class="link__text">Техническая информация</span>
+            <span class="link__desc"></span>
+        </a>
+        </li>
+        <li class="submenu-list__item">
+            <a  href="https://zakupki.gov.ru/epz/main/public/document/view.html?searchString=&sectionId=2369&strictEqual=false" 
+                class="submenu-list__link  _document  "
+            data-law="2369"
+            >
+            <span class="link__text">Информация о привлечении участника закупки к административной ответственности<br>по ст. 19.28 КоАП</span>
+            <span class="link__desc"></span>
+        </a>
+        </li>
+            </ul>
+    </li>
+    </ul>
+    </li>
+    <li class="main-item parent-node" style="cursor: pointer;">
+    <a
+         href="http://zakupki.gov.ru/epz/main/public/news/news-search.html" 
+        class="main-link  _news "
+        data-law = " FZ44,FZ223,PPRF615  "
+    >
+        Новости
+    </a>
+    </li>
+                    </ul>
+                </ul>
+            </div>
+        </div>
+    </div>
+</header>
+<div class="cardWrapper outerWrapper">
+  <div class="wrapper">
+    <div class="cardHeaderBlock">
+<div class="poorVisionSettingsBlock">
+            <span>
+                <a class="poorVisionLink poorVisionBannerCards"></a>
+            </span>
+</div>
+<div class="container">
+<div class="breadcrumb rowSpaceBetween flex-wrap">
+    <div class="navBreadcrumb time-zone_block">
+        <div class="navBreadcrumb__item navBreadcrumb__item_first">
+            <a onclick="goToSearchUrl(true, '/epz/order/extendedsearch/results.html?fz223=on&amp;sortBy=UPDATE_DATE')"
+               class="navBreadcrumb__icon navBreadcrumb__icon_back align-middle cursor-pointer">
+                
+            </a>
+        </div>
+    <div class="navBreadcrumb__item navBreadcrumb__item_active">
+        <div class="navBreadcrumb__text" style="min-width: 5vw">
+            <div class="navBreadcrumb__icon align-middle">
+                        <a onclick="goToSearchUrl(true, '/epz/order/extendedsearch/results.html?fz223=on&amp;sortBy=UPDATE_DATE')"
+                                class="navBreadcrumb__text cursor-pointer">
+                                Назад к результатам поиска
+                        </a>
+                        
+            </div>
+        </div>
+    </div>
+    <div class="navBreadcrumb__item navBreadcrumb__item_active">
+        <div class="navBreadcrumb__text" style="min-width: 5vw">
+            <div class="navBreadcrumb__icon align-middle">
+                        <span class="navBreadcrumb__text ">№ 32616184235</span>
+            </div>
+        </div>
+    </div>
+    </div>
+        <div class="breadcrumb__addition time-zone">
+            <div class="time-zone__title">
+                Информация указана по местному времени организации, осуществляющей закупку
+            </div>
+            <div class="time-zone__value">
+                <span>Восточная Европа МСК-1 (UTC+2)</span>
+            </div>
+        </div>
+        <div class="breadcrumb__addition subscribeRss mt-4">
+            <a class="subscribeRss__link" href="/epz/order/notice/notice223/card/rss?purchaseNoticeNumber=32616184235&purchaseNoticeGuid=d480487a-daae-20ed-648e-f8e2ec97fb9e" target="_blank">
+                Подписаться на RSS
+            </a>
+            
+        </div>
+</div>
+    <div class="search-results item">
+        <div class="search-registry-entrys-block">
+            <div class="search-registry-entry-block box-shadow-search-input header mt-0">
+                <div class="row no-gutters registry-entry__form mr-0">
+                    <div class="col-6 pr-0 mr-21px">
+                        <div class="registry-entry__header">
+                            <div class="row registry-entry__header-top pt-4">
+                                <div class="col pr-0 d-flex align-headers-center">
+                                            <div class="registry-entry__header-top__title">
+                                                223-ФЗ Иной способ
+                                            </div>
+                                    <div class="registry-entry__header-top__icon w-space-nowrap ml-auto d-flex">
+                                        <a href="/epz/order/notice/notice223/signview/listModal.html?purchaseNoticeGuid=d480487a-daae-20ed-648e-f8e2ec97fb9e&amp;purchaseNoticeNumber=32616184235" class="distancedText newExternalPopUpLink" data-modalup>
+                                            
+                                        </a>
+                                        <a class="" href="/epz/order/notice/notice223/printForm/view.html?purchaseNoticeGuid=d480487a-daae-20ed-648e-f8e2ec97fb9e&amp;purchaseNoticeNumber=32616184235" target="_blank">
+                                            
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                                <div class="col d-flex registry-entry__header-mid align-headers-center w-space-inherit p-0">
+                                    <div class="registry-entry__header-mid__number">
+                                        <a target="_blank" href="">
+                                            № 32616184235
+                                        </a>
+                                    </div>
+                                        <div class="registry-entry__header-mid__title">
+                                            Закупка завершена
+                                        </div>
+                                </div>
+                        </div>
+                        <div class="registry-entry__body">
+                                <div class="registry-entry__body-block">
+                                    <div class="registry-entry__body-title">Объект закупки</div>
+                                    <div class="registry-entry__body-value">
+                                        Предоставление права на использование Аналитическая платформа Visiology
+                                    </div>
+                                </div>
+                                <div class="registry-entry__body-block">
+                                    <div class="registry-entry__body-title">Заказчик</div>
+                                    <div class="registry-entry__body-value">
+                                        <a href="/epz/organization/view223/info.html?inn=3903007130&amp;kpp=390601001&amp;ogrn=1023900764832" target="_blank">
+                                            АКЦИОНЕРНОЕ ОБЩЕСТВО &#034;РОССЕТИ ЯНТАРЬ&#034;
+                                        </a>
+                                    </div>
+                                </div>
+                        </div>
+                    </div>
+                    <div class="col d-flex flex-column registry-entry__right-block b-left">
+                        <div class="price-block">
+                                <div class="price-block__title">Начальная цена</div>
+                                <div class="price-block__value">
+                                    675 000,00&nbsp;&#8381;
+                                </div>
+                        </div>
+                        <div class="data-block mt-auto">
+                            <div class="row">
+                                    <div class="col-6">
+                                        <div class="data-block__title">Размещено</div>
+                                        <div class="data-block__value">
+                                            07.07.2026
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="data-block__title">Обновлено</div>
+                                        <div class="data-block__value">
+                                            03.08.2026
+                                        </div>
+                                    </div>
+                                    <div class="col-12 mr-auto">
+                                        <div class="data-block__title">Окончание подачи заявок</div>
+                                        <div class="data-block__value">
+                                            15.07.2026
+                                        </div>
+                                    </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col d-flex flex-column registry-entry__right-block b-left rel-links">
+                        <div class="href-block mt-auto">
+                            <a href="/epz/order/notice/notice223/contract-info.html?purchaseNoticeNumber=32616184235" target="_blank" rel="noopener">Договор</a>
+                            <a href="/epz/orderplan/search/results.html?regNumber=2250843106" target="_blank" rel="noopener">План закупки</a>
+                            <a href="/epz/complaint/search/search_eis.html?searchString=32616184235&fz223=on&cancelled=on&considered=on&regarded=on" target="_blank" rel="noopener">Жалоба</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="container card-layout">
+    <div class="tabsNav d-flex">
+            <a href="/epz/order/notice/notice223/common-info.html?noticeGuid=d480487a-daae-20ed-648e-f8e2ec97fb9e&regNumber=32616184235" class="tabsNav__item tabsNav__item_active">
+                Общая информация
+            </a>
+            <a href="/epz/order/notice/notice223/lot-list.html?purchaseNoticeNumber=32616184235&noticeGuid=d480487a-daae-20ed-648e-f8e2ec97fb9e" class="tabsNav__item ">
+                Список лотов
+            </a>
+            <a href="/epz/order/notice/notice223/documents.html?purchaseNoticeNumber=32616184235&noticeGuid=d480487a-daae-20ed-648e-f8e2ec97fb9e" class="tabsNav__item ">
+                Документы
+            </a>
+            <a href="/epz/order/notice/notice223/changes-and-explanations.html?purchaseNoticeNumber=32616184235&noticeGuid=d480487a-daae-20ed-648e-f8e2ec97fb9e" class="tabsNav__item ">
+                Изменения и разъяснения
+            </a>
+            <a href="/epz/order/notice/notice223/protocols.html?purchaseNoticeNumber=32616184235" class="tabsNav__item ">
+                Протоколы
+            </a>
+            <a href="/epz/order/notice/notice223/contract-info.html?purchaseNoticeNumber=32616184235" class="tabsNav__item ">
+                Сведения о договорах
+            </a>
+            <a href="/epz/order/notice/notice223/event-journal.html?purchaseNoticeNumber=32616184235" class="tabsNav__item ">
+                Журнал событий
+            </a>
+    </div>
+</div>
+    </div>
+<div class="card-common">
+    <div class="card-common-content">
+        <section class="common-text b-bottom pb-3">
+            <div class="container">
+                <div class="row">
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__caption">Сведения о закупке</div>
+                    </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Реестровый номер извещения</div>
+                            <div class="common-text__value">
+                                32616184235
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Способ осуществления закупки</div>
+                            <div class="common-text__value  ">
+                                Запрос котировок в электронной форме
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Наименование закупки</div>
+                            <div class="common-text__value">
+                                Предоставление права на использование Аналитическая платформа Visiology
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Редакция</div>
+                            <div class="common-text__value">
+                                1
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Дата размещения извещения</div>
+                            <div class="common-text__value">
+                                07.07.2026
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Дата размещения текущей редакции извещения</div>
+                            <div class="common-text__value">
+                                07.07.2026
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Дата принятия решения о внесении изменений</div>
+                            <div class="common-text__value">
+                                07.07.2026
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Наименование электронной площадки в информационно-телекоммуникационной сети «Интернет»</div>
+                            <div class="common-text__value">
+                                АО &#034;ЕЭТП&#034;
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Адрес электронной площадки в информационно-телекоммуникационной сети «Интернет»</div>
+                            <div class="common-text__value">
+                                <a href="https://rosseti.roseltorg.ru/" target="_blank">https://rosseti.roseltorg.ru/</a>
+                            </div>
+                        </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <div class="card-common-content">
+        <section class="common-text b-bottom pb-3">
+            <div class="container">
+                <div class="row">
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__caption">Сведения о заказчике</div>
+                    </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Наименование организации</div>
+                            <div class="common-text__value">
+                                <div class="common-text__value common-text__value_no-padding">
+                                    <a href="/epz/organization/view223/info.html?inn=3903007130&kpp=390601001&ogrn=1023900764832" target="_blank">АКЦИОНЕРНОЕ ОБЩЕСТВО "РОССЕТИ ЯНТАРЬ"</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 mr-auto">
+                            <div class="row">
+                                <div class="col-4 d-flex">
+                                    <div class="common-text__value common-text__value--gray">ИНН</div>
+                                    <div class="ml-1 common-text__value">3903007130</div>
+                                </div>
+                                <div class="col d-flex">
+                                    <div class="common-text__value common-text__value--gray">КПП</div>
+                                    <div class="ml-1 common-text__value">390601001</div>
+                                </div>
+                                    <div class="col-4 d-flex">
+                                        <div class="common-text__value common-text__value--gray">ОГРН</div>
+                                        <div class="ml-1 common-text__value">1023900764832</div>
+                                    </div>
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Место нахождения</div>
+                            <div class="common-text__value">
+                                236022, КАЛИНИНГРАДСКАЯ ОБЛАСТЬ, Г.. КАЛИНИНГРАД, УЛ. ТЕАТРАЛЬНАЯ, Д. 34
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Почтовый адрес</div>
+                            <div class="common-text__value">
+                                236022, обл. Калининградская, г. Калининград, ул. Театральная, д. 34, дом 34
+                            </div>
+                        </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <div class="card-common-content">
+        <section class="common-text b-bottom pb-3">
+            <div class="container">
+                <div class="row">
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__caption">Требования к участникам закупки</div>
+                    </div>
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__value">
+                            Требования к отсутствию участников закупки в реестре недобросовестных поставщиков
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <div class="card-common-content">
+        <section class="common-text b-bottom pb-3">
+            <div class="container">
+                <div class="row">
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__caption">Контактная информация</div>
+                    </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Контактное лицо</div>
+                            <div class="common-text__value">
+                                    Надобко И.В.
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Адрес электронной почты</div>
+                            <div class="common-text__value">
+                                <a href="mailto:Nadobko-IV@yantarenergo.ru" target="_blank">Nadobko-IV@yantarenergo.ru</a>
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Контактный телефон</div>
+                            <div class="common-text__value">
+                                    +7 (4012) 532945
+                            </div>
+                        </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <div class="card-common-content">
+        <section class="common-text b-bottom pb-3">
+            <div class="container">
+                <div class="row">
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__caption">Порядок проведения процедуры</div>
+                    </div>
+                            <div class="col-12 mr-auto">
+                                <div class="common-text__caption_sub pt-2">Подача заявок</div>
+                            </div>
+                                    <div class="col-9 mr-auto">
+                                        <div class="common-text__title">Дата начала срока подачи заявок</div>
+                                        <div class="common-text__value">
+                                                07.07.2026 (МСК-1)
+                                        </div>
+                                    </div>
+                                    <div class="col-9 mr-auto">
+                                        <div class="common-text__title">Дата и время окончания срока подачи заявок (по местному времени заказчика)</div>
+                                        <div class="common-text__value">
+                                                15.07.2026 14:00 (МСК-1)
+                                        </div>
+                                    </div>
+                                    <div class="col-9 mr-auto">
+                                        <div class="common-text__title">Порядок подачи заявок</div>
+                                        <div class="common-text__value">
+                                                В соответствии с документацией
+                                        </div>
+                                    </div>
+                            <div class="col-12 mr-auto">
+                                <div class="common-text__caption_sub b-top">Подведение итогов</div>
+                            </div>
+                                    <div class="col-9 mr-auto">
+                                        <div class="common-text__title">Место подведения итогов</div>
+                                        <div class="common-text__value">
+                                                Российская Федерация, 236022, ОБЛ КАЛИНИНГРАДСКАЯ, Г КАЛИНИНГРАД, УЛ ТЕАТРАЛЬНАЯ, ДОМ 34
+                                        </div>
+                                    </div>
+                                    <div class="col-9 mr-auto">
+                                        <div class="common-text__title">Дата подведения итогов</div>
+                                        <div class="common-text__value">
+                                                31.07.2026
+                                        </div>
+                                    </div>
+                                    <div class="col-9 mr-auto">
+                                        <div class="common-text__title">Порядок подведения итогов</div>
+                                        <div class="common-text__value">
+                                                В соответствии с документацией
+                                        </div>
+                                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+    <div class="card-common-content">
+        <section class="common-text b-bottom pb-3">
+            <div class="container">
+                <div class="row">
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__caption">Предоставление документации</div>
+                    </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Срок предоставления</div>
+                            <div class="common-text__value">
+                                с 07.07.2026 по
+                                15.07.2026
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Место предоставления</div>
+                            <div class="common-text__value">
+                                    https://rosseti.roseltorg.ru/
+                            </div>
+                        </div>
+                        <div class="col-9 mr-auto">
+                            <div class="common-text__title">Порядок предоставления</div>
+                            <div class="common-text__value">
+                                    посредством размещения для скачивания и ознакомления
+                            </div>
+                        </div>
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__title">Официальный сайт ЕИС, на котором размещена документация</div>
+                        <div class="common-text__value">
+                            www.zakupki.gov.ru
+                        </div>
+                    </div>
+                    <div class="col-9 mr-auto">
+                        <div class="common-text__title">Внесение платы за предоставление конкурсной документации</div>
+                        <div class="common-text__value">
+                                    Требования не установлены
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+</div>
+  </div>
+</div>
+<footer class="footer">
+    <div class="wrapperFooter">
+                    <div class="container">
+                        <div class="poll-banner">
+                            <div class="row align-items-center">
+                                <div class="col-9">
+                                    <div class="figure-footer d-flex align-items-center noselect">
+                                        <div class="figure-footer__icon">
+                                            
+                                        </div>
+                                        <div class="figure-footer__text">
+                                            <h4 class="heading-h4 poll-title">Поделитесь мнением о качестве работы единой
+                                                информационной системы</h4>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-3 text-right">
+                                    <a href="/epz/main/public/quiz/list.html"
+                                       class="btn btn-default poll-button">
+                                        <span class="separator"></span>
+                                        <span class="btn-text">Перейти к опросу</span>
+                                    </a>
+                                </div>
+                            </div>
+                            <figure class="poll__logo">
+                                
+                            </figure>
+                        </div>
+                    </div>
+                <div class="container">
+                    <div class="partners-wrap">
+                        <div class="partners partners-slider">
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="http://www.sberbank-ast.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Система торгов <br> Сбербанк-АСТ
+                                </figcaption>
+                                <a target="_blank" href="http://www.sberbank-ast.ru/"
+                                   class="partner__link">SBERBANK-AST.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="http://www.roseltorg.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Единая электронная торговая <br> площадка
+                                </figcaption>
+                                <a target="_blank" href="http://www.roseltorg.ru/"
+                                   class="partner__link">ROSELTORG.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="http://etp.zakazrf.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Общероссийская система <br> электронной торговли
+                                </figcaption>
+                                <a target="_blank" href="http://etp.zakazrf.ru/"
+                                   class="partner__link">ETP.ZAKAZRF.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="http://www.rts-tender.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Электронная площадка <br> России
+                                </figcaption>
+                                <a target="_blank" href="http://www.rts-tender.ru/"
+                                   class="partner__link">RTS-TENDER.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="https://www.fabrikant.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Электронная торговая <br> площадка «Фабрикант»
+                                </figcaption>
+                                <a target="_blank" href="https://www.fabrikant.ru/"
+                                   class="partner__link">FABRIKANT.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="https://gz.lot-online.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Всероссийская <br> универсальная площадка
+                                </figcaption>
+                                <a target="_blank" href="https://gz.lot-online.ru/"
+                                   class="partner__link">GZ.LOT-ONLINE.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="https://www.tektorg.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Федеральная электронная<br/>площадка ТЭК-Торг
+                                </figcaption>
+                                <a target="_blank" href="https://www.tektorg.ru/"
+                                   class="partner__link">TEKTORG.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="https://etpgpb.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Электронная торговая<br/>площадка ГПБ
+                                </figcaption>
+                                <a target="_blank" href="https://etpgpb.ru/"
+                                   class="partner__link">ETPGPB.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="https://new.etpgpb.ru/products/strateg/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Специализированная электронная<br/>торговая площадка ГПБ
+                                </figcaption>
+                                <a target="_blank" href="https://new.etpgpb.ru/products/strateg/"
+                                   class="partner__link">etpgpb.ru</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="http://www.astgoz.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc"> Автоматизированная система торгов государственного
+                                    оборонного
+                                    заказа <br></figcaption>
+                                <a target="_blank" href="http://www.astgoz.ru/"
+                                   class="partner__link">ASTGOZ.RU</a>
+                            </figure>
+                            <figure class="partner">
+                                <p class="partner-logo-wrap">
+                                    <a target="_blank" href="https://etprf.ru/"></a>
+                                </p>
+                                <figcaption class="partner__desc">Специализированная электронная площадка</figcaption>
+                                <a target="_blank" href="https://etprf.ru/"
+                                   class="partner__link">ETPRF.RU</a>
+                            </figure>
+                        </div>
+                        <span class="partners-slider__btn partners-slider__btn_prev">
+                    
+                </span> 
+                        <span class="partners-slider__btn partners-slider__btn_next">
+                    
+                </span> 
+                    </div>
+                </div>
+                <section class="footer-nav">
+                    <div class="container">
+                        <div class="row">
+                            <div class="col-md-12 col-lg-12">
+                                <ul class="footer-nav-list">
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/news/news-search.html" class="footer-nav__link">Новости</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/siteMap.html?section=suppliers" class="footer-nav__link">Поставщикам</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/siteMap.html?section=customers" class="footer-nav__link">Заказчикам</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/siteMap.html?section=control-bodies" class="footer-nav__link">Органам контроля</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/quiz/list.html" class="footer-nav__link">Опросы</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/home.html#statAnchor" class="footer-nav__link">Статистика</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/siteMap.html" class="footer-nav__link">Карта сайта</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="https://zakupki.gov.ru/rpt/cat02/zakupki-traffic.xlsx" class="footer-nav__link">Отчет о посещаемости</a>
+                                    </li>
+                                    <li class="footer-nav__item">
+                                        <a href="/epz/main/public/qa/view.html" class="footer-nav__link">Часто задаваемые вопросы</a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="footer-links">
+                    <div class="container">
+                        <div class="row">
+                            <div class="col-4 col-sm-4 col-md-4 col-lg-4">
+                                <figure class="logo">
+                                    
+                                    <figcaption class="logo__name filterParametrs"> Единая информационная система<br> в сфере закупок</figcaption>
+                                </figure>
+                                <div class="copyright">
+                                    <small class="copyright__text">© Федеральное казначейство, 2026</small>
+                                    <small class="copyright__text"> Версия hotfix/16.2.12 rev67995ccd от 18.09.2026</small>
+                                </div>
+                            </div>
+                            <div class="col-4 col-sm-4 col-md-4 col-lg-4">
+                                <nav class="usefull-links">
+                                    <span class="list-title">Официальные ресурсы</span>
+                                    <ul class="list">
+                                        <li class="list-item">
+                                            <a target="_blank" href="http://www.kremlin.ru" class="list-item__link">Президент Российской Федерации</a>
+                                        </li>
+                                        <li class="list-item">
+                                            <a target="_blank" href="http://www.government.ru" class="list-item__link">Правительство Российской Федерации</a>
+                                        </li>
+                                        <li class="list-item">
+                                            <a target="_blank" href="http://www.economy.gov.ru" class="list-item__link">Министерство экономического развития Российской Федерации</a>
+                                        </li>
+                                        <li class="list-item">
+                                            <a target="_blank" href="https://minfin.gov.ru" class="list-item__link">Министерство финансов Российской Федерации</a>
+                                        </li>
+                                        <li class="list-item">
+                                            <a target="_blank" href="http://www.fas.gov.ru" class="list-item__link">Федеральная антимонопольная служба</a>
+                                        </li>
+                                        <li class="list-item">
+                                            <a target="_blank" href="http://roskazna.gov.ru" class="list-item__link">Федеральное казначейство</a>
+                                        </li>
+                                    </ul>
+                                </nav>
+                            </div>
+                            <div class="col-4 col-sm-4 col-md-4 col-lg-4">
+                                <nav class="usefull-links">
+                                    <span class="list-title">Техническая информация</span>
+                                    <ul class="list">
+                                        <li class="list-item">
+                                            <a href="/epz/main/public/user-feedback.html" class="list-item__link">Техническая поддержка</a>
+                                        </li>
+                                        <li class="list-item">
+                                            <a data-modalup href="/epz/main/public/userFeedback/openFeedbackForm.html" class="list-item__link">Ваши идеи по улучшению сайта</a>
+                                        </li>
+                                    </ul>
+                                </nav>
+                                <figure class="btn-on-top">
+                                    <a class="btn-on-top__link">
+                                        
+                                    </a>
+                                </figure>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+        <div class="clear"></div>
+    </div>
+</footer>
+<!-- Yandex.Metrika counter -->
+<!-- /Yandex.Metrika counter -->
+<div id="custom-tooltip"></div>
+</body>
+</html>

@@ -98,3 +98,22 @@ search:
   date_great_equal_format: "%d.%m.%Y"
   # Маппинг «код ОКПД2 -> id ЕИС» (полное поддерево 62/63, см. gov.html)
   okpd_tree_file: "configs/codes/gov_okpd2_tree.json"
+
+# Добавление закупки по URL (US-5.5): карточка «Общая информация» 223-ФЗ —
+# новый путь /epz/order/notice/notice223/common-info.html?regNumber=... и
+# старый /223/purchase/public/purchase/info/common-info.html?regNumber=...
+# (так ссылается выдача поиска; ЕИС редиректит его на новый). Шапка карточки
+# 223-ФЗ свёрстана тем же блоком registry-entry, что и карточка выдачи поиска
+# (проверено 2026-09-24 на живой странице) — селекторы те же, что в list_config.
+by_url:
+  url_pattern: "/(?:epz/order/notice/notice223|223/purchase/public/purchase/info)/common-info\\.html\\?(?:[^#]*&)?regNumber=(?P<number>\\d+)"
+  defaults: { law: "223-ФЗ" }
+  variables:
+    - { name: "purchase_type",   selector: "div.registry-entry__header-top__title", handler: "purchase_type", default: "" }
+    - { name: "status",          selector: "div.registry-entry__header-mid__title", handler: "strip", default: "" }
+    - { name: "subject",         selector: "div.registry-entry__body-value", handler: "strip", default: "" }
+    - { name: "customer",        selector: "a[href*='organization/view']", handler: "strip", default: "" }
+    - { name: "nmck",            selector: "div.price-block__value", handler: "money", default: null }
+    - { name: "publication_date", selector: "div.data-block__value", index: 0, handler: "date", default: null }
+    - { name: "update_date",     selector: "div.data-block__value", index: 1, handler: "date", default: null }
+    - { name: "deadline",        selector: "div.data-block__value", index: 2, handler: "date", default: null }

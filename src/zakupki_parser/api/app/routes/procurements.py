@@ -43,6 +43,11 @@ from zakupki_parser.api.app.schemas import (
 )
 from zakupki_parser.api.app.state import _broadcast, _enqueue_next_stage, _sync_profile_results
 from zakupki_parser.browser.manager import BrowserManager
+from zakupki_parser.parser.by_url import (
+    ProcurementUrlError,
+    fetch_record_by_url,
+    resolve_platform_by_url,
+)
 from zakupki_parser.parser.detail import extract_detail_vars, extract_details, open_detail
 from zakupki_parser.parser.filtering import region_match
 from zakupki_parser.parser.json_utils import json_safe
@@ -167,26 +172,32 @@ def _match_platform_ids_by_url(platforms: dict[str, Any], url: str) -> list[str]
 
 
 async def fetch_procurement_by_url(state: Any, platform_ids: list[str], url: str) -> dict[str, Any]:
-    """Живая подгрузка полной карточки закупки по URL (реализуется по площадкам).
+    """Живая подгрузка полной карточки закупки по URL детальной страницы.
 
     Нужна тендерологу, чтобы добавить «в работу» закупку, найденную другим
     инструментом — независимо от того, проходит ли она авто-отбор какого-либо
     профиля (регион/ОКПД/ключевые слова) — и прогнать её через наш ИИ-анализ.
     В отличие от обычного обхода (список -> детали), здесь есть только URL
-    детальной страницы: площадка обходится с неё напрямую (детальная
-    страница/API площадки), без прохода по списку результатов поиска.
+    детальной страницы: площадка и номер определяются по ``by_url.url_pattern``
+    конфига площадки, поля уровня списка и детали — с детальной страницы/API
+    (см. ``zakupki_parser.parser.by_url``).
 
-    Пока не реализовано ни для одной площадки (заглушка) — см. план по фазам:
-    сначала площадки с фикстурами (EIS, roseltorg, etpgpb), затем API-форматные
-    (mos/lot_online/tender_223), затем b2b_center/fabrikant.
+    Исключения: ``NotImplementedError`` — для площадки подгрузка по URL не
+    настроена (нет ``by_url``); ``ProcurementUrlError`` — URL не похож на
+    карточку закупки / номер не извлёкся; прочие — сбой площадки/браузера.
     """
     platforms = state.cfg.dom.platforms or {}
-    names = ", ".join(platforms[pid].name for pid in platform_ids if pid in platforms) or ", ".join(
-        platform_ids
-    )
-    raise NotImplementedError(
-        f"Добавление закупки по URL для площадки «{names}» ещё не реализовано"
-    )
+    platform_id, platform, groups = resolve_platform_by_url(platforms, platform_ids, url)
+    browser = BrowserManager(state.cfg.parser.browser)
+    try:
+        await browser.start()
+        page = await browser.new_page()
+        try:
+            return await fetch_record_by_url(page, platform_id, platform, url, groups)
+        finally:
+            await browser.save_session()
+    finally:
+        await browser.close()
 
 
 async def _fetch_details_for_score(state: Any, row: Any, *, need_region: bool = False) -> None:
@@ -594,8 +605,9 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         (``find_by_url``). Иначе площадка определяется по хосту URL
         (``configs/dom/<platform_id>.yaml#url``; не найдена — 400, закупка не
         сохраняется) и выполняется живая подгрузка карточки (детальная
-        страница/API площадки), реализуется по площадкам отдельно (см.
-        ``fetch_procurement_by_url``) — пока не реализована ни для одной.
+        страница/API площадки, см. ``fetch_procurement_by_url``): URL не похож
+        на карточку закупки — 400, подгрузка для площадки не настроена
+        (``by_url``) — 501, сбой площадки — 502.
         """
         existing = await _repo().find_by_url(body.url)
         if existing is not None:
@@ -614,8 +626,21 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             record = await fetch_procurement_by_url(state, platform_ids, body.url)
         except NotImplementedError as exc:
             raise HTTPException(status_code=501, detail=str(exc)) from None
+        except ProcurementUrlError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Подгрузка закупки по URL %s не удалась: %s", body.url, exc)
+            raise HTTPException(
+                status_code=502,
+                detail="Не удалось загрузить карточку закупки с площадки, попробуйте позже",
+            ) from None
+        # Закупка с тем же номером на площадке уже может быть в базе под другим
+        # URL (обход сохранил ссылку другого вида) — upsert отдаёт её id, не
+        # создавая дубликат.
         await _repo().upsert(record)
-        procurement_id = record["id"]
+        procurement_id = record.get("id")
+        if procurement_id is None:
+            raise HTTPException(status_code=502, detail="Не удалось сохранить закупку")
         await _repo().set_in_work(procurement_id, True)
         await _broadcast(state)
         fresh = await _repo().get_by_id(procurement_id)

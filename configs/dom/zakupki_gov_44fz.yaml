@@ -96,3 +96,22 @@ search:
   date_great_equal_format: "%d.%m.%Y"
   # Маппинг «код ОКПД2 -> id ЕИС» (полное поддерево 62/63, см. gov.html)
   okpd_tree_file: "configs/codes/gov_okpd2_tree.json"
+
+# Добавление закупки по URL (US-5.5): карточка «Общая информация» 44-ФЗ
+# (/epz/order/notice/<способ>/view/common-info.html?regNumber=<19 цифр>).
+# Поля уровня списка — из шапки карточки (блок cardMainInfo, проверено
+# 2026-09-24 на живой странице). Другие вкладки карточки (документы, журнал)
+# не принимаются: поля шапки и ОКПД2 собираются только с «Общей информации».
+by_url:
+  url_pattern: "/epz/order/notice/(?!notice223/)[^/?#]+/view/common-info\\.html\\?(?:[^#]*&)?regNumber=(?P<number>\\d{19})"
+  defaults: { law: "44-ФЗ" }
+  variables:
+    # «44-ФЗ Электронный аукцион» -> «Электронный аукцион».
+    - { name: "purchase_type",   selector: "div.cardMainInfo__title.d-flex", handler: "purchase_type", default: "" }
+    - { name: "status",          selector: "span.cardMainInfo__state", handler: "strip", default: "" }
+    - { name: "subject",         selector: "xpath=//div[contains(@class,'cardMainInfo__section')][span[contains(@class,'cardMainInfo__title') and normalize-space(.)='Объект закупки']]/span[contains(@class,'cardMainInfo__content')]", handler: "strip", default: "" }
+    - { name: "customer",        selector: "div.cardMainInfo a[href*='organization/view']", handler: "strip", default: "" }
+    - { name: "nmck",            selector: "span.cardMainInfo__content.cost", handler: "money", default: null }
+    - { name: "publication_date", selector: "xpath=//div[contains(@class,'cardMainInfo__section')][span[contains(@class,'cardMainInfo__title') and normalize-space(.)='Размещено']]/span[contains(@class,'cardMainInfo__content')]", handler: "date", default: null }
+    - { name: "update_date",     selector: "xpath=//div[contains(@class,'cardMainInfo__section')][span[contains(@class,'cardMainInfo__title') and normalize-space(.)='Обновлено']]/span[contains(@class,'cardMainInfo__content')]", handler: "date", default: null }
+    - { name: "deadline",        selector: "xpath=//div[contains(@class,'cardMainInfo__section')][span[contains(@class,'cardMainInfo__title') and normalize-space(.)='Окончание подачи заявок']]/span[contains(@class,'cardMainInfo__content')]", handler: "date", default: null }
