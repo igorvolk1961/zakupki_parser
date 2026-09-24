@@ -322,6 +322,7 @@ function cardBodyHtml(row, { closable, containerId }) {
     <div class="toolbar card-footer" style="justify-content:flex-end; flex-wrap:wrap; gap:6px;">
       <button class="ghost" id="${containerId}-excl-btn" disabled title="Выделите фрагмент текста в карточке, чтобы добавить его в исключения профиля" onclick="addSelectionToExclusions(${row.id}, '${containerId}')">В исключения</button>
       <button class="ghost" onclick="viewTz(${row.id})">Просмотр ТЗ</button>
+      ${analyst ? `<button class="ghost" onclick="viewRequirementsJson(${row.id})" title="Сырая json-структура requirements_json (диагностика извлечения)">Требования (JSON)</button>` : ""}
       ${row.in_work
         ? `<button class="ghost" onclick="removeWorkByProc(${row.id})">Снять с работы</button>`
         : `<button class="primary" onclick="acceptWork(${row.id})">В работу</button>`}
@@ -613,6 +614,49 @@ async function closeTz(id) {
   if (openDetailId !== null) await openDetail(id);
 }
 
+// Просмотр сырой json-структуры requirements_json — только роль analyst
+// (тендерологу структура уже показана человекочитаемо на вкладке «Отчёт»,
+// см. cardReportPanel; analyst иногда нужна именно сырая структура для
+// диагностики извлечения). Закрытие — тот же обработчик, что и у ТЗ (closeTz).
+async function viewRequirementsJson(id) {
+  if (!hasRole("analyst")) return;
+  $("#modal").innerHTML = `
+    <span class="close" onclick="closeTz(${id})">×</span>
+    <h2>Требования к участнику #${id}</h2>
+    <p class="muted">Загружаю…</p>`;
+  $("#modal-bg").classList.add("open");
+  try {
+    const row = await api("procurements/" + id);
+    const req = row.requirements_json || {};
+    if (!Object.keys(req).length) {
+      $("#modal").innerHTML = `
+        <span class="close" onclick="closeTz(${id})">×</span>
+        <h2>Требования к участнику #${id}</h2>
+        <p class="muted">Требования не извлечены или не найдены ни в одном документе карточки.</p>
+        <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+          <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+        </div>`;
+      return;
+    }
+    const json = JSON.stringify(req, null, 2);
+    $("#modal").innerHTML = `
+      <span class="close" onclick="closeTz(${id})">×</span>
+      <h2>Требования к участнику #${id}</h2>
+      <p class="muted" style="margin-top:0;">json-структура поля requirements_json</p>
+      <pre class="tz-view" style="white-space:pre-wrap; overflow:auto; max-height:72vh;">${escapeHtml(json)}</pre>
+      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+      </div>`;
+  } catch (err) {
+    $("#modal").innerHTML = `
+      <span class="close" onclick="closeTz(${id})">×</span>
+      <h2>Требования к участнику #${id}</h2>
+      <p class="muted">Ошибка загрузки: ${escapeHtml(String(err))}</p>
+      <div class="toolbar" style="margin-top:14px; margin-bottom:0; justify-content:flex-end;">
+        <button class="primary" onclick="closeTz(${id})">Закрыть</button>
+      </div>`;
+  }
+}
 
 // Подписи фиксированных (не зависящих от профиля) категорий требований к
 // участнику — детерминированное извлечение без LLM (scoring_common.requirements).
@@ -1217,6 +1261,7 @@ export {
   analyzeProc,
   pwinProc,
   viewTz,
+  viewRequirementsJson,
   closeTz,
   viewTrace,
   viewTraceUrl,

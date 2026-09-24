@@ -15,6 +15,7 @@ import {
   analyzeProc,
   pwinProc,
   viewTz,
+  viewRequirementsJson,
   closeTz,
   viewTrace,
   setCardTab,
@@ -141,6 +142,7 @@ window.closeEnvModal = closeEnvModal;
 window.analyzeProc = analyzeProc;
 window.pwinProc = pwinProc;
 window.viewTz = viewTz;
+window.viewRequirementsJson = viewRequirementsJson;
 window.closeTz = closeTz;
 window.viewTrace = viewTrace;
 window.setCardTab = setCardTab;
