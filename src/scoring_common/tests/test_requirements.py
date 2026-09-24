@@ -299,6 +299,7 @@ def test_subcontractors_allowed_no_restriction(_fake_extract_text: dict[str, str
     assert "subcontractors" in structure
     items = structure["subcontractors"]
     assert any(it.get("negated") is True and "вправе" in it["text"].lower() for it in items)
+    assert any(it.get("status") == "allowed" for it in items)
 
 
 def test_subcontractors_forbidden_is_real_requirement(_fake_extract_text: dict[str, str]) -> None:
@@ -311,6 +312,50 @@ def test_subcontractors_forbidden_is_real_requirement(_fake_extract_text: dict[s
     assert "subcontractors" in structure
     item = structure["subcontractors"][0]
     # Запрет — реальное требование, без negated (кандидат на блокировку).
+    assert "negated" not in item
+    assert item["status"] == "forbidden"
+    assert item["limit_percent"] is None
+
+
+def test_subcontractors_limited_by_percent(_fake_extract_text: dict[str, str]) -> None:
+    """Отчёт должен показать простой ответ «ограничено N%», а не длинный текст."""
+    _fake_extract_text["dogovor.pdf"] = (
+        "Исполнитель вправе привлекать соисполнителей в объёме не более 30% от цены Договора."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    item = structure["subcontractors"][0]
+    assert item["status"] == "limited"
+    assert item["limit_percent"] == 30.0
+    # Ограничение процентом — реальное условие (кандидат на блокировку),
+    # даже если формулировка в остальном разрешительная («вправе»).
+    assert "negated" not in item
+
+
+def test_subcontractors_limited_percent_with_decimal_comma(
+    _fake_extract_text: dict[str, str],
+) -> None:
+    _fake_extract_text["dogovor.pdf"] = (
+        "Привлечение соисполнителей допускается в пределах 12,5% от объёма работ."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    item = structure["subcontractors"][0]
+    assert item["status"] == "limited"
+    assert item["limit_percent"] == 12.5
+
+
+def test_subcontractors_unclear_when_no_keyword_matches(
+    _fake_extract_text: dict[str, str],
+) -> None:
+    """Упоминание есть, но направление неясно — «требует проверки», не запрет/разрешение."""
+    _fake_extract_text["dogovor.pdf"] = (
+        "Сведения о соисполнителях указываются в отчёте по итогам исполнения контракта."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    item = structure["subcontractors"][0]
+    assert item["status"] == "unclear"
     assert "negated" not in item
 
 

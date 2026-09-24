@@ -770,6 +770,63 @@ def test_export_procurement_xlsx_license_summary(api_client: tuple[TestClient, P
     assert rows_by_label["Лицензии"] == "Лицензия МЧС (пожарная безопасность) — нет у поставщика"
 
 
+def test_export_procurement_xlsx_subcontractors_simple_answer(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Отчёт: допустимость соисполнителей — простой ответ (разрешено/запрещено/
+    ограничено N%), а не длинный текст условия договора."""
+    import openpyxl
+
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {
+                    "number": "XLSX-SUBC",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Соисполнители ограничены",
+                }
+            )
+            rows, _ = await repo.list_procurements(number="XLSX-SUBC")
+            pid = rows[0].id
+            await repo.save_requirements(
+                pid,
+                {
+                    "subcontractors": [
+                        {
+                            "text": (
+                                "Исполнитель вправе привлекать соисполнителей в объёме "
+                                "не более 25% от цены Договора."
+                            ),
+                            "data": None,
+                            "file_name": "dogovor.pdf",
+                            "status": "limited",
+                            "limit_percent": 25.0,
+                        }
+                    ]
+                },
+            )
+            return pid
+        finally:
+            await db.dispose()
+
+    pid = asyncio.run(_seed())
+    resp = client.get(f"/api/procurements/{pid}/export.xlsx")
+    assert resp.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    assert ws is not None
+    rows_by_label = {row[0]: row[1] for row in ws.iter_rows(min_row=2, values_only=True)}
+    assert (
+        rows_by_label["Допустимость привлечения соисполнителей"]
+        == "Ограничено (не более 25.0% от объёма)"
+    )
+
+
 def test_export_procurement_xlsx_highlights_blocking_field_mismatch(
     api_client: tuple[TestClient, Path],
 ) -> None:

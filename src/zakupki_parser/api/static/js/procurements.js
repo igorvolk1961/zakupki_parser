@@ -701,6 +701,31 @@ function requirementRawTextHtml(items) {
     .join("<br>");
 }
 
+// Простой ответ по допустимости соисполнителей (вместо длинного текста
+// договора) — allowed/forbidden/limited(+%)/unclear, см. scoring_common.
+// requirements._classify_subcontractor_clause. Исходное предложение —
+// подсказка (title), не основной ответ; у старых отчётов (до этой фичи)
+// status не заполнен — попадает в фолбэк «Требует проверки».
+function subcontractorStatusLabel(item) {
+  if (item.status === "allowed") return "Разрешено";
+  if (item.status === "forbidden") return "Запрещено";
+  if (item.status === "limited") {
+    return item.limit_percent != null
+      ? `Ограничено (не более ${item.limit_percent}% от объёма)`
+      : "Ограничено";
+  }
+  return "Требует проверки";
+}
+
+function subcontractorInnerHtml(items) {
+  return items
+    .map(
+      (it) =>
+        `<span title="«${escapeHtml(it.text || "")}»">${escapeHtml(subcontractorStatusLabel(it))}</span>`
+    )
+    .join("<br>");
+}
+
 // Вкладка «Отчёт»: результат анализа закупки целиком — требования к участнику
 // (лицензии/опыт/минпромторг/соисполнители, детерминированно, доступно ЛЮБОМУ
 // аккаунту), geo-дистанция до центра региона (если профиль её ограничивает),
@@ -767,6 +792,9 @@ function cardReportPanel(row, isAnalyzing, containerId) {
           );
         }
         return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
+      }
+      if (key === "subcontractors") {
+        return hasItems ? categoryBlock(key, blocking, subcontractorInnerHtml(items)) : "";
       }
       return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
     })

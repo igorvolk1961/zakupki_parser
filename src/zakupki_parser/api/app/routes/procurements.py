@@ -97,6 +97,25 @@ def _license_summary_text(status: dict[str, Any]) -> str:
     )
 
 
+def _subcontractor_status_label(item: dict[str, Any]) -> str:
+    """Простой ответ по допустимости соисполнителей (не длинный текст договора).
+
+    См. ``scoring_common.requirements._classify_subcontractor_clause`` (backend)
+    и ``procurements.js#subcontractorStatusLabel`` (тот же текст на фронте).
+    """
+    status = item.get("status")
+    if status == "allowed":
+        return "Разрешено"
+    if status == "forbidden":
+        return "Запрещено"
+    if status == "limited":
+        percent = item.get("limit_percent")
+        if percent is not None:
+            return f"Ограничено (не более {percent}% от объёма)"
+        return "Ограничено"
+    return "Требует проверки"
+
+
 # Плоские колонки для CSV-выгрузки (без detail_json/files_json).
 CSV_COLUMNS = [
     "id",
@@ -716,11 +735,16 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 continue
             if not items:
                 continue
-            texts = "; ".join(
-                (i.get("text") or "") + (f" — {i['additional']}" if i.get("additional") else "")
-                for i in items
-                if isinstance(i, dict)
-            )
+            if key == "subcontractors":
+                texts = "; ".join(
+                    _subcontractor_status_label(i) for i in items if isinstance(i, dict)
+                )
+            else:
+                texts = "; ".join(
+                    (i.get("text") or "") + (f" — {i['additional']}" if i.get("additional") else "")
+                    for i in items
+                    if isinstance(i, dict)
+                )
             add(label, texts, blocking=bool(info.get("blocking")))
         geo = report.get("geo")
         if isinstance(geo, dict):

@@ -206,7 +206,32 @@ _SUBCONTRACTOR_ALLOW_RE = re.compile(
     r"|допуска[а-яё]*\s+привлечени[а-яё]*",
     re.IGNORECASE,
 )
+# Числовой лимит («не более 30% от объёма/цены контракта») — самый конкретный
+# сигнал: если он есть, категория «ограничено X%» побеждает ключевые слова
+# запрета/разрешения (сама формулировка допускает субподряд, но с потолком).
+_SUBCONTRACTOR_PERCENT_RE = re.compile(r"(\d{1,3}(?:[.,]\d+)?)\s*%")
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _classify_subcontractor_clause(sentence: str) -> tuple[str, float | None]:
+    """Статус предложения о соисполнителях: allowed/forbidden/limited/unclear.
+
+    ``limited`` — найден процент (лимит доли объёма/цены контракта на
+    субподряд) — самый конкретный, однозначный сигнал, проверяется первым.
+    Иначе — по ключевым словам запрета/разрешения; ни одно не сработало —
+    ``unclear`` (упоминание есть, но направление неясно — требует проверки).
+    """
+    percent_match = _SUBCONTRACTOR_PERCENT_RE.search(sentence)
+    if percent_match:
+        try:
+            return "limited", float(percent_match.group(1).replace(",", "."))
+        except ValueError:  # pragma: no cover - паттерн гарантирует число
+            return "limited", None
+    if _SUBCONTRACTOR_RESTRICT_RE.search(sentence):
+        return "forbidden", None
+    if _SUBCONTRACTOR_ALLOW_RE.search(sentence):
+        return "allowed", None
+    return "unclear", None
 
 
 def _find_subcontractor_clauses(
@@ -218,10 +243,17 @@ def _find_subcontractor_clauses(
     привязано к разделу «Требования к участнику» — предложение с упоминанием
     соисполнителей/субподряда ищется по всему тексту КАЖДОГО документа.
 
-    ``negated=True`` — явно разрешено без оговорок (как маркер «не требуется»
-    у остальных категорий — реального ограничения нет, не блокирует);
-    отсутствие ``negated`` — запрет/ограничение или неоднозначная формулировка
-    (реальное условие, кандидат на блокировку, если профиль это включил).
+    Каждый пункт получает простой статус (``status``) вместо длинного текста
+    в отчёте: ``allowed``/``forbidden``/``limited`` (+``limit_percent``, если
+    найден процент)/``unclear`` (см. ``_classify_subcontractor_clause``).
+    Исходное предложение (``text``) сохраняется — используется как подсказка/
+    tooltip в отчёте и Excel-экспорте, не как основной ответ.
+
+    ``negated=True`` — только явное разрешение без оговорок (``status ==
+    "allowed"``, как маркер «не требуется» у остальных категорий — реального
+    ограничения нет, не блокирует); во всех остальных случаях (запрет,
+    ограничение процентом, неопределённость) — реальное условие, кандидат на
+    блокировку, если профиль это включил.
     """
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -240,10 +272,15 @@ def _find_subcontractor_clauses(
             seen.add(dedup_key)
             if len(sentence) > _MAX_SECTION_CHARS:
                 sentence = sentence[:_MAX_SECTION_CHARS]
-            item: dict[str, Any] = {"text": sentence, "data": None, "file_name": base_name}
-            if not _SUBCONTRACTOR_RESTRICT_RE.search(sentence) and _SUBCONTRACTOR_ALLOW_RE.search(
-                sentence
-            ):
+            status, limit_percent = _classify_subcontractor_clause(sentence)
+            item: dict[str, Any] = {
+                "text": sentence,
+                "data": None,
+                "file_name": base_name,
+                "status": status,
+                "limit_percent": limit_percent,
+            }
+            if status == "allowed":
                 item["negated"] = True
             items.append(item)
     return items
