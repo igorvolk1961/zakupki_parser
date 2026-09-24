@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+
+<link href="/b2b.css?v=f33e4838f431dcfc203bca6641af9a1b" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/gates/center/base.css?v=daa9af99ad55521a309db4ab5b759c53" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/gates/center/components.css?v=d612dbd6a3adb542f5315f7075187e38" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/jquery.plugins.css?v=d5b2dece85688585fe48f74b8a8a813e" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/cosmetics/favorite_widget.css?v=b6ad60fc1c6351b9d8cfb056e679e059" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/cosmetics/pages/market_page.css?v=0236ae94322f8d58409d4ed207aebb03" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/cosmetics/top_favorite_widget.css?v=ded871b525692cecb2392f363c41c3cb" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/cosmetics/operators_firm_tooltip_widget.css?v=32de3582e01d8d2abce79a247224ee96" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/cosmetics/advertiser_widget.css?v=390575e4a1f80b535f5046fe49aecfd4" rel="stylesheet" type="text/css" />
+<link href="/builds/css/min/projects/b2b/cosmetics/word_template_protocols.css?v=0a65a9ea64747cd8568f955af315c07d" rel="stylesheet" type="text/css" />
+<link href="/js/plugins/jquery.floathint/jquery.floathint.css?v=9f0746432f3256d98e83da4d76c616c9" rel="stylesheet" type="text/css" />
+<style type="text/css">
+			#bets_table td span.price-icon-direction b {
+				color: black;
+			}
+
+			.bets_table_width,
+			#send_offer_link {
+				min-width: 320px;
+				max-width: 420px;
+			}
+            .page-main .tabs {
+                margin-top: 0px;
+            }
+.btn.view-protocol-link {
+	padding: 0;
+}
+.btn.drop-protocol-button {
+	float: right;
+}
+.btn.vote-protocol-button {
+	float: right;
+}
+#view-protocols-header {
+	padding-top: 20px;
+}
+</style>
+<script type="text/javascript">
+window.GlobalJsConfig={"main_page":false,"firm_id":null,"count_published_products":null,"count_supplier_offers":null,"count_customer_offers":null,"wgt_herald_cookie_name":"wgt_herald","wgt_hellobar_cookie_name":"wgt_hellobar","lang":"rus","user_id":null,"sentry_key_for_raven":"https:\/\/7d2f4370013345e6a1b9ffe103a38975@front-errors.b2b-center.ru\/12","environment":"www","release_number":"20260923181706","gate_name":"center","global_js_config_property":{},"refuse_answers_values":{},"market":{}};
+</script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/jquery/jquery-3.7.1/jquery-3.7.1.min.js?v=ee96cdf75e76b42221e45c5d16385123"></script>
+<script type="text/javascript" charset="utf-8">window.jQuery||(function(){let script = document.createElement('script');script.src = "/js/lib/jquery/jquery-3.7.1/jquery-3.7.1.min.js?fv=" + Math.random();document.getElementsByTagName('head')[0].appendChild(script);})();</script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/jquery/migrate/jquery-migrate-3.4.0.min.js?v=ee96cdf75e76b42221e45c5d16385123"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/raven/raven.min.js?v=5b11393443c2effd1a22f1027c2f40bf"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Framework/Base/Raven.es6.js?v=b1366c71debcae7eac70bdbaa5d253b5"></script>
+<script type="text/javascript" charset="utf-8" src="/popups.js?v=d3fc3a89de492e04fd1901d719c79f7f"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plugins/EventEmitter.js?v=81d701b6576fdb0b7c88b632af99f3fe"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/common_modules/util.js?v=52abf6cd18151d22bf67f76300a8ca6f"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/GlobalJsConfig.es6.js?v=fe332db0d672aff4e8139ca472a8f545"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/logger.js?v=915b91e2c00c89c567720ded41fbf47f"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/polyfills/svg4everybody/v2.1.9/svg4everybody.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/polyfills/mutation_observer.min.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/polyfills/promise.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/polyfills/fetch.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/polyfills/custom_event.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/public/cache/hints/03330989f5e2320eb2372ad8f372c56e.hint.json?v=3de4a1cb4656d7968894a35b789cf94a"></script>
+<script type="text/javascript" charset="utf-8" src="/public/cache/hints/af2b4745bf712968088d8d18d1b5dbf6.hint.json?v=60c4378ebe6eeed47cab27ef64934982"></script>
+<script type="text/javascript" charset="utf-8" src="/public/cache/hints/8dd53070dd690c100faac1c063413632.hint.json?v=1d4feb0b4a72205965a09fab9be2dc40"></script>
+<script type="text/javascript" charset="utf-8" src="/public/cache/hints/4b45237f8d4cdff5fb6e9b1270c46a65.hint.json?v=580e39b001dd22cc7925f861c12b452a"></script>
+<script type="text/javascript" charset="utf-8" src="/public/cache/hints/0f8276c35570d7ef607a3d11ecbb92c9.hint.json?v=580e39b001dd22cc7925f861c12b452a"></script>
+<script type="text/javascript" charset="utf-8" src="/public/cache/hints/c60465a70d7a3a953c60bad65ff602aa.hint.json?v=a70b0299cf00354028c9e7cfd293fce7"></script>
+<script type="text/javascript" charset="utf-8" src="/public/cache/hints/74d0fb0bd37c11412b14397dde3d9b2c.hint.json?v=580e39b001dd22cc7925f861c12b452a"></script>
+<title>Тяжелый гусеничный бульдозер – 1 штука. &mdash; Тендер № 4614213 &mdash; Биробиджан &mdash;  ООО "КС ГОК" &mdash; B2B-Center</title>
+<link rel="shortcut icon" href="/favicon.ico" type="image/x-icon"/>
+	<link rel="alternate" media="only screen and (max-width: 640px)" href="https://m.b2b-center.ru/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=1240" />
+<meta property='og:image' content='https://www.b2b-center.ru/images/v2014/b2b-center-logo-im.jpg' />
+<meta property='og:image:width' content='500' />
+<meta property='og:image:height' content='500' />
+<meta name="description" content="Тендер ООО &quot;КС ГОК&quot; № 4614213 - Тяжелый гусеничный бульдозер – 1 штука." />
+<meta name="keywords" content="тендер Тяжелый гусеничный бульдозер – 1 штука., закупка Тяжелый гусеничный бульдозер – 1 штука., ООО &quot;КС ГОК&quot;" />
+<link rel="canonical" href="https://www.b2b-center.ru/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/" />
+<meta name='yandex-verification' content='88a54fe3e4c4c15a' />
+<meta name='msvalidate.01' content='BAA18E9742E53208C3DC0AFC7A1A471D' />
+<meta name='wmail-verification' content='1c6f286249e128f030d271d4da17120b' />
+<meta name='google-site-verification' content='wA6UbVDzbyQf6DhylF3tMUdhY6yYBDfGkIWr6Au1Skc' />
+<meta name='mailru-verification' content='030817a599bcf118' />
+
+</head>
+<body onload="if( typeof page_onload == 'function' ){page_onload();}" class="">
+
+<!-- Yandex.Metrika counter -->
+<script type="text/javascript">
+    window.yaParams = {"Member":"na","Company":"na","Reg":"na","Mobile":"main","Guest":"d30bd08c-b7f5-11f1-a961-7eedce68f77a","RegAuth":"unreg_unauth","BSA":"na","Org_ID":"613034","Session_ID":"6ab4e5ba1472b5.28980004","NR":"new"};
+    window._tracking_session_id = window._tracking_session_id || window.yaParams.Session_ID;
+    window.yaParams.Session_ID = window._tracking_session_id;
+    (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+    (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+
+   ym(5297557, "init", {
+        clickmap:true,
+        trackLinks:true,
+        accurateTrackBounce:true,
+        triggerEvent:true,
+        webvisor:true,
+        params:window.yaParams
+   });
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/5297557" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<!-- /Yandex.Metrika counter --><script type="text/javascript">
+    function makeB2BYM_object(counter_id, params) {
+		var targets = [];
+        var inited = false;
+		
+
+        return {
+            reachGoal: function(target) {
+                if (!inited) {
+                    return targets.push(target);
+                }
+                ym(counter_id, 'reachGoal', target, params);
+            },
+            init: function() {
+				var target;
+
+                while(target = targets.pop()) {
+                    ym(counter_id, 'reachGoal', target, params);
+				
+                }
+                inited = true;
+            }
+        };
+    }
+    var B2BYM = makeB2BYM_object(5297557, window.yaParams);
+
+    document.addEventListener('yacounter5297557inited', B2BYM.init);
+    document.addEventListener('DOMContentLoaded', function() {
+        if (typeof TrackingCode !== 'undefined') {
+            TrackingCode.initYandexMetrika(5297557);
+        }
+    });
+</script><!-- Google Tag Manager -->
+<noscript><iframe src="//www.googletagmanager.com/ns.html?id=GTM-PP2NTF" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<script>
+(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm.js'});
+var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;
+j.charset='utf-8';j.src='//www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-PP2NTF');
+dataLayer.push({'member':'na','bsa':'na','firm_id':'na','reg_auth':'unreg_unauth','user':'na','guest_id':'d30bd08c-b7f5-11f1-a961-7eedce68f77a','session':'6ab4e5ba1472b5.28980004','org_id':'613034','nr':'new'});
+</script>
+<!-- End Google Tag Manager -->	<noscript>
+		<noindex>
+			<div class="unsupported_browser unsupported_browser--danger">
+				<p>Для полноценной работы сайта необходимо разрешить использование JavaScript.</p>
+<p>Ознакомьтесь с <a href="https://www.enable-javascript.com/ru/" target="_blank" rel="nofollow"> инструкцией как включить JavaScript в вашем браузере.</a></p>			</div>
+		</noindex>
+	</noscript>
+	<script type="text/template" data-tpl="browser-notice-tpl">
+		<noindex>
+			<div id="ub" class="unsupported_browser unsupported_browser--warning">
+				<p>{{html header}}</p>
+				{{html content}}
+			</div>
+		</noindex>
+	</script>
+	<div id="page" class="center">
+		<div class="ajax-service" data-config="{&quot;url&quot;:&quot;\/service\/provider\/banner\/?banner_type=4&amp;placement_id[]=0&quot;,&quot;name&quot;:&quot;banner_4&quot;,&quot;auto_replace&quot;:true,&quot;loader_type&quot;:&quot;empty&quot;}"></div>		<div class="ajax-service" data-config="{&quot;url&quot;:&quot;\/service\/provider\/banner\/?banner_type=5&amp;path[]=825848345&amp;path[]=0&amp;placement_id[]=0&quot;,&quot;name&quot;:&quot;banner_5&quot;,&quot;auto_replace&quot;:true,&quot;loader_type&quot;:&quot;empty&quot;}"></div>		<header class="page-header rus" data-u="_zdnLszIwbv1HEohBHgngfoZ_NLwyC4bl7Wgjr0XAw3cDl_9AixIgOmLtoFSscumxi5DJNqeOYPPWzEDZ5AOoGvB722hJz0bKYdRFD0K-Fo~">
+	<div class="header-main">
+		<div class="inner">
+										<a class="header-logo" href="/" title="B2B-Center">
+					<i class="icoL ico" data-ico="b2bLogo-colored-l">
+	<svg viewBox="0 0 126 90" xmlns="http://www.w3.org/2000/svg"><g id="Page-1" fill="none" fill-rule="evenodd"><g id="b2b-logo-black-rgb" fill-rule="nonzero"><path d="M61.8 86.942c-.819.792-2.562 1.384-4.328 1.384-4.169 0-6.849-2.458-6.844-6.19-.004-3.274 2.196-6.165 6.776-6.165 1.786 0 3.272.548 4.125 1.23l-1.264 2.095c-.753-.367-1.563-.705-2.839-.705-2.218 0-3.826 1.227-3.823 3.548 0 2.095 1.581 3.57 4.121 3.57 1.008 0 2.105-.273 2.997-.861l1.079 2.094zm2.383-10.807h8.222v2.612h-5.43v2.007h4.88v2.614h-4.88v2.093h5.638v2.618h-8.43V76.135zm20.775 11.946l-6.731-7.421v7.421h-2.636l-.003-11.946h2.243l6.733 7.439v-7.439H87.2v11.946h-2.242zm4.234-11.946h11.104v2.612h-4.169v9.332l-2.789-.001v-9.331h-4.146v-2.612zm13.097 0h8.223v2.612h-5.425v2.007h4.875v2.614h-4.875v2.093h5.63v2.618h-8.428V76.135zm11.408 11.946V76.135c.732 0 2.768-.05 4.075-.05 3.986 0 5.246 1.736 5.246 4.026 0 2.234-1.285 3.138-2.155 3.482l3.435 4.488h-3.572l-2.724-3.805h-1.512v3.805h-2.793zm2.792-9.334v2.916h1.466c1.192 0 2.088-.525 2.088-1.527 0-.635-.46-1.432-2.108-1.429-.482 0-.964.014-1.446.04m-75.982-8.644c0 10.915-8.912 19.768-19.909 19.768-10.99 0-19.899-8.853-19.899-19.768 0-10.919 8.909-19.774 19.899-19.774 10.997 0 19.909 8.856 19.909 19.774m85.156-49.627c0 10.919-8.911 19.771-19.904 19.771-10.994 0-19.903-8.852-19.903-19.771S94.764.703 105.759.703c10.993 0 19.904 8.854 19.904 19.773" id="Shape" fill="#FFF"/><path d="M15.091 60.068c1.13-.061 3.831-.143 5.859-.143 4.838 0 6.667 2.188 6.667 4.98 0 2.3-1.161 3.772-2.899 4.577v.055c2.005.493 3.566 2.022 3.566 4.698 0 4.146-3.251 6.049-7.538 6.049-1.854 0-4.466-.06-5.655-.141V60.068zm3.569 3.253v5.101h2.405c1.653 0 3.011-.842 3.011-2.685 0-1.639-1.271-2.504-3.187-2.504-.81 0-1.591.026-2.229.088m0 8.176v5.329c.78.094 1.564.142 2.349.144 2.403 0 3.709-1.008 3.709-2.909 0-1.696-1.307-2.565-3.537-2.565H18.66v.001zm81.591-61.054c1.133-.059 3.825-.149 5.854-.149 4.845 0 6.672 2.189 6.672 4.981 0 2.305-1.164 3.778-2.901 4.586v.053c1.999.489 3.562 2.018 3.562 4.694 0 4.153-3.243 6.046-7.536 6.046-1.858 0-4.467-.052-5.652-.14V10.443h.001zm3.569 3.254v5.096h2.402c1.652 0 3.014-.843 3.014-2.679 0-1.644-1.274-2.508-3.188-2.508-.813 0-1.598.03-2.228.091m0 8.174v5.332c.485.055 1.329.139 2.346.139 2.406 0 3.711-1.007 3.711-2.906 0-1.699-1.305-2.565-3.533-2.565h-2.524z" id="Shape" fill="#000"/><path d="M63.175 25.515c-10.987 0-19.899 8.855-19.899 19.77 0 10.923 8.912 19.777 19.899 19.777 10.999 0 19.911-8.854 19.911-19.777 0-10.914-8.912-19.77-19.911-19.77" id="Path" fill="#E31E2D"/><path d="M69.619 51.451v3.178H57.436v-3.153l7.552-8.865c.748-.889 1.002-1.524 1.002-2.47 0-1.521-.925-2.495-2.517-2.495-1.241 0-2.545.563-2.545 2.681h-3.755c0-3.708 2.745-6.036 6.267-6.036 3.638 0 6.24 2.237 6.24 5.908 0 1.978-.785 3.017-2.198 4.656l-5.747 6.596h7.884z" id="Path" fill="#FFF"/></g></g></svg>
+    </i>
+				</a>
+						<div class="header-main-content">
+				<div class="header-main-row">
+					<div class="header-main-left">
+													<span class="header-services-link">
+								<span id="services-trigger" class="afake" data-ga-title="Все сервисы open click"
+									  data-base-url="https://www.b2b-center.ru" data-altis-url="https://www.b2b-altis.ru">
+									<i class="icoS ico" data-ico="menu-s">
+	<svg viewbox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><path d="M5 5h2v2H5V5zm4 0h2v2H9V5zm4 0h2v2h-2V5zM5 9h2v2H5V9zm4 0h2v2H9V9zm4 0h2v2h-2V9zm-8 4h2v2H5v-2zm4 0h2v2H9v-2zm4 0h2v2h-2v-2z" fill-rule="evenodd"/></svg>
+    </i>
+									Все сервисы
+								</span>
+							</span>
+												<span class="header-title-platform">
+															<a class="txt-ellipsis" href="/">Центр электронных торгов</a>
+													</span>
+					</div>
+											<div id="ph-user-panel" class="as-hidden">
+							<div class="header-main-right">
+    <a href="#auth_ajax_modal" id="auth_ajax_modal_trigger" data-xid="header-login" data-modal="ajax">Войти</a><div style="display:none" id="auth_ajax_modal" data-config='{"width":940,"type":"ajax","url":"\/auth\/credentials_ajax_login.html"}'>
+	</div>            <a href="/request/application.html" class="btn btn-s" data-xid="header-register">
+            <span class="btn-txt">Зарегистрироваться</span>
+        </a>
+    </div>
+
+						</div>
+									</div>
+				<div class="header-main-row">
+					<div id="ph-user-name-panel" data-logout-url="/auth/goodbye.html?bu=%2Fmarket%2Ftiazhelyi-gusenichnyi-buldozer-1-shtuka%2Ftender-4614213%2F"></div>
+					<div class="header-nav">
+						<div class="header-nav-links">
+    <ul class="unstyled" itemscope itemtype="http://www.schema.org/SiteNavigationElement">
+                <li itemprop="name">
+            <a itemprop="url" href="/market/#btid=4&mst=4&miid=1" data-ga-id="ga_42840454bd884963b1dcdf9118fc1928">Поиск</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="/firms/#btid=4&mst=4&miid=2" data-ga-id="ga_7fe80c4b2a77b55a6874bd39e55ba5a9">Участники</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="https://www.b2b-center.ru/app/buyers/#btid=4&mst=4&miid=192" rel="nofollow" data-ga-id="ga_0a6ec53b11b21b2f37700eef3b23d77c">Закупщикам</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="/tariffs/#btid=4&mst=4&miid=3" data-ga-id="ga_52c6cae09b54d04450c25c49d6c8a953">Тарифы</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="/app/signature/#btid=4&mst=4&miid=4" data-ga-id="ga_4d362847b7db7a475c10b9c62395605b">Электронная подпись</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="/training/#btid=4&mst=4&miid=5" data-ga-id="ga_ed35e526748f458f8737599554c35c76">Обучение</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="/nsi/#btid=4&mst=4&miid=7" data-ga-id="ga_57e0f100c8c92fca0b6cb1146e779a00">НСИ</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="https://www.b2b-center.ru/tailspend/#btid=4&mst=4&miid=185" rel="nofollow" data-ga-id="ga_c2ed814cafd903b924f4991212b02b9a">Каталог</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="https://www.b2b-center.ru/app/altis/#btid=4&mst=4&miid=190" rel="nofollow" data-ga-id="ga_e407e84686fda5346052a84a41f1c221">B2B Altis</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="https://www.b2b-center.ru/search/#btid=4&mst=4&miid=203" rel="nofollow" data-ga-id="ga_76a5f27779c5f53f06ce5deac9af30f7">Агрегатор закупок</a>
+                    </li>
+                <li itemprop="name">
+            <a itemprop="url" href="https://b2b-rts.ru/#btid=4&mst=4&miid=198" rel="nofollow" data-ga-id="ga_bd2b7b4f4bf26008776f02cf6635124d">Платформа B2B-РТС</a>
+                    </li>
+            </ul>
+    <div class="dropdown">
+        <div class="dropdown-toggle afake">&bull; &bull; &bull;</div>
+        <div class="dropdown-menu">
+            <ul class="unstyled">
+            </ul>
+        </div>
+    </div>
+</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+		<div id="ph-admin-panel"></div>
+	<div id="ph-services-app">
+		<v-services
+			:showed="showed"
+			:base-url="baseUrl"
+			:altis-url="altisUrl"
+			@change="handleChange"
+			@click-outside="showed = false"
+		>
+		</v-services>
+	</div>
+	<div class="header-help slide_down" data-animation="ease" data-slidedown-target="help" data-slidedown-fixed-height data-sync data-overlay>
+		<div class="slide_down-content" id="support_widget_block" style=""></div>
+	</div>
+	<div id="ph-header-bottom-panel" data-favorite-title="%D0%97%D0%B0%D0%BF%D1%80%D0%BE%D1%81+%D0%BF%D1%80%D0%B5%D0%B4%D0%BB%D0%BE%D0%B6%D0%B5%D0%BD%D0%B8%D0%B9+%E2%84%96+4614213.+%D0%A2%D1%8F%D0%B6%D0%B5%D0%BB%D1%8B%D0%B9+%D0%B3%D1%83%D1%81%D0%B5%D0%BD%D0%B8%D1%87%D0%BD%D1%8B%D0%B9+%D0%B1%D1%83%D0%BB%D1%8C%D0%B4%D0%BE%D0%B7%D0%B5%D1%80+%E2%80%93+1+%D1%88%D1%82%D1%83%D0%BA%D0%B0..+%D0%9E%D0%B1%D1%8F%D0%B7%D0%B0%D1%82%D0%B5%D0%BB%D1%8C%D0%BD%D0%BE+%D0%BD%D0%BE%D0%B2%D1%8B%D0%B9%21%0A%D0%91%D0%B5%D0%B7+%D1%83%D0%BA%D0%B0%D0%B7%D0%B0%D0%BD%D0%B8%D1%8F+%D0%BF%D1%80%D0%BE%D0%B8%D0%B7%D0%B2%D0%BE%D0%B4%D0%B8%D1%82%D0%B5%D0%BB%D1%8F%2C+%D0%9A%D0%9F+%D0%BD%D0%B5+%D1%80%D0%B0%D1%81%D1%81%D0%BC%D0%B0%D1%82%D1%80%D0%B8%D0%B2%D0%B0%D0%B5%D0%BC.%0A%D0%A1%D0%BE%D0%B3%D0%BB%D0%B0%D1%81%D0%BD%D0%BE+%D0%A2%D0%97.+%D0%9E%D0%B1%D1%8F%D0%B7%D0%B0%D1%82%D0%B5%D0%BB%D1%8C%D0%BD%D0%BE+%D1%81%D0%BE%D0%BE%D1%82%D0%B2%D0%B5%D1%82%D1%81%D1%82%D0%B2%D0%BE%D0%B2%D0%B0%D1%82%D1%8C" data-displayed="1" data-is-color-trigger-enabled="" data-has-gf="" data-has-df="">
+			<div class="header-panel">
+		<div class="inner">
+			<div class="header-panel-right">
+													                  									<span class="afake help-trigger" data-slidedown-trigger="help">
+						<i class="icoS ico" data-ico="quest-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/quest-s" fill-rule="evenodd"><path d="M10 17.035a7.035 7.035 0 1 0 0-14.07 7.035 7.035 0 0 0 0 14.07zM10 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-.277-5.748c.004-.566.053-.959.147-1.178.093-.219.34-.508.738-.867.387-.457.662-.809.826-1.055.164-.246.246-.543.246-.89 0-.414-.11-.733-.33-.955-.222-.223-.537-.334-.947-.334a1.44 1.44 0 0 0-.908.29c-.25.193-.375.477-.375.852H8.018L8 8.08c-.011-.629.21-1.133.665-1.512C9.121 6.19 9.7 6 10.403 6c.77 0 1.367.196 1.793.589.426.392.638.94.638 1.643 0 .504-.137.965-.413 1.383-.275.418-.64.846-1.092 1.283-.211.211-.34.4-.384.569-.045.168-.068.43-.068.785H9.723zm1.195 2.402H9.711v-1.218h1.207v1.218z" id="Combined-Shape"/></g></svg>
+    </i>                        <span class="align-middle">Помощь</span>
+					</span>
+				                <span class="afake on_boarding-step-2"><span class="header_bottom_favorite-only_tooltip tip" data-favorite_notify="1"><i class="icoS ico" data-ico="favorites-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/favorites-s" fill-rule="evenodd"><path d="M16.23 8.29l-4.047-.083a.92.92 0 0 1-.849-.614L10 3.803l-1.334 3.79a.92.92 0 0 1-.85.614L3.77 8.29l3.217 2.409a.92.92 0 0 1 .329 1.006l-1.172 3.823 3.336-2.293a.92.92 0 0 1 1.042 0l3.336 2.292-1.172-3.822a.92.92 0 0 1 .328-1.006l3.217-2.409zm1.3-.895a.48.48 0 0 1 .277.863l-4.242 3.176 1.542 5.03a.48.48 0 0 1-.73.535L10 13.993l-4.375 3.006c-.372.257-.866-.1-.732-.535l1.542-5.03-4.243-3.176a.48.48 0 0 1 .278-.863l5.328-.108L9.547 2.32a.48.48 0 0 1 .906 0l1.75 4.967 5.327.108z" id="Page-1"/></g></svg>
+    </i><span class="header_bottom_favorite-text align-middle">Избранное</span>
+<span class="tip-content tip-open header_bottom_favorite-tooltip" class="header_bottom_favorite-tooltip" data-tip-position="bottom" data-tip-action="click" data-tip-hide_delay="3000" data-tip-width="200" data-tip-close_on_body_click="">
+			<i class="tip-close afake icoS ico" data-ico="cancel-s">
+	<svg viewbox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><g id="Symbols"><g id="cancel-s"><g id="Group" transform="translate(4 4)"><path id="Rectangle-10" d="M11.684.452l.864.864L1.316 12.548l-.864-.864z"/><path id="Rectangle-10-Copy" d="M12.548 11.684l-.864.864L.452 1.316l.864-.864z"/></g></g></g></svg>
+    </i>		<span class="tip-text">
+		<div class="header_bottom_favorite-content">Чтобы использовать избранные процедуры <a href="#auth_ajax_modal" id="auth_ajax_modal_trigger" data-modal="ajax">Авторизуйтесь в системе</a><div style="display:none" id="auth_ajax_modal" data-config='{"width":940,"type":"ajax","url":"\/auth\/credentials_ajax_login.html"}'>
+	</div> или <a href="/request/application.html">Зарегистрируйтесь</a></div>	</span>
+</span></span><span class="tip" data-favorite_notify=""><i class="icoS ico" data-ico="favorites-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/favorites-s" fill-rule="evenodd"><path d="M16.23 8.29l-4.047-.083a.92.92 0 0 1-.849-.614L10 3.803l-1.334 3.79a.92.92 0 0 1-.85.614L3.77 8.29l3.217 2.409a.92.92 0 0 1 .329 1.006l-1.172 3.823 3.336-2.293a.92.92 0 0 1 1.042 0l3.336 2.292-1.172-3.822a.92.92 0 0 1 .328-1.006l3.217-2.409zm1.3-.895a.48.48 0 0 1 .277.863l-4.242 3.176 1.542 5.03a.48.48 0 0 1-.73.535L10 13.993l-4.375 3.006c-.372.257-.866-.1-.732-.535l1.542-5.03-4.243-3.176a.48.48 0 0 1 .278-.863l5.328-.108L9.547 2.32a.48.48 0 0 1 .906 0l1.75 4.967 5.327.108z" id="Page-1"/></g></svg>
+    </i><span class="header_bottom_favorite-text align-middle">Избранное</span>
+<span class="tip-content tip-open header_bottom_favorite-tooltip" class="header_bottom_favorite-tooltip" data-tip-position="bottom" data-tip-action="click" data-tip-hide_delay="3000" data-tip-width="200" data-tip-close_on_body_click="">
+			<i class="tip-close afake icoS ico" data-ico="cancel-s">
+	<svg viewbox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><g id="Symbols"><g id="cancel-s"><g id="Group" transform="translate(4 4)"><path id="Rectangle-10" d="M11.684.452l.864.864L1.316 12.548l-.864-.864z"/><path id="Rectangle-10-Copy" d="M12.548 11.684l-.864.864L.452 1.316l.864-.864z"/></g></g></g></svg>
+    </i>		<span class="tip-text">
+		<div class="header_bottom_favorite-content">Чтобы использовать избранные процедуры <a href="#auth_ajax_modal" id="auth_ajax_modal_trigger" data-modal="ajax">Авторизуйтесь в системе</a><div style="display:none" id="auth_ajax_modal" data-config='{"width":940,"type":"ajax","url":"\/auth\/credentials_ajax_login.html"}'>
+	</div> или <a href="/request/application.html">Зарегистрируйтесь</a></div>	</span>
+</span></span></span>													<div class="header-search">
+						<div class="header-search-trigger afake" title="Поиск">
+							<i class="icoS ico" data-ico="search-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/search-s" fill-rule="evenodd"><path d="M8.45 13.979a5.529 5.529 0 1 0 0-11.058 5.529 5.529 0 0 0 0 11.058zm4.875-1.305L18 17.348l-.652.652-4.674-4.675a6.45 6.45 0 1 1 .652-.652z" id="Combined-Shape"/></g></svg>
+    </i>						</div>
+						<div class="header-search-ctrl hidden">
+							<form action="/market/" method="get">
+								<div class="searchBar">
+									<div class="searchBar-field">
+										<div class="form-grp">
+											<label class="label-ctrl-hid" for="header-search-input">Поиск</label>
+											<div class="form-field">
+												<input class="form-ctrl" name="f_keyword" id="header-search-input" placeholder="Поиск по закупкам и продажам">
+											</div>
+										</div>
+									</div>
+									<div class="searchBar-ctrl">
+										<button class="btn btn-default">
+											<i class="icoS ico" data-ico="search-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/search-s" fill-rule="evenodd"><path d="M8.45 13.979a5.529 5.529 0 1 0 0-11.058 5.529 5.529 0 0 0 0 11.058zm4.875-1.305L18 17.348l-.652.652-4.674-4.675a6.45 6.45 0 1 1 .652-.652z" id="Combined-Shape"/></g></svg>
+    </i>										</button>
+									</div>
+								</div>
+								<input class="form-ctrl" type="hidden" name="searching" id="control_6ab4e5ba256f7" data-error-message-position="right" value="1">							</form>
+						</div>
+					</div>
+													<span class="afake" onClick="window.print()" title="Распечатать">
+						<i class="icoS ico" data-ico="printer-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/printer-s" fill-rule="evenodd"><path d="M5 17v-5H3v-1h14v1h-2v6H5v-1zm1 0h8v-5H6v5zm9-13h2v1h-2v2h-1V4h1zM5 5H3V4h2V3h1v4H5V5zM2 5h1v6H2V5zm11-2h1v1h-1V3zm4 2h1v6h-1V5zM6 7h8v1H6V7zm1 6h6v1H7v-1zm0 2h6v1H7v-1zM6 2h7v1H6V2z" id="Combined-Shape"/></g></svg>
+    </i>					</span>
+																				<div class="header-lang" title="Язык торговой площадки">
+	<div class="dropdown">
+		<div class="dropdown-toggle">
+			<i class="icoS ico" data-ico="flag-ru-colored-s">
+	<svg viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><path fill="#D7D7D7" d="M1 4h19v5H1V4z"/><path fill="#FFF" d="M2 5h17v5H2V5z"/><path fill="#FF5A5A" d="M1 13h19v4H1z"/><path fill="#4990E2" d="M1 9h19v4H1z"/></svg>
+    </i>		</div>
+		<div class="dropdown-menu">
+			<ul class="unstyled">
+									<li>
+						<a href="/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/?lang=eng" rel="nofollow">
+							<i class="icoS ico" data-ico="flag-gb-colored-s">
+	<svg viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg"><g fill-rule="evenodd"><path d="M1 4h19v13H1V4zm2 2h15v9H3V6z" fill="#3474BF"/><path d="M17.867 5H19v11s-.505-.182-1.133 0H2V5h15.867z" fill="#3474BF"/><path d="M2 5v1.25L9.467 10 10 9.375l-.533-.625.533-.269L3.067 5H2zm8 3.481l.6.269-.6.625.6.625L19 6.25V5h-1.2l-2.519 1.124L10 8.481zM9.467 11L2 14.75V16h1.067L10 12.519l-.533-.269.533-.625L9.467 11zm.533.625l.6.625-.6.269L17.8 16H19v-1.25L10.6 11l-.6.625z" fill="#FFF"/><path d="M8.983 8.828l-6.925.074-.071 3.165 6.945.002.013 3.937 3.093.006.004-3.9 6.892-.08.028-3.174-7.02.096.027-3.898-2.918-.022-.07-.012.002 3.806z" fill="#FFF"/><path d="M10 10H2v1h8v5h1v-5h8v-1h-8V5h-1v5z" fill="#EC3535"/></g></svg>
+    </i>						</a>
+					</li>
+							</ul>
+		</div>
+	</div>
+</div>							</div>
+			<div id="ph-breadcrumbs"><ul class="breadcrumbs-steps" itemscope="" itemtype="http://schema.org/BreadcrumbList">
+						<li itemprop="itemListElement" itemscope itemtype="http://schema.org/ListItem"><a itemprop="item" href="/market/" title="Торговая площадка"><span itemprop="name">Торговая площадка</span><meta itemprop="position" content="1"/></a></li>
+								<li itemprop="itemListElement" itemscope itemtype="http://schema.org/ListItem"><a itemprop="item" href="/market/list.html?type=4" title="Запросы предложений"><span itemprop="name">Запросы предложений</span><meta itemprop="position" content="2"/></a></li>
+			</ul></div>
+		</div>
+	</div>
+
+	</div>
+	</header>
+		<main class="page-main">
+			<section id="content" itemscope itemtype="http://schema.org/Article">
+									<div class="inner"><div class="ajax-service" data-config="{&quot;url&quot;:&quot;\/service\/provider\/banner\/?banner_type=2&amp;placement_id[]=0&quot;,&quot;name&quot;:&quot;banner_2&quot;,&quot;auto_replace&quot;:true,&quot;loader_type&quot;:&quot;empty&quot;}"></div></div>
+								<div class="ajax-service" data-type="user_notification" data-config="{&quot;url&quot;:&quot;\/service\/provider\/user_notification\/?url=KuHtei4dlJNVpXNnHv6IAt0qjmQzi251QHrwPMyEmR3plbYng7YdcLzEgoqW9x1enNfYhN1ZNxlK8Si1BvumfAa29wv9RVFqxDsiYvjA0cM~&quot;,&quot;name&quot;:&quot;user_notification&quot;,&quot;auto_replace&quot;:false,&quot;loader_type&quot;:&quot;empty&quot;}"></div><div class="wrapper">
+	<div class="inner">    <div class="ajax-service" data-config="{&quot;url&quot;:&quot;\/service\/provider\/user_warning\/?show_warnings[]=ocsp&amp;show_warnings[]=payment&amp;show_warnings[]=signature&quot;,&quot;name&quot;:&quot;user_warning&quot;,&quot;auto_replace&quot;:true,&quot;loader_type&quot;:&quot;empty&quot;}"></div>			<div class="row">
+		<div class="col8 mb2">
+			<h1 class="h3" itemprop="headline">Запрос предложений № 4614213&nbsp<span class="favorite-container favorite-click on_boarding-step-1" data-id="4614213004" data-is-guest="1"><button class="favorite-button add_favorite-button btn-accent tip add_favorite-block btn btn-s" type="button">
+         <i class="add_favorite-icon icoS ico" data-ico="favorites-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/favorites-s" fill-rule="evenodd"><path d="M16.23 8.29l-4.047-.083a.92.92 0 0 1-.849-.614L10 3.803l-1.334 3.79a.92.92 0 0 1-.85.614L3.77 8.29l3.217 2.409a.92.92 0 0 1 .329 1.006l-1.172 3.823 3.336-2.293a.92.92 0 0 1 1.042 0l3.336 2.292-1.172-3.822a.92.92 0 0 1 .328-1.006l3.217-2.409zm1.3-.895a.48.48 0 0 1 .277.863l-4.242 3.176 1.542 5.03a.48.48 0 0 1-.73.535L10 13.993l-4.375 3.006c-.372.257-.866-.1-.732-.535l1.542-5.03-4.243-3.176a.48.48 0 0 1 .278-.863l5.328-.108L9.547 2.32a.48.48 0 0 1 .906 0l1.75 4.967 5.327.108z" id="Page-1"/></g></svg>
+    </i>
+                    
+<span class="tip-content tip-open header_bottom_favorite-tooltip" class="header_bottom_favorite-tooltip" data-tip-position="right" data-tip-hide_delay="3000" data-tip-action="click">
+		<span class="tip-text">
+		<a href="/request/application.html">Зарегистрируйтесь</a>, чтобы сохранять процедуры в Избранное	</span>
+</span>
+    </button><button class="favorite-button remove_favorite-button btn-accent remove_favorite-block favorite-hidden btn btn-s" type="button">
+         <i class="remove_favorite-icon icoS ico" data-ico="favorites-fill-s">
+	<svg viewbox="-2 -2 20 20" xmlns="http://www.w3.org/2000/svg"><g id="Page-1" fill-rule="evenodd"><g id="favorites-s" fill-rule="nonzero"><path d="M15.53 5.395a.48.48 0 0 1 .277.863l-4.242 3.176 1.542 5.03a.48.48 0 0 1-.73.535L8 11.993l-4.375 3.006c-.372.257-.866-.1-.732-.535l1.542-5.03L.192 6.258a.48.48 0 0 1 .278-.863l5.328-.108L7.547.32a.48.48 0 0 1 .906 0l1.75 4.967 5.327.108z" id="Page-1"/></g></g></svg>
+    </i>
+            </button></span><div class="s2">Тяжелый гусеничный бульдозер – 1 штука.</div></h1>		</div>
+			</div>
+										</div><!-- .inner --></div>				<div class="inner">					<div class="nav-pills"><ul class="unstyled">
+	<li class="active"><span>Извещение</span></li>
+	<li><a href="/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/?action=explanation">Вопросы&nbsp;-&nbsp;0</a></li>
+	<li><a href="/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/?action=positions">Закупочные позиции&nbsp;-&nbsp;1</a></li>
+	<li><a href="/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/?action=offers">Поступившие заявки&nbsp;-&nbsp;0</a></li>
+</ul></div>
+<table cellspacing=0 cellpadding=0 border=0 width=100%>
+    <tr>
+        <td id="auction_info_td" data-id="$trade_id" width=99%>
+            <table border="0" cellpadding="0" cellspacing="1" width="100%"><tr><td class="thead"><h2><div class="expandable-text">
+	<span class="value" style="display:inline;" itemprop="articleBody">Тяжелый гусеничный бульдозер – 1 штука.<span style='font-weight:normal;'><br>Обязательно новый!<br />
+Без указания производителя, КП не рассматриваем.<br />
+Согласно ТЗ. Обязательно соответствовать ТЗ!</span></span>
+</div>
+</h2></td></tr><tr><td class=c2><table border="0" cellpadding="3" cellspacing="0" width="100%">
+<tr class="c2" id="trade-info-lot-price"><td width=40% class="fname">Общая стоимость закупки:</td><td>Без указания цены</td></tr>
+
+<tr class="c1" id="trade-info-lot-price-currency"><td width=40% class="fname">Вид валюты:</td><td>руб.</td></tr>
+
+<tr class="c2" id="trade-info-lot-price-main"><td width=40% class="fname">При выборе победителя учитывается:</td><td>Цена с НДС&nbsp;(<a href="/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/?switch_price_both_view=1">показывать обе цены</a>)</td></tr>
+
+<tr class="c1" id="trade_info_date_begin"><td width=40% class="fname">Дата публикации:</td><td><span itemprop="datePublished" content="2026-09-24">24.09.2026 11:49</span></td></tr>
+
+<tr class="c2" data-end-date="1790852400" id="trade_info_date_end"><td width=40% class="fname">Дата окончания подачи заявок:</td><td>01.10.2026 14:00</td></tr>
+
+<tr class="c1"><td width=40% class="fname">Дата последнего редактирования:</td><td>24.09.2026 11:49</td></tr>
+
+<tr class="c2" id="trade-info-organizer-name"><td width=40% class="fname">Организатор:</td><td><a target="_blank" href="/firms/span-itemprop-author-ooo-ks-gok-span/613034/" class="visited"><span>ООО "КС ГОК"</span></a></td></tr>
+
+</table></td></tr><tr><td class=thead>Дополнительная информация</td></tr><TR><TD class=c2><table border=0 cellpadding=3 cellspacing=0 width=100%>
+<tr class="c1"><td width=40% class="fname"><span class="floathint-marker" floathint_id="fnc-floathint_id-0">Возможность подачи предложений по части позиций</span><div id="fnc-floathint_id-0" class="floathint-container hide">Участники могут подавать предложение по отдельным позициям закупки</div>:</td><td>Предусмотрена</td></tr>
+
+<tr class="c2"><td width=40% class="fname"><span class="floathint-marker" floathint_id="fnc-floathint_id-1">Подгрузка документации к заявке обязательна</span><div id="fnc-floathint_id-1" class="floathint-container hide">Организатор не будет рассматривать заявки, которые не были подкреплены документацией.</div>:</td><td>Да</td></tr>
+
+<tr class="c1"><td width=40% class="fname"><span class="floathint-marker" floathint_id="fnc-floathint_id-2">Автоматическое продление</span><div id="fnc-floathint_id-2" class="floathint-container hide">Если в последние 10 минут до момента окончания срока подачи заявок поступит предложение от одного из участников, то срок окончания подачи заявок в рамках данной процедуры будет автоматически продлён еще на 10 минут с момента поступления последней заявки.<br>
+</div>:</td><td>10 минут</td></tr>
+
+<tr class="c2"><td width=40% class="fname">Условия оплаты:</td><td>Предоплата не выше 30%.<br>
+Поставщик может указать свой порядок расчетов.</td></tr>
+
+<tr class="c1"><td width=40% class="fname">Условия поставки:</td><td>Цена с учётом доставки в ЕАО, Облученский район, с. Снарский. <br>
+Доставка автовозом (тралом) или иным способом, но НЕ своим ходом.<br>
+Сроки минимально возможные.</td></tr>
+
+<tr class="c2" id="trade_info_address"><td width=40% class="fname">Адрес места поставки товара, проведения работ или оказания услуг:</td><td>679125, Россия, ЕАО, Облученский район, с. Снарский</td></tr>
+
+<tr class="c1"><td width=40% class="fname">Место проведения процедуры:</td><td>Данная процедура проводится в электронной форме на ЭТП группы B2B-Center (www.b2b-center.ru). Предложения участников подаются в форме электронного документа.</td></tr>
+
+</table></td></tr><tr><td class=thead>Дополнительные поля извещения</td></tr><TR><TD class=c2><table border=0 cellpadding=3 cellspacing=0 width=100%>
+<tr class="c2"><td width=40% class="fname">Доступно зарегистрированным пользователям:</td><td>Для просмотра <a href="/request/application.html?step=1">зарегистрируйтесь</a> или <a href="/login.html">войдите</a> в учетную запись.</td></tr>
+
+</table></td></tr></table><BR><div id="similar_trades_ajax_placeholder">
+	<img src="/images/v2014/spinner-s.gif" />
+</div>
+<script>
+	$(document).ready(function(){
+		$.get('/api/advisory/similar_trades/', { sphinx_id: '4614213004' }, function (data) {
+			if ( data !== '' ) {
+				$('a.archive-trades-notice-anchor').show();
+            }
+			$('#similar_trades_ajax_placeholder').replaceWith(data);
+		});
+	});
+</script>
+        </td>
+        <td width=10>&nbsp;</td>
+        <td id="bets_td">
+            <div><div class="box box-solid widget-box ga-advertiser"><div class="lead strong mb4 advertiser-title">Условия участия</div><div class="advertiser-content"><div class="mt3"><div>Зарегистрируйтесь, чтобы увидеть условия участия</div><div class="mt3"><a class="ga-advertiser-btn btn-red-accent btn btn-s btn-primary" target="_blank" href="/request/application.html">
+        		<span class="btn-txt">Зарегистрироваться за 5 минут</span>
+        </a></div></div></div></div></div><a class="btn-block btn-margin-bottom-20 btn btn-default" type="button" id="explanation_button_id" href="/market/tiazhelyi-gusenichnyi-buldozer-1-shtuka/tender-4614213/?action=explanation">
+        	<i class="icoS ico" data-ico="question-s">
+	<svg xmlns="http://www.w3.org/2000/svg" id="question" viewbox="0 0 21 21"><path d="M5.535 8.061a11.429 11.429 0 0 1-.005-.29c0-.38.053-.707.16-.983.08-.208.207-.417.382-.628.13-.154.361-.379.696-.674.335-.296.552-.531.652-.707.1-.175.15-.367.15-.574 0-.376-.146-.707-.44-.991a1.492 1.492 0 0 0-1.08-.427c-.411 0-.755.129-1.03.386-.276.258-.457.661-.543 1.209l-.994-.118c.09-.734.356-1.297.798-1.687.442-.39 1.027-.585 1.754-.585.77 0 1.384.21 1.842.628.458.42.687.926.687 1.52 0 .344-.08.66-.241.95-.161.29-.476.644-.946 1.059-.315.28-.52.485-.617.618a1.377 1.377 0 0 0-.215.456c-.047.172-.073.451-.08.838h-.93zM5.476 10V8.899h1.101V10h-1.1zM6-.5A6.508 6.508 0 0 0-.5 6c0 3.584 2.916 6.5 6.5 6.5s6.5-2.916 6.5-6.5S9.584-.5 6-.5zm0 1c3.043 0 5.5 2.457 5.5 5.5S9.043 11.5 6 11.5A5.492 5.492 0 0 1 .5 6C.5 2.957 2.957.5 6 .5z" transform="translate(4.5 4.5)"/></svg>
+    </i>
+        		<span class="btn-txt">Задать вопрос</span>
+        </a><span class="favorite-container favorite-click on_boarding-step-1 favorite-width-full margin-bottom-20" data-id="4614213004" data-is-guest="1"><button class="favorite-button add_favorite-button tip add_favorite-block btn" type="button">
+         <i class="icoS ico" data-ico="favorites-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/favorites-s" fill-rule="evenodd"><path d="M16.23 8.29l-4.047-.083a.92.92 0 0 1-.849-.614L10 3.803l-1.334 3.79a.92.92 0 0 1-.85.614L3.77 8.29l3.217 2.409a.92.92 0 0 1 .329 1.006l-1.172 3.823 3.336-2.293a.92.92 0 0 1 1.042 0l3.336 2.292-1.172-3.822a.92.92 0 0 1 .328-1.006l3.217-2.409zm1.3-.895a.48.48 0 0 1 .277.863l-4.242 3.176 1.542 5.03a.48.48 0 0 1-.73.535L10 13.993l-4.375 3.006c-.372.257-.866-.1-.732-.535l1.542-5.03-4.243-3.176a.48.48 0 0 1 .278-.863l5.328-.108L9.547 2.32a.48.48 0 0 1 .906 0l1.75 4.967 5.327.108z" id="Page-1"/></g></svg>
+    </i>
+        		<span class="btn-txt">Добавить в Избранное</span>
+                
+<span class="tip-content tip-open header_bottom_favorite-tooltip" class="header_bottom_favorite-tooltip" data-tip-position="right" data-tip-hide_delay="3000" data-tip-action="click">
+		<span class="tip-text">
+		<a href="/request/application.html">Зарегистрируйтесь</a>, чтобы сохранять процедуры в Избранное	</span>
+</span>
+    </button><button class="favorite-button remove_favorite-button remove_favorite-block favorite-hidden btn" type="button">
+         <i class="icoS ico" data-ico="favorites-fill-s">
+	<svg viewbox="-2 -2 20 20" xmlns="http://www.w3.org/2000/svg"><g id="Page-1" fill-rule="evenodd"><g id="favorites-s" fill-rule="nonzero"><path d="M15.53 5.395a.48.48 0 0 1 .277.863l-4.242 3.176 1.542 5.03a.48.48 0 0 1-.73.535L8 11.993l-4.375 3.006c-.372.257-.866-.1-.732-.535l1.542-5.03L.192 6.258a.48.48 0 0 1 .278-.863l5.328-.108L7.547.32a.48.48 0 0 1 .906 0l1.75 4.967 5.327.108z" id="Page-1"/></g></g></svg>
+    </i>
+        		<span class="btn-txt">Удалить из Избранного</span>
+        </button></span><table id='bets_table' border='0' cellpadding='5' cellspacing='1' class='bets_table_width ym-hide-content'><tr><td class="thead" colspan="2" nowrap>Последние поступившие заявки</td></tr><tr><td class="c2" colspan="2">Статус объявления: активно.</td></tr><tr><td colspan="2" class="c2">Всего заявок: 0</td></tr></table><BR>        </td>
+    </tr>
+</table>												</div><!-- .inner -->				<img itemprop="image" src="/images/v2014/b2blogotype-header-darktext.jpg" style="display: none"/>
+<div itemprop="publisher" itemscope itemtype="https://schema.org/Organization">
+	<div itemprop="publisher"> <meta itemprop="name" content="B2B-Center"/> <span itemprop="logo" itemscope itemtype="https://schema.org/ImageObject"> <link itemprop="contentUrl" href="/images/v2014/b2blogotype-header-darktext.jpg"> <link itemprop="url" href="/images/v2014/b2blogotype-header-darktext.jpg"> </span> </div>
+</div>
+			</section><!-- #content -->
+		</main><!-- .page-content -->
+
+		<footer class="page-footer">
+	<div class="inner">
+			<div class="container">
+				<div class="footer-logo">
+				<div class="footer-logo-b2b">
+					<a href="/" title="B2B-Center">
+						<i class="icoL ico" data-ico="b2bLogoBlack-colored-l">
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72"><path d="M35.333 59.805c-.466.451-1.456.787-2.459.787-2.369 0-3.891-1.396-3.889-3.518-.002-1.858 1.247-3.502 3.85-3.502 1.015 0 1.859.313 2.343.698l-.718 1.191c-.427-.209-.887-.401-1.613-.401-1.26 0-2.174.698-2.172 2.016 0 1.191.898 2.03 2.341 2.03.573 0 1.197-.155 1.703-.489l.612 1.188zm1.354-6.141h4.672v1.485h-3.086v1.141h2.773v1.485h-2.773v1.188h3.203v1.488h-4.789v-6.788zm11.803 6.788l-3.824-4.216v4.216h-1.498l-.001-6.788h1.275l3.825 4.227v-4.227h1.498v6.788h-1.274zm2.406-6.788h6.309v1.485h-2.369v5.303l-1.585-.001v-5.302h-2.355v-1.485zm7.442 0h4.672v1.485h-3.083v1.141h2.771v1.485h-2.771v1.188h3.2v1.488h-4.788v-6.788zm6.481 6.788v-6.788c.416 0 1.573-.028 2.316-.028 2.264 0 2.979.987 2.979 2.288 0 1.269-.729 1.783-1.222 1.978l1.951 2.549h-2.029l-1.549-2.161h-.858v2.161H64.82zm1.587-5.303v1.657h.831c.678 0 1.187-.3 1.186-.869 0-.36-.261-.813-1.197-.812-.263-.002-.64.013-.821.023zm-43.171-4.912c0 6.202-5.064 11.233-11.311 11.233C5.679 61.47.618 56.439.618 50.237c0-6.204 5.062-11.236 11.306-11.236 6.247 0 11.311 5.031 11.311 11.236m48.383-28.198c0 6.204-5.064 11.234-11.309 11.234-6.246 0-11.309-5.03-11.309-11.234s5.063-11.236 11.309-11.236c6.245 0 11.309 5.031 11.309 11.236" id="Shape" fill="#292929"/><path d="M8.795 44.535a78.63 78.63 0 0 1 3.329-.081c2.749 0 3.788 1.244 3.788 2.829 0 1.308-.66 2.145-1.648 2.602v.031c1.14.28 2.026 1.148 2.026 2.669 0 2.356-1.847 3.437-4.282 3.437-1.054 0-2.538-.034-3.214-.08V44.536zm2.028 1.849v2.898h1.366c.94 0 1.711-.479 1.711-1.526 0-.933-.722-1.423-1.81-1.423-.461 0-.905.016-1.267.052zm0 4.645v3.028c.28.032.756.081 1.334.081 1.366 0 2.108-.573 2.108-1.652 0-.964-.742-1.457-2.01-1.457h-1.432z" id="Shape" fill="#fff"/><path d="M47.427 36.135c0 6.207-5.064 11.238-11.313 11.238-6.242 0-11.306-5.031-11.306-11.238 0-6.201 5.063-11.234 11.306-11.234 6.249 0 11.313 5.033 11.313 11.234" id="Shape" fill="#EB0029"/><path d="M57.178 16.337a77.896 77.896 0 0 1 3.327-.084c2.753 0 3.79 1.245 3.79 2.831 0 1.31-.661 2.146-1.649 2.606v.03c1.137.279 2.026 1.147 2.026 2.668 0 2.359-1.844 3.435-4.282 3.435-1.055 0-2.538-.03-3.212-.08V16.338zm2.029 1.851v2.895h1.365c.938 0 1.712-.478 1.712-1.522 0-.934-.724-1.425-1.811-1.425-.462 0-.907.016-1.266.052zm0 4.645v3.029c.276.032.756.079 1.332.079 1.366 0 2.107-.572 2.107-1.651 0-.966-.742-1.457-2.007-1.457h-1.433zM32.704 41.559v-1.906l4.366-5.037c.425-.506.607-.867.607-1.404 0-.864-.507-1.452-1.411-1.452-.706 0-1.428.36-1.428 1.489h-2.133c0-2.123 1.56-3.395 3.561-3.395 2.067 0 3.545 1.288 3.545 3.374 0 1.124-.446 1.73-1.248 2.66l-3.266 3.765h4.514v1.906h-7.106z" fill="#fff"/></svg>
+    </i>
+					</a>
+				</div>
+				<div class="footer-logo-b2b-rts">
+					<span>
+						Торговая платформа
+					</span>
+					<a href="https://b2b-rts.ru/" title="B2B-Center">
+						<i class="icoL ico" data-ico="b2bRtsLogoBlack-colored-l">
+	<svg id="_Слой_1" data-name="Слой_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 696 101">
+  <!-- Generator: Adobe Illustrator 29.3.1, SVG Export Plug-In . SVG Version: 2.1.0 Build 151)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: #2d313c;
+      }
+
+      .st1 {
+        fill: #ed0221;
+      }
+
+      .st2 {
+        fill: #e02;
+      }
+
+      .st3 {
+        fill: #2c303a;
+      }
+    </style>
+  </defs>
+  <g>
+    <path class="st3" d="M381.2,45.6L338.3,3c-1.6-1.6-3.8-2.5-6.1-2.5h-40.7c-3.1,0-5.7,2.5-5.7,5.7v88.6c0,3.1,2.5,5.7,5.7,5.7h41c2.3,0,4.5-.9,6.2-2.6l42.7-42.6c1.3-1.3,2-3,2-4.9,0-1.8-.7-3.6-2-4.9ZM369.7,50.6l-38.2,38c-.2.2-.4.3-.7.3h-33.5V12.2h33.3c.3,0,.5.1.7.3l38.4,38.1Z"/>
+    <path class="st1" d="M404.4.5h-41c-2.3,0-4.5.9-6.2,2.6l-42.7,42.6c-1.3,1.3-2,3-2,4.9,0,1.8.7,3.6,2,4.9l42.9,42.5c1.6,1.6,3.8,2.5,6.1,2.5h40.7c3.1,0,5.7-2.5,5.7-5.7V6.2c0-3.1-2.5-5.7-5.7-5.7ZM398.6,88.8h-33.3c-.3,0-.5-.1-.7-.3l-38.4-38.1,38.2-38c.2-.2.4-.3.7-.3h33.5v76.7Z"/>
+    <path class="st3" d="M356.7,77.9l-6.2-6.3c-.3-.3-.6-.4-1-.4h0c-.4,0-.7.1-1,.4l-10.5,10.5c-.5.5-.6,1.4,0,2l6.2,6.4c.3.3.6.4,1,.4,0,0,0,0,0,0,.4,0,.7-.1,1-.4l10.6-10.5c.6-.6.6-1.4,0-2Z"/>
+  </g>
+  <g>
+    <path class="st2" d="M614.3,51.2c0-6.2,1.8-11.7,5.5-16.7,3.7-4.9,8.7-8.8,15.1-11.6,6.4-2.8,13.4-4.2,21.2-4.2s12.9,1.1,18.3,3.2c5.6,2,10.2,5,13.8,9,3.5,3.6,6,7.8,7.5,12.6s-.2.9-.7,1h-17.3c-.3,0-.6,0-.7-.4-1-2.4-2.6-4.4-4.8-6.1-2.3-1.8-4.9-3.3-7.9-4.1-2.9-1-5.7-1.4-8.3-1.4-3.7,0-7.5.8-11,2.2-3.6,1.5-6.4,3.7-8.7,6.5-2.3,2.8-3.4,6.2-3.4,10.1s1.1,7.3,3.3,10.2c2.1,2.8,5,4.9,8.5,6.5,3.6,1.4,7.3,2.1,11.4,2.1s8.4-1.1,12.2-3.1c3.7-2,6.6-4.8,8.5-8.4.1-.2.4-.4.6-.4h17.6c.5,0,.9.5.7,1-1.6,4.9-4.2,9.1-7.7,12.7-3.7,3.8-8.4,6.7-13.7,8.8-5.5,2-11.5,3.1-18.3,3.1s-14.8-1.4-21.1-4.2c-6.3-2.8-11.4-6.7-15.2-11.7-3.6-5.1-5.5-10.6-5.5-16.7Z"/>
+    <path class="st2" d="M532.5,21.2c-.4,0-.7.3-.7.7v13.8h0c0,0,27,0,27,0v47.4c0,.4.3.7.7.7h17.8c.4,0,.7-.3.7-.7v-47.4h26c.4,0,.7-.3.7-.7v-13.2c0-.4-.3-.7-.7-.7h-71.6Z"/>
+    <path class="st2" d="M489,50.5c3.4,0,6,0,7.7-.4,1.8-.3,3.4-1,4.6-2.1,1.3-1.2,1.9-3.1,1.9-5.6s-.6-4.6-1.9-5.7c-1.2-1.2-2.9-2-4.7-2.3-1.8-.3-4.4-.5-7.7-.5h-3.4c-1.4,0-3.9,0-7.4,0h-14v16.6h24.8ZM492,21.1c5.7,0,10.8.8,15.2,2.6,4.4,1.8,7.8,4.3,10.3,7.4,2.5,3.1,3.7,6.7,3.7,10.8v.4c0,6.8-2.4,12.1-7.2,15.8-4.7,3.6-11.5,5.5-20.3,5.5h-29.4v19.6c0,.4-.3.7-.7.7h-17.8c-.4,0-.7-.3-.7-.7V21.8c0-.4.3-.7.7-.7h46.2Z"/>
+  </g>
+  <g>
+    <path class="st0" d="M220.9,71.2c3.2,0,5.7,0,7.3-.4,1.6-.3,2.9-.9,3.9-2,1-1.1,1.5-2.8,1.5-5.2s-.5-4-1.5-5c-.9-1.1-2.2-1.8-3.9-1.9-1.6-.3-4.1-.4-7.3-.4h-31.3v14.8c11.6,0,23,0,27.9.2h3.3ZM229.5,38.9c0-2.1-.5-3.6-1.4-4.5-.9-.9-2.1-1.6-3.6-1.8-1.5-.3-3.5-.4-6.3-.4h-28.7v13.3l22.4.2h6.2c2.9,0,5,0,6.4-.3,1.4-.2,2.5-.7,3.5-1.7,1-1,1.5-2.6,1.5-4.9ZM237.1,50.6c4.5.9,7.9,2.7,10.2,5,2.3,2.3,3.5,5.6,3.5,10.1v.4c0,4.6-1.2,8.2-3.5,10.8-2.4,2.6-5.6,4.3-9.8,5.4-4.1.9-9.4,1.5-15.8,1.6h-47.2c-.4,0-.7-.4-.7-.8V21.4c0-.4.3-.7.7-.7h50.9c6.2,0,11.2,1.4,14.8,4.1,3.7,2.7,5.5,6.5,5.5,11.3v.4c0,3.7-.7,6.7-2.2,9.1-1.5,2.3-3.7,4.1-6.5,5.2Z"/>
+    <path class="st2" d="M161.3,70.4v12.7c0,.4-.3.7-.7.7h-72.6c-.4,0-.7-.3-.7-.7v-6.2c0-7.4,1.4-12.9,4.2-16.8,2.9-4,6.3-6.6,10-8,3.8-1.4,8.7-2.7,14.7-3.7,1.6-.2,4.3-.6,8.3-1.1,4.2-.6,7.6-1,9.9-1.5,2.4-.6,4.3-1.3,5.9-2.2,1.6-1,2.4-2.4,2.4-4.1,0-3.1-1.9-5.3-5.8-6.6-3.8-1.4-8.5-2.1-13.9-2-5.3,0-9.7.9-13.5,2.7-3.5,1.6-5.2,3.9-5.4,7.2,0,.4-.3.7-.7.7h-15.4c-.4,0-.7-.3-.7-.7.1-5.7,2.1-10.1,5.9-13.4,3.9-3.4,8.5-5.7,13.8-6.9,5.3-1.3,10.7-1.8,15.9-1.8,9.5,0,18.1,1.4,25.5,4.1,7.5,2.8,11.2,8.4,11.2,16.9s-1.6,8.1-4.7,10.8c-3.1,2.7-6.7,4.6-10.8,5.7-4,1.1-8.5,2-13.6,2.9-2.4.4-3.7.6-4.1.6-3.9.6-7.7,1.4-11.4,2.5-3.7,1.1-6.7,2.4-9.1,3.9-2.4,1.4-3.5,2.9-3.5,4.3h58.6Z"/>
+    <path class="st0" d="M47.2,71.2c3.2,0,5.7,0,7.3-.4,1.6-.3,2.9-.9,3.9-2,.9-1.1,1.5-2.8,1.5-5.2s-.5-4-1.5-5c-.9-1.1-2.2-1.8-3.9-1.9-1.6-.3-4.1-.4-7.3-.4H15.9v14.8c14.8,0,23,0,27.9.2h3.3ZM55.9,38.9c0-2.1-.5-3.6-1.4-4.5-.9-.9-2.1-1.6-3.6-1.8-1.5-.3-3.5-.4-6.3-.4H15.9v13.3l22.4.2h6.2c2.9,0,5,0,6.4-.3,1.4-.2,2.5-.7,3.5-1.7.9-1,1.5-2.6,1.5-4.9ZM63.4,50.6c4.5.9,7.9,2.7,10.2,5,2.3,2.3,3.4,5.6,3.4,10.1v.4c0,4.6-1.2,8.2-3.5,10.8-2.4,2.6-5.6,4.3-9.9,5.4-4.1.9-9.4,1.5-15.8,1.6H.7c-.4,0-.7-.4-.7-.8V21.4c0-.4.3-.7.7-.7h50.9c6.2,0,11.2,1.4,14.8,4.1,3.7,2.7,5.5,6.5,5.5,11.3v.4c0,3.7-.7,6.7-2.2,9.1-1.3,2.3-3.4,4.1-6.4,5.2Z"/>
+  </g>
+</svg>
+
+    </i>
+					</a>
+				</div>
+			</div>
+			<div class="footer-details" itemscope itemtype="http://schema.org/LocalBusiness">
+                				<div class="footer-copyright">
+					<span itemprop="name">АО «Центр развития экономики»</span> © 2002—2026
+				</div>
+                				<div class="footer-copyright">
+					<span itemprop="description">
+													<a href="https://www.b2b-center.ru/">Электронная торговая площадка</a> B2B-Center
+											</span>
+				</div>
+				<div class="footer-phone">
+					<span itemprop="telephone">+7 495 532-85-19</span>, <span itemprop="telephone">8 800 555-85-19</span>
+				</div>
+				<img itemprop="image" src="/images/v2014/b2blogotype-header-darktext.jpg" style="display: none"/>
+									<div class="footer-address" itemprop="address" itemscope itemtype="http://schema.org/PostalAddress">
+						<a href="/app/next/contacts/" class="b2b-geo">							<span itemprop="streetAddress">3-я Рыбинская улица, дом 18, строение 22</span>,<br>
+БЦ «Буревестник», <span itemprop="addressRegion">Москва</span>, <span itemprop="addressCountry">Россия</span>, <span itemprop="postalCode">107113</span>
+						</a>					</div>
+											<a href="/app/next/contacts/" class="btn btn-default">
+							<i class="icoS ico" data-ico="place-s">
+	<svg viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><g id="&#x418;&#x43A;&#x43E;&#x43D;&#x43A;&#x438;/20/place-s" fill-rule="evenodd"><path d="M10 17.18l-.299-.3C9.478 16.658 5 11.285 5 8.076 5 5.239 7.239 3 10 3s5 2.239 5 5.075c0 3.209-4.552 8.582-4.701 8.806l-.299.298zm0-13.434c-2.388 0-4.254 1.94-4.254 4.329 0 2.537 3.284 6.79 4.254 7.985.97-1.194 4.254-5.523 4.254-7.985 0-2.388-1.866-4.329-4.254-4.329zm0 6.717c-1.269 0-2.239-.97-2.239-2.24 0-1.268.97-2.238 2.239-2.238s2.239.97 2.239 2.239-.97 2.239-2.239 2.239zm0-3.657c-.746 0-1.418.672-1.418 1.418a1.417 1.417 0 1 0 2.836 0c0-.746-.672-1.418-1.418-1.418z" id="Combined-Shape"/></g></svg>
+    </i>
+							<span class="btn-txt">Посмотреть на карте</span>
+						</a>
+																		<div class="mt5">
+						<a href="/app/recommendation-technologies/" target="_blank">На информационном ресурсе применяются<br>рекомендательные технологии</a>
+					</div>
+							</div>
+							<div class="footer-links">
+					<div class="clearfix">
+						<ul class="unstyled"><li><a data-ga-id="ga_e7cdb8f6a4f01e3ccc10119728458ae1" href="/app/next/company/" rel="nofollow">О компании</a></li>
+<li><a data-ga-id="ga_3dd6c55236c7d878886af2b9c2166a11" href="/app/next/news/">Новости</a></li>
+<li><a data-ga-id="ga_50e29c5f6b05f2e1b446f3aabc04b731" href="https://umestentorg.com/">Торг уместен</a></li>
+<li><a data-ga-id="ga_79a488075dd719ea2fac0e1f4d6eb223" href="/jobs/">Карьера</a></li>
+<li><a data-ga-id="ga_b596bbefe7b0c8c2985a2aad9910d79e" href="/app/next/documents/" rel="nofollow">Документы и реквизиты</a></li>
+<li><a data-ga-id="ga_7ab4821d5304ef493d0218e67086f202" href="/help/">Инструкции и регламенты</a></li>
+<li><a data-ga-id="ga_c8395a36fe62880fee18ab4d2a87b575" href="https://www.b2b-center.ru/search/" rel="nofollow">Агрегатор закупок</a></li>
+</ul>
+<ul class="unstyled"><li><a data-ga-id="ga_60534ea1bc381efd2aa1790617ec1f73" href="/app/next/marketplaces/" rel="nofollow">Торговые площадки</a></li>
+<li><a data-ga-id="ga_00bf98f96cf7d8ec67ef6fdb6b6d2411" href="/category/">Тендеры по категориям</a></li>
+<li><a data-ga-id="ga_11c23671d8aff7155b6a47c80f3a162c" href="/app/next/it/" rel="nofollow">Деятельность в области ИТ</a></li>
+<li><a data-ga-id="ga_d74df0e020ddcecd1292e98ca5a3c97d" href="/app/next/personal-policy/" rel="nofollow">Политика обработки персональных данных</a></li>
+<li><a data-ga-id="ga_afc3bb9c3aeb160cdf9adfea3be743e2" href="/app/altis/" rel="nofollow">Altis. Автоматизация закупок</a></li>
+</ul>
+
+					</div>
+				</div>
+										<div class="footer-socials">
+											<div class="social_networks social_networks--inline">
+    		<!--noindex--><a class="pull-right btn btn-default" target="_blank" href="/app/next/messages/?tab=ai_chats&amp;start_chat=semen">
+        		<span class="btn-txt"><i class="icoS ico" data-ico="ai-icon-s">
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M10 2.5v1H2.5v9h11V7h1v6a.5.5 0 0 1-.5.5H2a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5h8Z"></path><path d="M11 5v6h-1V5h1ZM13.36 1.38a.15.15 0 0 1 .28 0l.535 1.445 1.445.534a.15.15 0 0 1 0 .282l-1.445.534-.534 1.445a.15.15 0 0 1-.282 0l-.534-1.445-1.445-.534a.15.15 0 0 1 0-.282l1.445-.534.534-1.445ZM9.674 11H8.612l-.715-2H5.83l-.857 2h-1.09l2.573-6H7.53l2.144 6ZM6.259 8H7.54l-.583-1.632L6.258 8Z"></path></svg>
+    </i><span class="btn-txt">ИИ-помощник</span></span>
+        </a><!--/noindex-->
+    </div>
+									</div>
+						
+			
+			</div><!-- .container -->
+    	</div><!-- .inner -->
+</footer><!-- .page-footer -->
+	</div><!-- #page -->
+
+<!--LiveInternet counter-->
+<script type="text/javascript">
+$(function () {
+	typeof TrackingCode !== 'undefined' && TrackingCode.initLiveInternet();
+});
+</script>
+<!--/LiveInternet--><script type="text/javascript" charset="utf-8" src="/js/lib/stacktrace/stacktrace.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plupload/js/plupload.full.min.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Framework/Base/hint.js?v=a05bf28cdf0bed000e8ae444d5155d15"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plugins/jquery.toastmessage/javascript/jquery.toastmessage.js?v=e6a753fbd501d487445361357bfbff3b"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plugins/jquery.qtip/jquery.qtip-3.0.3/jquery.qtip.js?v=d5b2dece85688585fe48f74b8a8a813e"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/simple_tips.js?v=a2acddb2cd44fd27188d06f6e9382fc3"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/browserModal.js?v=8e75b5e5268990bdef6232c3a97f0af0"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.slideDown.js?v=f02b5b0f6b8e26b4b84dd63400f9412e"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.admin_header_menu_widget/jquery.admin_header_menu_widget.js?v=823cebd9662e446d1447b93f5826fabd"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.operatorsfirmtooltip/jquery.operatorsfirmtooltip.js?v=b52352562829650f238b452aaf126fa2"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plugins/jquery.fancybox2/jquery.fancybox.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plugins/jquery.fancybox2/localization/ru.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plugins/jquery.fancybox2/helpers/jquery.fancybox-media.js?v=9f0746432f3256d98e83da4d76c616c9"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.firm_protocols_settings_popup.js?v=d61a106e9875339df8324817e84b8520"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.userlinkmenu/jquery.userlinkmenu.js?v=544890035d043295096bb89299a96de9"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/zgr_dishonest_firm_tooltip.js?v=42da144361f92818e643b0e81493f480"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.floathint/jquery.floathint.js?v=7d905410cfdf54d43e28ecff604872a9"></script>
+<script type="text/javascript" charset="utf-8" src="/js/lib/plugins/jquery.abovecontentblock/jquery.abovecontentblock.js?v=e6a753fbd501d487445361357bfbff3b"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.simpleinfoslider.js?v=72ea17f70dba227e5fa2a27e40053054"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/plugins/jquery.tooltip/jquery.tooltip.js?v=6c74ac857cb79c4a3224576374bf766b"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/bundles/common.build.js?v=bfbaf366de8c9f1e86294821cf225ae7"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/bundles/b2bcenter___common_plugins.build.js?v=bfbaf366de8c9f1e86294821cf225ae7"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/bundles/b2bcenter___js_api.build.js?v=bfbaf366de8c9f1e86294821cf225ae7"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/bundles/b2bcenter___uikit.build.js?v=bfbaf366de8c9f1e86294821cf225ae7"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/bundles/b2bcenter___polls.build.js?v=bfbaf366de8c9f1e86294821cf225ae7"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/bundles/b2bcenter___infoModal.build.js?v=bfbaf366de8c9f1e86294821cf225ae7"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/vue/uikit/vendors.js?v=f53e252713fe326027e4aafd37e879cf" defer></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/vue/uikit/apps/PageHeaderServices/index.js?v=f53e252713fe326027e4aafd37e879cf" defer></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Framework/Base/UiKit.init.es6.js?v=a05bf28cdf0bed000e8ae444d5155d15"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Favorites/Widget.js?v=fab57e9969262ee46817c19136ce17ee"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Tariff/AdvertiserNew/Widget/GAEvents.js?v=d9cb8849ab8dea51d8daea30a3e9bb0c"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/B2BCenter/Common/Widget/TrackingCode.es6.js?v=197de0f682991156949a0a65436420c7"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Market/Trade/Widget/ProtocolsWidget.js?v=05f8c80acf4f9cb6f84276597f5a3efa"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Framework/Base/BrowserNotice.es6.js?v=2b480b12a6ea155546ce9183ff31ccc5"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Framework/Base/cookie_message.es6.js?v=a05bf28cdf0bed000e8ae444d5155d15" defer></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Market/NewSearch/Helper/B2btrackid.js?v=e519105dd750a4e6ea3e0bfcce074715"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/B2BCenter/Widget/ServiceAjaxWidget.es6.js?v=2b480b12a6ea155546ce9183ff31ccc5"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/B2BCenter/Service/Provider/UserNotification/UserNotificationWidget.js?v=fceb3e36d334ebb881c298e0312111ce"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/components/Feedback/Form/new_support.es6.js?v=b3efea34b674326ad38e9be4125b41e0"></script>
+<script type="text/javascript" charset="utf-8" src="/builds/js/min/pages/b2bcenter/ga_menu.js?v=92776e92251c835190655475bd61c59b"></script>
+<script type="text/javascript" charset="utf-8" src="/js/market/trade/metrics/participate.js?v=588c2d4603c5037ecfff734995cbc356"></script>
+<script type="text/javascript" charset="utf-8" src="/banners.js?v=e81b55f9c049ae5f3e6e6620bf0cb9db"></script>
+<script type="text/javascript" charset="utf-8" src="/js/fingerprint2.min.js?v=81d701b6576fdb0b7c88b632af99f3fe"></script>
+<script type="text/javascript">
+try {
+			$(window).load(function() {
+				B2BYM.reachGoal('izvechenie_actual_public');
+			});
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+try {
+			$(window).load(function() {
+				B2BYM.reachGoal('proc_buy');
+			});
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+try {
+			$("#explanation_button_id").on("click", function(e) {
+  				B2BYM.reachGoal('izvechenie_button_zadat_vopros');
+			});
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+try {
+var ub = document.getElementById('ub'); if (typeof(ub) !== 'undefined' && ub !== null) ub.style.display = 'block';
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+try {
+
+			function changeVisibility(id) {
+				var chk = document.getElementById(id).checked;
+				if (chk) {
+					document.getElementById("tx_"+id).disabled = false;
+				} else {
+					document.getElementById("tx_"+id).disabled = true;
+				}
+				show_hide("dh_"+id, (chk == true));
+			}
+			
+			function changeGroupVisibility(id) {
+				var chk = document.getElementById(id).checked;
+				if (chk == true) {
+					$(".sub_"+id).css("display","inline");
+				} else {
+					$(".sub_"+id).css("display","none");
+					$(".sub_"+id+" input").prop("checked", false);
+				}
+			}
+			
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+</script>
+<script type="text/javascript">
+jQuery(function($) {
+try {
+
+$(".b2bhelps").click(function(){return false;}).each(function() {
+	$(this).qtip({
+		content: $(this).attr("data-val"),
+		style: { tip: true, classes: "ui-tooltip-floathint" },
+		position: { at: "bottom center", my: "top center" }
+	});
+});
+
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+try {
+	$('#main_subm').click(function(){$('#main_subm').get(0).form.submit();});
+	$('#main_search_sample').click(function(){$('#main_search_str').val($('#main_search_sample span').text());$('#main_subm').click();});
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+try {
+
+				$('.form-grp select:not([class~="noinit"])').selectize({allowEmptyOption: true});
+				$('.wgt-files-del').on('click', function(){	$(this).parent().remove(); });
+			
+} catch (error) {
+ Sentry.captureException(error);
+}
+
+});
+</script>
+</body>
+</html>

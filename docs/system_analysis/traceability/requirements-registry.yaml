@@ -442,17 +442,23 @@ requirements:
     title: Добавить закупку по URL (живая подгрузка, вне авто-отбора профиля)
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: partial
+    status: implemented
     adr: "-"
     code:
       - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#_host_matches
       - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
       - src/zakupki_parser/storage/repository/procurements.py#find_by_url
       - src/zakupki_parser/parser/by_url.py#resolve_platform_by_url
+      - src/zakupki_parser/parser/by_url.py#match_by_url_rule
       - src/zakupki_parser/parser/by_url.py#fetch_record_by_url
       - src/zakupki_parser/config/models/dom/by_url.py#DomByUrlConfig
+      - src/zakupki_parser/config/models/dom/by_url.py#DomByUrlRule
       - src/zakupki_parser/parser/detail_api/etpgpb.py#_etpgpb_by_url
+      - src/zakupki_parser/parser/detail_api/mos.py#_mos_by_url
+      - src/zakupki_parser/parser/detail_api/lot_online.py#_lot_online_by_url
+      - src/zakupki_parser/parser/detail_api/tender_223.py#_tender_223_by_url
       - src/zakupki_parser/api/static/js/procurements.js
     tests:
       - tests/unit/test_procurement_by_url.py
@@ -497,6 +503,21 @@ requirements:
       Попутно исправлено: etpgpb отдаёт ``regions: [null]`` при заполненном
       ``lot_regions`` — регионом закупки становилась строка «None» (и в обходе
       по API списка, и в деталях).
+
+      2026-09-24 (фаза 2): живая подгрузка реализована и для остальных
+      площадок — mos, lot_online_44 (gz), lot_online_223 (tender), b2b_center,
+      fabrikant. API-площадки собирают поля списка и детали одним-двумя
+      запросами (mos — Need/Get; tender_223 — /api-gateway/etp/procedure;
+      lot_online_44 — sphinx Procedure.Info+CommonData и Purchase.LotInfo);
+      DOM-площадки (b2b_center, fabrikant) — ``by_url.variables`` с детальной
+      страницы. У fabrikant несколько видов страниц (44-ФЗ на
+      ``44.fabrikant.ru`` и коммерческие на ``/v2/trades/procedure/view/``) —
+      поэтому ``by_url`` теперь список правил (``DomByUrlRule``): первое
+      совпавшее по ``url_pattern``; host-матчинг учитывает поддомены
+      (``_host_matches``). Границы: у lot_online_44 и mos не извлекается
+      ``purchase_type`` (нет имени в API), у fabrikant 44-ФЗ ``number`` —
+      реестровый номер ЕИС (внутреннего номера карточки выдачи на странице
+      нет), поэтому дедупликация с записью обхода там возможна не всегда.
   - id: US-5.6
     type: US
     title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)
@@ -1616,17 +1637,23 @@ requirements:
     title: Добавить закупку по URL — резолв уже известной закупки либо живая подгрузка
     stakeholder: Тендеролог (user)
     stage: "7"
-    status: partial
+    status: implemented
     adr: "-"
     code:
       - src/zakupki_parser/api/app/routes/procurements.py#add_procurement_by_url
       - src/zakupki_parser/api/app/routes/procurements.py#_match_platform_ids_by_url
+      - src/zakupki_parser/api/app/routes/procurements.py#_host_matches
       - src/zakupki_parser/api/app/routes/procurements.py#fetch_procurement_by_url
       - src/zakupki_parser/storage/repository/procurements.py#find_by_url
       - src/zakupki_parser/parser/by_url.py#resolve_platform_by_url
+      - src/zakupki_parser/parser/by_url.py#match_by_url_rule
       - src/zakupki_parser/parser/by_url.py#fetch_record_by_url
       - src/zakupki_parser/config/models/dom/by_url.py#DomByUrlConfig
+      - src/zakupki_parser/config/models/dom/by_url.py#DomByUrlRule
       - src/zakupki_parser/parser/detail_api/etpgpb.py#_etpgpb_by_url
+      - src/zakupki_parser/parser/detail_api/mos.py#_mos_by_url
+      - src/zakupki_parser/parser/detail_api/lot_online.py#_lot_online_by_url
+      - src/zakupki_parser/parser/detail_api/tender_223.py#_tender_223_by_url
     tests:
       - tests/unit/test_procurement_by_url.py
       - tests/integration/test_api.py
@@ -1650,6 +1677,13 @@ requirements:
       запись — та же, что пишет обход, сразу с деталями и ``detail_api``.
       Закупка с тем же номером на площадке, сохранённая обходом под другим
       видом URL, не дублируется (``upsert`` отдаёт id существующей записи).
+
+      2026-09-24 (фаза 2): живая подгрузка реализована для остальных площадок
+      (mos, lot_online_44, lot_online_223, b2b_center, fabrikant) — см. US-5.5.
+      Закупка с тем же номером, сохранённая обходом под другим видом URL, не
+      дублируется там, где номер извлекается одинаково (``upsert``); у fabrikant
+      44-ФЗ по URL сохраняется реестровый номер ЕИС (внутреннего номера карточки
+      выдачи на странице нет) — возможен отдельный дубликат.
   - id: FR-5.6
     type: FR
     title: Фильтр «В работе» на вкладке «Закупки» (снятие с работы)

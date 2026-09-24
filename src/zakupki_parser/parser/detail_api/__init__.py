@@ -21,9 +21,9 @@ from playwright.async_api import Page
 
 from zakupki_parser.config.models import PlatformDom
 from zakupki_parser.parser.detail_api.etpgpb import _etpgpb_by_url, _etpgpb_details
-from zakupki_parser.parser.detail_api.lot_online import _lot_online_details
-from zakupki_parser.parser.detail_api.mos import _mos_details
-from zakupki_parser.parser.detail_api.tender_223 import _tender_223_details
+from zakupki_parser.parser.detail_api.lot_online import _lot_online_by_url, _lot_online_details
+from zakupki_parser.parser.detail_api.mos import _mos_by_url, _mos_details
+from zakupki_parser.parser.detail_api.tender_223 import _tender_223_by_url, _tender_223_details
 
 _API_DETAILS: dict[str, Any] = {
     "lot_online": _lot_online_details,
@@ -36,6 +36,9 @@ _API_DETAILS: dict[str, Any] = {
 # детали одним проходом. Площадки без записи здесь — по URL не подгружаются.
 _API_BY_URL: dict[str, Any] = {
     "etpgpb": _etpgpb_by_url,
+    "mos": _mos_by_url,
+    "lot_online": _lot_online_by_url,
+    "tender_223": _tender_223_by_url,
 }
 
 

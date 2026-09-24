@@ -19,6 +19,7 @@ from zakupki_parser.api.app.routes.procurements import (
 from zakupki_parser.config.loader import load_config
 from zakupki_parser.config.models import (
     DomByUrlConfig,
+    DomByUrlRule,
     DomDetailConfig,
     DomListConfig,
     PlatformDom,
@@ -57,7 +58,9 @@ def _platform(
         url=urls[platform_id],
         list_config=DomListConfig(container="c", detail_link="a", next_page=""),
         detail=DomDetailConfig(api_format=api_format),
-        by_url=DomByUrlConfig(url_pattern=url_pattern) if url_pattern else None,
+        by_url=(
+            DomByUrlConfig(rules=[DomByUrlRule(url_pattern=url_pattern)]) if url_pattern else None
+        ),
     )
 
 
@@ -154,6 +157,36 @@ def real_platforms() -> dict[str, PlatformDom]:
             "etpgpb",
             {"kind": "etp", "platform_id": "1292606"},
         ),
+        (
+            "https://zakupki.mos.ru/need/6221685",
+            "zakupki_mos",
+            {"need_id": "6221685"},
+        ),
+        (
+            "https://gz.lot-online.ru/etp_front/procedure/view/procedure/common/0372200273426000029",
+            "lot_online_44",
+            {"number": "0372200273426000029"},
+        ),
+        (
+            "https://tender.lot-online.ru/procedure?procedureNumber=32616405724&lotNumber=1",
+            "lot_online_223",
+            {"number": "32616405724", "lot": "1"},
+        ),
+        (
+            "https://www.b2b-center.ru/market/buldozer/tender-4614213/#btid=2",
+            "b2b_center",
+            {"number": "4614213"},
+        ),
+        (
+            "https://44.fabrikant.ru/44/procedure/ea21/0321300003026000199",
+            "fabrikant",
+            {"number": "0321300003026000199"},
+        ),
+        (
+            "https://fabrikant.ru/v2/trades/procedure/view/LZl6Qa0jSbv2qcFgSLRjBQ",
+            "fabrikant",
+            {},
+        ),
     ],
 )
 def test_resolve_platform_by_url(
@@ -200,8 +233,11 @@ class _FakeResp:
 
 
 class _FakePage:
-    def __init__(self, payload: Any) -> None:
-        self.request = SimpleNamespace(get=AsyncMock(return_value=_FakeResp(payload)))
+    def __init__(self, payload: Any = None, posts: list[Any] | None = None) -> None:
+        self.request = SimpleNamespace(
+            get=AsyncMock(return_value=_FakeResp(payload)),
+            post=AsyncMock(side_effect=[_FakeResp(p) for p in (posts or [])]),
+        )
 
 
 # Форма ответа /api/v2/procedures/{kind}/{platform_id}/ — по живому API
@@ -286,6 +322,206 @@ async def test_fetch_record_by_url_etpgpb_api(real_platforms: dict[str, Platform
     assert record["detail_json"]["number"] == "32616405157"
 
 
+# Форма ответа /newapi/api/Need/Get?needId= — по живому API (2026-09-24).
+MOS_DETAIL = {
+    "id": 6177179,
+    "name": "Активация установленных комплектов оборудования",
+    "region": {"name": " Московская область"},
+    "customer": {"name": 'МУП "ТЕПЛО КОЛОМНЫ"', "id": 14781607},
+    "state": {"name": "Прием предложений завершен"},
+    "proposalStartDate": "17.08.2026 13:56:07",
+    "proposalEndDate": "19.08.2026 13:56:00",
+    "nmck": 561973.33,
+    "federalLawName": "223-ФЗ",
+    "items": [{"okpd": {"code": "61.10.20.110", "name": "Услуги операторов связи"}}],
+    "files": [{"name": "Документация.docx", "id": 281353068}],
+}
+
+
+@pytest.mark.asyncio
+async def test_fetch_record_by_url_mos_api(real_platforms: dict[str, PlatformDom]) -> None:
+    """mos.ru: один запрос Need/Get отдаёт и поля списка, и детали."""
+    url = "https://zakupki.mos.ru/need/6177179"
+    page: Any = _FakePage(payload=MOS_DETAIL)
+
+    record = await fetch_record_by_url(
+        page, "zakupki_mos", real_platforms["zakupki_mos"], url, {"need_id": "6177179"}
+    )
+
+    assert page.request.get.await_count == 1
+    assert page.request.get.await_args.args[0] == (
+        "https://zakupki.mos.ru/newapi/api/Need/Get?needId=6177179"
+    )
+    assert record["number"] == "6177179"
+    assert record["subject"] == "Активация установленных комплектов оборудования"
+    assert record["nmck"] == 561973.33
+    assert record["customer"] == 'МУП "ТЕПЛО КОЛОМНЫ"'
+    assert record["region"] == "Московская область"
+    assert record["status"] == "Прием предложений завершен"
+    assert record["law"] == "223-ФЗ"
+    assert record["publication_date"] == datetime(2026, 8, 17, 13, 56, 7, tzinfo=MSK)
+    assert record["deadline"] == datetime(2026, 8, 19, 13, 56, tzinfo=MSK)
+    assert record["okpd2_code"] == "61.10.20.110"
+    assert record["files_json"] == [
+        {
+            "name": "Документация.docx",
+            "url": "https://zakupki.mos.ru/newapi/api/FileStorage/Download?id=281353068",
+        }
+    ]
+    assert record["detail_api"] == {"need_id": "6177179"}
+
+
+# Форма ответа /api-gateway/etp/procedure/{номер}/{лот} — по живому API (2026-09-24).
+TENDER_223_DETAIL = {
+    "commonInfo": {
+        "eisNumber": "32616405724",
+        "lotNumber": "1",
+        "title": "Поставка запорной арматуры",
+        "price": "891676.00",
+        "stage": {"title": "Идет прием заявок", "group": "DEMANDS_STARTED"},
+        "customerOkato": "Москва, г",
+        "regionOkato": "Самарская, обл",
+        "purchaseMethod": "Запрос котировок в электронной форме",
+    },
+    "organization": {"inn": "6345012488", "title": 'АО "ГИДРОРЕМОНТ-ВВК"'},
+    "customers": [{"inn": "6345012488", "title": 'АО "ГИДРОРЕМОНТ-ВВК"'}],
+    "productionNomenclatures": [{"okpd2Title": "28.14: Поставка запорной арматуры"}],
+    "notices": [
+        {
+            "publishDate": "2026-09-24T11:52:54.000+03:00",
+            "fileSignResponse": [{"fileDTO": {"uuid": "u1", "fileName": "Док.rar"}}],
+        }
+    ],
+    "stages": [
+        {
+            "stageList": [
+                {
+                    "title": "Окончание подачи заявок",
+                    "code": "GD_END",
+                    "date": "2026-10-02",
+                    "time": "12:00:00",
+                },
+            ]
+        }
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_fetch_record_by_url_tender_223_api(real_platforms: dict[str, PlatformDom]) -> None:
+    """tender.lot-online 223-ФЗ: один запрос отдаёт поля списка и детали."""
+    url = "https://tender.lot-online.ru/procedure?procedureNumber=32616405724&lotNumber=1"
+    page: Any = _FakePage(payload=TENDER_223_DETAIL)
+
+    record = await fetch_record_by_url(
+        page,
+        "lot_online_223",
+        real_platforms["lot_online_223"],
+        url,
+        {"number": "32616405724", "lot": "1"},
+    )
+
+    assert page.request.get.await_args.args[0] == (
+        "https://tender.lot-online.ru/api-gateway/etp/procedure/32616405724/1"
+    )
+    assert record["number"] == "32616405724"
+    assert record["subject"] == "Поставка запорной арматуры"
+    assert record["nmck"] == 891676.0
+    assert record["customer"] == 'АО "ГИДРОРЕМОНТ-ВВК"'
+    assert record["status"] == "Идет прием заявок"
+    assert record["purchase_type"] == "Запрос котировок в электронной форме"
+    assert record["region"] == "Москва, г"
+    assert record["law"] == "223-ФЗ"
+    assert record["publication_date"] == datetime(2026, 9, 24, 11, 52, 54, tzinfo=MSK)
+    assert record["deadline"] == datetime(2026, 10, 2, 12, 0, tzinfo=MSK)
+    assert record["okpd2_code"] == "28.14"
+    assert record["inn"] == "6345012488"
+    assert record["files_json"] == [
+        {
+            "name": "Док.rar",
+            "url": "https://tender.lot-online.ru/etp/downloadppf?uuid=u1",
+        }
+    ]
+    assert record["detail_api"] == {"number": "32616405724", "lot": "1"}
+
+
+# Форма ответов /etp_back/api/get (sphinx CommonData + Purchase.LotInfo) — живой API.
+LOT_ONLINE_SPHINX = {
+    "data": {
+        "entities": [
+            {
+                "procedure": {
+                    "purchaseNumber": "0372200273426000029",
+                    "purchaseObjectInfo": "Выполнение ремонтных работ",
+                    "status": "accept",
+                    "substatus": "Прием заявок",
+                    "number": 215032,
+                    "direction": "44fz",
+                    "placer": {"fullName": "ГБДОУ ДЕТСКИЙ САД №1", "inn": "7806081336"},
+                    "deliveryAddress": "Российская Федерация, г. Санкт-Петербург",
+                    "publicationDateTime": "24.09.2026 11:58",
+                    "requestEndGiveDateTime": "01.10.2026 09:00",
+                }
+            }
+        ]
+    }
+}
+LOT_ONLINE_LOTINFO = {
+    "data": {
+        "entities": [
+            {
+                "procedure": {
+                    "lotInfo": {
+                        "items": [
+                            {"okpd2Code": "20.20.14.000", "okpd2Name": "Средства дезинфекционные"}
+                        ],
+                        "maxSum": "217 899.00",
+                    }
+                }
+            }
+        ]
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_fetch_record_by_url_lot_online_44_api(
+    real_platforms: dict[str, PlatformDom],
+) -> None:
+    """gz lot-online 44-ФЗ: sphinx (поля списка) + Purchase.LotInfo (ОКПД2/НМЦК)."""
+    url = "https://gz.lot-online.ru/etp_front/procedure/view/procedure/common/0372200273426000029"
+    page: Any = _FakePage(posts=[LOT_ONLINE_SPHINX, LOT_ONLINE_LOTINFO])
+
+    record = await fetch_record_by_url(
+        page,
+        "lot_online_44",
+        real_platforms["lot_online_44"],
+        url,
+        {"number": "0372200273426000029"},
+    )
+
+    assert page.request.post.await_count == 2
+    sphinx_body = page.request.post.await_args_list[0].kwargs["data"]
+    assert sphinx_body["rules"] == ["Procedure.Info", "Procedure.CommonData"]
+    assert sphinx_body["conditions"] == {"procedure.purchaseNumber": "0372200273426000029"}
+    assert page.request.post.await_args_list[1].kwargs["data"]["conditions"] == {
+        "procedure.id": 215032
+    }
+    assert record["number"] == "0372200273426000029"
+    assert record["subject"] == "Выполнение ремонтных работ"
+    assert record["customer"] == "ГБДОУ ДЕТСКИЙ САД №1"
+    assert record["inn"] == "7806081336"
+    assert record["status"] == "Прием заявок"
+    assert record["region"] == "Российская Федерация, г. Санкт-Петербург"
+    assert record["law"] == "44-ФЗ"
+    assert record["publication_date"] == datetime(2026, 9, 24, 11, 58, tzinfo=MSK)
+    assert record["deadline"] == datetime(2026, 10, 1, 9, 0, tzinfo=MSK)
+    assert record["nmck"] == 217899.0
+    assert record["okpd2_code"] == "20.20.14.000"
+    # Контекст досборки деталей перед скорингом — внутренний id (BR-08).
+    assert record["detail_api"] == {"id": 215032}
+
+
 @pytest.mark.asyncio
 async def test_fetch_record_by_url_without_number_is_url_error() -> None:
     platform = _platform(
@@ -307,6 +543,14 @@ def test_regex_datetime_two_digit_year() -> None:
     expected = datetime(2026, 10, 2, 8, 30, tzinfo=MSK)
     assert handler_regex_datetime(" до 02.10.26 08:30 (МСК) ", pattern) == expected
     assert handler_regex_datetime("до 02.10.2026 08:30", pattern) == expected
+
+
+def test_regex_datetime_normalizes_nbsp_and_bullet() -> None:
+    """fabrikant: «24.09.2026  •  11:56 (МСК+00:00)» — NBSP/«•» нормализуются."""
+    pattern = r"(\d{2}\.\d{2}\.\d{4}[^0-9]+\d{2}:\d{2})"
+    assert handler_regex_datetime("24.09.2026 \xa0•\xa011:56 (МСК+00:00)", pattern) == datetime(
+        2026, 9, 24, 11, 56, tzinfo=MSK
+    )
 
 
 def test_etpgpb_regions_skips_null_items() -> None:

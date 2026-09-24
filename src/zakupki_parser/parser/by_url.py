@@ -5,8 +5,9 @@
 с детальной страницы/API площадки. Здесь есть только URL детальной страницы,
 поэтому:
 
-1. площадка (из совпавших по хосту) и номер закупки определяются по
-   ``by_url.url_pattern`` конфига площадки (``resolve_platform_by_url``);
+1. площадка (из совпавших по хосту) и номер закупки определяются по правилам
+   ``by_url`` конфига площадки (``resolve_platform_by_url``; у площадки с
+   несколькими видами страниц правил несколько — fabrikant);
 2. поля уровня списка берутся с самой детальной страницы (``by_url.variables``,
    DOM-площадки) или из API площадки (``fetch_api_by_url``, API-площадки),
    детали — тем же ``extract_details``, что и в досборке перед скорингом;
@@ -20,7 +21,7 @@ from typing import Any
 
 from playwright.async_api import Page
 
-from zakupki_parser.config.models import PlatformDom
+from zakupki_parser.config.models import DomByUrlRule, PlatformDom
 from zakupki_parser.parser.detail import extract_details
 from zakupki_parser.parser.detail_api import fetch_api_by_url
 from zakupki_parser.parser.json_utils import json_safe
@@ -31,15 +32,35 @@ class ProcurementUrlError(ValueError):
     """URL относится к площадке, но не распознан как карточка закупки (ошибка ввода)."""
 
 
+def match_by_url_rule(
+    platform: PlatformDom, url: str
+) -> tuple[DomByUrlRule, dict[str, str]] | None:
+    """Первое правило ``by_url`` площадки, чей ``url_pattern`` совпал с URL.
+
+    Возвращает ``(rule, groups)``, где ``groups`` — именованные группы шаблона
+    (``number`` и поля запроса деталей через API). ``None`` — ни одно правило не
+    совпало.
+    """
+    by_url = platform.by_url
+    if by_url is None:
+        return None
+    for rule in by_url.rules:
+        m = re.search(rule.url_pattern, url, flags=re.IGNORECASE)
+        if m:
+            groups = {k: v for k, v in m.groupdict().items() if v}
+            return rule, groups
+    return None
+
+
 def resolve_platform_by_url(
     platforms: dict[str, PlatformDom], platform_ids: list[str], url: str
 ) -> tuple[str, PlatformDom, dict[str, str]]:
-    """Выбирает площадку по ``by_url.url_pattern`` среди совпавших по хосту.
+    """Выбирает площадку по правилам ``by_url`` среди совпавших по хосту.
 
     Возвращает ``(platform_id, platform, groups)``, где ``groups`` — именованные
-    группы шаблона (``number`` и поля запроса деталей через API). Площадки
-    с общим хостом (44-ФЗ/223-ФЗ одного портала) различаются шаблоном — берётся
-    первая совпавшая.
+    группы совпавшего шаблона (``number`` и поля запроса деталей через API).
+    Площадки с общим хостом (44-ФЗ/223-ФЗ одного портала) различаются шаблоном —
+    берётся первая совпавшая.
 
     ``NotImplementedError`` — ни у одной из площадок нет ``by_url`` (подгрузка
     по URL для неё не реализована); ``ProcurementUrlError`` — ``by_url`` есть,
@@ -54,10 +75,9 @@ def resolve_platform_by_url(
             f"Добавление закупки по URL для площадки «{names}» ещё не реализовано"
         )
     for platform_id, platform in configured:
-        assert platform.by_url is not None
-        m = re.search(platform.by_url.url_pattern, url, flags=re.IGNORECASE)
-        if m:
-            groups = {k: v for k, v in m.groupdict().items() if v}
+        matched = match_by_url_rule(platform, url)
+        if matched is not None:
+            _, groups = matched
             return platform_id, platform, groups
     names = ", ".join(p.name for _, p in configured)
     raise ProcurementUrlError(
@@ -83,23 +103,27 @@ async def fetch_record_by_url(
     ``ProcurementUrlError`` — карточка открылась, но номер закупки не извлечён
     (без номера запись невозможна, см. ``ProcurementRepository.upsert``).
     """
-    by_url = platform.by_url
-    assert by_url is not None
-    fields = dict(groups)
-    number = fields.pop("number", None)
-    api_fields = fields or None
+    matched = match_by_url_rule(platform, url)
+    rule = matched[0] if matched is not None else None
+    variables = rule.variables if rule is not None else []
+    defaults = rule.defaults if rule is not None else {}
+
+    number = groups.get("number")
+    api_fields = dict(groups)
 
     list_vars: dict[str, Any] = {}
+    api_context: dict[str, Any] | None = None
     if platform.detail.api_format:
-        list_vars, detail_vars, files, inn = await fetch_api_by_url(
-            page, platform, api_fields or {}
-        )
+        list_vars, detail_vars, files, inn = await fetch_api_by_url(page, platform, api_fields)
+        # Обработчик может вернуть точный контекст досборки деталей (напр. internal
+        # id lot-online, которого нет в URL) — он приоритетнее групп шаблона.
+        api_context = list_vars.pop("_api", None) or api_fields or None
     else:
         detail_vars, files, inn = await extract_details(
-            page, platform, {"number": number}, url, None, page_variables=by_url.variables
+            page, platform, {"number": number}, url, None, page_variables=variables
         )
 
-    record: dict[str, Any] = {**by_url.defaults}
+    record: dict[str, Any] = {**defaults}
     record.update({k: v for k, v in list_vars.items() if v is not None})
     # Детали не затирают поля уровня списка значением None (как в досборке деталей).
     record.update({k: v for k, v in detail_vars.items() if v is not None})
@@ -115,8 +139,8 @@ async def fetch_record_by_url(
         record["inn"] = inn
     if files:
         record["files_json"] = files
-    if api_fields is not None:
-        record["detail_api"] = api_fields
+    if api_context:
+        record["detail_api"] = api_context
     record["is_active"] = is_active_status(platform, record.get("status"))
     record["detail_json"] = json_safe(record)
     return record

@@ -151,15 +151,27 @@ CSV_COLUMNS = [
 ]
 
 
+def _host_matches(platform_host: str, url_host: str) -> bool:
+    """Совпадает ли хост URL с хостом площадки (с учётом поддоменов/``www``).
+
+    ``www.`` отбрасывается с обеих сторон, дальше совпадение точное либо URL —
+    поддомен площадки: fabrikant обходит ``fabrikant.ru``, а детальные 44-ФЗ
+    лежат на ``44.fabrikant.ru``; ЕИС — ``zakupki.gov.ru``/``www.zakupki.gov.ru``.
+    """
+    a = platform_host.lower().removeprefix("www.")
+    b = url_host.lower().removeprefix("www.")
+    return a == b or b.endswith("." + a)
+
+
 def _match_platform_ids_by_url(platforms: dict[str, Any], url: str) -> list[str]:
     """id площадок, чей базовый хост совпадает с хостом переданного URL.
 
-    Сравнение — по хосту (без учёта регистра), а не по всей строке: у площадки
-    свои пути детальных страниц, разные для 44-ФЗ/223-ФЗ и т.п. Несколько
-    площадок могут иметь общий хост (напр. zakupki_gov_44fz/zakupki_gov_223fz,
-    roseltorg_44fz/roseltorg_223fz — один портал, два раздела) — какая именно,
-    уточняется уже при подгрузке карточки (``fetch_procurement_by_url``), не
-    на этапе распознавания хоста.
+    Сравнение — по хосту (без учёта регистра, с поддоменами, см. ``_host_matches``),
+    а не по всей строке: у площадки свои пути детальных страниц, разные для
+    44-ФЗ/223-ФЗ и т.п. Несколько площадок могут иметь общий хост (напр.
+    zakupki_gov_44fz/zakupki_gov_223fz, roseltorg_44fz/roseltorg_223fz — один
+    портал, два раздела) — какая именно, уточняется уже при подгрузке карточки
+    (``fetch_procurement_by_url``), не на этапе распознавания хоста.
     """
     host = urlsplit((url or "").strip()).netloc.lower()
     if not host:
@@ -167,7 +179,7 @@ def _match_platform_ids_by_url(platforms: dict[str, Any], url: str) -> list[str]
     return [
         platform_id
         for platform_id, platform in (platforms or {}).items()
-        if urlsplit(platform.url).netloc.lower() == host
+        if _host_matches(urlsplit(platform.url).netloc, host)
     ]
 
 

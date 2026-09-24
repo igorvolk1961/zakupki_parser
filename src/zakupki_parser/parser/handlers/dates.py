@@ -75,14 +75,17 @@ def handler_regex_datetime(value: Any, arg: str | None = None) -> datetime | Non
 
     Для полей-текстов вида «Опубликована 12.08.2026 00:55», «12.08.2026 00:55 - …».
     Двузначный год («до 02.10.26 08:30», roseltorg) дополняется до 20ГГ — иначе
-    ``%Y`` принял бы «26» за 26-й год н.э.
+    ``%Y`` принял бы «26» за 26-й год н.э. Разделитель даты и времени в группе
+    нормализуется: NBSP и «•» (fabrikant: «24.09.2026  •  11:56») — в пробел.
     """
     if value is None or not arg:
         return None
     m = re.search(arg, str(value))
     if not m:
         return None
-    text = _SHORT_YEAR_RE.sub(r"\1.20\2", m.group(1).strip())
+    text = re.sub(r"[\u00a0\u2022]+", " ", m.group(1).strip())
+    text = re.sub(r"\s+", " ", text).strip()
+    text = _SHORT_YEAR_RE.sub(r"\1.20\2", text)
     for fmt in _DATE_FORMATS:
         try:
             return datetime.strptime(text, fmt).replace(tzinfo=MSK)

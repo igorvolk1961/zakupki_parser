@@ -72,3 +72,17 @@ search:
   state_ids:
     all: ["all"]
     active: ["actual"]
+
+# Добавление закупки по URL (US-5.5): детальная страница
+# /market/<slug>/tender-<номер>[#...] (номер — из слага, совпадает с номером
+# карточки выдачи: «Запрос предложений № 4614213»). Предмет и способ
+# извлекаются из самой страницы (description/h1), остальные поля уровня списка
+# (заказчик/НМЦК/даты) уже есть в detail.variables этой же страницы —
+# проверено 2026-09-24 на живой странице.
+by_url:
+  url_pattern: "/market/[^/?#]+/tender-(?P<number>\\d+)"
+  variables:
+    # «Тендер ООО "КС ГОК" № 4614213 - Тяжелый гусеничный бульдозер – 1 штука.»
+    - { name: "subject",       selector: "meta[name='description']", attribute: "content", handler: "regex", handler_arg: "№\\s*\\d+\\s*-\\s*(.+?)\\.?\\s*$", default: "" }
+    # «Запрос предложений № 4614213» в заголовке карточки.
+    - { name: "purchase_type", selector: "h1[itemprop='headline']", handler: "regex", handler_arg: "^(.+?)\\s*№", default: "" }

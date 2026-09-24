@@ -138,3 +138,39 @@ search:
   # Маппинг «код ОКПД2 -> внутренний id fabrikant» (см. configs/codes/fabrikant_okpd2_tree.json).
   # ВНИМАНИЕ: маппинг частичный (62, 62.01–62.09); полный сбор — TODO (fetch-tree).
   okpd_tree_file: "configs/codes/fabrikant_okpd2_tree.json"
+
+# Добавление закупки по URL (US-5.5): у площадки несколько видов детальных
+# страниц с разной разметкой и даже разными хостами (44.fabrikant.ru для 44-ФЗ,
+# fabrikant.ru — коммерческие), поэтому правил несколько (проверено 2026-09-24
+# на живых страницах).
+by_url:
+  rules:
+    # 44-ФЗ: /44/procedure/<способ>/<19-значный номер ЕИС>. Номер берётся из URL
+    # (на странице есть «Номер извещения», но внутреннего номера карточки выдачи
+    # там нет — по URL 44-ФЗ закупка сохраняется под реестровым номером ЕИС).
+    # Предмет/способ/даты — из полей карточки (data-slot field-label/field-text);
+    # НМЦК/заказчик/ИНН/статус/регион уже даёт detail.variables этой же страницы.
+    - url_pattern: "44\\.fabrikant\\.ru/44/procedure/[^/?#]+/(?P<number>\\d{19})"
+      defaults: { law: "44-ФЗ" }
+      variables:
+        - { name: "subject",        selector: "xpath=//*[@data-slot='field-label'][contains(.,'Наименование закупки')]/following-sibling::div[@data-slot='field-text']", handler: "strip", default: "" }
+        - { name: "purchase_type",  selector: "xpath=//*[@data-slot='field-label'][contains(.,'Способ определения поставщика')]/following-sibling::div[@data-slot='field-text']", handler: "strip", default: "" }
+        # «24.09.2026  •  11:56 (МСК+00:00)» — regex_datetime нормализует NBSP/«•».
+        - { name: "publication_date", selector: "xpath=//*[@data-slot='field-label'][contains(.,'Дата и время публикации извещения')]/following-sibling::div[@data-slot='field-text']", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4}[^0-9]+\\d{2}:\\d{2})", default: null }
+        # «Дата и время окончания срока подачи заявок» (конкурентные) / «…приема заявок»;
+        # у закупок у единственного поставщика такого поля нет — default null.
+        - { name: "deadline",       selector: "xpath=//*[@data-slot='field-label'][contains(.,'окончания') and contains(.,'заявок')]/following-sibling::div[@data-slot='field-text']", handler: "regex_datetime", handler_arg: "(\\d{2}\\.\\d{2}\\.\\d{4}[^0-9]+\\d{2}:\\d{2})", default: null }
+    # Коммерческие процедуры: /v2/trades/procedure/view/<opaque-id> (и атомы
+    # /trades/atom/...). Номер — внутренний из шапки «Процедурная часть (№…)»,
+    # совпадает с номером карточки выдачи; поля — из блоков panel-group-element-*.
+    - url_pattern: "fabrikant\\.ru/v2/trades/procedure/view/[^/?#]+"
+      variables: &fabrikant_commercial_vars
+        - { name: "number",         selector: "div.panel-heading", handler: "regex", handler_arg: "№\\s*(\\d+)", default: "" }
+        - { name: "subject",        selector: ".panel-group-element-procedure_common_name .col-md-8", handler: "strip", default: "" }
+        - { name: "purchase_type",  selector: ".panel-group-element-purchase_category_custom .col-md-8", handler: "strip", default: "" }
+        - { name: "customer",       selector: ".panel-group-element-procedure_organizer .col-md-8 > div:first-child", handler: "strip", default: "" }
+        - { name: "status",         selector: ".kim-state-label", handler: "strip", default: "" }
+        - { name: "publication_date", selector: ".panel-group-element-date_publication .col-md-8", handler: "datetime", default: null }
+        - { name: "deadline",       selector: ".panel-group-element-proposal_date_stop .col-md-8", handler: "datetime", default: null }
+    - url_pattern: "fabrikant\\.ru/trades/atom/[^/?#]+/[^/?#]+"
+      variables: *fabrikant_commercial_vars

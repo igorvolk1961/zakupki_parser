@@ -81,3 +81,11 @@ search:
     active_only: { query_param: "statusGroup" }
   state_ids:
     active: ["DEMANDS_STARTED"]
+
+# Добавление закупки по URL (US-5.5): карточка закупки
+# /procedure?procedureNumber=<номер>&lotNumber=<лот> (detail_path реестра).
+# Один запрос GET /api-gateway/etp/procedure/{номер}/{лот} отдаёт и поля
+# уровня списка, и детали (см. detail_api/tender_223.py#_tender_223_by_url).
+by_url:
+  url_pattern: "/procedure\\?[^#]*procedureNumber=(?P<number>\\d+)[^#]*lotNumber=(?P<lot>\\d+)"
+  defaults: { law: "223-ФЗ" }

@@ -378,7 +378,7 @@ async def test_by_url_variables_eis_44(page: Page) -> None:
     platform = load_config(REPO_ROOT / "configs").dom.platforms["zakupki_gov_44fz"]
     assert platform.by_url is not None
     await set_html(page, load_fixture("eis_card_44.html"))
-    data = await extract_from_scope(page, platform.by_url.variables)
+    data = await extract_from_scope(page, platform.by_url.rules[0].variables)
 
     assert data["subject"] == "Поставка системных блоков и мониторов, подключаемых к компьютеру"
     assert data["customer"] == "КОНТРОЛЬНО-СЧЕТНАЯ ПАЛАТА ХАБАРОВСКОГО КРАЯ"
@@ -396,7 +396,7 @@ async def test_by_url_variables_eis_223(page: Page) -> None:
     platform = load_config(REPO_ROOT / "configs").dom.platforms["zakupki_gov_223fz"]
     assert platform.by_url is not None
     await set_html(page, load_fixture("eis_card_223.html"))
-    data = await extract_from_scope(page, platform.by_url.variables)
+    data = await extract_from_scope(page, platform.by_url.rules[0].variables)
 
     assert data["subject"] == (
         "Предоставление права на использование Аналитическая платформа Visiology"
@@ -419,7 +419,7 @@ async def test_by_url_variables_roseltorg(page: Page) -> None:
     platform = load_config(REPO_ROOT / "configs").dom.platforms["roseltorg_223fz"]
     assert platform.by_url is not None
     await set_html(page, load_fixture("roseltorg_detail.html"))
-    data = await extract_from_scope(page, platform.by_url.variables)
+    data = await extract_from_scope(page, platform.by_url.rules[0].variables)
 
     assert data["subject"].startswith("Выполнение работ по созданию, разработке, внедрению")
     assert data["customer"] == 'АНО "БОЛЬШЕ, ЧЕМ ПУТЕШЕСТВИЕ", АНО "БЧП"'
@@ -428,3 +428,55 @@ async def test_by_url_variables_roseltorg(page: Page) -> None:
     assert data["status"].strip() == "Работа комиссии"
     assert data["purchase_type"] == "Процедура по закупке без выбора победителя"
     assert data["deadline"] == datetime(2026, 8, 11, 9, 0, tzinfo=MSK)
+
+
+@pytest.mark.asyncio
+async def test_by_url_variables_b2b_center(page: Page) -> None:
+    """B2B-Center: предмет (description) и способ (h1) с детальной страницы.
+
+    Фикстура — живая страница (2026-09-24). Остальные поля уровня списка
+    (заказчик/НМЦК/даты) дают detail.variables той же страницы.
+    """
+    platform = load_config(REPO_ROOT / "configs").dom.platforms["b2b_center"]
+    assert platform.by_url is not None
+    await set_html(page, load_fixture("b2b_detail.html"))
+    data = await extract_from_scope(page, platform.by_url.rules[0].variables)
+
+    assert data["subject"] == "Тяжелый гусеничный бульдозер – 1 штука"
+    assert data["purchase_type"] == "Запрос предложений"
+
+
+@pytest.mark.asyncio
+async def test_by_url_variables_fabrikant_44(page: Page) -> None:
+    """fabrikant 44-ФЗ (44.fabrikant.ru): предмет/способ/дата публикации из полей карточки.
+
+    Фикстура — живая страница (2026-09-24). Это закупка у единственного
+    поставщика — поля «окончания … заявок» на странице нет, deadline None.
+    Номер берётся из URL (реестровый номер ЕИС).
+    """
+    platform = load_config(REPO_ROOT / "configs").dom.platforms["fabrikant"]
+    assert platform.by_url is not None
+    await set_html(page, load_fixture("fabrikant_detail_44.html"))
+    data = await extract_from_scope(page, platform.by_url.rules[0].variables)
+
+    assert data["subject"] == "Средство для индивидуальной защиты кожи"
+    assert data["purchase_type"].startswith("Закупка, осуществляемая в соответствии")
+    assert data["publication_date"] == datetime(2026, 9, 24, 11, 56, tzinfo=MSK)
+    assert data["deadline"] is None
+
+
+@pytest.mark.asyncio
+async def test_by_url_variables_fabrikant_commercial(page: Page) -> None:
+    """fabrikant коммерческая процедура (/v2/trades/procedure/view/): все поля списка."""
+    platform = load_config(REPO_ROOT / "configs").dom.platforms["fabrikant"]
+    assert platform.by_url is not None
+    await set_html(page, load_fixture("fabrikant_detail_commercial.html"))
+    data = await extract_from_scope(page, platform.by_url.rules[1].variables)
+
+    assert data["number"] == "5578947"
+    assert data["subject"] == "Комплектующие"
+    assert data["purchase_type"] == "Запрос предложений"
+    assert data["customer"] == 'АО "Силовые машины"'
+    assert data["status"] == "Прием заявок"
+    assert data["publication_date"] == datetime(2026, 9, 24, 11, 2, tzinfo=MSK)
+    assert data["deadline"] == datetime(2026, 10, 2, 15, 0, tzinfo=MSK)

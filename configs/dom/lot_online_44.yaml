@@ -81,3 +81,13 @@ search:
     active_only: { filter: { key: "status", property: "status", condition: "in" } }
   state_ids:
     active: ["accept", "commission", "contract"]
+
+# Добавление закупки по URL (US-5.5): каноническая карточка «Общая информация»
+# /etp_front/procedure/view/procedure/common/<purchaseNumber> (detail_path
+# реестра; в реальной ссылке ещё ?backUrl=... — не мешает re.search). Поля
+# уровня списка и детали — двумя JSON-RPC запросами к /etp_back/api/get
+# (sphinx Procedure.Info+CommonData и Purchase.LotInfo), см.
+# detail_api/lot_online.py#_lot_online_by_url.
+by_url:
+  url_pattern: "/etp_front/procedure/view/procedure/common/(?P<number>\\d+)"
+  defaults: { law: "44-ФЗ" }

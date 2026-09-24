@@ -105,3 +105,10 @@ search:
   date_great_equal_format: "%d.%m.%Y 00:00:00"
   # Маппинг «код ОКПД2 -> путь» (дерево площадки, см. configs/codes/mos_okpd2_tree.json)
   okpd_tree_file: "configs/codes/mos_okpd2_tree.json"
+
+# Добавление закупки по URL (US-5.5): карточка реестра /need/<needId>
+# (detail_path реестра). needId — внутренний id и одновременно «number» реестра
+# (проверено 2026-09-24: number == needId). Один запрос /newapi/api/Need/Get
+# отдаёт и поля уровня списка, и детали (см. detail_api/mos.py#_mos_by_url).
+by_url:
+  url_pattern: "/need/(?P<need_id>\\d+)"

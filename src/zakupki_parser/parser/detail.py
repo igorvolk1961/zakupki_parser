@@ -201,7 +201,11 @@ async def extract_details(
     detail_vars = await extract_detail_vars(page, platform)
     if page_variables:
         extra = await extract_from_scope(page, page_variables)
-        detail_vars.update({k: v for k, v in extra.items() if detail_vars.get(k) is None})
+        # Дополняем поля уровня списка, если детальная переменная не дала значения
+        # (None или пустая строка: напр. у коммерческой fabrikant detail.variables
+        # не находит свои поля — customer/status остаются "", а by_url.variables
+        # знает, где они на этой разметке).
+        detail_vars.update({k: v for k, v in extra.items() if detail_vars.get(k) in (None, "")})
     customer_link = await capture_customer_link(page, platform)
     # Доп. страницы деталей (например, ОКПД2 223-ФЗ на lot-list): переход по
     # ссылке с детальной страницы и извлечение дополнительных переменных.

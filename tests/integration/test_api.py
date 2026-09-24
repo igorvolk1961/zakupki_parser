@@ -912,8 +912,7 @@ def test_add_procurement_by_url_reuses_existing_record(
     api_client: tuple[TestClient, Path],
 ) -> None:
     """US-5.5: URL уже есть в базе — данные не скачиваются повторно (живая
-    подгрузка, ``fetch_procurement_by_url``, не вызывается — иначе был бы 501,
-    т.к. для zakupki_mos подгрузка по URL не настроена), закупка просто
+    подгрузка, ``fetch_procurement_by_url``, не вызывается), закупка просто
     помечается «в работе»."""
     client, _ = api_client
     url = "https://zakupki.mos.ru/need/URL-EXISTING-1"
@@ -946,18 +945,17 @@ def test_add_procurement_by_url_reuses_existing_record(
     assert body["in_work"] is True
 
 
-def test_add_procurement_by_url_unknown_record_live_fetch_not_configured(
+def test_add_procurement_by_url_unknown_record_live_fetch_not_a_card(
     api_client: tuple[TestClient, Path],
 ) -> None:
-    """URL распознан по площадке, но в базе такой закупки нет — не найденную
-    запись не подменяем: идёт живая подгрузка, а для zakupki_mos она не
-    настроена (нет ``by_url`` в конфиге площадки) — 501."""
+    """URL распознан по площадке (хост zakupki.mos.ru), но не похож на карточку
+    закупки (нет числового needId) — 400, ничего не сохраняется."""
     client, _ = api_client
     resp = client.post(
         "/api/procurements/by-url",
-        json={"url": "https://zakupki.mos.ru/need/URL-NEVER-SEEN"},
+        json={"url": "https://zakupki.mos.ru/purchase/list"},
     )
-    assert resp.status_code == 501
+    assert resp.status_code == 400
 
 
 def test_add_procurement_by_url_live_fetch_saves_in_work(
