@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -202,6 +202,7 @@ class EvaluationMixin(RepositoryMixin):
         snapshot_to: datetime | None = None,
         on_progress: Callable[[int, int], Awaitable[None] | None] | None = None,
         batch_size: int = 200,
+        sources: Mapping[str, Any] | None = None,
     ) -> dict[str, int]:
         """Пересчёт условий отчётных полей и вердикта по сохранённым отчётам (без LLM).
 
@@ -253,7 +254,7 @@ class EvaluationMixin(RepositoryMixin):
                 for evaluation, requirements in rows:
                     report = dict(evaluation.rag_report or {})
                     stored = [f for f in report.get("fields") or [] if isinstance(f, dict)]
-                    fields, complete = recompute_field_values(stored, field_defs)
+                    fields, complete = recompute_field_values(stored, field_defs, sources)
                     if report.get("status") == "llm_disabled":
                         # LLM-часть не выполнялась вовсе: поля и не ожидаются.
                         fields, complete = [], True

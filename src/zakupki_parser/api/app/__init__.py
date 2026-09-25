@@ -36,6 +36,7 @@ from zakupki_parser.api.app.routes.procurements import build_procurements_router
 from zakupki_parser.api.app.routes.reference import build_reference_router
 from zakupki_parser.api.app.routes.sources import build_sources_router
 from zakupki_parser.api.app.routes.users import build_users_router
+from zakupki_parser.api.app.source_links import recheck_profiles_for_source
 from zakupki_parser.api.app.state import AppState, _broadcast, _create_state, _spawn_parser
 from zakupki_parser.notify import Notifier
 from zakupki_parser.sources.manager import SourceCrawlManager
@@ -64,8 +65,16 @@ def _build_source_crawls(state: AppState) -> SourceCrawlManager:
         await _broadcast(state)
 
     assert state.repository is not None, "очередь сборов создаётся только при доступной БД"
+
+    async def on_finished(url_norm: str) -> None:
+        await recheck_profiles_for_source(state, url_norm)
+
     return SourceCrawlManager(
-        state.repository, cfg.service.site_sources, driver_factory, on_change=on_change
+        state.repository,
+        cfg.service.site_sources,
+        driver_factory,
+        on_change=on_change,
+        on_finished=on_finished,
     )
 
 

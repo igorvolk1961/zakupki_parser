@@ -404,6 +404,12 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
             "value_sources": None,
             "unconfirmed_values": [],
             "rejected_values": [],
+            "tz_windows": {},
+            "mismatch_reasons": {},
+            "requirements": {},
+            "near_matches": {},
+            "near_labels": {},
+            "source_status": None,
         }
     ]
 

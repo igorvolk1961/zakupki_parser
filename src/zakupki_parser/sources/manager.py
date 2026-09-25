@@ -20,11 +20,11 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 from scoring_common.sources.store import first_page_key, join_pages, put_text, text_key
+from scoring_common.sources.urls import normalize_source_url
 from zakupki_parser.config.models import SiteSourcesConfig
 from zakupki_parser.net_safety import ensure_public_url
 from zakupki_parser.sources.crawler import CrawlLimits, CrawlProgress, PageDriver, crawl
 from zakupki_parser.sources.text import strip_common_edges
-from zakupki_parser.sources.urls import normalize_source_url
 from zakupki_parser.storage.db import SiteSource
 
 logger = logging.getLogger(__name__)
@@ -76,12 +76,15 @@ class SourceCrawlManager:
         driver_factory: DriverFactory,
         *,
         on_change: Callable[[], Awaitable[None]] | None = None,
+        on_finished: Callable[[str], Awaitable[None]] | None = None,
         check_url: Callable[[str], Awaitable[None]] = ensure_public_url,
     ) -> None:
         self._repo = repo
         self._cfg = cfg
         self._driver_factory = driver_factory
         self._on_change = on_change
+        # Сбор закончился (любым итогом) — url_norm: пересчёт условий профилей.
+        self._on_finished = on_finished
         self._check_url = check_url
         self._sem = asyncio.Semaphore(cfg.max_concurrent)
         self._host_locks: dict[str, asyncio.Lock] = {}
@@ -172,6 +175,11 @@ class SourceCrawlManager:
                     source_id, status="failed", stop_reason="error", error=str(exc)[:1000]
                 )
             await self._notify()
+            if self._on_finished is not None:
+                try:
+                    await self._on_finished(normalize_source_url(url))
+                except Exception:  # noqa: BLE001
+                    logger.warning("Пересчёт после сбора сайта %s не запущен", url, exc_info=True)
 
     async def _crawl(self, source_id: int, url: str) -> None:
         await self._check_url(url)

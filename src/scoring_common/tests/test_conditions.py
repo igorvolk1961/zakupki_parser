@@ -287,7 +287,7 @@ def test_normalize_list_field_defaults() -> None:
         ({"type": "string", "condition": {"op": "contains", "value": "ут*"}}, "3 букв"),
         (
             {"type": "list", "condition": {"op": "all_in", "value_kind": "url", "value": "x"}},
-            "пока не поддерживается",
+            "адрес http",
         ),
         ({"type": "enum"}, "неизвестный тип"),
     ],

@@ -1321,11 +1321,38 @@ function updateReportFieldUnitVisibility() {
   updateConditionValueVisibility();
 }
 
+// Поля, значения которых могут быть уточнениями «рядом» (строка/список, не само поле).
+function renderNearFields(selected) {
+  const options = profileReportFields.filter(
+    (x) => x.id !== reportFieldEditorId && (x.type === "string" || x.type === "list")
+  );
+  $("#rf-near-field").innerHTML = options.length
+    ? options
+        .map(
+          (x) =>
+            `<option value="${escapeHtml(x.id)}"${x.id === selected ? " selected" : ""}>${escapeHtml(x.name)}</option>`
+        )
+        .join("")
+    : `<option value="">нет полей-строк/списков</option>`;
+}
+
 function updateConditionValueVisibility() {
   const op = $("#rf-cond-op").value;
   const kind = op ? CONDITION_OPS[op].kind : null;
+  // Сравнение с сайтом — у операторов со списком для полей-строк и списков.
+  const type = $("#rf-type").value;
+  const canUrl = kind === "list" && (type === "string" || type === "list");
+  $("#rf-cond-kind-row").style.display = canUrl ? "" : "none";
+  if (!canUrl) $("#rf-cond-kind").value = "list";
+  const url = canUrl && $("#rf-cond-kind").value === "url";
+  $("#rf-cond-url-row").style.display = url ? "" : "none";
+  $("#rf-near-row").style.display = url ? "grid" : "none";
+  const nearSource = $("#rf-near-source").value;
+  $("#rf-near-field-row").style.display = nearSource === "field" ? "" : "none";
+  $("#rf-near-labels-row").style.display = nearSource === "field" ? "" : "none";
+  $("#rf-near-words-row").style.display = nearSource === "words" ? "" : "none";
   $("#rf-cond-value-row").style.display = kind === "scalar" ? "" : "none";
-  $("#rf-cond-list-row").style.display = kind === "list" ? "" : "none";
+  $("#rf-cond-list-row").style.display = kind === "list" && !url ? "" : "none";
   $("#rf-blocking-row").style.display = op ? "" : "none";
   const placeholders = {
     number: "например, 500000",
@@ -1349,7 +1376,18 @@ function openReportFieldForm(id) {
   $("#rf-extend-list").checked = f ? f.extend_list !== false : true;
   const cond = f ? f.condition : null;
   renderConditionOps(cond ? cond.op : "");
-  $("#rf-cond-value").value = cond && !Array.isArray(cond.value) ? cond.value || "" : "";
+  const isUrl = !!cond && cond.value_kind === "url";
+  $("#rf-cond-kind").value = isUrl ? "url" : "list";
+  $("#rf-cond-url").value = isUrl ? cond.value || "" : "";
+  const near = (isUrl && cond.near) || null;
+  $("#rf-near-source").value = near ? near.source : "";
+  renderNearFields(near && near.source === "field" ? near.field_id : "");
+  $("#rf-near-words").value = near && near.source === "words" ? (near.words || []).join(", ") : "";
+  $("#rf-near-labels").value =
+    near && near.source === "field" ? (near.labels || []).join(", ") : "";
+  $("#rf-near-mode").value = near ? near.mode || "all" : "all";
+  $("#rf-cond-value").value =
+    cond && !isUrl && !Array.isArray(cond.value) ? cond.value || "" : "";
   $("#rf-cond-list").value = cond && Array.isArray(cond.value) ? cond.value.join("\n") : "";
   $("#rf-blocking").checked = f ? !!f.blocking : false;
   updateReportFieldUnitVisibility();
@@ -1369,7 +1407,38 @@ function saveReportField() {
   let condition = null;
   if (op) {
     const kind = CONDITION_OPS[op].kind;
-    if (kind === "list") {
+    if (kind === "list" && $("#rf-cond-kind").value === "url") {
+      const url = $("#rf-cond-url").value.trim();
+      if (!/^https?:\/\/\S+$/i.test(url)) {
+        setReportFieldStatus("Укажите адрес сайта http(s)://…");
+        return;
+      }
+      let near = null;
+      const nearSource = $("#rf-near-source").value;
+      if (nearSource === "field") {
+        const fieldId = $("#rf-near-field").value;
+        if (!fieldId) {
+          setReportFieldStatus("Выберите поле с уточнениями");
+          return;
+        }
+        const labels = $("#rf-near-labels")
+          .value.split(",")
+          .map((x) => x.trim())
+          .filter(Boolean);
+        near = { source: "field", field_id: fieldId, labels, mode: $("#rf-near-mode").value };
+      } else if (nearSource === "words") {
+        const words = $("#rf-near-words")
+          .value.split(",")
+          .map((x) => x.trim())
+          .filter(Boolean);
+        if (!words.length) {
+          setReportFieldStatus("Укажите слова, которые должны быть рядом");
+          return;
+        }
+        near = { source: "words", words, mode: $("#rf-near-mode").value };
+      }
+      condition = { op, value_kind: "url", value: url, near };
+    } else if (kind === "list") {
       const items = $("#rf-cond-list")
         .value.split("\n")
         .map((x) => x.trim())
@@ -1894,6 +1963,8 @@ $("#report-field-cancel").addEventListener("click", () => {
 });
 $("#rf-type").addEventListener("change", updateReportFieldUnitVisibility);
 $("#rf-cond-op").addEventListener("change", updateConditionValueVisibility);
+$("#rf-cond-kind").addEventListener("change", updateConditionValueVisibility);
+$("#rf-near-source").addEventListener("change", updateConditionValueVisibility);
 $("#experience-new").addEventListener("click", () => openExperienceForm(null));
 $("#experience-save").addEventListener("click", saveExperience);
 $("#experience-cancel").addEventListener("click", () => {

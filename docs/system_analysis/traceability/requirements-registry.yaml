@@ -2756,7 +2756,9 @@ requirements:
     adr: "-"
     code:
       - src/scoring_common/scoring_common/conditions.py
+      - src/scoring_common/scoring_common/sources/matching.py
       - src/scoring_common/scoring_common/verdict.py
+      - src/zakupki_parser/api/app/source_links.py
       - src/analysis_service/analysis_service/pipeline/report_fields.py
       - src/analysis_service/analysis_service/pipeline/prompts.py
       - src/analysis_service/analysis_service/pipeline/prompts/field_extract_list.md
@@ -2773,6 +2775,7 @@ requirements:
       - src/zakupki_parser/storage/profile_json.py
     tests:
       - src/scoring_common/tests/test_conditions.py
+      - src/scoring_common/tests/test_url_conditions.py
       - src/analysis_service/tests/test_report_fields.py
       - tests/integration/test_api.py
       - tests/unit/test_profile_json.py
@@ -2796,6 +2799,18 @@ requirements:
       входы анализа (регионы, лицензии). Значение-сайт (URL) — шаг 3 плана.
       Профиль переносится JSON-файлом полностью (решение пользователя):
       отчётные поля с условиями, requirement_blocking, report_field_mapping.
+      Шаг 3: условие со значением-сайтом (value_kind=url) — значения ТЗ ищутся
+      в тексте сайта-источника (FR-13.8); уточнения «рядом» (значения другого
+      поля из ТЗ или слова) — в окне от значения до следующего значения той
+      же формы (граница страницы/документа, 1.5 × медиана, max_window), и в
+      ТЗ (какие уточнения требует каждое значение), и на сайте. Отсутствие
+      значения на неполно собранном сайте — «не проверено»; пока сайт
+      собирается — «сайт собирается». По окончании сбора сайта условия
+      профилей, ссылающихся на него, пересчитываются без LLM.
+      Форма уточнения на сайте — у пользователя: слова без «*» ищутся
+      точно; для уточнений из ТЗ — метки сайта (near.labels), слово из ТЗ
+      сопоставляется с меткой по основе, на сайте ищется точная метка.
+      Пример — профиль ЭКОПАТТЕРН, docs/guides/user.md (2.7).
   - id: FR-13.8
     type: FR
     title: Сайты-источники — сбор текста сайта по всем страницам пагинации в S3
@@ -2808,7 +2823,7 @@ requirements:
       - src/zakupki_parser/sources/playwright_driver.py
       - src/zakupki_parser/sources/manager.py
       - src/zakupki_parser/sources/text.py
-      - src/zakupki_parser/sources/urls.py
+      - src/scoring_common/scoring_common/sources/urls.py
       - src/zakupki_parser/net_safety.py
       - src/zakupki_parser/storage/db/site_source.py
       - src/zakupki_parser/storage/repository/site_sources.py

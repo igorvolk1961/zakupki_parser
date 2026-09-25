@@ -5,13 +5,23 @@
     "name": "Экопаттерн",
     "enabled": true,
     "is_active": true,
-    "okpd_codes": ["38", "38.1", "38.2", "38.3"],
+    "okpd_codes": [
+      "38",
+      "38.1",
+      "38.2",
+      "38.3"
+    ],
     "nmck_min": 5000,
     "nmck_max": null,
     "min_fit_threshold": null,
     "target_etp": [],
-    "target_laws": ["44-ФЗ", "223-ФЗ"],
-    "target_regions": ["Москва"],
+    "target_laws": [
+      "44-ФЗ",
+      "223-ФЗ"
+    ],
+    "target_regions": [
+      "Москва"
+    ],
     "max_region_distance_km": 400.0,
     "keywords": [
       "утилизаци*",
@@ -54,16 +64,6 @@
       "поставка товаров",
       "продажа автомобилей"
     ],
-    "questions": [
-      {"id": "waste-kind", "text": "Что является предметом закупки: вид работ и вид отхода? Укажи код ФККО для отхода."},
-      {"id": "pickup-location", "text": "Где указано место забора/вывоза отходов? Укажи почтовый индекс, город, адрес."},
-      {"id": "license-codes", "text": "Какие коды/виды лицензии требуются для каждого вида отхода по ТЗ? Сверь с кодами конкретной лицензии компании (лицензия Росприроднадзора на обращение с отходами)."},
-      {"id": "volume", "text": "Указан ли общий объём отходов (тонн/куб. м)?"},
-      {"id": "unit-price", "text": "Указана ли начальная цена за единицу (за тонну/куб. м)?"},
-      {"id": "co-executors", "text": "Допускается ли привлечение соисполнителей (субподрядчиков)? Есть ли ограничение доли/объёма (например, не более 25%)?"},
-      {"id": "transport", "text": "Какой вид транспорта требуется для забора/перевозки отходов (фура, илосос, мультилифт, бортовой, вакуумная машина)?"},
-      {"id": "min-batch", "text": "Указан ли минимальный объём партии отходов?"}
-    ],
     "licenses": [
       {
         "license_type_name": "деятельность по сбору, транспортированию, обработке, утилизации, обезвреживанию, размещению отходов I - IV классов опасности (лицензия на обращение с отходами, лицензия РОП, лицензия на вывоз ТКО/ТБО)",
@@ -86,7 +86,129 @@
         "import_independent": null,
         "notes": "Код ФККО 4 41 902 01 49 4; место забора: 105005, Москва, Плетешковский пер., дом 2"
       }
-    ]
+    ],
+    "search_in_documents": false,
+    "website_url": "https://onlineecology.com/org/ooo-ekopattern",
+    "report_fields": [
+      {
+        "id": "f1",
+        "hint": "Вид оказываемых услуг (сбор, транспортирование, обезвреживание/утилизация) и вид отхода с кодом ФККО, образованный на объектах заказчика",
+        "name": "Что (вид работ и вид отхода)",
+        "type": "string",
+        "unit": null,
+        "blocking": false,
+        "condition": null,
+        "value_mode": "auto"
+      },
+      {
+        "id": "f2",
+        "hint": "Адрес места сбора/забора отходов",
+        "name": "Где (место забора)",
+        "type": "string",
+        "unit": null,
+        "blocking": false,
+        "condition": null,
+        "value_mode": "auto"
+      },
+      {
+        "id": "f3",
+        "hint": "Все коды ФККО видов отходов, указанные в ТЗ (таблица/перечень отходов)",
+        "name": "Коды ФККО отходов",
+        "type": "list",
+        "unit": null,
+        "blocking": true,
+        "condition": {
+          "op": "all_in",
+          "near": {
+            "mode": "all",
+            "labels": [
+              "Сбор",
+              "Транспортирование",
+              "Обработка",
+              "Утилизация",
+              "Обезвреживание",
+              "Размещение"
+            ],
+            "source": "field",
+            "window": 300,
+            "field_id": "f9",
+            "max_window": 2000
+          },
+          "value": "https://onlineecology.com/org/ooo-ekopattern",
+          "value_kind": "url"
+        },
+        "value_mode": "code",
+        "extend_list": true
+      },
+      {
+        "id": "f9",
+        "hint": "Какие работы с отходами требует закупка: сбор, транспортирование, обработка, утилизация, обезвреживание, размещение — как в ТЗ, в том числе для отдельных видов отходов",
+        "name": "Виды работ с отходами",
+        "type": "list",
+        "unit": null,
+        "blocking": false,
+        "condition": null,
+        "value_mode": "text",
+        "extend_list": true
+      },
+      {
+        "id": "f4",
+        "hint": "Общий объём (масса) отходов по закупке",
+        "name": "Объём отходов",
+        "type": "number",
+        "unit": "т",
+        "blocking": false,
+        "condition": null,
+        "value_mode": "auto"
+      },
+      {
+        "id": "f5",
+        "hint": "Начальная цена за единицу (тонну) отхода",
+        "name": "Цена за единицу",
+        "type": "number",
+        "unit": "руб/т",
+        "blocking": false,
+        "condition": null,
+        "value_mode": "auto"
+      },
+      {
+        "id": "f6",
+        "hint": "Что сказано в документации о привлечении субподрядчиков/соисполнителей: разрешено / запрещено / ограничено (например, не более 25% от объёма)",
+        "name": "Возможность привлечения соисполнителей",
+        "type": "string",
+        "unit": null,
+        "blocking": false,
+        "condition": null,
+        "value_mode": "auto"
+      },
+      {
+        "id": "f7",
+        "hint": "Требуемый или предполагаемый вид транспорта для забора отходов (фура, илосос, мультилифт, бортовой и т.п.)",
+        "name": "Вид транспорта",
+        "type": "string",
+        "unit": null,
+        "blocking": false,
+        "condition": null,
+        "value_mode": "auto"
+      },
+      {
+        "id": "f8",
+        "hint": "Минимальный объём партии отхода, если указан в документации",
+        "name": "Минимальный объём партии",
+        "type": "number",
+        "unit": "т",
+        "blocking": false,
+        "condition": null,
+        "value_mode": "auto"
+      }
+    ],
+    "requirement_blocking": {
+      "minprom": false,
+      "licenses": false,
+      "experience": false,
+      "subcontractors": false
+    },
+    "report_field_mapping": {}
   },
   "competencies": {
     "name": "Экопаттерн",
@@ -134,7 +256,10 @@
     ],
     "scoring_policy": {
       "uncovered_penalty": 1.5,
-      "ambiguous_range": [4.0, 6.0]
+      "ambiguous_range": [
+        4.0,
+        6.0
+      ]
     }
   }
 }

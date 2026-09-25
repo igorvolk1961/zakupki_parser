@@ -19,6 +19,8 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from scoring_common.sources.matching import source_contexts
+from zakupki_parser.api.app.source_links import with_source_meta
 from zakupki_parser.api.app.state import AppState, _broadcast
 
 logger = logging.getLogger(__name__)
@@ -96,13 +98,17 @@ async def _run(
         status.done, status.total = done, total
 
     try:
+        # Условия со значением-сайтом проверяются по тексту сайта из хранилища.
+        defs = await with_source_meta(state, field_defs)
+        sources = await asyncio.to_thread(source_contexts, defs)
         stats = await repo.recheck_profile_conditions(
             status.profile_id,
-            field_defs,
+            defs,
             requirement_blocking,
             snapshot_from=snapshot_from,
             snapshot_to=snapshot_to,
             on_progress=progress,
+            sources=sources,
         )
         status.stale = stats["stale"]
         logger.info(

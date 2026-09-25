@@ -2631,3 +2631,164 @@ def test_site_source_unsafe_url_rejected(api_client: tuple[TestClient, Path]) ->
 def test_site_source_not_found(api_client: tuple[TestClient, Path]) -> None:
     client, _ = api_client
     assert client.get("/api/sources/999999").status_code == 404
+
+
+def test_url_condition_rechecked_when_site_collected(api_client: tuple[TestClient, Path]) -> None:
+    """Коды ФККО из отчёта против сайта: когда сбор сайта заканчивается, условие
+    пересчитывается без LLM; виды работ — из соседнего поля, у каждого кода свои."""
+    from scoring_common.conditions import extraction_key, normalize_report_fields
+    from zakupki_parser.sources.crawler import NextStep
+
+    client, _ = api_client
+    manager = client.app.state.parser.source_crawls  # type: ignore[attr-defined]
+    site = {
+        "rows": (
+            "4 71 101 01 52 1\nлампы\nТранспортирование (1)  Утилизация (1)\nI класс\n"
+            "1 11 010 21 49 2\nсемена\nСбор (1)\nII класс"
+        )
+    }
+
+    class _Site:
+        async def __aenter__(self) -> _Site:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def open(self, url: str) -> None:
+            return None
+
+        async def text(self) -> str:
+            return site["rows"]
+
+        async def fingerprint(self) -> str:
+            return site["rows"]
+
+        async def current_url(self) -> str:
+            return "https://fkko.example.org/org"
+
+        async def find_next(self, page_no: int) -> NextStep | None:
+            return None
+
+        async def click_next(self) -> None:
+            return None
+
+        async def scroll_to_bottom(self) -> None:
+            return None
+
+        async def wait_change(self, old: str, timeout_s: float) -> str | None:
+            return None
+
+    active = client.get("/api/clients/active").json()
+    profile_id = active["id"]
+    fields = [
+        {"id": "works", "name": "виды работ", "type": "list"},
+        {
+            "id": "codes",
+            "name": "коды ФККО",
+            "type": "list",
+            "condition": {
+                "op": "all_in",
+                "value_kind": "url",
+                "value": "https://fkko.example.org/org",
+                "near": {"source": "field", "field_id": "works"},
+            },
+            "blocking": True,
+        },
+    ]
+
+    def _wait(url: str) -> None:
+        for _ in range(200):
+            recheck = client.get(f"/api/clients/{profile_id}/recheck").json()
+            source = client.post("/api/sources", json={"url": url}).json()
+            if not recheck["running"] and not source["active"] and source["status"] != "pending":
+                return
+            time.sleep(0.05)
+        raise AssertionError("сбор/пересчёт не завершился")
+
+    original = manager._driver_factory  # noqa: SLF001
+    manager._driver_factory = _Site  # noqa: SLF001
+    try:
+        saved = client.put(
+            f"/api/clients/{profile_id}",
+            json={"name": active["name"], "competencies": COMP_JSON, "report_fields": fields},
+        )
+        assert saved.status_code == 200, saved.text
+        _wait("https://fkko.example.org/org")
+
+        # Анализ получает сведения о сайте вместе с условием.
+        internal = client.get(
+            "/api/clients/active", headers={**INTERNAL_HEADERS, "X-Profile-ID": str(profile_id)}
+        ).json()
+        meta = next(f for f in internal["report_fields"] if f["id"] == "codes")["condition"][
+            "source"
+        ]
+        assert meta["status"] == "complete" and meta["text_complete"] is True
+
+        # Отчёт закупки: ТЗ требует утилизацию для семян — на сайте её у семян нет.
+        defs = {d["id"]: d for d in normalize_report_fields(fields)}
+        report_values = [
+            {
+                "field_id": "works",
+                "field_name": "виды работ",
+                "field_type": "list",
+                "found": True,
+                "value": ["утилизация"],
+                "extraction_key": extraction_key(defs["works"]),
+            },
+            {
+                "field_id": "codes",
+                "field_name": "коды ФККО",
+                "field_type": "list",
+                "found": True,
+                "value": ["4 71 101 01 52 1", "1 11 010 21 49 2"],
+                "extraction_key": extraction_key(defs["codes"]),
+                "tz_windows": {},
+            },
+        ]
+
+        async def _seed() -> int:
+            db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+            await db.connect()
+            try:
+                repo = ProcurementRepository(db)
+                assert await repo.upsert(
+                    {"number": "URL-COND-1", "platform_id": "zakupki_mos", "subject": "Отходы"}
+                )
+                rows, _ = await repo.list_procurements(number="URL-COND-1")
+                pid = rows[0].id
+                await repo.upsert_score(
+                    pid,
+                    profile_id,
+                    score_method="fit",
+                    rag_report={"status": "ok", "fields": report_values},
+                    analysis_profile_snapshot=datetime.fromisoformat(saved.json()["updated_at"]),
+                )
+                return pid
+            finally:
+                await db.dispose()
+
+        pid = asyncio.run(_seed())
+        source_id = client.post(
+            "/api/sources", json={"url": "https://fkko.example.org/org"}
+        ).json()["id"]
+        # Пересбор сайта -> по окончании пересчёт условий профиля.
+        assert client.post(f"/api/sources/{source_id}/refresh").status_code == 200
+        _wait("https://fkko.example.org/org")
+        card = client.get(f"/api/procurements/{pid}").json()
+        codes = next(f for f in card["rag_report"]["fields"] if f["field_id"] == "codes")
+        assert codes["match"] is False
+        assert codes["mismatch_reasons"] == {"1 11 010 21 49 2": "нет рядом: утилизация"}
+        assert card["auto_rejected"] is True
+        assert card["analysis_stale"] is False
+
+        # Сайт обновился: у семян появилась утилизация — отклонение снимается.
+        site["rows"] = site["rows"].replace("Сбор (1)\nII", "Сбор (1)  Утилизация (1)\nII")
+        assert client.post(f"/api/sources/{source_id}/refresh").status_code == 200
+        _wait("https://fkko.example.org/org")
+        card = client.get(f"/api/procurements/{pid}").json()
+        codes = next(f for f in card["rag_report"]["fields"] if f["field_id"] == "codes")
+        assert codes["match"] is True
+        assert card["auto_rejected"] is False
+    finally:
+        manager._driver_factory = original  # noqa: SLF001

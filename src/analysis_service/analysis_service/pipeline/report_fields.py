@@ -37,7 +37,7 @@ from analysis_service.llm import LlmClient
 from analysis_service.pipeline.prompts import build_field_extract_messages
 from analysis_service.settings import Settings
 from scoring_common.conditions import (
-    apply_condition,
+    apply_conditions,
     canonical_value,
     classify_value,
     extraction_key,
@@ -46,10 +46,19 @@ from scoring_common.conditions import (
     value_shape,
 )
 from scoring_common.embeddings import Embeddable, cosine_similarity
+from scoring_common.sources.matching import (
+    DEFAULT_MAX_WINDOW,
+    DEFAULT_WINDOW,
+    TextWindows,
+    source_contexts,
+)
 
 logger = logging.getLogger(__name__)
 
 FIELD_TYPES = ("string", "number", "date", "boolean", "list")
+# Окна значений в ТЗ хранятся в отчёте: не больше стольких значений и символов.
+_MAX_TZ_WINDOWS = 200
+_TZ_WINDOW_CHARS = 600
 
 
 class ReportFieldValue(BaseModel):
@@ -87,6 +96,20 @@ class ReportFieldValue(BaseModel):
     value_sources: dict[str, int] | None = None
     unconfirmed_values: list[str] = Field(default_factory=list)
     rejected_values: list[str] = Field(default_factory=list)
+    # Окно каждого значения в документах ТЗ (до следующего значения той же
+    # формы, scoring_common.sources.matching): по нему условие с «рядом»
+    # определяет, какие уточнения требуются значению (код A — утилизация),
+    # и пересчитывается без повторного чтения документов.
+    tz_windows: dict[str, str] = Field(default_factory=dict)
+    # Сравнение с сайтом (условие value_kind=url): причины несоответствия
+    # значений, требования к каждому значению, найденные словоформы уточнений,
+    # состояние текста сайта (собирается / полный / нет).
+    mismatch_reasons: dict[str, str] = Field(default_factory=dict)
+    requirements: dict[str, list[str]] = Field(default_factory=dict)
+    near_matches: dict[str, list[str]] = Field(default_factory=dict)
+    # Слово из ТЗ -> метка сайта («утилизации» -> «Утилизация»), None — нет метки.
+    near_labels: dict[str, str | None] = Field(default_factory=dict)
+    source_status: dict[str, Any] | None = None
 
 
 @dataclass
@@ -114,6 +137,7 @@ class _Corpus:
             src.chunks.append((idx, start, start + len(chunk)))
         for src in self.sources.values():
             src.norm = normalize_text(src.text)
+        self._windows: TextWindows | None = None
 
     def find(self, value: str, mode: str) -> list[tuple[str, int, int]]:
         return [
@@ -147,6 +171,12 @@ class _Corpus:
             start = max(0, starts[best_i] - margin)
             end = min(text_len, start + max_len)
         return name, start, end
+
+    def windows(self) -> TextWindows:
+        """Документы ТЗ как «страницы» для окон значений (граница окна — документ)."""
+        if self._windows is None:
+            self._windows = TextWindows(src.text for src in self.sources.values())
+        return self._windows
 
     def span_seen(self, span: tuple[str, int, int], seen_chunks: set[int]) -> bool:
         name, start, end = span
@@ -192,7 +222,44 @@ class ReportFieldExtractor:
                 )
 
         results = await asyncio.gather(*(_bounded(f) for f in active))
-        return list(results)
+        values = [self._with_tz_windows(v, f, corpus) for v, f in zip(results, active, strict=True)]
+        # Условия проверяются по отчёту целиком: уточнения «рядом» — значения
+        # соседнего поля; текст сайтов из условий — из хранилища (S3).
+        sources = await asyncio.to_thread(source_contexts, active)
+        checked = apply_conditions(values, active, sources)
+        for value, field_def in zip(checked, active, strict=True):
+            if value.get("reasoning") and field_def.get("condition"):
+                # Сбой извлечения — условие не проверено, а не «не найдено в ТЗ».
+                value["check_status"] = "llm_failed"
+        return checked
+
+    @staticmethod
+    def _with_tz_windows(
+        value: dict[str, Any], field_def: dict[str, Any], corpus: _Corpus
+    ) -> dict[str, Any]:
+        """Окна значений строки/списка в документах ТЗ (для уточнений «рядом»)."""
+        if not value.get("found") or value.get("field_type") not in ("string", "list"):
+            return value
+        raw = value.get("value")
+        items = [str(v) for v in raw] if isinstance(raw, list) else [str(raw)]
+        mode = str(field_def.get("value_mode") or "auto")
+        near = (field_def.get("condition") or {}).get("near") or {}
+        windows = corpus.windows()
+        found: dict[str, str] = {}
+        for item in items[:_MAX_TZ_WINDOWS]:
+            places = windows.occurrences(item, mode)
+            if places:
+                page, start, end = places[0]
+                found[item] = windows.window(
+                    page,
+                    start,
+                    end,
+                    item,
+                    mode,
+                    window=int(near.get("window", DEFAULT_WINDOW)),
+                    max_window=int(near.get("max_window", DEFAULT_MAX_WINDOW)),
+                )[:_TZ_WINDOW_CHARS]
+        return {**value, "tz_windows": found}
 
     async def _extract_one(
         self,
@@ -341,19 +408,14 @@ class ReportFieldExtractor:
     def _finish(
         base: dict[str, Any], field_def: dict[str, Any], *, reasoning: str = ""
     ) -> dict[str, Any]:
-        """Итоговое значение поля: проверка условия кодом (``apply_condition``)."""
+        """Извлечённое значение поля (условие проверяется в ``extract`` по отчёту)."""
         payload = dict(base)
         if reasoning:
             payload["reasoning"] = reasoning
             payload["found"] = False
         if not payload.get("found"):
             payload["value"] = None
-        value = ReportFieldValue(**payload).model_dump()
-        checked = apply_condition(value, field_def)
-        if reasoning and field_def.get("condition"):
-            # Сбой извлечения — условие не проверено, а не «не найдено в ТЗ».
-            checked["check_status"] = "llm_failed"
-        return checked
+        return ReportFieldValue(**payload).model_dump()
 
     @staticmethod
     def _coerce_value(value: Any, field_type: str) -> str | float | bool | None:

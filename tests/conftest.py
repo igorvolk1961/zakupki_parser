@@ -145,18 +145,19 @@ def _source_crawls_without_browser() -> Iterator[None]:
     подменяют ``state.source_crawls`` сами.
     """
     from zakupki_parser.api import app as app_module
-    from zakupki_parser.sources.manager import SourceCrawlManager
 
-    def _build(state: Any) -> SourceCrawlManager:
+    real_build = app_module._build_source_crawls
+
+    def _build(state: Any) -> Any:
+        # Настоящий менеджер (очередь, пересчёт условий по окончании сбора) —
+        # подменяются только браузер и проверка адреса.
         async def _any_url(url: str) -> None:
             return None
 
-        return SourceCrawlManager(
-            state.repository,
-            state.cfg.service.site_sources,
-            _StubSourceDriver,
-            check_url=_any_url,
-        )
+        manager = real_build(state)
+        manager._driver_factory = _StubSourceDriver
+        manager._check_url = _any_url
+        return manager
 
     mp = pytest.MonkeyPatch()
     mp.setattr(app_module, "_build_source_crawls", _build)

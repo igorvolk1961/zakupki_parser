@@ -365,6 +365,19 @@ def _field_condition_text(field_value: dict[str, Any]) -> str:
         return ""
     label = _CONDITION_OP_LABELS.get(str(condition["op"]), str(condition["op"]))
     target = condition.get("value")
+    if condition.get("value_kind") == "url":
+        near = condition.get("near") or {}
+        how = "одно из" if near.get("mode") == "any" else "все"
+        if near.get("source") == "words":
+            near_text = f"; рядом {how}: {', '.join(near.get('words') or [])}"
+        elif near.get("source") == "field":
+            labels = near.get("labels") or []
+            near_text = f"; рядом — {how} значения поля из ТЗ" + (
+                f" (метки сайта: {', '.join(labels)})" if labels else ""
+            )
+        else:
+            near_text = ""
+        return f"{label}: сайт {target}{near_text}"
     if isinstance(target, list):
         return f"{label}: {'; '.join(str(v) for v in target)}"
     return f"{label} {target}"
@@ -843,7 +856,13 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 else:
                     match_mark = " — не проверено"
                 missing = fv.get("mismatched_values") or []
-                extra = f"; нарушают: {'; '.join(missing)}" if missing else ""
+                why = fv.get("mismatch_reasons") or {}
+                extra = (
+                    "; нарушают: "
+                    + "; ".join(f"{v} ({why[v]})" if v in why else str(v) for v in missing)
+                    if missing
+                    else ""
+                )
                 value = f"{value} [условие: {condition}{match_mark}{extra}]"
             add(f"Поле: {fv.get('field_name', '')}", value, blocking=mismatch)
 

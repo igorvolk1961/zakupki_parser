@@ -888,14 +888,37 @@ function reportFieldRow(f) {
   let condCell = '<span class="muted">—</span>';
   if (cond) {
     let mark = "";
+    const src = f.source_status || {};
     if (f.match === true) mark = " ✓";
     else if (f.match === false) mark = " ✗";
-    else if (f.check_status && CHECK_STATUS_LABELS[f.check_status])
+    else if (f.check_status === "source_pending" && src.collecting) {
+      const pages = (src.progress || {}).pages;
+      mark = ` <span class="muted">⏳ сайт собирается${pages ? ` (${pages} стр.)` : ""}</span>`;
+    } else if (f.check_status && CHECK_STATUS_LABELS[f.check_status])
       mark = ` <span class="muted">⚪ не проверено: ${CHECK_STATUS_LABELS[f.check_status]}</span>`;
+    const reasons = f.mismatch_reasons || {};
     const missing = (f.mismatched_values || []).length
-      ? `<span style="display:block;font-size:12px;">нарушают условие: ${f.mismatched_values.map(escapeHtml).join("; ")}</span>`
+      ? `<span style="display:block;font-size:12px;">нарушают условие: ${f.mismatched_values
+          .map((v) => escapeHtml(v) + (reasons[v] ? ` — ${escapeHtml(reasons[v])}` : ""))
+          .join("; ")}</span>`
       : "";
-    condCell = `${escapeHtml(conditionText(cond))}${mark}${missing}`;
+    // Что требовалось каждому значению по ТЗ (уточнения «рядом»).
+    const req = Object.entries(f.requirements || {});
+    const reqText = req.length
+      ? `<span class="muted" style="display:block;font-size:12px;">по ТЗ: ${req
+          .slice(0, 10)
+          .map(
+            ([v, words]) =>
+              `${escapeHtml(v)} → ${words
+                .map((w) => {
+                  const label = (f.near_labels || {})[w];
+                  return escapeHtml(label ? `${w} (${label})` : w);
+                })
+                .join(", ")}`
+          )
+          .join("; ")}${req.length > 10 ? " …" : ""}</span>`
+      : "";
+    condCell = `${escapeHtml(conditionText(cond))}${mark}${missing}${reqText}`;
   }
   return `<tr${title}${rowStyle}><td>${escapeHtml(f.field_name)}</td><td>${value}</td><td>${condCell}</td></tr>`;
 }

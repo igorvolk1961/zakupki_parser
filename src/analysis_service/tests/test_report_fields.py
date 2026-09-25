@@ -173,6 +173,12 @@ def test_extract_found_value_and_source() -> None:
             "value_sources": None,
             "unconfirmed_values": [],
             "rejected_values": [],
+            "tz_windows": {},
+            "mismatch_reasons": {},
+            "requirements": {},
+            "near_matches": {},
+            "near_labels": {},
+            "source_status": None,
         }
     ]
 
@@ -517,3 +523,124 @@ def test_list_nothing_found_is_not_found() -> None:
     assert result["found"] is False
     assert result["value"] is None
     assert result["check_status"] == "not_found_in_tz"
+
+
+# --- Сквозная проверка: коды ФККО из ТЗ против сайта поставщика -------------
+
+_SITE_URL = "https://onlineecology.com/org/ooo-ekopattern"
+_TZ = (
+    "Перечень отходов\n"
+    "| 1 | 4 71 101 01 52 1 | лампы ртутные | утилизация |\n"
+    "| 2 | 1 11 010 21 49 2 | семена протравленные | транспортирование |\n"
+    "Контактный телефон 8 912 345 67 89"
+)
+_SITE = (
+    "4 71 101 01 52 1\nлампы ртутные\nТранспортирование (1)  Утилизация (1)\nI класс\n"
+    "1 11 010 21 49 2\nсемена\nСбор (1)  Транспортирование (1)\nII класс\n"
+    "7 33 100 01 72 4\nмусор\nСбор (1)\nIV класс"
+)
+
+
+def _fkko_fields(site_meta: dict[str, Any]) -> list[dict[str, Any]]:
+    fields = normalize_report_fields(
+        [
+            {"id": "works", "name": "виды работ", "type": "list", "extend_list": False},
+            {
+                "id": "codes",
+                "name": "коды ФККО",
+                "type": "list",
+                "condition": {
+                    "op": "all_in",
+                    "value_kind": "url",
+                    "value": _SITE_URL,
+                    "near": {"source": "field", "field_id": "works"},
+                },
+                "blocking": True,
+            },
+        ]
+    )
+    # Сведения о сайте добавляет API (active_client) — у сохранённого профиля их нет.
+    fields[1]["condition"]["source"] = site_meta
+    return fields
+
+
+def _run_fkko(site_meta: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    from scoring_common.sources.matching import clear_text_cache
+
+    clear_text_cache()
+    llm = _QueueLlm([])  # ответы — по имени поля, см. ниже
+    responses = {
+        "виды работ": {"found": True, "value": ["утилизация", "транспортирование"]},
+        "коды ФККО": {"found": True, "value": ["4 71 101 01 52 1", "1 11 010 21 49 2"]},
+    }
+
+    async def chat_json(system: str, user: str) -> dict[str, Any] | None:
+        for name, response in responses.items():
+            if f"«{name}»" in user:
+                return {**response, "confidence": "high"}
+        return None
+
+    llm.chat_json = chat_json  # type: ignore[method-assign]
+    extractor = ReportFieldExtractor(_settings(top_k=5), _RecordingEmbedder(), llm)  # type: ignore[arg-type]
+    results = asyncio.run(
+        extractor.extract(_fkko_fields(site_meta), [_TZ], [[1.0, 0.0]], ["ТЗ.docx"])
+    )
+    return {r["field_id"]: r for r in results}
+
+
+def _site_meta(**extra: Any) -> dict[str, Any]:
+    from scoring_common.sources.urls import normalize_source_url
+
+    return {
+        "url_norm": normalize_source_url(_SITE_URL),
+        "status": "complete",
+        "text_complete": True,
+        "fetched_at": "2026-09-25T10:00:00+00:00",
+        **extra,
+    }
+
+
+def test_fkko_codes_checked_against_site_with_works_per_code() -> None:
+    from scoring_common import object_storage
+    from scoring_common.sources import store
+
+    object_storage.use_in_memory()
+    meta = _site_meta()
+    store.put_text(store.text_key(meta["url_norm"]), store.join_pages([("p1", _SITE)]))
+
+    codes = _run_fkko(meta)["codes"]
+    # ТЗ: лампам — утилизация, семенам — транспортирование.
+    assert codes["requirements"] == {
+        "4 71 101 01 52 1": ["утилизация"],
+        "1 11 010 21 49 2": ["транспортирование"],
+    }
+    assert codes["match"] is True
+    assert codes["check_status"] == "ok"
+    assert "утилизация" in codes["tz_windows"]["4 71 101 01 52 1"]
+    assert "source" not in codes["condition"]
+
+
+def test_fkko_code_without_required_work_on_site_blocks() -> None:
+    from scoring_common import object_storage
+    from scoring_common.sources import store
+
+    object_storage.use_in_memory()
+    meta = _site_meta()
+    site = _SITE.replace("Транспортирование (1)  Утилизация (1)", "Транспортирование (1)")
+    store.put_text(store.text_key(meta["url_norm"]), store.join_pages([("p1", site)]))
+
+    codes = _run_fkko(meta)["codes"]
+    assert codes["match"] is False
+    assert codes["blocking"] is True
+    assert codes["mismatch_reasons"] == {"4 71 101 01 52 1": "нет рядом: утилизация"}
+
+
+def test_fkko_site_still_collecting_is_unchecked() -> None:
+    from scoring_common import object_storage
+
+    object_storage.use_in_memory()
+    meta = {**_site_meta(), "fetched_at": None, "status": "running", "active": True}
+    codes = _run_fkko(meta)["codes"]
+    assert codes["match"] is None
+    assert codes["check_status"] == "source_pending"
+    assert codes["source_status"]["collecting"] is True

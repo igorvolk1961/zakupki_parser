@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import Text, cast, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -88,6 +88,14 @@ class ProfileMixin(RepositoryMixin):
         stmt = select(Profile).where(Profile.id == profile_id, Profile.user_id == user_id)
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def list_profiles_with_url_conditions(self) -> list[Profile]:
+        """Профили, у которых есть условие отчётного поля со значением-сайтом."""
+        async with self._db.session() as session:
+            stmt = select(Profile).where(
+                cast(Profile.report_fields, Text).like('%"value_kind": "url"%')
+            )
+            return list((await session.execute(stmt)).scalars())
 
     async def get_profile_by_id(self, profile_id: int) -> Profile | None:
         """Профиль по ``profile_id`` без привязки к пользователю (системный скоуп).

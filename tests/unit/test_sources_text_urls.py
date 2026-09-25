@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from scoring_common.sources.urls import normalize_source_url
 from zakupki_parser.sources.text import strip_common_edges
-from zakupki_parser.sources.urls import normalize_source_url
 
 
 @pytest.mark.parametrize(

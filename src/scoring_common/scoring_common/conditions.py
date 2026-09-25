@@ -30,9 +30,13 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from functools import lru_cache
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlsplit
 
 import snowballstemmer  # type: ignore[import-untyped]
+
+if TYPE_CHECKING:
+    from scoring_common.sources.matching import SourceContext
 
 FIELD_TYPES = ("string", "number", "date", "boolean", "list")
 VALUE_MODES = ("auto", "code", "text")
@@ -64,6 +68,9 @@ CheckStatus = Literal[
     "llm_failed",
     "needs_reanalysis",
     "invalid_value",
+    "source_pending",
+    "source_incomplete",
+    "source_failed",
 ]
 
 
@@ -176,12 +183,14 @@ def _code_regex(value: str) -> re.Pattern[str] | None:
     return re.compile(f"{_NOT_ALNUM}{core}{_NOT_ALNUM_AHEAD}")
 
 
-def _text_core(value: str) -> str | None:
+def _text_core(value: str, exact: bool = False) -> str | None:
+    """Шаблон текстового значения. ``exact`` — слова без ``*`` целиком (точная
+    форма, как задал пользователь); иначе — по основе (значения из ТЗ)."""
     words = _text_words(value)
     if not words:
         return None
     parts: list[str] = []
-    explicit = any(w.endswith("*") for w in words)
+    explicit = exact or any(w.endswith("*") for w in words)
     for word in words:
         if word.endswith("*"):
             parts.append(re.escape(word[:-1]) + f"{_ALNUM_CLASS}*")
@@ -197,8 +206,8 @@ def _text_core(value: str) -> str | None:
 
 
 @lru_cache(maxsize=16384)
-def _text_regex(value: str) -> re.Pattern[str] | None:
-    core = _text_core(value)
+def _text_regex(value: str, exact: bool = False) -> re.Pattern[str] | None:
+    core = _text_core(value, exact)
     return re.compile(f"{_NOT_ALNUM}{core}") if core else None
 
 
@@ -208,16 +217,21 @@ def _text_full_regex(value: str) -> re.Pattern[str] | None:
     return re.compile(f"[^{_ALNUM}]*{core}[^{_ALNUM}]*") if core else None
 
 
-def value_regex(value: str, mode: str = "auto") -> re.Pattern[str] | None:
-    """Шаблон поиска значения в НОРМАЛИЗОВАННОМ тексте (``normalize_text``)."""
+def value_regex(value: str, mode: str = "auto", *, exact: bool = False) -> re.Pattern[str] | None:
+    """Шаблон поиска значения в НОРМАЛИЗОВАННОМ тексте (``normalize_text``).
+
+    ``exact`` — для текста: слова без ``*`` целиком (форма задана пользователем).
+    """
     if classify_value(value, mode) == "code":
         return _code_regex(value)
-    return _text_regex(value)
+    return _text_regex(value, exact)
 
 
-def find_value(normalized_text: str, value: str, mode: str = "auto") -> list[tuple[int, int]]:
+def find_value(
+    normalized_text: str, value: str, mode: str = "auto", *, exact: bool = False
+) -> list[tuple[int, int]]:
     """Все вхождения значения в нормализованном тексте: ``[(start, end)]``."""
-    regex = value_regex(value, mode)
+    regex = value_regex(value, mode, exact=exact)
     if regex is None:
         return []
     return [m.span() for m in regex.finditer(normalized_text)]
@@ -236,11 +250,13 @@ def values_equal(a: str, b: str, mode: str = "auto") -> bool:
     return False
 
 
-def value_shape(value: str) -> re.Pattern[str] | None:
+def value_shape(value: str, *, allow_plain: bool = False) -> re.Pattern[str] | None:
     """Форма значения-кода с разделителями: ``1 11 010`` -> ``\\d \\d{2} \\d{3}``.
 
     ``None`` — значение без разделителей между группами (``11101021492``:
     форма ``\\d{11}`` ловила бы телефоны и прочие номера) или не код.
+    ``allow_plain`` — форма и для кода без разделителей: для ГРАНИЦЫ окна
+    «до следующего значения» посторонний номер лишь укорачивает окно.
     """
     if classify_value(value) != "code":
         return None
@@ -271,7 +287,7 @@ def value_shape(value: str) -> re.Pattern[str] | None:
             parts.append(re.escape(sep))
             has_sep = has_sep or groups > 0
             i = j
-    if groups < 2 or not has_sep:
+    if not allow_plain and (groups < 2 or not has_sep):
         return None
     return re.compile(f"{_NOT_ALNUM}{''.join(parts)}{_NOT_ALNUM_AHEAD}")
 
@@ -314,7 +330,14 @@ def normalize_condition(raw: Any, field_type: str, mode: str = "auto") -> dict[s
         raise ConditionError(f"Оператор «{op}» не применим к полю типа «{field_type}»")
     value_kind = _str(raw.get("value_kind")) or kind
     if value_kind == "url":
-        raise ConditionError("Условие со значением-сайтом пока не поддерживается")
+        if kind != "list" or field_type not in ("string", "list"):
+            raise ConditionError(f"Оператор «{op}» не сравнивает с сайтом")
+        return {
+            "op": op,
+            "value_kind": "url",
+            "value": _check_url(_str(raw.get("value"))),
+            "near": _normalize_near(raw.get("near")),
+        }
     if value_kind != kind:
         raise ConditionError(f"Оператору «{op}» нужно значение вида «{kind}»")
     if kind == "list":
@@ -343,6 +366,71 @@ def normalize_condition(raw: Any, field_type: str, mode: str = "auto") -> dict[s
         if field_type in ("string", "list"):
             _check_searchable(value, mode)
     return {"op": op, "value_kind": "scalar", "value": value}
+
+
+def _check_url(url: str) -> str:
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ConditionError("Сайт условия — адрес http(s)://…")
+    return url
+
+
+def _normalize_near(raw: Any) -> dict[str, Any] | None:
+    """Уточнения «рядом» со значением на сайте (``near``).
+
+    ``source=field`` — значения другого отчётного поля той же закупки (что
+    требует ТЗ, например виды работ), ``labels`` — как они пишутся на сайте;
+    ``source=words`` — постоянные слова пользователя: без ``*`` — точная форма
+    (``утилизация``), ``*`` — любое продолжение (``утилиз*``).
+    ``mode``: ``all`` — нужны все, ``any`` — любое.
+    """
+    if not raw:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ConditionError("«Рядом» должно быть объектом")
+    source = _str(raw.get("source")) or "field"
+    near: dict[str, Any] = {"source": source}
+    if source == "field":
+        field_id = _str(raw.get("field_id"))
+        if not field_id:
+            raise ConditionError("«Рядом»: не выбрано поле с уточнениями")
+        near["field_id"] = field_id
+        # Как уточнения пишутся на сайте (метки: «Сбор», «Утилизация»…): слово
+        # из ТЗ в любом падеже сопоставляется с меткой по основе, на сайте
+        # ищется точная метка — «при утилизации» в названии отхода не в счёт.
+        labels = list(dict.fromkeys(_as_list(raw.get("labels"))))
+        for label in labels:
+            _check_searchable(label, "text")
+        near["labels"] = labels
+    elif source == "words":
+        words = list(dict.fromkeys(_as_list(raw.get("words"))))
+        if not words:
+            raise ConditionError("«Рядом»: не заданы слова")
+        for word in words:
+            _check_searchable(word, "text")
+        near["words"] = words
+    else:
+        raise ConditionError(f"«Рядом»: неизвестный источник уточнений {source}")
+    mode = _str(raw.get("mode")) or "all"
+    if mode not in ("all", "any"):
+        raise ConditionError("«Рядом»: режим all или any")
+    near["mode"] = mode
+    window = _int_in(raw.get("window"), 300, 50, 5000, "окно")
+    near["window"] = window
+    near["max_window"] = _int_in(raw.get("max_window"), 2000, window, 20000, "предел окна")
+    return near
+
+
+def _int_in(value: Any, default: int, low: int, high: int, name: str) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConditionError(f"«Рядом»: {name} — целое число") from exc
+    if not low <= number <= high:
+        raise ConditionError(f"«Рядом»: {name} от {low} до {high}")
+    return number
 
 
 def _check_searchable(value: str, mode: str) -> None:
@@ -399,6 +487,20 @@ def normalize_report_fields(fields: Any) -> list[dict[str, Any]]:
             extend = raw.get("extend_list")
             entry["extend_list"] = True if extend is None else bool(extend)
         out.append(entry)
+    by_id = {f["id"]: f for f in out}
+    for entry in out:
+        near = (entry["condition"] or {}).get("near") or {}
+        ref = near.get("field_id")
+        if ref is None:
+            continue
+        if ref == entry["id"] or ref not in by_id:
+            raise ConditionError(
+                f"Поле «{entry['name']}»: «рядом» ссылается на несуществующее поле"
+            )
+        if by_id[ref]["type"] not in ("string", "list"):
+            raise ConditionError(
+                f"Поле «{entry['name']}»: уточнения берутся из поля-строки или поля-списка"
+            )
     return out
 
 
@@ -468,6 +570,15 @@ class ConditionOutcome:
     match: bool | None
     check_status: CheckStatus
     mismatched_values: list[str] = field(default_factory=list)
+    # Сравнение с сайтом: почему значение нарушило условие («нет в источнике»,
+    # «нет рядом: утилизации»), какие уточнения требовались значению (из ТЗ)
+    # и какими словоформами они нашлись на сайте.
+    mismatch_reasons: dict[str, str] = field(default_factory=dict)
+    requirements: dict[str, list[str]] = field(default_factory=dict)
+    near_matches: dict[str, list[str]] = field(default_factory=dict)
+    # Уточнение из ТЗ -> метка сайта («утилизации» -> «Утилизация»); None —
+    # в списке меток сайта такого нет.
+    near_labels: dict[str, str | None] = field(default_factory=dict)
 
 
 def _compare(op: str, left: Any, right: Any) -> bool:
@@ -498,8 +609,15 @@ def evaluate_condition(
     *,
     value_mode: str = "auto",
     llm_match: bool | None = None,
+    source: SourceContext | None = None,
+    qualifiers: Sequence[str] | None = None,
+    tz_windows: Mapping[str, str] | None = None,
 ) -> ConditionOutcome:
     """Проверка условия по извлечённому значению поля (без LLM, кроме ``op=llm``).
+
+    Условие со значением-сайтом (``value_kind=url``) проверяется по тексту
+    сайта ``source``; ``qualifiers`` — уточнения «рядом», ``tz_windows`` —
+    окна значений в ТЗ (какие уточнения требуются каждому значению).
 
     ``llm_match`` — оценка LLM, полученная при извлечении (только ``op=llm``).
     Для списков ``mismatched_values`` — значения, нарушившие условие: для
@@ -519,6 +637,16 @@ def evaluate_condition(
     items = [str(v) for v in value] if isinstance(value, list) else None
     if not found or value is None or (items is not None and not items):
         return ConditionOutcome(None, "not_found_in_tz")
+    if condition.get("value_kind") == "url":
+        return _evaluate_url(
+            op,
+            items if items is not None else [str(value)],
+            condition,
+            source,
+            list(qualifiers or []),
+            tz_windows or {},
+            value_mode,
+        )
 
     if field_type == "list" and items is not None:
         options = [str(v) for v in target] if isinstance(target, list) else []
@@ -560,14 +688,206 @@ def evaluate_condition(
     return ConditionOutcome(None, "invalid_value")
 
 
-def apply_condition(field_value: dict[str, Any], field_def: Mapping[str, Any]) -> dict[str, Any]:
+def _requirement(value: str, qualifiers: Sequence[str], tz_windows: Mapping[str, str]) -> list[str]:
+    """Какие уточнения требуются значению: найденные в его окне в ТЗ
+    (код A — утилизация, код B — транспортирование), иначе — все."""
+    if not qualifiers:
+        return []
+    from scoring_common.sources.matching import qualifier_forms
+
+    window = tz_windows.get(value) or ""
+    own = [q for q in qualifiers if window and qualifier_forms(window, q)]
+    return own or list(qualifiers)
+
+
+def _label_for(qualifier: str, labels: Sequence[str]) -> str | None:
+    """Метка сайта для слова из ТЗ — по основе («утилизации» -> «Утилизация»)."""
+    wanted = canonical_text(qualifier)
+    for label in labels:
+        have = canonical_text(label)
+        if (
+            wanted
+            and have
+            and (wanted == have or wanted.startswith(have) or have.startswith(wanted))
+        ):
+            return label
+    return None
+
+
+def _evaluate_url(
+    op: str,
+    items: Sequence[str],
+    condition: Mapping[str, Any],
+    source: SourceContext | None,
+    qualifiers: Sequence[str],
+    tz_windows: Mapping[str, str],
+    value_mode: str,
+) -> ConditionOutcome:
+    """Значения ТЗ против текста сайта (с уточнениями «между значениями»).
+
+    Наличие значения на сайте доказано всегда; отсутствие — только если текст
+    собран полностью (иначе ``source_incomplete``, условие не проверено).
+    """
+    from scoring_common.sources.matching import qualifier_forms
+
+    if source is None or source.windows is None:
+        pending = source is None or source.collecting or source.state == "pending"
+        return ConditionOutcome(None, "source_pending" if pending else "source_failed")
+    windows = source.windows
+    near = condition.get("near") or {}
+    mode = near.get("mode", "all")
+    labels = [str(x) for x in near.get("labels") or []]
+    # Форма на сайте задана пользователем (слова или метки сайта) — ищется
+    # точно; иначе — по основе слова из ТЗ.
+    exact_site = near.get("source") == "words" or bool(labels)
+    label_map: dict[str, str | None] = {}
+
+    def site_form(qualifier: str) -> str | None:
+        if not labels:
+            return qualifier
+        if qualifier not in label_map:
+            label_map[qualifier] = _label_for(qualifier, labels)
+        return label_map[qualifier]
+
+    inside: list[str] = []
+    absent: list[str] = []
+    without_near: list[str] = []
+    reasons: dict[str, str] = {}
+    requirements: dict[str, list[str]] = {}
+    forms: dict[str, set[str]] = {}
+    for item in items:
+        places = windows.occurrences(item, value_mode)
+        if not places:
+            absent.append(item)
+            reasons[item] = "нет в источнике"
+            continue
+        required = _requirement(item, qualifiers, tz_windows)
+        if not required:
+            inside.append(item)
+            continue
+        requirements[item] = required
+        best_missing: list[str] | None = None
+        for page, start, end in places[:50]:
+            text = windows.window(
+                page,
+                start,
+                end,
+                item,
+                value_mode,
+                window=int(near.get("window", 300)),
+                max_window=int(near.get("max_window", 2000)),
+            )
+            present = []
+            for qualifier in required:
+                form = site_form(qualifier)
+                matched = qualifier_forms(text, form, exact=exact_site) if form else []
+                if matched:
+                    present.append(qualifier)
+                    forms.setdefault(qualifier, set()).update(m.lower() for m in matched)
+            if (mode == "all" and len(present) == len(required)) or (mode == "any" and present):
+                best_missing = []
+                break
+            missing = [q for q in required if q not in present]
+            if best_missing is None or len(missing) < len(best_missing):
+                best_missing = missing
+        if best_missing == []:
+            inside.append(item)
+        else:
+            without_near.append(item)
+            missing = best_missing or required
+            unknown = [q for q in missing if site_form(q) is None]
+            nearby = [q for q in missing if q not in unknown]
+            parts = []
+            if nearby:
+                parts.append("нет рядом: " + ", ".join(nearby))
+            if unknown:
+                parts.append("нет в списке меток сайта: " + ", ".join(unknown))
+            reasons[item] = "; ".join(parts)
+
+    def result(
+        match: bool | None, status: CheckStatus, mismatched: Sequence[str] = ()
+    ) -> ConditionOutcome:
+        return ConditionOutcome(
+            match,
+            status,
+            list(mismatched),
+            mismatch_reasons={v: reasons[v] for v in mismatched if v in reasons},
+            requirements=dict(list(requirements.items())[:50]),
+            near_matches={q: sorted(v)[:10] for q, v in forms.items()},
+            near_labels=dict(label_map),
+        )
+
+    outside = absent + without_near
+    if op in ("in", "all_in"):
+        if without_near or (absent and source.complete):
+            return result(False, "ok", outside)
+        if absent:
+            return result(None, "source_incomplete", absent)
+        return result(True, "ok")
+    if op == "any_in":
+        if inside:
+            return result(True, "ok")
+        if source.complete or without_near:
+            return result(False, "ok", outside)
+        return result(None, "source_incomplete", outside)
+    if op in ("not_in", "none_in"):
+        if inside:
+            return result(False, "ok", inside)
+        return result(True, "ok") if source.complete else result(None, "source_incomplete")
+    return ConditionOutcome(None, "invalid_value")
+
+
+def _qualifiers(
+    field_def: Mapping[str, Any], values_by_id: Mapping[str, Mapping[str, Any]]
+) -> list[str]:
+    """Уточнения «рядом»: слова пользователя или значения другого поля отчёта."""
+    near = (field_def.get("condition") or {}).get("near") or {}
+    if near.get("source") == "words":
+        return [str(w) for w in near.get("words") or []]
+    other = values_by_id.get(str(near.get("field_id") or ""))
+    if not other or not other.get("found"):
+        return []
+    value = other.get("value")
+    if isinstance(value, list):
+        return [str(v) for v in value if str(v).strip()]
+    return [str(value)] if value not in (None, "") else []
+
+
+def _source_for(
+    condition: Mapping[str, Any] | None, sources: Mapping[str, SourceContext]
+) -> SourceContext | None:
+    if not condition or condition.get("value_kind") != "url":
+        return None
+    from scoring_common.sources.urls import normalize_source_url
+
+    meta = condition.get("source") or {}
+    url_norm = str(meta.get("url_norm") or normalize_source_url(str(condition.get("value"))))
+    return sources.get(url_norm)
+
+
+def _stored_condition(condition: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Условие для отчёта — без служебных сведений о сайте (``source``)."""
+    if not condition:
+        return None
+    return {k: v for k, v in condition.items() if k != "source"}
+
+
+def apply_condition(
+    field_value: dict[str, Any],
+    field_def: Mapping[str, Any],
+    *,
+    sources: Mapping[str, SourceContext] | None = None,
+    qualifiers: Sequence[str] | None = None,
+) -> dict[str, Any]:
     """Проставляет в значение поля результат проверки условия из ``field_def``.
 
-    Меняются только ``condition``/``blocking``/``match``/``check_status``/
-    ``mismatched_values``; извлечённое значение не трогается.
+    Меняются только поля результата проверки (``condition``/``blocking``/
+    ``match``/``check_status``/``mismatched_values``/…); извлечённое значение
+    не трогается.
     """
     condition = field_def.get("condition")
     llm_match = field_value.get("llm_match")
+    source = _source_for(condition, sources or {})
     outcome = evaluate_condition(
         condition,
         str(field_value.get("field_type") or field_def.get("type") or "string"),
@@ -575,18 +895,62 @@ def apply_condition(field_value: dict[str, Any], field_def: Mapping[str, Any]) -
         bool(field_value.get("found")),
         value_mode=str(field_def.get("value_mode") or "auto"),
         llm_match=llm_match if isinstance(llm_match, bool) else None,
+        source=source,
+        qualifiers=qualifiers,
+        tz_windows=field_value.get("tz_windows") or {},
     )
     updated = dict(field_value)
-    updated["condition"] = dict(condition) if condition else None
+    updated["condition"] = _stored_condition(condition)
     updated["blocking"] = bool(field_def.get("blocking")) and condition is not None
     updated["match"] = outcome.match
     updated["check_status"] = outcome.check_status
     updated["mismatched_values"] = outcome.mismatched_values[:50]
+    updated["mismatch_reasons"] = dict(list(outcome.mismatch_reasons.items())[:50])
+    updated["requirements"] = outcome.requirements
+    updated["near_matches"] = outcome.near_matches
+    updated["near_labels"] = outcome.near_labels
+    updated["source_status"] = (
+        {
+            "state": source.state,
+            "complete": source.complete,
+            "collecting": source.collecting,
+            "progress": source.progress,
+        }
+        if source is not None
+        else None
+    )
     return updated
 
 
+def apply_conditions(
+    values: Sequence[Mapping[str, Any]],
+    field_defs: Sequence[Mapping[str, Any]],
+    sources: Mapping[str, SourceContext] | None = None,
+) -> list[dict[str, Any]]:
+    """Проверка условий всего отчёта: уточнения «рядом» берутся из соседних полей."""
+    defs = {str(d.get("id")): d for d in field_defs}
+    by_id = {str(v.get("field_id")): v for v in values}
+    out = []
+    for value in values:
+        field_def = defs.get(str(value.get("field_id")))
+        if field_def is None:
+            out.append(dict(value))
+            continue
+        out.append(
+            apply_condition(
+                dict(value),
+                field_def,
+                sources=sources,
+                qualifiers=_qualifiers(field_def, by_id),
+            )
+        )
+    return out
+
+
 def recompute_field_values(
-    stored: Sequence[Mapping[str, Any]], field_defs: Sequence[Mapping[str, Any]]
+    stored: Sequence[Mapping[str, Any]],
+    field_defs: Sequence[Mapping[str, Any]],
+    sources: Mapping[str, SourceContext] | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Пересчёт условий по сохранённым значениям полей (без LLM).
 
@@ -597,16 +961,18 @@ def recompute_field_values(
     Значения удалённых из профиля полей отбрасываются.
     """
     by_id = {str(v.get("field_id")): v for v in stored if isinstance(v, Mapping)}
-    out: list[dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
+    recheck: set[str] = set()
     complete = True
     for field_def in field_defs:
-        current = by_id.get(str(field_def.get("id")))
+        field_id = str(field_def.get("id"))
+        current = by_id.get(field_id)
         if current is None:
             complete = False
             continue
         if current.get("extraction_key") != extraction_key(field_def):
             complete = False
-            out.append(dict(current))
+            kept.append(dict(current))
             continue
         condition = field_def.get("condition") or None
         if condition and condition.get("op") == "llm":
@@ -615,10 +981,13 @@ def recompute_field_values(
                 complete = False
                 updated = apply_condition({**current, "llm_match": None}, field_def)
                 updated["check_status"] = "needs_reanalysis"
-                out.append(updated)
+                kept.append(updated)
                 continue
-        out.append(apply_condition(dict(current), field_def))
-    return out, complete
+        kept.append(dict(current))
+        recheck.add(field_id)
+    checked = apply_conditions([v for v in kept if v["field_id"] in recheck], field_defs, sources)
+    checked_by_id = {v["field_id"]: v for v in checked}
+    return [checked_by_id.get(v["field_id"], v) for v in kept], complete
 
 
 __all__ = [
@@ -627,6 +996,7 @@ __all__ = [
     "ConditionError",
     "ConditionOutcome",
     "apply_condition",
+    "apply_conditions",
     "canonical_value",
     "classify_value",
     "evaluate_condition",

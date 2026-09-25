@@ -70,3 +70,21 @@ def test_liquibase_command_falls_back_to_docker(monkeypatch: pytest.MonkeyPatch)
 def test_liquibase_command_none_when_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shutil, "which", lambda name: None)
     assert _liquibase_command(Path("/changelog"), {}) is None
+
+
+def test_changelog_sql_has_no_jdbc_placeholders() -> None:
+    """Оператор JSON «?» вне строк JDBC (Liquibase) принимает за параметр запроса —
+    миграция падает («syntax error at or near $1»), хотя в psql работает."""
+    import re
+
+    import yaml
+
+    for path in sorted((REPO_ROOT / "docker" / "liquibase" / "changelog").glob("*.yaml")):
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for entry in data.get("databaseChangeLog") or []:
+            change_set = entry.get("changeSet") or {}
+            for change in change_set.get("changes") or []:
+                sql = (change.get("sql") or {}).get("sql") or ""
+                code = re.sub(r"'(?:[^']|'')*'", "''", sql)  # строковые литералы
+                code = re.sub(r"--[^\n]*", "", code)  # комментарии
+                assert "?" not in code, f"{path.name}: changeSet {change_set.get('id')}"

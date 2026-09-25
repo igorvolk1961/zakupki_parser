@@ -32,6 +32,7 @@ from zakupki_parser.api.app.schemas import (
     ProfileSaveOut,
     UnmatchedLicenseOut,
 )
+from zakupki_parser.api.app.source_links import ensure_profile_sources, with_source_meta
 from zakupki_parser.api.app.state import _broadcast, _sync_profile_results
 from zakupki_parser.net_safety import UnsafeUrlError
 from zakupki_parser.storage.db import User
@@ -185,17 +186,8 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         return text
 
     async def _ensure_profile_site(profile: Any) -> None:
-        """Сайт поставщика из профиля собирается в хранилище источников (фоном).
-
-        Не мешает сохранению профиля: недоступный/небезопасный адрес — в лог."""
-        manager = state.source_crawls
-        url = (getattr(profile, "website_url", None) or "").strip()
-        if manager is None or not url:
-            return
-        try:
-            await manager.ensure(url)
-        except Exception as exc:  # noqa: BLE001
-            logger.info("Сайт профиля %s не поставлен в сбор: %s", profile.id, exc)
+        """Сайты профиля (условия полей, сайт поставщика) — в сбор (фоном)."""
+        await ensure_profile_sources(state, profile)
 
     async def _license_type_ids(profile_id: int) -> list[int]:
         return [lic.license_type_id for lic in await _repo().list_licenses(profile_id)]
@@ -355,7 +347,10 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             profile = await _repo().get_profile_by_id(profile_id)
             if profile is None:
                 raise HTTPException(status_code=404, detail="Профиль не найден")
-            return await _profile_out(profile, include_facts=True)
+            out = await _profile_out(profile, include_facts=True)
+            # Конвейеру (анализу) — сведения о сайтах из условий полей.
+            out.report_fields = await with_source_meta(state, out.report_fields)
+            return out
         _, profile = await _active_context(_require_user(user))
         assert profile is not None
         return await _profile_out(profile, include_facts=True)

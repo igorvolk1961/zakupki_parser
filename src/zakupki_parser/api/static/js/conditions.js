@@ -39,6 +39,9 @@ export const CHECK_STATUS_LABELS = {
   llm_failed: "сбой LLM",
   needs_reanalysis: "условие изменено — нужен повторный анализ",
   invalid_value: "значение не удалось сравнить",
+  source_pending: "сайт ещё собирается",
+  source_incomplete: "сайт собран не полностью — отсутствие значения не доказано",
+  source_failed: "текст сайта не получен",
 };
 
 export function opsForType(type) {
@@ -52,6 +55,22 @@ export function conditionText(cond, maxItems = 3) {
   if (!cond || !cond.op) return "";
   const def = CONDITION_OPS[cond.op];
   const label = def ? def.label : cond.op;
+  if (cond.value_kind === "url") {
+    let host = cond.value;
+    try {
+      host = new URL(cond.value).host + new URL(cond.value).pathname.replace(/\/$/, "");
+    } catch (err) {
+      /* некорректный адрес — как есть */
+    }
+    const near = cond.near;
+    const nearText = !near
+      ? ""
+      : near.source === "words"
+        ? `; рядом ${near.mode === "any" ? "одно из" : "все"}: ${(near.words || []).join(", ")}`
+        : `; рядом — ${near.mode === "any" ? "одно из" : "все"} значения поля из ТЗ` +
+          ((near.labels || []).length ? ` (метки сайта: ${near.labels.join(", ")})` : "");
+    return `${label}: сайт ${host}${nearText}`;
+  }
   if (Array.isArray(cond.value)) {
     const shown = cond.value.slice(0, maxItems).join("; ");
     const more = cond.value.length > maxItems ? ` … (всего ${cond.value.length})` : "";

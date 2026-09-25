@@ -454,6 +454,39 @@
                 <label id="rf-cond-value-row" style="grid-column:1/-1;">Значение условия
                   <input id="rf-cond-value" placeholder="например, 500000">
                 </label>
+                <label id="rf-cond-kind-row" style="grid-column:1/-1;" title="Сравнить значения из ТЗ со списком, заданным здесь, или с текстом сайта (например, лицензии поставщика со всеми кодами ФККО). Сайт собирается целиком, по всем страницам, и хранится в системе.">Сравнить со значениями
+                  <select id="rf-cond-kind">
+                    <option value="list">из списка ниже</option>
+                    <option value="url">на сайте</option>
+                  </select>
+                </label>
+                <label id="rf-cond-url-row" style="grid-column:1/-1;">Адрес сайта
+                  <input id="rf-cond-url" placeholder="https://onlineecology.com/org/ooo-ekopattern">
+                </label>
+                <div id="rf-near-row" style="grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                  <label title="Уточнение ищется на сайте в тексте от значения до следующего значения той же формы (строка таблицы). Значения поля берутся из ТЗ: если в ТЗ рядом с кодом указан вид работ, код требует именно его, иначе — все значения поля.">Рядом со значением на сайте должны быть
+                    <select id="rf-near-source">
+                      <option value="">— не проверять —</option>
+                      <option value="field">значения поля из ТЗ</option>
+                      <option value="words">слова</option>
+                    </select>
+                  </label>
+                  <label id="rf-near-field-row">Поле с уточнениями
+                    <select id="rf-near-field"></select>
+                  </label>
+                  <label id="rf-near-labels-row" style="grid-column:1/-1;" title="Как уточнения написаны на сайте, через запятую (например, виды работ в лицензии: Сбор, Транспортирование, Утилизация). Слово из ТЗ в любом падеже сопоставляется с меткой, а на сайте ищется точная метка — слово внутри названия («пригодная для утилизации») не засчитывается. Пусто — поиск по основе слова из ТЗ.">Как это пишется на сайте (необязательно)
+                    <input id="rf-near-labels" placeholder="Сбор, Транспортирование, Обработка, Утилизация, Обезвреживание, Размещение">
+                  </label>
+                  <label id="rf-near-words-row" title="Через запятую; окончание можно заменить «*»: утилиз* — утилизация, утилизировать.">Слова
+                    <input id="rf-near-words" placeholder="утилиз*, обезвреж*">
+                  </label>
+                  <label>Нужны
+                    <select id="rf-near-mode">
+                      <option value="all">все</option>
+                      <option value="any">хотя бы одно</option>
+                    </select>
+                  </label>
+                </div>
                 <label id="rf-cond-list-row" style="grid-column:1/-1;" title="По одному значению в строке. Текст сравнивается без учёта окончаний; «*» на конце слова — любое продолжение (утилиз* — утилизация, утилизировать).">Список значений условия (по одному в строке)
                   <textarea id="rf-cond-list" rows="4" placeholder="1 11 010 21 49 2&#10;4 71 101 01 52 1"></textarea>
                 </label>

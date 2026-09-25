@@ -34,7 +34,9 @@ databaseChangeLog:
           ) sub
           WHERE p.id = sub.id
             AND EXISTS (
-              SELECT 1 FROM jsonb_array_elements(p.report_fields) e WHERE e ? 'expected_value'
+              -- без оператора «?»: JDBC (Liquibase) принимает его за параметр запроса
+              SELECT 1 FROM jsonb_array_elements(p.report_fields) e
+              WHERE e->'expected_value' IS NOT NULL
             );
 - changeSet:
     id: 74
