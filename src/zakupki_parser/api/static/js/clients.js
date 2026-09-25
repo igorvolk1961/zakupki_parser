@@ -1457,7 +1457,7 @@ function collectCondition() {
     if (kind === "list" && $("#rf-cond-kind").value === "url") {
       const url = $("#rf-cond-url").value.trim();
       if (!/^https?:\/\/\S+$/i.test(url)) {
-        return { error: "Укажите адрес сайта http(s)://…" };
+        return { error: "Укажите адрес сайта поставщика http(s)://…" };
       }
       let near = null;
       const nearSource = $("#rf-near-source").value;
@@ -1573,8 +1573,8 @@ function conditionTestHtml(res, values) {
         .join(", ");
       const siteText = site
         ? site.occurrences
-          ? `найдено ${site.occurrences} раз<details><summary>строка на сайте</summary><pre style="white-space:pre-wrap;margin:0;">${escapeHtml(site.window)}</pre></details>`
-          : "нет на сайте"
+          ? `найдено ${site.occurrences} раз<details><summary>строка на сайте поставщика</summary><pre style="white-space:pre-wrap;margin:0;">${escapeHtml(site.window)}</pre></details>`
+          : "нет на сайте поставщика"
         : "—";
       const ok = reasons[v] ? `✗ ${escapeHtml(reasons[v])}` : "✓";
       return `<tr><td>${escapeHtml(v)}</td><td>${siteText}</td><td>${reqText || "—"}</td><td>${ok}</td></tr>`;
@@ -1584,7 +1584,7 @@ function conditionTestHtml(res, values) {
     .map(([q, f]) => `${escapeHtml(q)}: ${f.map(escapeHtml).join(", ")}`)
     .join("; ");
   return `<p style="margin:4px 0;"><b>${verdict}</b></p>
-    <div class="table-wrap"><table><thead><tr><th>Значение</th><th>На сайте</th><th>Требуется рядом</th><th>Итог</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Значение</th><th>На сайте поставщика</th><th>Требуется рядом</th><th>Итог</th></tr></thead><tbody>${rows}</tbody></table></div>
     ${forms ? `<p class="muted" style="margin:4px 0;">Совпавшие словоформы: ${forms}</p>` : ""}`;
 }
 

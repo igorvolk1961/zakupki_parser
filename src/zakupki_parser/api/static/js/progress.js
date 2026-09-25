@@ -76,10 +76,10 @@ function fmtDate(iso) {
 
 // Текст статуса сайта-источника (без кнопок).
 export function sourceStatusText(src) {
-  if (!src) return "Сайт ещё не собирался.";
+  if (!src) return "Сайт поставщика ещё не собирался.";
   const p = src.progress || {};
   if (src.active || src.status === "running" || src.status === "pending") {
-    if (!p.pages) return "⏳ Сбор сайта в очереди…";
+    if (!p.pages) return "⏳ Сбор сайта поставщика в очереди…";
     const mode = MODE_LABELS[p.mode] ? ` · переход: ${MODE_LABELS[p.mode]}` : "";
     return `⏳ Собрано ${p.pages} стр. · ${fmtChars(p.chars)} · ${fmtElapsed(p.elapsed_s)}${mode}`;
   }
@@ -94,10 +94,10 @@ export function sourceStatusText(src) {
         ? ` Последний пересбор не удался: ${escapeHtml(src.error || reason)}.`
         : ` Последний пересбор: ${reason}.`;
   if (src.fetched_at && src.text_complete)
-    return `✓ Текст сайта полный: ${src.pages} стр., ${fmtChars(src.text_chars)}${when}.${lastRun}`;
+    return `✓ Текст сайта поставщика полный: ${src.pages} стр., ${fmtChars(src.text_chars)}${when}.${lastRun}`;
   if (src.fetched_at)
-    return `◐ Текст сайта неполный: ${src.pages} стр.${when} — ${reason}. Отсутствие значения на сайте не доказано.`;
-  return `✗ Сайт не собран: ${escapeHtml(src.error || reason)}.`;
+    return `◐ Текст сайта поставщика неполный: ${src.pages} стр.${when} — ${reason}. Отсутствие значения на сайте поставщика не доказано.`;
+  return `✗ Сайт поставщика не собран: ${escapeHtml(src.error || reason)}.`;
 }
 
 // Виджет статуса сайта: текст, текущий адрес и кнопки «Собрать/Обновить»,
@@ -107,7 +107,7 @@ export function mountSourceStatus(el, url) {
   let source = null;
   // Постоянная разметка: при опросе меняются только текст и подпись кнопки —
   // кнопку не пересоздаём (иначе нажатие может попасть в исчезающий элемент).
-  el.innerHTML = `<span data-part="text">Проверяю сайт…</span> <button type="button" class="ghost btn-mini" data-part="btn" style="display:none;"></button><span data-part="url" class="muted" style="display:block;font-size:12px;word-break:break-all;"></span>`;
+  el.innerHTML = `<span data-part="text">Проверяю сайт поставщика…</span> <button type="button" class="ghost btn-mini" data-part="btn" style="display:none;"></button><span data-part="url" class="muted" style="display:block;font-size:12px;word-break:break-all;"></span>`;
   const textEl = el.querySelector('[data-part="text"]');
   const btn = el.querySelector('[data-part="btn"]');
   const urlEl = el.querySelector('[data-part="url"]');

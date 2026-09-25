@@ -417,16 +417,16 @@
           <div id="pf-pane-report-fields" style="display:none;">
             <div style="border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:14px;">
               <p class="muted" style="margin:0 0 8px;" title="Эти категории ищутся детерминированно (без LLM) по всем документам закупки. Найдено реальное требование (не «не требуется») — оно барьер выбранного уровня: «отклоняет закупку» — закупка автоматически отклоняется; «снижает P(win)» — закупка остаётся, её P(win) умножается на множитель из «Параметров мониторинга» (за каждый мягкий барьер).">Что делает найденное требование к участнику:</p>
-              <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                <label>Лицензии <select id="rb-licenses"><option value="off">не учитывать</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
-                <label title="Правило BR-03: подтверждение опыта через электронную площадку (ПП 2571), а в профиле нет опыта «через площадку» — закупка отклоняется; копии договоров/актов или выписка из реестра контрактов — снижает P(win); опыт только в критериях оценки — не барьер.">Опыт исполнения <select id="rb-experience"><option value="off">не учитывать</option><option value="br03">по способу подтверждения (BR-03)</option></select></label>
-                <label>Требования Минпромторга <select id="rb-minprom"><option value="off">не учитывать</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
-                <label>Запрет/ограничение на соисполнителей <select id="rb-subcontractors"><option value="off">не учитывать</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
+              <div class="profile-form" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;">
+                <label>Лицензии <select id="rb-licenses"><option value="off">не влияет на участие в закупке</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
+                <label title="Правило BR-03: подтверждение опыта через электронную площадку (ПП 2571), а в профиле нет опыта «через площадку» — закупка отклоняется; копии договоров/актов или выписка из реестра контрактов — снижает P(win); опыт только в критериях оценки — не барьер.">Опыт исполнения <select id="rb-experience"><option value="off">не влияет на участие в закупке</option><option value="br03">по способу подтверждения (BR-03)</option></select></label>
+                <label>Требования Минпромторга <select id="rb-minprom"><option value="off">не влияет на участие в закупке</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
+                <label>Запрет/ограничение на соисполнителей <select id="rb-subcontractors"><option value="off">не влияет на участие в закупке</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
               </div>
             </div>
             <p class="muted" style="margin-top:0;">Значение каждого поля программа сама находит в документах закупки (RAG-анализ) — опишите поле обычным языком, техническая формулировка запроса не нужна.</p>
             <div id="report-field-form" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px;">
-              <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+              <div class="profile-form" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;">
                 <label>Название поля <input id="rf-name" placeholder="например, код ФККО"></label>
                 <label>Тип значения
                   <select id="rf-type">
@@ -457,18 +457,18 @@
                 <label id="rf-cond-value-row" style="grid-column:1/-1;">Значение условия
                   <input id="rf-cond-value" placeholder="например, 500000">
                 </label>
-                <label id="rf-cond-kind-row" style="grid-column:1/-1;" title="Сравнить значения из ТЗ со списком, заданным здесь, или с текстом сайта (например, лицензии поставщика со всеми кодами ФККО). Сайт собирается целиком, по всем страницам, и хранится в системе.">Сравнить со значениями
+                <label id="rf-cond-kind-row" style="grid-column:1/-1;" title="Сравнить значения из ТЗ со списком, заданным здесь, или с текстом сайта поставщика (например, лицензии поставщика со всеми кодами ФККО). Сайт поставщика собирается целиком, по всем страницам, и хранится в системе.">Сравнить со значениями
                   <select id="rf-cond-kind">
                     <option value="list">из списка ниже</option>
-                    <option value="url">на сайте</option>
+                    <option value="url">на сайте поставщика</option>
                   </select>
                 </label>
-                <label id="rf-cond-url-row" style="grid-column:1/-1;">Адрес сайта
+                <label id="rf-cond-url-row" style="grid-column:1/-1;">Адрес сайта поставщика
                   <input id="rf-cond-url" placeholder="https://onlineecology.com/org/ooo-ekopattern">
                   <span id="rf-cond-url-status" class="muted" style="display:block;margin-top:4px;"></span>
                 </label>
                 <div id="rf-near-row" style="grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                  <label title="Уточнение ищется на сайте в тексте от значения до следующего значения той же формы (строка таблицы). Значения поля берутся из ТЗ: если в ТЗ рядом с кодом указан вид работ, код требует именно его, иначе — все значения поля.">Рядом со значением на сайте должны быть
+                  <label title="Уточнение ищется на сайте поставщика в тексте от значения до следующего значения той же формы (строка таблицы). Значения поля берутся из ТЗ: если в ТЗ рядом с кодом указан вид работ, код требует именно его, иначе — все значения поля.">Рядом со значением на сайте поставщика должны быть
                     <select id="rf-near-source">
                       <option value="">— не проверять —</option>
                       <option value="field">значения поля из ТЗ</option>
@@ -478,7 +478,7 @@
                   <label id="rf-near-field-row">Поле с уточнениями
                     <select id="rf-near-field"></select>
                   </label>
-                  <label id="rf-near-labels-row" style="grid-column:1/-1;" title="Как уточнения написаны на сайте, через запятую (например, виды работ в лицензии: Сбор, Транспортирование, Утилизация). Слово из ТЗ в любом падеже сопоставляется с меткой, а на сайте ищется точная метка — слово внутри названия («пригодная для утилизации») не засчитывается. Пусто — поиск по основе слова из ТЗ.">Как это пишется на сайте (необязательно)
+                  <label id="rf-near-labels-row" style="grid-column:1/-1;" title="Как уточнения написаны на сайте поставщика, через запятую (например, виды работ в лицензии: Сбор, Транспортирование, Утилизация). Слово из ТЗ в любом падеже сопоставляется с меткой, а на сайте поставщика ищется точная метка — слово внутри названия («пригодная для утилизации») не засчитывается. Пусто — поиск по основе слова из ТЗ.">Как это пишется на сайте поставщика (необязательно)
                     <input id="rf-near-labels" placeholder="Сбор, Транспортирование, Обработка, Утилизация, Обезвреживание, Размещение">
                   </label>
                   <label id="rf-near-words-row" title="Через запятую. Слово без «*» ищется в точной форме; «*» — любое продолжение: утилиз* — утилизация, утилизировать. Кнопка «Основы» заменит окончания звёздочкой.">Слова

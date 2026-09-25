@@ -54,13 +54,14 @@ export const CHECK_STATUS_LABELS = {
   source_failed: "текст сайта не получен",
 };
 
-// Операторы со списком, когда значение — сайт: «все значения есть на сайте …».
+// Операторы со списком, когда значение — сайт поставщика: «все значения есть
+// на сайте поставщика …».
 const URL_OP_LABELS = {
-  in: "есть на сайте",
-  not_in: "нет на сайте",
-  all_in: "все значения есть на сайте",
-  any_in: "хотя бы одно значение есть на сайте",
-  none_in: "ни одного значения нет на сайте",
+  in: "есть на сайте поставщика",
+  not_in: "нет на сайте поставщика",
+  all_in: "все значения есть на сайте поставщика",
+  any_in: "хотя бы одно значение есть на сайте поставщика",
+  none_in: "ни одного значения нет на сайте поставщика",
 };
 
 export function opsForType(type) {
@@ -88,7 +89,7 @@ export function conditionText(cond, maxItems = 3) {
       : near.source === "words"
         ? `; рядом ${near.mode === "any" ? "одно из" : "все"}: ${(near.words || []).join(", ")}`
         : `; рядом — ${near.mode === "any" ? "одно из" : "все"} значения поля из ТЗ` +
-          ((near.labels || []).length ? ` (метки сайта: ${near.labels.join(", ")})` : "");
+          ((near.labels || []).length ? ` (метки сайта поставщика: ${near.labels.join(", ")})` : "");
     return `${urlLabel} ${host}${nearText}`;
   }
   if (Array.isArray(cond.value)) {
