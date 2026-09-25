@@ -838,7 +838,13 @@ function cardReportPanel(row, isAnalyzing, containerId) {
         return hasItems ? categoryBlock(key, severity, requirementRawTextHtml(items)) : "";
       }
       if (key === "subcontractors") {
-        return hasItems ? categoryBlock(key, severity, subcontractorInnerHtml(items)) : "";
+        // В отличие от лицензий/опыта/Минпромторга, у соисполнителей нет
+        // requirements_status — показываем «не найдено» явно, а не молчим.
+        return categoryBlock(
+          key,
+          severity,
+          hasItems ? subcontractorInnerHtml(items) : "Условий о привлечении соисполнителей не найдено в документах закупки."
+        );
       }
       return hasItems ? categoryBlock(key, severity, requirementRawTextHtml(items)) : "";
     })

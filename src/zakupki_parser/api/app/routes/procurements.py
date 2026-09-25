@@ -835,6 +835,15 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 add(label, _requirement_status_text(status), severity=info.get("severity"))
                 continue
             if not items:
+                if key == "subcontractors":
+                    # В отличие от лицензий/опыта/Минпромторга, у соисполнителей нет
+                    # отдельного requirements_status — явно показываем «не найдено»,
+                    # чтобы пункт не пропадал из отчёта молча (см. cardReportPanel).
+                    add(
+                        label,
+                        "Условий о привлечении соисполнителей не найдено",
+                        severity=info.get("severity"),
+                    )
                 continue
             if key == "subcontractors":
                 texts = "; ".join(
