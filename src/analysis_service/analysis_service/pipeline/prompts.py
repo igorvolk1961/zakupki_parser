@@ -31,7 +31,7 @@ GEO_ADDRESS_SYSTEM = _load_md("geo_address_system.md")
 GEO_ADDRESS_USER_TEMPLATE = _load_md("geo_address_user.md")
 
 # Конструктор отчётных полей (FR-12.2): промпт зависит только от ТИПА поля
-# (строка/число/дата/да-нет), а не от предметной области — домен задаёт сам
+# (строка/число/дата/да-нет/список), а не от предметной области — домен задаёт сам
 # пользователь через name/hint поля, попадающие в user-промпт.
 FIELD_EXTRACT_USER_TEMPLATE = _load_md("field_extract_user.md")
 FIELD_EXTRACT_SYSTEM_BY_TYPE: dict[str, str] = {
@@ -39,6 +39,7 @@ FIELD_EXTRACT_SYSTEM_BY_TYPE: dict[str, str] = {
     "number": _load_md("field_extract_number.md"),
     "date": _load_md("field_extract_date.md"),
     "boolean": _load_md("field_extract_boolean.md"),
+    "list": _load_md("field_extract_list.md"),
 }
 
 # Структуры data для трёх основных типов требований + обобщённая для «прочих».
@@ -118,10 +119,22 @@ def build_requirements_data_messages(kind: str, text: str) -> tuple[str, str]:
     return REQUIREMENTS_DATA, user
 
 
+def _llm_expected_value(field: dict[str, Any]) -> str:
+    """«Ожидаемое значение» для LLM — только у условия ``op=llm`` (оценка по смыслу).
+
+    Остальные условия проверяет код (``scoring_common.conditions``) по
+    извлечённому значению — LLM сравнивать не нужно, промпт не усложняется.
+    """
+    condition = field.get("condition") or {}
+    if condition.get("op") == "llm":
+        return str(condition.get("value") or "").strip() or "не задано"
+    return "не задано"
+
+
 def build_field_extract_messages(field: dict[str, Any], context: str) -> tuple[str, str]:
     """Системный и пользовательский промпты для значения одного отчётного поля.
 
-    Системный промпт выбирается по ``field["type"]`` (строка/число/дата/да-нет) —
+    Системный промпт выбирается по ``field["type"]`` (строка/число/дата/да-нет/список) —
     неизвестный/отсутствующий тип трактуется как ``string`` (самый общий случай).
     Домен поля (что именно ищем) не зашит в промпт — задаётся исключительно
     пользовательскими ``name``/``hint`` поля, подставляемыми в user-промпт.
@@ -134,7 +147,7 @@ def build_field_extract_messages(field: dict[str, Any], context: str) -> tuple[s
             "field_name": str(field.get("name") or ""),
             "field_hint": str(field.get("hint") or "нет"),
             "unit": str(field.get("unit") or "не указана"),
-            "expected_value": str(field.get("expected_value") or "").strip() or "не задано",
+            "expected_value": _llm_expected_value(field),
             "context": context,
         },
     )

@@ -1,7 +1,6 @@
 """Работа со страницей списка закупок (URL-запрос + навигация/пагинация)."""
 
 from zakupki_parser.parser.lister.page import (
-    SETTLE_MS,
     _increment_url_page,
     extract_total_results,
     goto_next_page,
@@ -22,7 +21,6 @@ from zakupki_parser.parser.lister.query import (
 )
 
 __all__ = [
-    "SETTLE_MS",
     "MSK",
     "build_query",
     "build_list_url",

@@ -81,11 +81,8 @@ def test_has_default_profile_role() -> None:
     assert has_default_profile_role([]) is False
 
 
-def test_legacy_role_claim_normalized() -> None:
-    """Токены с одним claim ``role`` (до ролевой модели) принимаются как ``roles``.
-
-    Старые сессии не «вылетают» при выкатке: payload нормализуется к списку ролей.
-    """
+def test_token_without_roles_list_rejected() -> None:
+    """Токен без списка ролей ``roles`` не принимается."""
     import hashlib
     import hmac
     import json
@@ -96,18 +93,8 @@ def test_legacy_role_claim_normalized() -> None:
     payload = {"sub": 7, "role": "admin", "exp": int(time.time()) + 3600}
     raw = _b64url(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signature = hmac.new(b"secret", raw.encode("ascii"), hashlib.sha256).digest()
-    legacy = f"{raw}.{_b64url(signature)}"
 
-    decoded = decode_token(legacy, "secret")
-    assert decoded is not None
-    assert decoded["sub"] == 7
-    assert decoded["roles"] == ["admin"]
-
-    # Без ролей вовсе — токен отклоняется.
-    payload_bad = {"sub": 7, "exp": int(time.time()) + 3600}
-    raw_bad = _b64url(json.dumps(payload_bad, separators=(",", ":")).encode("utf-8"))
-    sig_bad = hmac.new(b"secret", raw_bad.encode("ascii"), hashlib.sha256).digest()
-    assert decode_token(f"{raw_bad}.{_b64url(sig_bad)}", "secret") is None
+    assert decode_token(f"{raw}.{_b64url(signature)}", "secret") is None
 
 
 def _configs_copy(tmp_path: Path) -> Path:

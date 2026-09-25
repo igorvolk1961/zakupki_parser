@@ -219,17 +219,6 @@ def enabled_paid_options(account_options: dict[str, Any] | None) -> set[str]:
     return enabled & implemented_paid_keys()
 
 
-def enabled_options(account_options: dict[str, Any] | None, *, in_trial: bool) -> set[str]:
-    """Множество опций, фактически доступных пользователю.
-
-    В триал-режиме доступны бесплатно все реализованные опции поиска и скоринга
-    (#7), независимо от аккаунта. После окончания триала платные опции доступны
-    только если включены в аккаунте. Бесплатные опции доступны всегда.
-    """
-    paid = implemented_paid_keys() if in_trial else enabled_paid_options(account_options)
-    return set(FREE_KEYS) | paid
-
-
 def option_requires_competencies(key: str) -> bool:
     option = option_by_key(key)
     return option is not None and option.requires_competencies

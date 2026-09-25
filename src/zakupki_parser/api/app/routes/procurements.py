@@ -341,6 +341,35 @@ def _region_explicitly_requested(profile: Any) -> bool:
     )
 
 
+_CONDITION_OP_LABELS = {
+    "eq": "равно",
+    "ne": "не равно",
+    "gt": "больше",
+    "gte": "не меньше",
+    "lt": "меньше",
+    "lte": "не больше",
+    "contains": "содержит",
+    "in": "входит в список",
+    "not_in": "не входит в список",
+    "all_in": "все значения входят в список",
+    "any_in": "хотя бы одно входит в список",
+    "none_in": "ни одно не входит в список",
+    "llm": "соответствует по смыслу",
+}
+
+
+def _field_condition_text(field_value: dict[str, Any]) -> str:
+    """Условие отчётного поля текстом (Excel); пусто — условия нет."""
+    condition = field_value.get("condition")
+    if not isinstance(condition, dict) or not condition.get("op"):
+        return ""
+    label = _CONDITION_OP_LABELS.get(str(condition["op"]), str(condition["op"]))
+    target = condition.get("value")
+    if isinstance(target, list):
+        return f"{label}: {'; '.join(str(v) for v in target)}"
+    return f"{label} {target}"
+
+
 def build_procurements_router(ctx: ApiContext) -> APIRouter:
     router = APIRouter()
     state = ctx.state
@@ -366,7 +395,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         """
         uid = getattr(profile, "user_id", None)
         if uid is None:
-            return True  # легаси-профиль без владельца = полный доступ
+            return False
         accounts_map = await _repo().accounts_by_users([uid])
         trial_map = await _repo().get_users_with_trial([uid])
         eff = effective_options(accounts_map.get(uid, []), trial_map.get(uid))
@@ -802,16 +831,20 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 continue
             mismatch = bool(fv.get("blocking")) and fv.get("match") is False
             value = fv.get("value")
-            expected = fv.get("expected_value")
-            if expected:
+            if isinstance(value, list):
+                value = "; ".join(str(v) for v in value)
+            condition = _field_condition_text(fv)
+            if condition:
                 match_result = fv.get("match")
                 if match_result is True:
-                    match_mark = " (совпадает)"
+                    match_mark = " — выполнено"
                 elif match_result is False:
-                    match_mark = " (НЕ совпадает)"
+                    match_mark = " — НЕ выполнено"
                 else:
-                    match_mark = ""
-                value = f"{value} [ожидается: {expected}{match_mark}]"
+                    match_mark = " — не проверено"
+                missing = fv.get("mismatched_values") or []
+                extra = f"; нарушают: {'; '.join(missing)}" if missing else ""
+                value = f"{value} [условие: {condition}{match_mark}{extra}]"
             add(f"Поле: {fv.get('field_name', '')}", value, blocking=mismatch)
 
         buf = io.BytesIO()

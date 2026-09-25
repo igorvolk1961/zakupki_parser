@@ -67,5 +67,5 @@ class DomConfig(BaseModel):
     @classmethod
     def _non_empty(cls, v: dict[str, PlatformDom]) -> dict[str, PlatformDom]:
         if not v:
-            raise ValueError("config_dom должен содержать хотя бы одну площадку")
+            raise ValueError("configs/dom должен содержать хотя бы одну площадку")
         return v

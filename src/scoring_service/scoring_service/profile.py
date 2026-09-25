@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -163,30 +162,26 @@ def _from_mapping(data: Any) -> Profile:
     """Профиль из YAML/JSON-отображения."""
     if isinstance(data, dict):
         return Profile.model_validate(data)
-    raise ValueError("профиль должен быть YAML/JSON-отображением либо markdown-текстом")
+    raise ValueError("профиль должен быть YAML/JSON-отображением")
 
 
 def load_profile(path: Path) -> Profile:
-    """Загрузить структурированный профиль из файла.
-
-    ``.yaml``/``.yml``/``.json`` — структурированная форма; ``.md``/``.txt`` —
-    legacy-markdown (обратная совместимость с ``data/competencies.md``).
-    """
+    """Загрузить структурированный профиль из файла ``.yaml``/``.yml``/``.json``."""
     text = path.read_text(encoding="utf-8")
     suffix = path.suffix.lower()
     if suffix == ".json":
         return Profile.model_validate(json.loads(text))
     if suffix in {".yaml", ".yml"}:
         return _from_mapping(yaml.safe_load(text))
-    return parse_legacy_markdown(text)
+    raise ValueError(f"Профиль поставщика — файл YAML или JSON, а не {path.name}")
 
 
 def profile_to_texts(value: Any) -> ProfileTexts | None:
     """Нормализовать компетенции профиля в пару текстов (llm/embedding).
 
     Принимает ТОЛЬКО структурированное значение: ``Profile``, dict или JSON-строку
-    (каноническая схема ``Profile`` — BR-07). Свободный текст/legacy-markdown не
-    поддерживаются (легаси удалено): для него возвращается ``None``.
+    (каноническая схема ``Profile`` — BR-07). Для свободного текста
+    возвращается ``None``.
     """
     if isinstance(value, Profile):
         return ProfileTexts(
@@ -214,78 +209,3 @@ def profile_to_text(value: Any) -> str:
     """
     texts = profile_to_texts(value)
     return texts.llm if texts else ""
-
-
-def parse_legacy_markdown(text: str) -> Profile:
-    """Разобрать профиль в legacy-markdown-формате в структурированную модель.
-
-    Потери текста не допускаются: преамбула → название и позиционирование; секции
-    «НЕ входят…» → исключения; секции с компетенциями → компетенции; прочие строки
-    и секции (в т.ч. хвост первой строки преамбулы) сохраняются в позиционировании.
-    """
-    profile = Profile()
-    sections: dict[str, list[str]] = {}
-    preamble: list[str] = []
-    current: str | None = None
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if line.startswith("# "):
-            continue  # заголовок документа
-        if line.startswith("## "):
-            current = line[3:].strip()
-            sections.setdefault(current, [])
-        elif current is None:
-            preamble.append(line)
-        else:
-            sections[current].append(line)
-
-    notes: list[str] = []
-    if preamble:
-        first = preamble[0]
-        match = re.search(r"Поставщик\s*[—\-:]\s*([^,.\n]+)", first)
-        if match:
-            profile.name = match.group(1).strip().replace("**", "").strip()
-            notes.append(first[match.end() :].strip(" ,;—"))
-            notes.extend(preamble[1:])
-        else:
-            notes.extend(preamble)
-
-    for title, body in sections.items():
-        lowered = title.lower()
-        is_exclusions = (
-            "не входят" in lowered or "исключ" in lowered or "вне компетенций" in lowered
-        )
-        is_competencies = "компетенци" in lowered
-        if not is_exclusions and not is_competencies:
-            # Неизвестная секция: не выбрасываем — сохраняем в позиционировании.
-            items = " ".join(line.lstrip("- ").strip() for line in body)
-            notes.append(f"{title}: {items}".strip())
-            continue
-        for line in body:
-            if is_exclusions and line.startswith("-"):
-                profile.exclusions.append(line[2:].strip())
-                continue
-            if is_competencies:
-                item = re.match(r"^\d+[.)]\s+(.*)$", line)
-                if item:
-                    area, description = _split_area(item.group(1).strip())
-                    if area:
-                        profile.competencies.append(Competency(area=area, description=description))
-                    continue
-            notes.append(line)
-
-    profile.positioning = " ".join(n for n in notes if n).strip()
-    return profile
-
-
-def _split_area(item: str) -> tuple[str, str]:
-    """Разбить «**Область** — описание» на area/description."""
-    bold = re.match(r"^\*\*(.+?)\*\*\s*[—\-:]\s*(.*)$", item)
-    if bold:
-        return bold.group(1).strip(), bold.group(2).strip()
-    if " — " in item:
-        area, description = item.split(" — ", 1)
-        return area.strip(), description.strip()
-    return item, ""

@@ -59,8 +59,8 @@ fi
 # парсера при автопуше заданий. Берём из .env, если он там задан.
 #
 # set -a экспортирует ВСЁ из .env автоматически — этим же путём (без отдельного
-# кода ниже) до всех дочерних процессов доходят и TZ_CACHE_* (L2-кэш текста
-# документов в S3/MinIO, scoring_common.tz.object_cache; см. .env.example).
+# кода ниже) до всех дочерних процессов доходят и OBJECT_STORAGE_* (обязательное
+# объектное хранилище S3/MinIO, scoring_common.object_storage; см. .env.example).
 if [[ -f "$ROOT_DIR/.env" ]]; then
     set -a
     # shellcheck disable=SC1091

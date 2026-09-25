@@ -41,14 +41,6 @@ def test_load_dom_configs_from_dir(tmp_path: Path) -> None:
     assert data["platforms"]["a"]["name"] == "A"
 
 
-def test_load_dom_configs_legacy_fallback(tmp_path: Path) -> None:
-    (tmp_path / "config_dom.yaml").write_text(
-        "platforms:\n  zakupki_mos:\n    name: X\n", encoding="utf-8"
-    )
-    data = _load_dom_configs(tmp_path)
-    assert data["platforms"]["zakupki_mos"]["name"] == "X"
-
-
 def test_load_dom_configs_missing(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         _load_dom_configs(tmp_path)

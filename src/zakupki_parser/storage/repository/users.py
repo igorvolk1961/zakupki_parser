@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, cast
 
-from sqlalchemy import func, select, update
-from sqlalchemy.engine import CursorResult
+from sqlalchemy import func, select
 
 from zakupki_parser.auth import has_default_profile_role
 from zakupki_parser.options import paid_default_options
@@ -70,8 +68,8 @@ class UserMixin(RepositoryMixin):
         ``ensure_default_profile``) и активный default-аккаунт (как
         ``ensure_default_account``). Атомарность важна: если бы пользователь
         коммитился до выставления ``trial_end_at``/аккаунта, сбой между шагами
-        оставлял бы пользователя без триала и без аккаунта — по правилам
-        легаси-доступа это означало бы «вечный полный доступ» (см. ревью).
+        оставлял бы пользователя без триала и без аккаунта, то есть без доступа
+        к платным опциям.
 
         ``account_options`` — переключатели платных опций нового аккаунта
         (см. ``options.py``: ``trial_default_options`` для саморегистрации,
@@ -166,26 +164,3 @@ class UserMixin(RepositoryMixin):
         async with self._db.session() as session:
             result: User | None = (await session.execute(stmt)).scalar_one_or_none()
             return result
-
-    async def backfill_orphaned_profiles(self, user_id: int) -> int:
-        """Присваивает профили без ``user_id`` указанному пользователю (идемпотентно).
-
-        Нужно для миграции 1.29: существующие профили (глобальные) после перехода
-        на мультитенантность не имеют владельца — сервис-аккаунт забирает их на старте.
-        """
-        async with self._db.session() as session:
-            result = cast(
-                "CursorResult[Any]",
-                await session.execute(
-                    update(Profile).where(Profile.user_id.is_(None)).values(user_id=user_id)
-                ),
-            )
-            await session.commit()
-        count = int(result.rowcount or 0)
-        if count:
-            logger.info(
-                "Осиротевшие профили (user_id IS NULL) присвоены пользователю %s: %s",
-                user_id,
-                count,
-            )
-        return count

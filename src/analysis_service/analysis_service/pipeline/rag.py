@@ -35,12 +35,8 @@ _REQUIREMENT_KEYS = ("licenses", "experience", "minprom", "other")
 
 
 def _requirement_items(value: Any) -> list[Any]:
-    """Элементы поля требований: список; легаси-форма (один объект) приводится к списку."""
-    if isinstance(value, list):
-        return value
-    if isinstance(value, dict):
-        return [value]
-    return []
+    """Элементы поля требований (список); иное значение — пусто."""
+    return value if isinstance(value, list) else []
 
 
 class RagAnalyzer:
@@ -243,7 +239,7 @@ class RagAnalyzer:
         элемент ``{text, data, file_name}`` обрабатывается отдельным LLM-вызовом по
         своей JSON-схеме. Уже заполненные ``data`` не пересчитываются (идемпотентность).
         При сбое вызова ``data`` остаётся ``None`` (best-effort), остальные поля
-        достраиваются. Легаси-форма (dict вместо списка) приводится к списку.
+        достраиваются.
         """
         filled: dict[str, Any] = {}
         for key in _REQUIREMENT_KEYS:

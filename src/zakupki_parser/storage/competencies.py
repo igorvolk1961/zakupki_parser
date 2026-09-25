@@ -3,7 +3,7 @@
 Компетенции (``profiles.competencies``) хранятся всегда как КАНОНИЧЕСКИЙ JSON
 одной схемы — ``scoring_service.profile.Profile`` (``positioning``, ``breadth``,
 ``competencies[]`` (``area``/``description``/``examples``), ``exclusions``,
-``scoring_policy``). Свободный текст/legacy-markdown не допускаются: перед
+``scoring_policy``). Свободный текст не допускается: перед
 сохранением выполняется обязательная валидация, что строка — правильный JSON
 нужной схемы. Один и тот же результат формируется независимо от источника
 (веб-форма, импорт JSON-файла, JSON-текст, seed).

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
@@ -37,6 +37,22 @@ def _auth_env_defaults() -> None:
     os.environ.setdefault("ZAKUPKI_AUTH_SECRET", "test-secret")
     os.environ.setdefault("ZAKUPKI_INTERNAL_TOKEN", "internal-123")
     os.environ.setdefault("ZAKUPKI_AUTO_START_MONITORING", "false")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _object_storage_in_memory() -> Iterator[None]:
+    """Объектное хранилище в тестах — в памяти, не MinIO из .env разработчика.
+
+    Хранилище обязательно (``scoring_common.object_storage``); без подмены тесты
+    либо падали бы на проверке при старте, либо ходили бы в реальный MinIO.
+    Уровень сессии: модульные фикстуры (``api_client`` поднимает приложение
+    с проверкой хранилища при старте) создаются раньше функциональных.
+    """
+    from scoring_common import object_storage
+
+    object_storage.use_in_memory()
+    yield
+    object_storage.set_client(None)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

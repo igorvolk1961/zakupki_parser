@@ -20,6 +20,8 @@ dependencies = [
     "py7zr>=0.20",
     # Через scoring_common.tz.object_cache: S3/MinIO L2-кэш извлечённого текста.
     "boto3>=1.34",
+    # Через scoring_common.conditions: основы слов при поиске значений полей.
+    "snowballstemmer>=2.2",
 ]
 
 [dependency-groups]

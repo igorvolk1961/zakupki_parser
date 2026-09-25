@@ -33,7 +33,9 @@ def _build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", default=8000, type=int, help="порт (по умолчанию 8000)")
 
     cap = sub.add_parser("capture-fixture", help="Сохранение HTML-фикстур")
-    cap.add_argument("--platform", default="zakupki_mos", help="platform_id из config_dom")
+    cap.add_argument(
+        "--platform", default="zakupki_mos", help="platform_id (имя файла в configs/dom)"
+    )
     cap.add_argument("--out", default="tests/fixtures", help="каталог вывода")
 
     return parser

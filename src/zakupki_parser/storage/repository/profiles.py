@@ -671,6 +671,13 @@ class ProfileMixin(RepositoryMixin):
             from zakupki_parser.okpd import normalize_okpd_codes
 
             data["okpd_codes"] = normalize_okpd_codes(list(data["okpd_codes"]))
+        # Отчётные поля и их условия (FR-12.1): канонический вид и проверка
+        # (оператор подходит к типу поля, значение разбирается) на записи —
+        # ConditionError (ValueError) -> 400 у вызывающего.
+        if "report_fields" in data:
+            from scoring_common.conditions import normalize_report_fields
+
+            data = {**data, "report_fields": normalize_report_fields(data["report_fields"])}
         wants_keywords = "keywords" in data or "exclusion_words" in data
         async with self._db.session() as session:
             stmt = (
@@ -712,6 +719,8 @@ class ProfileMixin(RepositoryMixin):
                 profile.report_fields = list(data["report_fields"])
             if "requirement_blocking" in data:
                 profile.requirement_blocking = dict(data["requirement_blocking"] or {})
+            if "report_field_mapping" in data:
+                profile.report_field_mapping = dict(data["report_field_mapping"] or {})
             # Профиль становится активным: явно (is_active=true) или по умолчанию
             # для профиля «default» (per-user состояние, BR-07). Активность не
             # зависит от enabled: выключенный от мониторинга профиль тоже может

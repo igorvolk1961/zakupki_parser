@@ -30,9 +30,6 @@ logger = logging.getLogger(__name__)
 _READY_INITIAL_MS = 800
 _READY_POLL_MS = 300
 _READY_MAX_MS = 8000
-# Сохранено для обратной совместимости импортов/тестов, не используется как
-# единственный источник ожидания (см. _settle_after_navigation).
-SETTLE_MS = 3000
 
 
 async def _settle_after_navigation(page: Page, platform: PlatformDom) -> None:
@@ -94,7 +91,7 @@ async def setup_sort_and_filters(
 ) -> None:
     """Устанавливает сортировку и применяет фильтры из конфигурации площадки.
 
-    Селекторы сортировки и шаги фильтров заданы в ``config_dom.yaml``
+    Селекторы сортировки и шаги фильтров заданы в ``configs/dom/<площадка>.yaml``
     (блоки ``platform.sort`` и ``platform.filters``).
 
     Обычный порядок сортировки фиксирован (``publication_date_desc``) — на нём

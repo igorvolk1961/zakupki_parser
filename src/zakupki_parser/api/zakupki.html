@@ -431,17 +431,34 @@
                     <option value="number">Число</option>
                     <option value="date">Дата</option>
                     <option value="boolean">Да/нет</option>
+                    <option value="list">Список (несколько значений)</option>
                   </select>
                 </label>
                 <label style="grid-column:1/-1;">Подсказка (что именно искать)
                   <textarea id="rf-hint" rows="2" placeholder="например, код вида отхода по ФККО"></textarea>
                 </label>
                 <label id="rf-unit-row">Единица измерения <input id="rf-unit" placeholder="например, м3, руб."></label>
-                <label style="grid-column:1/-1;" title="Свободный текст — может быть условием (например, «не менее 500000», «не позднее 2026-12-31»), не только точным значением. Сравнение с найденным значением делает LLM. Пусто — поле информационное, без сравнения.">Ожидаемое значение (необязательно)
-                  <input id="rf-expected" placeholder="например, не менее 500000">
+                <label id="rf-value-mode-row" title="Коды (цифр не меньше половины: 1 11 010 21 49 2, 62.01.11) ищутся по цифрам в любой записи — с пробелами, дефисами или слитно. Текст — по словам без учёта окончаний («отходы бумаги» = «отходов бумаги»). «Авто» определяет вид по каждому значению.">Вид значений
+                  <select id="rf-value-mode">
+                    <option value="auto">Авто (коды или текст)</option>
+                    <option value="code">Коды</option>
+                    <option value="text">Текст</option>
+                  </select>
                 </label>
-                <label style="grid-column:1/-1; flex-direction:row; align-items:center; gap:8px;" title="Если найденное значение не совпадёт с ожидаемым — закупка автоматически отклоняется (вердикт приемлемости в отчёте).">
-                  <input type="checkbox" id="rf-blocking" style="width:auto;"> Блокирует приемлемость закупки при несовпадении
+                <label id="rf-extend-row" style="flex-direction:row; align-items:center; gap:8px;" title="LLM видит только часть документов и может пропустить строки таблицы. Программа проверит найденные значения по полному тексту и доберёт остальные: из того же участка документа и по форме кода (1 11 010 21 49 2 → все коды вида «цифра пробел две цифры…»).">
+                  <input type="checkbox" id="rf-extend-list" style="width:auto;" checked> Дополнять список по тексту документов
+                </label>
+                <label style="grid-column:1/-1;" title="Условие проверяет программа по найденному значению (без LLM), кроме «соответствует по смыслу» — его оценивает LLM. Условие можно менять без повторного анализа: отчёты пересчитываются сразу.">Условие (необязательно)
+                  <select id="rf-cond-op"></select>
+                </label>
+                <label id="rf-cond-value-row" style="grid-column:1/-1;">Значение условия
+                  <input id="rf-cond-value" placeholder="например, 500000">
+                </label>
+                <label id="rf-cond-list-row" style="grid-column:1/-1;" title="По одному значению в строке. Текст сравнивается без учёта окончаний; «*» на конце слова — любое продолжение (утилиз* — утилизация, утилизировать).">Список значений условия (по одному в строке)
+                  <textarea id="rf-cond-list" rows="4" placeholder="1 11 010 21 49 2&#10;4 71 101 01 52 1"></textarea>
+                </label>
+                <label id="rf-blocking-row" style="grid-column:1/-1; flex-direction:row; align-items:center; gap:8px;" title="Если условие не выполнено — закупка автоматически отклоняется (вердикт приемлемости в отчёте). Если значение не удалось проверить (не найдено, сбой) — закупка не отклоняется.">
+                  <input type="checkbox" id="rf-blocking" style="width:auto;"> Блокирует приемлемость закупки, если условие не выполнено
                 </label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">

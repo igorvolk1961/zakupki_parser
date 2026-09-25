@@ -9,8 +9,7 @@
 
 Реализация по платформам вынесена в подпакеты (``lot_online``, ``etpgpb``,
 ``mos``, ``tender_223``); общие HTTP-хелперы — в ``http``. Здесь — реестр
-платформ и публичный вход ``fetch_api_details`` (совместимость с прежним
-модулем ``parser/detail_api.py``).
+платформ и публичный вход ``fetch_api_details``.
 """
 
 from __future__ import annotations

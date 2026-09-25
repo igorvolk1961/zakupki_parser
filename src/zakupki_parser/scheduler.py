@@ -467,18 +467,16 @@ class Scheduler:
         self,
         platform_id: str,
         profiles: list[ProfileRunContext],
-        iteration: int = 0,
+        iteration: int,
         *,
         full_window: bool = False,
-        cycle: _CycleAccumulator | None = None,
+        cycle: _CycleAccumulator,
     ) -> None:
         """Обрабатывает одну площадку для набора профилей.
 
         ``cycle`` — накопитель сводки всего прохода (devops-мониторинг): успех
         добавляет received/saved площадки, любой сбой (включая CircuitOpenError —
-        площадка временно недоступна) считается в ``platforms_failed``. Аргумент
-        опционален только ради обратной совместимости существующих тестов,
-        обращающихся к ``_process_platform`` напрямую без агрегации цикла.
+        площадка временно недоступна) считается в ``platforms_failed``.
 
         Дополнительно пишет ПЕР-ПЛОЩАДОЧНУЮ статистику (``_record_platform_stats``,
         ``parser_platform_stats``) — вкладка «Мониторинг» показывает не только
@@ -489,7 +487,7 @@ class Scheduler:
         platform = self._cfg.dom.platforms.get(platform_id)
         if platform is None:
             logger.warning(
-                "platform_id %s отсутствует в config_dom.yaml, пропуск",
+                "platform_id %s отсутствует в configs/dom, пропуск",
                 platform_id,
             )
             return
@@ -503,16 +501,14 @@ class Scheduler:
         # Контекст для логов: последующие записи этой площадки (и её подзадач)
         # автоматически получают префикс [platform#iteration] (см. logging_filter).
         token = set_run_context(platform_id, iteration)
-        if cycle is not None:
-            cycle.platforms_total += 1
+        cycle.platforms_total += 1
         platform_started_at = datetime.now(UTC)
         try:
             stats = await self._parse_platform(
                 platform_id, platform, profiles, iteration, full_window=full_window
             )
-            if cycle is not None:
-                cycle.received += stats.get("received", 0)
-                cycle.saved += stats.get("saved", 0)
+            cycle.received += stats.get("received", 0)
+            cycle.saved += stats.get("saved", 0)
             await self._record_platform_stats(
                 platform_id,
                 iteration,
@@ -523,8 +519,7 @@ class Scheduler:
             )
         except Exception as exc:  # noqa: BLE001
             logger.error("Ошибка обработки площадки %s: %s", platform_id, exc)
-            if cycle is not None:
-                cycle.platforms_failed += 1
+            cycle.platforms_failed += 1
             await self._record_platform_stats(
                 platform_id,
                 iteration,
@@ -670,8 +665,7 @@ class Scheduler:
             return []
         if only_ids is not None:
             profiles = [p for p in profiles if p.id in only_ids]
-        # Доступность опций считаем по пользователям профилей: триал либо активный
-        # аккаунт. Пользователь без аккаунтов (легаси) = полный доступ.
+        # Доступность опций считаем по пользователям профилей (активный аккаунт).
         user_ids = sorted({p.user_id for p in profiles if p.user_id is not None})
         if not user_ids:
             return []
@@ -726,8 +720,8 @@ class Scheduler:
         """Профили, которым recovery может ставить fit-задания (по опциям владельца).
 
         Возвращает подмножество ``profile_ids``, чьи владельцы сейчас имеют
-        эффективный доступ к опции ``scoring`` (триал либо активный аккаунт).
-        Профиль без владельца (user_id IS NULL, легаси) пропускается как раньше.
+        эффективный доступ к опции ``scoring`` (активный аккаунт). Профиль без
+        владельца доступа не получает.
         """
         if not profile_ids:
             return set()
@@ -738,7 +732,7 @@ class Scheduler:
         now = datetime.now(UTC)
         allowed: set[int] = set()
         for profile_id, user_id in owner_map.items():
-            if user_id is None or effective_options(
+            if user_id is not None and effective_options(
                 accounts_map.get(user_id, []), trial_map.get(user_id), now=now
             ).has_option("scoring"):
                 allowed.add(profile_id)

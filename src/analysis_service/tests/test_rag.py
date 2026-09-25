@@ -16,6 +16,7 @@ from analysis_service.pipeline.prompts import build_requirements_data_messages
 from analysis_service.pipeline.rag import RagAnalyzer
 from analysis_service.settings import Settings
 
+from scoring_common.conditions import extraction_key, normalize_report_fields
 from scoring_common.embeddings import cosine_similarity
 
 # --- Промпты ------------------------------------------------------------
@@ -373,7 +374,10 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
     record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
     report = asyncio.run(
         analyzer.analyze(
-            record, report_fields=[{"id": "f1", "name": "объём партии", "type": "number"}]
+            record,
+            report_fields=normalize_report_fields(
+                [{"id": "f1", "name": "объём партии", "type": "number"}]
+            ),
         )
     )
     assert report["fields"] == [
@@ -388,9 +392,18 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
             "excerpt": "4000 м3",
             "source_file": "ТЗ.docx",
             "reasoning": "",
-            "expected_value": None,
+            "extraction_key": extraction_key(
+                normalize_report_fields([{"id": "f1", "name": "объём партии", "type": "number"}])[0]
+            ),
+            "condition": None,
             "match": None,
+            "check_status": "no_condition",
+            "mismatched_values": [],
+            "llm_match": None,
             "blocking": False,
+            "value_sources": None,
+            "unconfirmed_values": [],
+            "rejected_values": [],
         }
     ]
 

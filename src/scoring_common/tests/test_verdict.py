@@ -1,8 +1,8 @@
-"""Unit-тесты вердикта приемлемости закупки (analysis_service.pipeline.verdict)."""
+"""Unit-тесты вердикта приемлемости закупки (scoring_common.verdict)."""
 
 from __future__ import annotations
 
-from analysis_service.pipeline.verdict import compute_requirements_verdict, compute_verdict
+from scoring_common.verdict import compute_requirements_verdict, compute_verdict
 
 
 def test_empty_requirements_gives_empty_verdict() -> None:

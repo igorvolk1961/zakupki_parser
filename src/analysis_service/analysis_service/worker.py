@@ -23,7 +23,6 @@ from analysis_service.pipeline.matcher import (
 )
 from analysis_service.pipeline.prompts import build_geo_address_messages
 from analysis_service.pipeline.rag import RagAnalyzer
-from analysis_service.pipeline.verdict import compute_verdict
 from analysis_service.settings import Settings
 from scoring_common.geo.centers import GeoPoint
 from scoring_common.geo.distance import distance_km
@@ -34,6 +33,7 @@ from scoring_common.queue import StageQueue
 from scoring_common.requirements import extract_requirements
 from scoring_common.stage_worker import process_stage_job
 from scoring_common.tz import resolve_tz_content_cached
+from scoring_common.verdict import compute_verdict
 
 logger = logging.getLogger(__name__)
 

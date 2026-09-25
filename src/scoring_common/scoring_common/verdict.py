@@ -4,10 +4,13 @@
 ``scoring_common.requirements``, детерминированно, без LLM — профиль решает,
 какие из НАЙДЕННЫХ (не отрицаемых) требований блокируют приемлемость,
 ``profiles.requirement_blocking``); отчётные LLM-поля с ``blocking=True`` и
-``match=False`` (``analysis_service.pipeline.report_fields`` — найденное
-значение не совпало с ожидаемым, заданным в профиле — это и есть стоп-условие,
-задаваемое пользователем: свободные «вопросы по ТЗ» упразднены в пользу
-отчётных полей с ожидаемым значением).
+``match=False`` (значение поля, извлечённое из документов, не удовлетворяет
+условию поля — ``scoring_common.conditions``; это и есть стоп-условие,
+задаваемое пользователем). Поле, которое проверить не удалось
+(``match=None``: не найдено, сбой LLM, нужен повторный анализ), не блокирует.
+
+Чистый код без I/O: вызывается воркером анализа и API (пересчёт условий без
+LLM после правки профиля).
 """
 
 from __future__ import annotations
@@ -64,9 +67,10 @@ def compute_verdict(
     ``verdict.accepted=False``, если хотя бы одна категория требований
     заблокирована (профиль отметил её блокирующей, и реальное требование
     найдено) ИЛИ хотя бы одно отчётное поле с ``blocking=True`` получило
-    ``match=False`` (найденное значение не совпало с ожидаемым в профиле)
+    ``match=False`` (значение не удовлетворяет условию поля)
     — закупку следует авто-отклонить (см. вызывающий код,
-    ``analysis_service.worker``/``upsert_score.auto_rejected``).
+    ``analysis_service.worker``/``upsert_score.auto_rejected`` и пересчёт
+    условий в API).
     """
     requirements_verdict = compute_requirements_verdict(requirements, requirement_blocking)
     blocking_reasons = [

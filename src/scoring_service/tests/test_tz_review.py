@@ -6,14 +6,14 @@ import io
 import zipfile
 
 from scoring_common.tz import (
-    _decode_member_name,
-    _extract_docx,
     clean_text,
     collect_files,
     find_tz_file,
     find_tz_reference,
     is_tz,
 )
+from scoring_common.tz.archives import _decode_member_name
+from scoring_common.tz.extractors import _extract_docx
 
 
 def _file(name: str, url: str = "http://x/f") -> dict[str, str]:

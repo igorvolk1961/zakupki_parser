@@ -17,8 +17,7 @@
 
 Реализация разбита на подпакеты: ``embedding`` (ветка векторной близости),
 ``pipeline`` (fit/judge/refine и сборка результата), ``types`` (внутренние типы).
-Здесь — класс ``Scorer`` и ``build_scorer`` (реэкспорт для совместимости с
-прежним модулем ``scoring_service/scoring.py``).
+Здесь — класс ``Scorer`` и ``build_scorer``.
 """
 
 from __future__ import annotations
@@ -167,8 +166,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         близости (опция аккаунта владельца профиля, options.py: scoring_
         embeddings; ``worker.py`` передаёт её из ``/api/clients/active``).
         Ветка запускается только при ``self._embedder is not None`` (сервис
-        сконфигурирован) И этом флаге — по умолчанию True для обратной
-        совместимости с прямыми вызовами (тесты, где флаг не важен).
+        сконфигурирован) И этом флаге (по умолчанию разрешена).
 
         Весь скоринг одного задания выполняется внутри единого корневого run,
         поэтому fit/judge/refine попадают в ОДИН трейс как дочерние спаны.
@@ -315,7 +313,7 @@ def build_scorer(settings: Settings) -> Scorer:
     embedding_skip_reason: str | None = None
     if settings.giga_enabled:
         if settings.giga_configured:
-            from scoring_service.modules.giga_embedder import GigaEmbedder, GigaTokenProvider
+            from scoring_common.giga import GigaEmbedder, GigaTokenProvider
 
             token_provider = GigaTokenProvider(
                 auth_url=settings.giga_auth_url,

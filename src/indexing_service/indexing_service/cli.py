@@ -12,6 +12,7 @@ import sys
 
 from indexing_service.settings import Settings, get_settings
 from scoring_common.logging import setup_logging
+from scoring_common.object_storage import require_object_storage
 
 
 async def _cmd_worker(settings: Settings) -> int:
@@ -36,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.command == "worker":
+        require_object_storage()
         return asyncio.run(_cmd_worker(settings))
     build_parser().print_help()
     return 2

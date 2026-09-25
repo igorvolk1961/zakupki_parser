@@ -10,14 +10,13 @@ import pytest
 from scoring_service.profile import (
     Profile,
     load_profile,
-    parse_legacy_markdown,
     profile_to_text,
     profile_to_texts,
     render_profile,
     render_profile_embedding,
 )
 
-LEGACY_MD = """# Компетенции поставщика
+FREE_TEXT_MD = """# Компетенции поставщика
 
 Поставщик — **BBK IT** (ООО «Юнити»), «внедрение AI в бизнес».
 
@@ -34,49 +33,6 @@ BBK IT — архитекторы бизнес-процессов: сначал�
 - Поставка и монтаж оборудования.
 - Сопровождение legacy-систем сторонних вендоров.
 """
-
-
-def test_parse_legacy_markdown() -> None:
-    profile = parse_legacy_markdown(LEGACY_MD)
-    assert profile.name == "BBK IT (ООО «Юнити»)"
-    assert "архитекторы бизнес-процессов" in profile.positioning
-    assert len(profile.competencies) == 2
-    assert profile.competencies[0].area == "Аудит и обследование ИТ-ландшафта и бизнес-процессов"
-    assert profile.competencies[1].description == "поиск узких мест, интеграция систем."
-    assert profile.exclusions == [
-        "Поставка и монтаж оборудования.",
-        "Сопровождение legacy-систем сторонних вендоров.",
-    ]
-
-
-def test_parse_legacy_markdown_preserves_text() -> None:
-    """Legacy-разбор не теряет текст: хвост первой строки и нераспознанные секции."""
-    md = """# Компетенции поставщика
-
-Поставщик — **BBK IT** (ООО «Юнити»), «внедрение AI в бизнес».
-
-## Основные компетенции
-
-1. **Аудит** — изучение состояния.
-
-## Не выполняем
-
-- Поставка и монтаж оборудования.
-
-## Опыт
-
-10 лет на рынке
-"""
-    profile = parse_legacy_markdown(md)
-    # Хвост первой строки преамбулы после названия сохранён в позиционировании.
-    assert "внедрение AI в бизнес" in profile.positioning
-    # Нераспознанные секции не отбрасываются — попадают в позиционирование.
-    assert "Опыт: 10 лет на рынке" in profile.positioning
-    assert "Не выполняем: Поставка и монтаж оборудования." in profile.positioning
-    # Известные секции по-прежнему разбираются структурированно.
-    assert len(profile.competencies) == 1
-    assert profile.competencies[0].area == "Аудит"
-    assert profile.exclusions == []  # секция «Не выполняем» — текст, не исключения
 
 
 def test_render_profile_sections() -> None:
@@ -132,9 +88,9 @@ def test_profile_to_text_plain_string_not_supported() -> None:
     assert profile_to_text(123) == ""
 
 
-def test_profile_to_text_legacy_markdown_not_supported() -> None:
-    """Legacy-markdown компетенций не поддерживается: возвращается пустой текст."""
-    assert profile_to_text(LEGACY_MD) == ""
+def test_profile_to_text_free_text_not_supported() -> None:
+    """Компетенции — только структурированный профиль: свободный текст даёт пустой текст."""
+    assert profile_to_text(FREE_TEXT_MD) == ""
 
 
 def test_load_profile_yaml(tmp_path: Path) -> None:
@@ -149,10 +105,11 @@ def test_load_profile_json(tmp_path: Path) -> None:
     assert load_profile(f).positioning == "Y"
 
 
-def test_load_profile_markdown(tmp_path: Path) -> None:
+def test_load_profile_rejects_non_yaml_json(tmp_path: Path) -> None:
     f = tmp_path / "profile.md"
-    f.write_text(LEGACY_MD, encoding="utf-8")
-    assert load_profile(f).name == "BBK IT (ООО «Юнити»)"
+    f.write_text(FREE_TEXT_MD, encoding="utf-8")
+    with pytest.raises(ValueError, match="YAML или JSON"):
+        load_profile(f)
 
 
 def test_render_profile_embedding_excludes_noise() -> None:

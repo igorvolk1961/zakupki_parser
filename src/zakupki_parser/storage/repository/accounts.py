@@ -7,9 +7,8 @@
 
 ``ensure_default_account`` создаёт аккаунт «По умолчанию», если его нет:
 - ``paid_default=False`` — только бесплатные опции (саморегистрация, #6);
-- ``paid_default=True`` — все платные включены (миграция существующих
-  пользователей и создание пользователя администратором: чтобы не сломать
-  текущее поведение, пока администратор не ограничил аккаунт).
+- ``paid_default=True`` — все платные включены (создание пользователя
+  администратором, начальный администратор).
 
 Триал-режим живёт на пользователе (``users.trial_end_at``). Материализуется
 ОДИН РАЗ, в момент создания пользователя: стартовый аккаунт саморегистрации
@@ -37,7 +36,6 @@ from sqlalchemy.exc import IntegrityError
 
 from zakupki_parser.options import (
     enabled_paid_options,
-    implemented_paid_keys,
     option_by_key,
     paid_default_options,
 )
@@ -298,9 +296,7 @@ class EffectiveOptions:
     больше НЕ переопределяет их во время действия (материализуется один раз в
     момент создания пользователя — см. докстринг модуля). ``in_trial``/
     ``trial_end_at`` — информационные поля (личный кабинет: «дней осталось»),
-    на ``paid_enabled`` не влияют. Если аккаунтов у пользователя нет вовсе
-    (легаси/сервис-пользователь до бэкфилла) — платные опции считаются
-    доступными: текущее поведение не меняется.
+    на ``paid_enabled`` не влияют. Нет активного аккаунта — платных опций нет.
     """
 
     in_trial: bool
@@ -327,9 +323,8 @@ def effective_options(
 ) -> EffectiveOptions:
     """Вычисляет эффективный доступ к платным опциям пользователя.
 
-    Аккаунты могут быть пустым списком (легаси до миграции аккаунтов): тогда
-    платные опции доступны все — иначе мы сломали бы существующих пользователей,
-    у которых аккаунтов ещё нет. Триал на этот расчёт не влияет (см. докстринг
+    Платные опции — из активного аккаунта; нет активного аккаунта — только
+    бесплатные. Триал на этот расчёт не влияет (см. докстринг
     ``EffectiveOptions``/модуля) — ``paid_enabled`` всегда из ``active.options``.
     """
     active: UserAccount | None = None
@@ -338,13 +333,7 @@ def effective_options(
             active = account
             break
     trial_active = in_trial_now(trial_end_at, now)
-    if not accounts or active is None:
-        # Легаси-пользователь без аккаунтов или нарушенный инвариант «нет
-        # активного»: доступны все реализованные платные опции (текущее
-        # поведение не меняем).
-        paid_enabled = implemented_paid_keys()
-    else:
-        paid_enabled = enabled_paid_options(active.options or {})
+    paid_enabled = enabled_paid_options(active.options or {}) if active is not None else set()
     return EffectiveOptions(
         in_trial=trial_active,
         trial_end_at=trial_end_at,

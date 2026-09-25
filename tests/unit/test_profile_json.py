@@ -39,22 +39,6 @@ def test_serialize_structured_competencies() -> None:
     assert payload["competencies"]["competencies"][0]["area"] == "Аудит"
 
 
-def test_serialize_invalid_competencies_skipped() -> None:
-    """Легаси/свободный текст компетенций -> пустой подобъект (не искажаем схему)."""
-    profile = {
-        "name": "bbk-it",
-        "enabled": True,
-        "is_active": True,
-        "competencies": "Поставщик — BBK IT.\nКомпетенции: ИИ.",
-        "keywords": ["ИИ"],
-        "exclusion_words": ["ремонт"],
-        "okpd_codes": ["62"],
-    }
-    payload = json.loads(serialize_profile_json(profile))
-    assert payload["schema"] == SCHEMA
-    assert payload["competencies"] == {}
-
-
 def test_parse_roundtrip_json() -> None:
     """Экспорт -> импорт сохраняет компетенции и слова без потерь."""
     structured = {
@@ -431,3 +415,74 @@ def test_resolve_profile_fact_refs_coerces_column_types() -> None:
     assert exp["end_date"] == date(2025, 12, 31)
     assert exp["amount"] == 4370184.0
     assert exp["import_independent"] is True
+
+
+# --- Полная переносимость: отчётные поля, блокировки, сопоставление колонок -----
+
+_FIELDS = [
+    {
+        "id": "fkko",
+        "name": "коды ФККО",
+        "hint": "коды отходов из ТЗ",
+        "type": "list",
+        "unit": None,
+        "value_mode": "code",
+        "extend_list": True,
+        "condition": {"op": "all_in", "value_kind": "list", "value": ["1 11 010 21 49 2"]},
+        "blocking": True,
+    }
+]
+
+
+def test_serialize_includes_report_fields_blocking_and_mapping() -> None:
+    payload = json.loads(
+        serialize_profile_json(
+            {
+                "name": "x",
+                "competencies": "{}",
+                "report_fields": _FIELDS,
+                "requirement_blocking": {"licenses": True},
+                "report_field_mapping": {"код отхода": "fkko"},
+            }
+        )
+    )
+    assert payload["profile"]["report_fields"] == _FIELDS
+    assert payload["profile"]["requirement_blocking"] == {"licenses": True}
+    assert payload["profile"]["report_field_mapping"] == {"код отхода": "fkko"}
+
+
+def test_parse_roundtrip_report_fields_blocking_and_mapping() -> None:
+    content = serialize_profile_json(
+        {
+            "name": "x",
+            "competencies": "{}",
+            "report_fields": _FIELDS,
+            "requirement_blocking": {"licenses": True, "minprom": False},
+            "report_field_mapping": {"код отхода": "fkko", "цена": "base:nmck"},
+        }
+    )
+    seed = parse_profile_json(content)
+    assert seed["report_fields"] == _FIELDS
+    assert seed["requirement_blocking"] == {"licenses": True, "minprom": False}
+    assert seed["report_field_mapping"] == {"код отхода": "fkko", "цена": "base:nmck"}
+
+
+def test_parse_missing_report_keys_mean_empty() -> None:
+    """Файл — полный профиль: отсутствующие ключи = пустые значения (полная замена)."""
+    seed = parse_profile_json(json.dumps({"profile": {"name": "x"}, "competencies": {}}))
+    assert seed["report_fields"] == []
+    assert seed["requirement_blocking"] == {}
+    assert seed["report_field_mapping"] == {}
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        {"report_fields": [{"id": "f1", "name": "x", "type": "number", "condition": {"op": "zz"}}]},
+        {"requirement_blocking": ["licenses"]},
+        {"report_field_mapping": ["a"]},
+    ],
+)
+def test_parse_rejects_invalid_new_keys(profile: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        parse_profile_json(json.dumps({"profile": {"name": "x", **profile}, "competencies": {}}))

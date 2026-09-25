@@ -2,8 +2,7 @@
 
 Модели разбиты по доменам (подпакеты): ``base`` (DeclarativeBase), ``engine``
 (обёртка над async engine/session), ``customer``, ``procurement``, ``evaluation``,
-``user``, ``profile``. Здесь — реэкспорт для совместимости с прежним модулем
-``storage/db.py``.
+``user``, ``profile``. Здесь — публичный интерфейс пакета (реэкспорт).
 """
 
 from __future__ import annotations

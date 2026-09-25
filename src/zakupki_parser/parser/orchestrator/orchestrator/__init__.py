@@ -230,12 +230,14 @@ class Orchestrator(
         )
         self._by_relevance = by_relevance
 
-        # Набор профилей-потребителей для этой площадки.
+        # Набор профилей-потребителей для этой площадки. Без явно переданных
+        # профилей (dev/тесты) — единый обход по глобальным критериям
+        # config_service.yaml; рабочий обход всегда получает профили от
+        # ``Scheduler._gather_profile_ctxs``.
         explicit = profiles is not None
-        if profiles is not None:
-            run_profiles = [p for p in profiles if self._platform_selects(p)]
-        else:
-            run_profiles = await self._load_legacy_profiles()
+        run_profiles = (
+            [p for p in profiles if self._platform_selects(p)] if profiles is not None else []
+        )
         self._full_window = full_window
         # Полное окно (и ретроспективное сопоставление слов) для одного профиля
         # включается через full_window — известные закупки не пропускаются.
@@ -309,16 +311,6 @@ class Orchestrator(
         """
         etp = set(ctx.profile.target_etp or [])
         return ALL_PLATFORMS_SENTINEL in etp or self._platform_id in etp
-
-    async def _load_legacy_profiles(self) -> list[ProfileRunContext]:
-        """Разрешение обхода без явно переданных профилей (dev/тесты).
-
-        Возвращает пустой список: строится единый обход по глобальным критериям
-        config_service.yaml (как ``profile=None``). Рабочий обход всегда получает
-        профили от ``Scheduler._gather_profile_ctxs`` (мультитенантный источник),
-        а не от «первого пользователя».
-        """
-        return []
 
     async def _compute_cutoff(self, by_relevance: bool, explicit: bool) -> datetime | None:
         """Стоп-порог по дате для прохода площадки.

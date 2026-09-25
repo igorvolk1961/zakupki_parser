@@ -61,6 +61,10 @@ class AppState:
         self.notify_min_fit_score: float = 0.0
         # Транспорт каскада скоринга: постановка задач следующих стадий (P(win)/Margin).
         self.score_transport: ScoringTransportClient | None = None
+        # Пересчёт условий отчётных полей без LLM после правки профиля
+        # (condition_recheck.py): статус и задача по id профиля.
+        self.condition_rechecks: dict[int, Any] = {}
+        self.condition_recheck_tasks: dict[int, asyncio.Task[None]] = {}
 
 
 async def _broadcast(state: AppState, message: str = "data-changed") -> None:

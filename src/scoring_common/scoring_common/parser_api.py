@@ -128,7 +128,7 @@ class ParserApiClient:
         ``score_costs`` — стоимость обработки (скоринг/анализ) для поля ``costs``.
         ``profile_id`` — профиль, для которого посчитан результат (пер-профильно, BR-07).
         ``auto_rejected``/``auto_rejection_reason``/``analysis_profile_snapshot`` —
-        вердикт единого отчёта (analysis_service.pipeline.verdict), см. ``ScoreUpdate``
+        вердикт единого отчёта (scoring_common.verdict), см. ``ScoreUpdate``
         в zakupki_parser. ``analysis_profile_snapshot`` — ISO-строка (JSON не знает datetime).
         """
         url = f"{self._base}/api/procurements/{procurement_id}/score"

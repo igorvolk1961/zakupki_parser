@@ -8,8 +8,7 @@
 - capture-fixture— сохранить HTML страниц (список/деталь) в tests/fixtures
 
 Построение argparse вынесено в ``parser``, сводка конфигурации — в ``summary``,
-исполнение команд — в ``commands``. Здесь — точка входа ``main`` и реэкспорт
-для совместимости с прежним модулем ``cli.py``.
+исполнение команд — в ``commands``. Здесь — точка входа ``main``.
 """
 
 from __future__ import annotations

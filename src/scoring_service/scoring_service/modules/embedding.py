@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from scoring_service.modules.giga_embedder import GigaEmbedder
+from scoring_common.giga import GigaEmbedder
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

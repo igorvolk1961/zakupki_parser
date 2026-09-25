@@ -483,7 +483,9 @@ class ProfileIn(BaseModel):
     # вводить адрес заново при повторном заполнении).
     website_url: str | None = Field(default=None, max_length=2048)
     # Конструктор отчётных полей (FR-12.1): [{id, name, hint, type, unit,
-    # expected_value, blocking}], сохраняется вместе с профилем полной заменой.
+    # value_mode, extend_list, condition, blocking}], сохраняется вместе с
+    # профилем полной заменой; проверяется scoring_common.conditions.
+    # normalize_report_fields.
     report_fields: list[dict[str, Any]] | None = None
     # Блокирует ли найденное требование (лицензии/опыт/минпромторг/
     # соисполнители) приемлемость закупки — {"licenses": bool, ...}.

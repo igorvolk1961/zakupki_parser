@@ -87,7 +87,7 @@ exclusions:                   # «НЕ входят в компетенции» 
 целиком флагом `tz_review_enabled` (`SCORE_TZ_REVIEW_ENABLED`, по умолчанию `true`).
 
 ## Параллельная ветка Giga Embedder
-`modules/giga_embedder.py`: `GigaTokenProvider` (OAuth 2.0 `client_credentials`, обязательный
+`scoring_common/giga.py`: `GigaTokenProvider` (OAuth 2.0 `client_credentials`, обязательный
 заголовок `RqUID`, автообновление токена) и `GigaEmbedder` (модель `EmbeddingsGigaR`, окно
 4096 токенов; длинные тексты режутся на чанки и усредняются). Ветка считает косинусную
 близость эмбеддингов текста компетенций и описания закупки **до** LLM-пайплайна. Ветка

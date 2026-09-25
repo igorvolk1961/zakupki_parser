@@ -22,6 +22,11 @@ def _calls(monkeypatch) -> list[tuple[str, str]]:
         return f"text:{ref.url}"
 
     monkeypatch.setattr("scoring_common.tz.extract_text", fake_extract)
+    # Эти тесты проверяют L1 (память процесса); L2 (S3) — всегда включённое
+    # хранилище, в тестах в памяти — вернул бы вытесненную/просроченную L1-
+    # запись без извлечения. L2-тесты подменяют эти функции поверх.
+    monkeypatch.setattr("scoring_common.tz.get_cached_text", lambda key: None)
+    monkeypatch.setattr("scoring_common.tz.put_cached_text", lambda key, text: None)
     return calls
 
 

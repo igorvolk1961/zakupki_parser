@@ -324,11 +324,11 @@ requirements:
     code:
       - src/scoring_common/scoring_common/requirements.py
       - src/analysis_service/analysis_service/pipeline/matcher.py#requirement_category_status
-      - src/analysis_service/analysis_service/pipeline/verdict.py
+      - src/scoring_common/scoring_common/verdict.py
     tests:
       - src/scoring_common/tests/test_requirements.py
       - src/analysis_service/tests/test_rag.py
-      - src/analysis_service/tests/test_verdict.py
+      - src/scoring_common/tests/test_verdict.py
     notes: >-
       2026-09-24: LLM-опрос sys:exp_2571 (FR-4.3, удалено вместе с мёртвым
       кодом) заменён детерминированным извлечением категории «experience» из
@@ -345,11 +345,11 @@ requirements:
     code:
       - src/scoring_common/scoring_common/requirements.py
       - src/analysis_service/analysis_service/pipeline/matcher.py#requirement_category_status
-      - src/analysis_service/analysis_service/pipeline/verdict.py
+      - src/scoring_common/scoring_common/verdict.py
     tests:
       - src/scoring_common/tests/test_requirements.py
       - src/analysis_service/tests/test_rag.py
-      - src/analysis_service/tests/test_verdict.py
+      - src/scoring_common/tests/test_verdict.py
     notes: 2026-09-24 — та же замена LLM-опроса на деterministic-извлечение, что и US-4.2, для категории «minprom».
   - id: US-4.4
     type: US
@@ -1341,6 +1341,7 @@ requirements:
       - src/zakupki_parser/api/app/routes/procurements.py#set_score
       - src/scoring_service/scoring_service/worker.py
       - src/scoring_common/scoring_common/tz/object_cache.py
+      - src/scoring_common/scoring_common/object_storage.py
     tests:
       - tests/unit/test_scoring.py
       - tests/unit/test_cascade.py
@@ -1356,6 +1357,7 @@ requirements:
       - src/scoring_common/tests/test_text.py
       - src/scoring_common/tests/test_tz_cache.py
       - src/scoring_common/tests/test_object_cache.py
+      - src/scoring_common/tests/test_object_storage.py
   - id: FR-2.5
     type: FR
     title: Дедупликация по (number, platform_id)
@@ -2549,7 +2551,7 @@ requirements:
     status: implemented
     adr: "-"
     code:
-      - src/analysis_service/analysis_service/pipeline/verdict.py
+      - src/scoring_common/scoring_common/verdict.py
       - src/analysis_service/analysis_service/worker.py
       - src/zakupki_parser/storage/repository/evaluations.py
       - src/zakupki_parser/storage/db/evaluation.py
@@ -2557,7 +2559,7 @@ requirements:
       - src/zakupki_parser/api/app/schemas.py
       - docker/liquibase/changelog/db.changelog-1.66.yaml
     tests:
-      - src/analysis_service/tests/test_verdict.py
+      - src/scoring_common/tests/test_verdict.py
       - tests/integration/test_decisions_work.py
       - tests/integration/test_report_verdict.py
     notes: >-
@@ -2591,7 +2593,7 @@ requirements:
       - src/zakupki_parser/api/static/js/clients.js
       - src/zakupki_parser/api/zakupki.html
     tests:
-      - src/analysis_service/tests/test_verdict.py
+      - src/scoring_common/tests/test_verdict.py
     notes: >-
       ``profiles.requirement_blocking`` — {"licenses": bool, "experience":
       bool, "minprom": bool, "subcontractors": bool}, отсутствующий ключ = не
@@ -2671,7 +2673,7 @@ requirements:
       - src/analysis_service/analysis_service/pipeline/prompts/field_extract_date.md
       - src/analysis_service/analysis_service/pipeline/prompts/field_extract_boolean.md
       - src/analysis_service/analysis_service/pipeline/prompts/field_extract_user.md
-      - src/analysis_service/analysis_service/pipeline/verdict.py
+      - src/scoring_common/scoring_common/verdict.py
       - src/analysis_service/analysis_service/worker.py
       - src/zakupki_parser/api/static/js/clients.js
       - src/zakupki_parser/api/static/js/procurements.js
@@ -2684,7 +2686,7 @@ requirements:
       - docker/liquibase/changelog/db.changelog-1.67.yaml
     tests:
       - src/analysis_service/tests/test_report_fields.py
-      - src/analysis_service/tests/test_verdict.py
+      - src/scoring_common/tests/test_verdict.py
       - tests/unit/test_profile_json.py
     notes: >-
       Отчётное поле профиля может задавать необязательное «ожидаемое
@@ -2745,6 +2747,55 @@ requirements:
       именно при сборке JSON требований к участнику
       (``requirements._replace_marker_values``), в общий путь извлечения
       текста НЕ включена (по явному разделению ответственности).
+  - id: FR-13.7
+    type: FR
+    title: Условия отчётных полей (оператор + значение, проверка кодом), поле-список
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/scoring_common/scoring_common/conditions.py
+      - src/scoring_common/scoring_common/verdict.py
+      - src/analysis_service/analysis_service/pipeline/report_fields.py
+      - src/analysis_service/analysis_service/pipeline/prompts.py
+      - src/analysis_service/analysis_service/pipeline/prompts/field_extract_list.md
+      - src/zakupki_parser/storage/repository/profiles.py
+      - src/zakupki_parser/storage/repository/evaluations.py#recheck_profile_conditions
+      - src/zakupki_parser/api/app/condition_recheck.py
+      - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/api/app/routes/procurements.py
+      - src/zakupki_parser/api/static/js/conditions.js
+      - src/zakupki_parser/api/static/js/clients.js
+      - src/zakupki_parser/api/static/js/procurements.js
+      - src/zakupki_parser/api/zakupki.html
+      - docker/liquibase/changelog/db.changelog-1.68.yaml
+      - src/zakupki_parser/storage/profile_json.py
+    tests:
+      - src/scoring_common/tests/test_conditions.py
+      - src/analysis_service/tests/test_report_fields.py
+      - tests/integration/test_api.py
+      - tests/unit/test_profile_json.py
+      - tests/integration/test_multiclient.py
+    notes: >-
+      2026-09-25 (план plans/06_plan.md, шаг 1; требование заказчика —
+      проверка кодов ФККО закупки по компетенциям поставщика). «Ожидаемое
+      значение» (свободный текст, сравнивал LLM) заменено условием поля
+      {op, value_kind, value}: операторы сравнения/вхождения в список
+      проверяет КОД по извлечённому значению; прежние значения мигрированы в
+      оператор llm («соответствует по смыслу», как раньше). Значение ищется
+      в тексте по шаблону из самого значения: код — по цифрам в любой записи,
+      текст — по основам слов (snowballstemmer), «*» — явный префикс.
+      Поле-список: LLM даёт образцы, код проверяет их по полному тексту
+      документов (выдуманный код отбрасывается, текст без дословного
+      совпадения остаётся с пометкой) и дополняет — повторным LLM-вызовом
+      на участке вокруг найденных значений и по форме кода. Правка условия/
+      блокировки пересчитывает сохранённые отчёты профиля без LLM (фоновая
+      задача API, ход — GET /api/clients/{id}/recheck); отчёт остаётся
+      актуальным, если правка не затронула извлечение и не-пересчитываемые
+      входы анализа (регионы, лицензии). Значение-сайт (URL) — шаг 3 плана.
+      Профиль переносится JSON-файлом полностью (решение пользователя):
+      отчётные поля с условиями, requirement_blocking, report_field_mapping.
 
   # ===== Бизнес-правила =====
   - id: BR-01

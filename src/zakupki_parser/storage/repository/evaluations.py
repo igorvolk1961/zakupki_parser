@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
@@ -190,6 +191,102 @@ class EvaluationMixin(RepositoryMixin):
         )
         async with self._db.session() as session:
             return (await session.execute(stmt)).scalar_one_or_none()
+
+    async def recheck_profile_conditions(
+        self,
+        profile_id: int,
+        field_defs: list[dict[str, Any]],
+        requirement_blocking: dict[str, Any],
+        *,
+        snapshot_from: datetime | None = None,
+        snapshot_to: datetime | None = None,
+        on_progress: Callable[[int, int], Awaitable[None] | None] | None = None,
+        batch_size: int = 200,
+    ) -> dict[str, int]:
+        """Пересчёт условий отчётных полей и вердикта по сохранённым отчётам (без LLM).
+
+        Для каждой оценки профиля с ``rag_report``: условия полей
+        (``scoring_common.conditions.recompute_field_values``) и вердикт
+        (``scoring_common.verdict.compute_verdict``: требования закупки +
+        ``requirement_blocking`` + поля) пересчитываются по уже извлечённым
+        значениям; авто-отклонение ставится/снимается как при анализе.
+
+        ``snapshot_to`` — новый ``profiles.updated_at``: оценка, которая была
+        актуальна до правки (``analysis_profile_snapshot == snapshot_from``) и
+        пересчитана полностью, остаётся актуальной (кнопка «Анализ» не
+        загорается зря). Не передан — актуальность не трогается (правка
+        затронула то, что без повторного анализа не пересчитать).
+
+        Returns:
+            ``{"total", "rechecked", "stale"}`` — ``stale``: отчёты, которым
+            нужен повторный анализ (новое/изменённое поле, LLM-условие).
+        """
+        from scoring_common.conditions import recompute_field_values
+        from scoring_common.verdict import compute_verdict
+
+        base = (
+            select(ProcurementEvaluation.id)
+            .where(
+                ProcurementEvaluation.profile_id == profile_id,
+                ProcurementEvaluation.rag_report.is_not(None),
+            )
+            .order_by(ProcurementEvaluation.id)
+        )
+        async with self._db.session() as session:
+            ids = list((await session.execute(base)).scalars())
+        total = len(ids)
+        stats = {"total": total, "rechecked": 0, "stale": 0}
+        if on_progress is not None:
+            result = on_progress(0, total)
+            if result is not None:
+                await result
+        for offset in range(0, total, batch_size):
+            chunk = ids[offset : offset + batch_size]
+            async with self._db.session() as session:
+                rows = (
+                    await session.execute(
+                        select(ProcurementEvaluation, Procurement.requirements_json)
+                        .join(Procurement, Procurement.id == ProcurementEvaluation.procurement_id)
+                        .where(ProcurementEvaluation.id.in_(chunk))
+                    )
+                ).all()
+                for evaluation, requirements in rows:
+                    report = dict(evaluation.rag_report or {})
+                    stored = [f for f in report.get("fields") or [] if isinstance(f, dict)]
+                    fields, complete = recompute_field_values(stored, field_defs)
+                    if report.get("status") == "llm_disabled":
+                        # LLM-часть не выполнялась вовсе: поля и не ожидаются.
+                        fields, complete = [], True
+                    verdict = compute_verdict(requirements or {}, requirement_blocking, fields)
+                    report["fields"] = fields
+                    report["requirements_verdict"] = verdict["requirements_verdict"]
+                    report["verdict"] = verdict["verdict"]
+                    evaluation.rag_report = report
+                    accepted = verdict["verdict"]["accepted"]
+                    reason = (
+                        None
+                        if accepted
+                        else "Авто: "
+                        + "; ".join(r["label"] for r in verdict["verdict"]["blocking_reasons"])
+                    )
+                    keep_fresh = (
+                        complete
+                        and snapshot_to is not None
+                        and snapshot_from is not None
+                        and evaluation.analysis_profile_snapshot == snapshot_from
+                    )
+                    self._apply_auto_verdict(
+                        evaluation, not accepted, reason, snapshot_to if keep_fresh else None
+                    )
+                    stats["rechecked"] += 1
+                    if not complete:
+                        stats["stale"] += 1
+                await session.commit()
+            if on_progress is not None:
+                result = on_progress(min(offset + batch_size, total), total)
+                if result is not None:
+                    await result
+        return stats
 
     async def remove_evaluation(self, procurement_id: int, profile_id: int) -> bool:
         """Удаляет per-profile оценку пары (закупка, профиль).

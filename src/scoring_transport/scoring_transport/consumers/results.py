@@ -60,12 +60,8 @@ class ResultsConsumer:
             logger.warning("Пропускаю некорректный результат: %s", payload)
             return
         try:
-            # Метрики стадии (токены/стоимость/латенси) приходят готовым словарём;
-            # для совместимости со старыми воркерами — фолбэк на стоимость одним полем.
+            # Метрики стадии (токены/стоимость/латенси) приходят готовым словарём.
             cost_metrics = payload.get("cost_metrics")
-            if cost_metrics is None:
-                cost_usd = payload.get("cost_usd")
-                cost_metrics = {"usd": cost_usd} if cost_usd is not None else None
             await self._parser.post_score(
                 int(procurement_id),
                 float(score or 0.0),

@@ -1,0 +1,69 @@
+databaseChangeLog:
+- changeSet:
+    id: 73
+    author: zakupki-parser
+    comment: "profiles.report_fields: «ожидаемое значение» (expected_value, свободный текст, оценивался LLM) заменено условием поля {op, value_kind, value} — прежние значения переносятся в условие op=llm (оценка по смыслу, как раньше); blocking без условия сбрасывается."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          UPDATE profiles p
+          SET report_fields = sub.fields
+          FROM (
+            SELECT pr.id,
+                   COALESCE(jsonb_agg(
+                     CASE
+                       WHEN COALESCE(btrim(f.elem->>'expected_value'), '') <> '' THEN
+                         (f.elem - 'expected_value') || jsonb_build_object(
+                           'condition', jsonb_build_object(
+                             'op', 'llm',
+                             'value_kind', 'scalar',
+                             'value', btrim(f.elem->>'expected_value')),
+                           'value_mode', COALESCE(f.elem->>'value_mode', 'auto'))
+                       ELSE
+                         (f.elem - 'expected_value') || jsonb_build_object(
+                           'condition', 'null'::jsonb,
+                           'blocking', false,
+                           'value_mode', COALESCE(f.elem->>'value_mode', 'auto'))
+                     END
+                     ORDER BY f.ord), '[]'::jsonb) AS fields
+            FROM profiles pr,
+                 jsonb_array_elements(pr.report_fields) WITH ORDINALITY AS f(elem, ord)
+            WHERE jsonb_typeof(pr.report_fields) = 'array'
+            GROUP BY pr.id
+          ) sub
+          WHERE p.id = sub.id
+            AND EXISTS (
+              SELECT 1 FROM jsonb_array_elements(p.report_fields) e WHERE e ? 'expected_value'
+            );
+- changeSet:
+    id: 74
+    author: zakupki-parser
+    comment: "procurement_evaluations.rag_report.fields: «ожидаемое значение» в уже сохранённых отчётах переносится в условие op=llm (как в профилях, changeSet 73) — карточка и Excel читают только условие."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          UPDATE procurement_evaluations pe
+          SET rag_report = jsonb_set(pe.rag_report, '{fields}', sub.fields)
+          FROM (
+            SELECT e.id,
+                   jsonb_agg(
+                     CASE
+                       WHEN COALESCE(btrim(f.elem->>'expected_value'), '') <> '' THEN
+                         (f.elem - 'expected_value') || jsonb_build_object(
+                           'condition', jsonb_build_object(
+                             'op', 'llm',
+                             'value_kind', 'scalar',
+                             'value', btrim(f.elem->>'expected_value')))
+                       ELSE
+                         (f.elem - 'expected_value') || jsonb_build_object('condition', 'null'::jsonb)
+                     END
+                     ORDER BY f.ord) AS fields
+            FROM procurement_evaluations e,
+                 jsonb_array_elements(e.rag_report->'fields') WITH ORDINALITY AS f(elem, ord)
+            WHERE jsonb_typeof(e.rag_report->'fields') = 'array'
+            GROUP BY e.id
+          ) sub
+          WHERE pe.id = sub.id
+            AND jsonb_path_exists(pe.rag_report, '$.fields[*] ? (exists(@.expected_value))');

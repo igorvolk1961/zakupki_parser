@@ -110,11 +110,12 @@ class Profile(Base):
     # используется только как удобство формы.
     website_url: Mapped[str | None] = mapped_column(Text)
     # Конструктор отчётных полей (FR-12.1): произвольные именованные поля профиля
-    # {id, name, hint, type, unit, expected_value, blocking}, извлекаются RAG-
-    # анализом по всем документам закупки (analysis_service.pipeline.
-    # report_fields). Заменяет прежнее свободное поле «Вопросы по ТЗ»
-    # (profiles.questions, удалено FR-13.5) — стоп-условие теперь задаётся
-    # прямо на отчётном поле (expected_value + blocking), не отдельным вопросом.
+    # {id, name, hint, type, unit, value_mode, extend_list, condition, blocking},
+    # извлекаются RAG-анализом по всем документам закупки (analysis_service.
+    # pipeline.report_fields). Заменяет прежнее свободное поле «Вопросы по ТЗ»
+    # (profiles.questions, удалено FR-13.5) — стоп-условие задаётся прямо на
+    # отчётном поле: условие {op, value_kind, value} (scoring_common.conditions,
+    # проверяется кодом) + blocking.
     report_fields: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     # Блокирует ли несоответствие детерминированной категории требований
     # (лицензии/опыт/минпромторг/соисполнители, scoring_common.requirements)

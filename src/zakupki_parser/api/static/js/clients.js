@@ -3,6 +3,12 @@
 // Вкладка «Профили»: список, редактор профиля (слова/компетенции/вопросы),
 // лицензии и подтверждённый опыт (BR-03), переключение активного клиента.
 import { $, escapeHtml, fmtMoney } from "./utils.js";
+import {
+  CONDITION_OPS,
+  REPORT_FIELD_TYPE_LABELS,
+  conditionText,
+  opsForType,
+} from "./conditions.js";
 import { api, apiJSON, apiErrorDetail } from "./api.js";
 import { confirmDialog, confirmDialogAsync } from "./dialogs.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
@@ -31,7 +37,7 @@ let profilePlatforms = [];
 let platformCatalog = [];
 let platformsLoaded = false;
 // Компетенции профиля: структурированная форма (JSON, модель scoring Profile)
-// либо режим сырого текста (legacy markdown/JSON).
+// либо ручная правка того же JSON (кнопка «Режим текста»).
 let compStructured = {
   positioning: "",
   breadth: "broad",
@@ -83,8 +89,8 @@ function activeProfileFrom(items) {
 }
 
 // Заполняет все селекторы .active-profile-select текущим списком профилей.
-// Активный профиль — выбранный; если ни один не отмечен (легаси-данные),
-// выбирается первый (бэкенд использует тот же приоритет — FR-1.3).
+// Активный профиль — выбранный (инвариант FR-1.3: активный есть всегда);
+// запасной порядок совпадает с get_active_profile на бэкенде.
 function renderActiveProfileSelectors() {
   const selects = document.querySelectorAll("select.active-profile-select");
   if (!selects.length) return;
@@ -415,7 +421,9 @@ function fillProfileForm(p) {
       hint: f.hint || "",
       type: f.type || "string",
       unit: f.unit || null,
-      expected_value: f.expected_value || null,
+      value_mode: f.value_mode || "auto",
+      extend_list: f.extend_list !== false,
+      condition: f.condition || null,
       blocking: !!f.blocking,
     })
   );
@@ -432,16 +440,9 @@ function fillProfileForm(p) {
   $("#rb-experience").checked = !!reqBlocking.experience;
   $("#rb-minprom").checked = !!reqBlocking.minprom;
   $("#rb-subcontractors").checked = !!reqBlocking.subcontractors;
-  // Компетенции: структурированная JSON-форма либо legacy-текст.
-  const rawComp = p ? p.competencies || "" : "";
-  const parsedComp = parseComp(rawComp);
-  if (parsedComp) {
-    compStructured = parsedComp;
-    compMode = "structured";
-  } else {
-    compMode = "raw";
-    $("#pf-competencies").value = rawComp;
-  }
+  // Компетенции: сервер хранит только каноническую JSON-схему (проверка при записи).
+  compStructured = parseComp(p ? p.competencies || "" : "") || defaultComp();
+  compMode = "structured";
   renderCompForm();
   const delBtn = $("#profile-delete");
   delBtn.style.display = p ? "inline-block" : "none";
@@ -1258,13 +1259,6 @@ function deleteExperience(exp) {
 }
 
 // --- Конструктор отчётных полей (FR-12.1) --------------------------------
-const REPORT_FIELD_TYPE_LABELS = {
-  string: "Строка",
-  number: "Число",
-  date: "Дата",
-  boolean: "Да/нет",
-};
-
 function setReportFieldStatus(msg) {
   $("#report-field-status").textContent = msg;
 }
@@ -1276,7 +1270,7 @@ function renderReportFields() {
     return;
   }
   wrap.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Название</th><th>Тип</th><th>Подсказка</th><th>Единица</th><th>Ожидаемое значение</th><th></th></tr></thead>
+    <thead><tr><th>Название</th><th>Тип</th><th>Подсказка</th><th>Единица</th><th>Условие</th><th></th></tr></thead>
     <tbody>${profileReportFields
       .map(
         (f) => `<tr data-id="${f.id}">
@@ -1284,7 +1278,7 @@ function renderReportFields() {
       <td>${escapeHtml(REPORT_FIELD_TYPE_LABELS[f.type] || f.type)}</td>
       <td>${escapeHtml(f.hint || "")}</td>
       <td>${escapeHtml(f.unit || "")}</td>
-      <td>${f.expected_value ? escapeHtml(f.expected_value) + (f.blocking ? ' <span class="pill inactive">блокирует</span>' : "") : "—"}</td>
+      <td>${f.condition ? escapeHtml(conditionText(f.condition)) + (f.blocking ? ' <span class="pill inactive">блокирует</span>' : "") : "—"}</td>
       <td>
         <button class="ghost" data-action="edit">Редактировать</button>
         <button class="ghost" data-action="delete">Удалить поле</button>
@@ -1303,8 +1297,45 @@ function renderReportFields() {
   syncEntryFormState();
 }
 
+// Список операторов зависит от типа поля; выбранный сохраняется, если применим.
+function renderConditionOps(selected) {
+  const type = $("#rf-type").value;
+  const ops = opsForType(type);
+  const current = ops.includes(selected) ? selected : "";
+  $("#rf-cond-op").innerHTML =
+    `<option value="">— без условия —</option>` +
+    ops
+      .map(
+        (op) =>
+          `<option value="${op}"${op === current ? " selected" : ""}>${escapeHtml(CONDITION_OPS[op].label)}</option>`
+      )
+      .join("");
+}
+
 function updateReportFieldUnitVisibility() {
-  $("#rf-unit-row").style.display = $("#rf-type").value === "number" ? "" : "none";
+  const type = $("#rf-type").value;
+  $("#rf-unit-row").style.display = type === "number" ? "" : "none";
+  $("#rf-value-mode-row").style.display = type === "string" || type === "list" ? "" : "none";
+  $("#rf-extend-row").style.display = type === "list" ? "" : "none";
+  renderConditionOps($("#rf-cond-op").value);
+  updateConditionValueVisibility();
+}
+
+function updateConditionValueVisibility() {
+  const op = $("#rf-cond-op").value;
+  const kind = op ? CONDITION_OPS[op].kind : null;
+  $("#rf-cond-value-row").style.display = kind === "scalar" ? "" : "none";
+  $("#rf-cond-list-row").style.display = kind === "list" ? "" : "none";
+  $("#rf-blocking-row").style.display = op ? "" : "none";
+  const placeholders = {
+    number: "например, 500000",
+    date: "например, 2026-12-31",
+    boolean: "да или нет",
+    string: "например, 1 11 010 21 49 2",
+    list: "например, 1 11 010 21 49 2",
+  };
+  $("#rf-cond-value").placeholder =
+    op === "llm" ? "например, не менее 500000" : placeholders[$("#rf-type").value] || "";
 }
 
 function openReportFieldForm(id) {
@@ -1314,7 +1345,12 @@ function openReportFieldForm(id) {
   $("#rf-type").value = f ? f.type : "string";
   $("#rf-hint").value = f ? f.hint || "" : "";
   $("#rf-unit").value = f ? f.unit || "" : "";
-  $("#rf-expected").value = f ? f.expected_value || "" : "";
+  $("#rf-value-mode").value = f ? f.value_mode || "auto" : "auto";
+  $("#rf-extend-list").checked = f ? f.extend_list !== false : true;
+  const cond = f ? f.condition : null;
+  renderConditionOps(cond ? cond.op : "");
+  $("#rf-cond-value").value = cond && !Array.isArray(cond.value) ? cond.value || "" : "";
+  $("#rf-cond-list").value = cond && Array.isArray(cond.value) ? cond.value.join("\n") : "";
   $("#rf-blocking").checked = f ? !!f.blocking : false;
   updateReportFieldUnitVisibility();
   setReportFieldStatus("");
@@ -1329,16 +1365,39 @@ function saveReportField() {
     return;
   }
   const type = $("#rf-type").value;
-  const expectedValue = $("#rf-expected").value.trim() || null;
+  const op = $("#rf-cond-op").value;
+  let condition = null;
+  if (op) {
+    const kind = CONDITION_OPS[op].kind;
+    if (kind === "list") {
+      const items = $("#rf-cond-list")
+        .value.split("\n")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (!items.length) {
+        setReportFieldStatus("Укажите хотя бы одно значение списка условия");
+        return;
+      }
+      condition = { op, value_kind: "list", value: items };
+    } else {
+      const value = $("#rf-cond-value").value.trim();
+      if (!value) {
+        setReportFieldStatus("Укажите значение условия");
+        return;
+      }
+      condition = { op, value_kind: "scalar", value };
+    }
+  }
   const data = {
     name,
     type,
     hint: $("#rf-hint").value.trim() || null,
     unit: type === "number" ? $("#rf-unit").value.trim() || null : null,
-    expected_value: expectedValue,
-    // Блокировка без ожидаемого значения бессмысленна (нечего сравнивать) —
-    // сохраняем только если expected_value реально задан.
-    blocking: expectedValue ? $("#rf-blocking").checked : false,
+    value_mode: type === "string" || type === "list" ? $("#rf-value-mode").value : "auto",
+    extend_list: type === "list" ? $("#rf-extend-list").checked : true,
+    condition,
+    // Блокировка без условия бессмысленна (нечего нарушать).
+    blocking: condition ? $("#rf-blocking").checked : false,
   };
   // Поле редактируется в форме профиля и сохраняется на сервер только кнопкой
   // «Сохранить профиль» (та же модель, что у лицензий/опыта).
@@ -1387,7 +1446,9 @@ function profileFormData() {
       hint: f.hint || null,
       type: f.type,
       unit: f.unit || null,
-      expected_value: f.expected_value || null,
+      value_mode: f.value_mode || "auto",
+      extend_list: f.extend_list !== false,
+      condition: f.condition || null,
       blocking: !!f.blocking,
     })),
     requirement_blocking: {
@@ -1832,6 +1893,7 @@ $("#report-field-cancel").addEventListener("click", () => {
   syncEntryFormState();
 });
 $("#rf-type").addEventListener("change", updateReportFieldUnitVisibility);
+$("#rf-cond-op").addEventListener("change", updateConditionValueVisibility);
 $("#experience-new").addEventListener("click", () => openExperienceForm(null));
 $("#experience-save").addEventListener("click", saveExperience);
 $("#experience-cancel").addEventListener("click", () => {

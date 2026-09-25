@@ -18,12 +18,13 @@ import uuid
 from pathlib import Path
 
 from scoring_common.logging import setup_logging
+from scoring_common.object_storage import require_object_storage
 from scoring_service.profile import ProfileTexts
 from scoring_service.settings import Settings, get_settings
 
 
 def _profile_texts(path: Path | None, settings: Settings) -> ProfileTexts:
-    """Рендер профиля (llm/embedding): из файла (YAML/JSON/markdown) или из настроек."""
+    """Рендер профиля (llm/embedding): из файла (YAML/JSON) или из настроек."""
     from scoring_service.profile import (
         load_profile,
         render_profile,
@@ -153,7 +154,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--competencies",
         type=Path,
         default=None,
-        help="профиль поставщика: YAML/JSON (структурированный) или markdown (legacy)",
+        help="профиль поставщика: YAML/JSON",
     )
 
     p_eval = sub.add_parser("evaluate", help="оценка точности на тестовом наборе")
@@ -163,7 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--competencies",
         type=Path,
         default=None,
-        help="профиль поставщика: YAML/JSON (структурированный) или markdown (legacy)",
+        help="профиль поставщика: YAML/JSON",
     )
     p_eval.add_argument("--tolerance", type=float, default=1.0)
     p_eval.add_argument(
@@ -203,7 +204,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--competencies",
         type=Path,
         default=None,
-        help="профиль поставщика: YAML/JSON (структурированный) или markdown (legacy)",
+        help="профиль поставщика: YAML/JSON",
     )
     p_csv.add_argument("--limit", type=int, default=0, help="0 = все записи")
     p_csv.add_argument("--out", type=Path, default=None, help="JSON-отчёт")
@@ -220,6 +221,10 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(settings.logging)
     args = build_parser().parse_args(argv)
 
+    if args.command in ("worker", "serve"):
+        # Долгоживущие процессы стека; отладочные score/evaluate/score-csv —
+        # без проверки (кэш текста в них best-effort, как и раньше).
+        require_object_storage()
     if args.command == "worker":
         return asyncio.run(_cmd_worker(settings))
     if args.command == "score":

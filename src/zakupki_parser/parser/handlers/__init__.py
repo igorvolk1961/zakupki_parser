@@ -3,8 +3,7 @@
 Чистые функции — легко покрываются unit-тестами. Разбиты по доменам
 (подпакеты): ``strings`` (strip/lower/regex/purchase_type/law), ``money``
 (денежные/числовые), ``dates`` (ISO/МСК-даты), ``registry`` (реестр и
-диспетчер ``apply_handler``). Здесь — реэкспорт для совместимости с прежним
-модулем ``parser/handlers.py``.
+диспетчер ``apply_handler``). Здесь — публичный интерфейс пакета (реэкспорт).
 """
 
 from __future__ import annotations

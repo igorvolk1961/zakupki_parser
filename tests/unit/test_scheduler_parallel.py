@@ -243,9 +243,9 @@ async def test_run_once_records_cycle_stats(
     (devops-мониторинг, вкладка «Мониторинг»): один сбой площадки (p2) не портит
     сводку остальных, только увеличивает platforms_failed."""
     scheduler = _make_scheduler(app_config, max_concurrent=2)
-    # Реальные platform_id из тестового config_dom.yaml — на этот раз _process_platform
+    # Реальные platform_id из тестовых configs/dom — на этот раз _process_platform
     # НЕ подменяется целиком (в отличие от остальных тестов файла), нужна его настоящая
-    # реализация (agrегация в cycle), а она резолвит platform_id через config_dom.yaml.
+    # реализация (agrегация в cycle), а она резолвит platform_id через configs/dom.
     _patch_platforms(scheduler, monkeypatch, ["zakupki_mos", "zakupki_gov"])
 
     async def fake_parse(
@@ -1000,8 +1000,7 @@ async def test_gather_scoring_allowed_needs_option_and_competencies(
     """scoring_allowed=True только когда владелец имеет опцию scoring И у профиля
     валидные непустые компетенции; иначе профиль всё равно собирается (мониторинг)."""
     scheduler = Scheduler(app_config)
-    # Пользователь 1 — легаси без аккаунтов (полный доступ к платным опциям).
-    # Пользователь 3 — активный аккаунт со всеми платными опциями.
+    # Пользователи 1 и 3 — активный аккаунт со всеми платными опциями.
     full_account = UserAccount(
         user_id=3,
         name="full",
@@ -1011,10 +1010,10 @@ async def test_gather_scoring_allowed_needs_option_and_competencies(
     scheduler._repository = _GatherRepo(  # type: ignore[assignment]  # noqa: SLF001
         [
             _profile(1, 1, competencies=_competencies_json()),
-            _profile(2, 1),  # легаси-владелец с полным доступом, но без компетенций
+            _profile(2, 1),  # владелец с полным доступом, но без компетенций
             _profile(3, 3, competencies=_competencies_json()),
         ],
-        accounts={3: [full_account]},
+        accounts={1: [full_account], 3: [full_account]},
     )
 
     ctxs = await scheduler._gather_profile_ctxs()  # noqa: SLF001

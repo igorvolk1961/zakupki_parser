@@ -12,6 +12,7 @@ import {
   fmtDT,
 } from "./utils.js";
 import { state } from "./store.js";
+import { CHECK_STATUS_LABELS, conditionText } from "./conditions.js";
 import { api, apiJSON, apiErrorDetail, authHeaders } from "./api.js";
 import { hasRole } from "./roles.js";
 import { renderMarkdown } from "./markdown.js";
@@ -846,29 +847,57 @@ function ragReportHtml(report, isAnalyzing, containerId) {
   } else if (report.error) {
     banner = `<p class="muted" style="margin:8px 0;">${escapeHtml(report.error)}</p>`;
   }
-  const fieldItems = (report.fields || [])
-    .map((f) => {
-      const value = f.found
-        ? `${escapeHtml(String(f.value ?? ""))}${f.unit ? " " + escapeHtml(f.unit) : ""}`
-        : '<span class="muted">не найдено</span>';
-      const title = f.found && f.excerpt ? ` title="«${escapeHtml(f.excerpt)}»"` : "";
-      // Блокирует несовпадение — красным, как и остальные блокирующие пункты отчёта.
-      const mismatch = f.blocking && f.match === false;
-      const rowStyle = mismatch ? ' style="background:rgba(220,38,38,0.08); color:#dc2626;"' : "";
-      const expectedCell = f.expected_value
-        ? `${escapeHtml(f.expected_value)}${f.match === true ? " ✓" : f.match === false ? " ✗" : ""}`
-        : '<span class="muted">—</span>';
-      return `<tr${title}${rowStyle}><td>${escapeHtml(f.field_name)}</td><td>${value}</td><td>${expectedCell}</td></tr>`;
-    })
-    .join("");
+  const fieldItems = (report.fields || []).map(reportFieldRow).join("");
   const fieldsBlock = fieldItems
     ? `<h3 style="margin:16px 0 4px;">Отчётные поля</h3>
-       <div class="table-wrap"><table><thead><tr><th>Поле</th><th>Значение</th><th>Ожидаемое</th></tr></thead><tbody>${fieldItems}</tbody></table></div>`
+       <div class="table-wrap"><table><thead><tr><th>Поле</th><th>Значение</th><th>Условие</th></tr></thead><tbody>${fieldItems}</tbody></table></div>`
     : "";
   return `<h3 style="margin:16px 0 4px;">Анализ документов</h3>
     <p class="muted" style="margin:0 0 4px;">Файл: ${escapeHtml(report.tz_file || "—")}</p>
     ${banner}
     ${fieldsBlock || '<p class="muted">Отчётных полей пока нет.</p>'}`;
+}
+
+// Строка отчётного поля: значение (список — с числом значений и пометками
+// проверки по документам) и условие с итогом проверки.
+function reportFieldRow(f) {
+  let value;
+  if (!f.found) {
+    value = '<span class="muted">не найдено</span>';
+  } else if (Array.isArray(f.value)) {
+    const items = f.value.map((v) => escapeHtml(String(v)));
+    const shown = items.slice(0, 10).join("; ");
+    const more = items.length > 10 ? ` … <span class="muted">(всего ${items.length})</span>` : "";
+    const notes = [];
+    if ((f.unconfirmed_values || []).length)
+      notes.push(`не найдено дословно: ${f.unconfirmed_values.map(escapeHtml).join("; ")}`);
+    if ((f.rejected_values || []).length)
+      notes.push(`отброшено (нет в документах): ${f.rejected_values.map(escapeHtml).join("; ")}`);
+    const src = f.value_sources;
+    if (src && (src.span || src.pattern))
+      notes.push(`найдено LLM: ${src.llm}, дополнено по тексту: ${(src.span || 0) + (src.pattern || 0)}`);
+    value = `${shown}${more}${notes.length ? `<span class="muted" style="display:block;font-size:12px;">${notes.join("<br>")}</span>` : ""}`;
+  } else {
+    value = `${escapeHtml(String(f.value ?? ""))}${f.unit ? " " + escapeHtml(f.unit) : ""}`;
+  }
+  const title = f.found && f.excerpt ? ` title="«${escapeHtml(f.excerpt)}»"` : "";
+  // Блокирует невыполненное условие — красным, как и остальные блокирующие пункты отчёта.
+  const mismatch = f.blocking && f.match === false;
+  const rowStyle = mismatch ? ' style="background:rgba(220,38,38,0.08); color:#dc2626;"' : "";
+  const cond = f.condition;
+  let condCell = '<span class="muted">—</span>';
+  if (cond) {
+    let mark = "";
+    if (f.match === true) mark = " ✓";
+    else if (f.match === false) mark = " ✗";
+    else if (f.check_status && CHECK_STATUS_LABELS[f.check_status])
+      mark = ` <span class="muted">⚪ не проверено: ${CHECK_STATUS_LABELS[f.check_status]}</span>`;
+    const missing = (f.mismatched_values || []).length
+      ? `<span style="display:block;font-size:12px;">нарушают условие: ${f.mismatched_values.map(escapeHtml).join("; ")}</span>`
+      : "";
+    condCell = `${escapeHtml(conditionText(cond))}${mark}${missing}`;
+  }
+  return `<tr${title}${rowStyle}><td>${escapeHtml(f.field_name)}</td><td>${value}</td><td>${condCell}</td></tr>`;
 }
 
 async function loadPlatforms() {

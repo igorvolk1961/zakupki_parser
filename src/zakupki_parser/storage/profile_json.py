@@ -5,8 +5,7 @@
 редактора компетенций подобъект повторяет модель ``scoring_service.profile.Profile``
 (``positioning``, ``breadth``, ``competencies[]``, ``exclusions``, ``scoring_policy``) —
 именно эта структура при сохранении в БД (строка ``profile.competencies``) понимается
-фронтендом (``parseComp``) и scoring-воркером (``profile_to_texts``). Legacy-текст
-представляется как ``{"mode": "raw", "text": ...}``.
+фронтендом (``parseComp``) и scoring-воркером (``profile_to_texts``).
 
 Файл также несёт факты профиля BR-03 — ``licenses`` и ``experience``. Для переносимости
 между БД ссылки на справочники хранятся стабильными ключами, а не числовыми id:
@@ -17,6 +16,12 @@
 
 При импорте эти ключи резолвятся в ``license_type_id``/``confirmation_type_id``
 (``resolve_profile_fact_refs``) перед записью в БД.
+
+Профиль переносится ПОЛНОСТЬЮ: кроме критериев сбора, компетенций и фактов —
+отчётные поля с условиями (``report_fields``, id полей сохраняются), блокировки
+категорий требований (``requirement_blocking``) и сопоставление колонок шаблона
+отчёта заказчика с полями (``report_field_mapping``). Не переносятся только
+служебные/вычисляемые данные: id, владелец, даты, кэш геокодирования регионов.
 """
 
 from __future__ import annotations
@@ -57,19 +62,13 @@ _EXPERIENCE_FIELDS = (
 def _split_competencies(raw: str) -> dict[str, Any]:
     """Строка компетенций БД -> подобъект для экспорта.
 
-    Компетенции всегда канонический JSON схемы ``Profile`` (BR-07): экспортируем
-    как есть (валидированную модель), без legacy-режимов raw/empty.
+    Компетенции всегда канонический JSON схемы ``Profile`` (BR-07, проверяется
+    при записи) — экспортируются как есть.
     """
     if not raw or not raw.strip():
         return {}
-    try:
-        obj = json.loads(raw)
-    except json.JSONDecodeError:
-        # Легаси-значения не поддерживаются: экспорт не искажаем каноническую схему.
-        return {}
-    if isinstance(obj, dict):
-        return obj
-    return {}
+    obj = json.loads(raw)
+    return obj if isinstance(obj, dict) else {}
 
 
 def _join_competencies(block: Any) -> str:
@@ -186,6 +185,9 @@ def serialize_profile_json(profile: dict[str, Any]) -> str:
             "website_url": profile.get("website_url"),
             "licenses": _serialize_licenses(profile.get("licenses") or []),
             "experience": _serialize_experience(profile.get("experience") or []),
+            "report_fields": list(profile.get("report_fields") or []),
+            "requirement_blocking": dict(profile.get("requirement_blocking") or {}),
+            "report_field_mapping": dict(profile.get("report_field_mapping") or {}),
         },
         "competencies": block,
     }
@@ -322,7 +324,25 @@ def parse_profile_json(content: str) -> dict[str, Any]:
     experience = _fact_entries(src.get("experience"), _EXPERIENCE_FIELDS)
     if experience is not None:
         seed["experience"] = experience
+    # Отчётные поля/блокировки/сопоставление — полной заменой из файла.
+    from scoring_common.conditions import normalize_report_fields
+
+    seed["report_fields"] = normalize_report_fields(src.get("report_fields"))
+    seed["requirement_blocking"] = _as_bool_map(src.get("requirement_blocking"))
+    mapping = src.get("report_field_mapping")
+    if mapping is not None and not isinstance(mapping, dict):
+        raise ValueError("report_field_mapping должен быть объектом")
+    seed["report_field_mapping"] = dict(mapping or {})
     return seed
+
+
+def _as_bool_map(value: Any) -> dict[str, bool]:
+    """Объект {ключ: bool} (блокировки категорий требований), иначе ``ValueError``."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("requirement_blocking должен быть объектом")
+    return {str(k): bool(v) for k, v in value.items()}
 
 
 def _resolve_license(

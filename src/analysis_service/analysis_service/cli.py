@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from analysis_service.settings import Settings, get_settings
 from scoring_common.langfuse import flush
 from scoring_common.logging import setup_logging
+from scoring_common.object_storage import require_object_storage
 
 _SERVICE_DIR = Path(__file__).resolve().parents[1]
 
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     setup_logging(settings.logging)
     if args.command == "worker":
+        require_object_storage()
         return asyncio.run(_cmd_worker(settings))
     return asyncio.run(_cmd_analyze(settings, args.card))
 

@@ -159,7 +159,6 @@ class ScoringWorker:
                     "score_method": result.score_method,
                     "embedding_similarity": result.embedding_similarity,
                     "langfuse_trace_url": result.langfuse_trace_url,
-                    "cost_usd": getattr(result, "cost_usd", None),
                     "cost_metrics": getattr(result, "cost_metrics", None),
                 }
             )

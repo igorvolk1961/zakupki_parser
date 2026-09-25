@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from scoring_common.object_storage import require_object_storage
 from zakupki_parser.api.app.converters import _meets_stage_notify_threshold  # noqa: F401
 from zakupki_parser.api.app.deps import build_context
 from zakupki_parser.api.app.routes.account import build_account_router
@@ -54,6 +55,10 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # Объектное хранилище обязательно (кэш текста документов, тексты
+        # сайтов-источников): без него API не стартует — в отличие от БД,
+        # недоступность которой переживается ответами 503.
+        await asyncio.to_thread(require_object_storage)
         db = Database(state.cfg.ops.db)
         try:
             await db.connect()

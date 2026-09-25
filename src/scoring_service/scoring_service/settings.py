@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     # Пауза перед повторной обработкой задачи после сбоя LLM (сек).
     llm_retry_backoff_seconds: float = 5.0
 
-    # Профиль поставщика (структурированный: YAML/JSON; legacy-markdown — совместимость).
+    # Профиль поставщика (структурированный: YAML/JSON).
     competencies_file: Path = Path("data/profile.yaml")
 
     # Пайплайн
@@ -208,10 +208,6 @@ class Settings(BaseSettings):
     def profile_text(self) -> str:
         """Канонический LLM-текст профиля (факты, отрендеренные кодом)."""
         return self.profile_texts().llm
-
-    def competencies(self) -> str:
-        """Обратная совместимость: отрендеренный профиль поставщика."""
-        return self.profile_text()
 
 
 # Поля Settings, которые переопределяются аналитиком (config_service.yaml -> scoring)

@@ -9,7 +9,6 @@ from zakupki_parser.options import (
     FREE_KEYS,
     PAID_KEYS,
     TRIAL_EXCLUDED_KEYS,
-    enabled_options,
     enabled_paid_options,
     option_by_key,
     option_requires_competencies,
@@ -79,8 +78,10 @@ def test_effective_options_account_paid_off() -> None:
     assert not eff.in_trial
     assert not eff.has_option("scoring")
     assert eff.has_option("search")  # бесплатные доступны всегда
-    # Легаси-пользователь без аккаунтов — как «полный» доступ.
-    assert effective_options([], None, now=NOW).has_option("scoring")
+    # Без активного аккаунта платных опций нет.
+    assert not effective_options([], None, now=NOW).has_option("scoring")
+    inactive = _account(paid_default_options(True), is_active=False)
+    assert not effective_options([inactive], None, now=NOW).has_option("scoring")
 
 
 def test_effective_options_account_partial() -> None:
@@ -104,11 +105,6 @@ def test_requires_competencies_flag_on_scoring() -> None:
     assert option_requires_competencies("scoring") is True
     assert option_requires_competencies("analysis") is False
     assert option_requires_competencies("geo_premium") is False
-
-
-def test_enabled_options_free_always_present() -> None:
-    assert set(FREE_KEYS) <= enabled_options({}, in_trial=False)
-    assert set(FREE_KEYS) <= enabled_options({}, in_trial=True)
 
 
 def test_trial_default_options_excludes_only_scoring() -> None:

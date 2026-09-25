@@ -1,6 +1,6 @@
 """Движок применения фильтров по конфигурации площадки.
 
-Шаги фильтров заданы в ``config_dom.yaml`` (блок ``platform.filters``).
+Шаги фильтров заданы в ``configs/dom/<площадка>.yaml`` (блок ``platform.filters``).
 """
 
 from __future__ import annotations

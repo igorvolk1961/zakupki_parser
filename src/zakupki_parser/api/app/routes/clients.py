@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from zakupki_parser.api.app.condition_recheck import recheck_status, start_condition_recheck
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.profile_source import (
     ProfileFromUrlError,
@@ -95,6 +96,21 @@ def _safe_filename(name: str) -> str:
     return cleaned or "profile"
 
 
+def _analysis_inputs_key(profile: Any, license_type_ids: list[int]) -> tuple[Any, ...]:
+    """Входы анализа, которые НЕЛЬЗЯ пересчитать без повторного анализа.
+
+    Условия отчётных полей и ``requirement_blocking`` пересчитываются кодом
+    (``condition_recheck``); регионы/расстояние (гео-проверка) и лицензии
+    профиля (сводка по лицензиям) — нет. Совпал ключ до и после правки —
+    отчёты, актуальные до неё, остаются актуальными после пересчёта.
+    """
+    return (
+        tuple(sorted(profile.target_regions or [])),
+        profile.max_region_distance_km,
+        tuple(sorted(license_type_ids)),
+    )
+
+
 def _crawl_state_key(profile: Any, words: dict[str, list[str]]) -> tuple[Any, ...]:
     """Ключ crawl-значимого состояния профиля для change-detection (fast-start).
 
@@ -148,6 +164,9 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             regions=list(row.geo_regions or []),
             centers=list(row.geo_centers or []),
         )
+
+    async def _license_type_ids(profile_id: int) -> list[int]:
+        return [lic.license_type_id for lic in await _repo().list_licenses(profile_id)]
 
     async def _export_licenses(profile_id: int) -> list[dict[str, Any]]:
         """Лицензии профиля -> переносимая форма (``license_type_name`` вместо id)."""
@@ -402,6 +421,9 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         # переносимыми ссылками (наименование/код), а не числовыми id справочников.
         data["licenses"] = await _export_licenses(row.id)
         data["experience"] = await _export_experience(row.id)
+        # Сопоставление колонок шаблона отчёта заказчика (FR-12.4) в карточку
+        # профиля не входит, но часть профиля — переносится файлом.
+        data["report_field_mapping"] = dict(row.report_field_mapping or {})
         safe = _safe_filename(data["name"] or "profile")
         profile_filename = f"{safe}_{_export_timestamp()}.json"
         return ProfileExportOut(
@@ -451,6 +473,8 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         # изменении crawl-полей (иначе rename/no-op сохранения гоняли бы полный обход).
         old_words = await _repo().get_profile_keywords(existing.id)
         old_key = _crawl_state_key(existing, old_words)
+        old_updated_at = existing.updated_at
+        old_analysis_key = _analysis_inputs_key(existing, await _license_type_ids(existing.id))
         await _validate_profile_entries(body)
         try:
             updated = await _repo().upsert_profile(
@@ -462,6 +486,14 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         new_words = await _repo().get_profile_keywords(updated.id)
         crawl_changed = _crawl_state_key(updated, new_words) != old_key
+        # Условия полей/блокировки пересчитываются по готовым отчётам без LLM.
+        start_condition_recheck(
+            state,
+            updated,
+            snapshot_from=old_updated_at,
+            keep_fresh=_analysis_inputs_key(updated, await _license_type_ids(updated.id))
+            == old_analysis_key,
+        )
         # Изменились компетенции (хэш канонического содержания) — результаты сбора
         # нужно перестроить и скор пересчитать по новой области захвата.
         from zakupki_parser.storage.competencies import competencies_hash
@@ -479,6 +511,27 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             fully_index_covered=covered,
         )
         return await _save_out(updated, notice, keywords=new_words)
+
+    @router.get(
+        "/api/clients/{client_id}/recheck",
+        dependencies=[Depends(require_base)],
+    )
+    async def client_recheck_status(
+        client_id: int, user: User | None = Depends(require_base)
+    ) -> dict[str, Any]:
+        """Ход пересчёта условий отчётных полей по отчётам профиля (без LLM).
+
+        ``running`` — идёт; ``done``/``total`` — пересчитано отчётов из скольких;
+        ``stale`` — отчётов, которым нужен повторный анализ (новое/изменённое
+        поле или LLM-условие). Пересчёта не было — ``running=false, total=0``.
+        """
+        eff_user = _require_user(user)
+        if await _repo().get_profile(eff_user.id, client_id) is None:
+            raise HTTPException(status_code=404, detail="Профиль не найден")
+        status = recheck_status(state, client_id)
+        if status is None:
+            return {"profile_id": client_id, "running": False, "total": 0, "done": 0, "stale": 0}
+        return status.as_dict()
 
     @router.post(
         "/api/clients/{client_id}/refresh",
@@ -554,9 +607,8 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
     ) -> ProfileSaveOut:
         """Загружает/обновляет профиль из загруженного файла.
 
-        Основной формат — единый JSON-файл (компетенции — подобъект внутри схемы
-        ``Profile``, BR-07). Legacy-markdown-файлы сида не поддерживаются: легаси
-        удалено, компетенции всегда канонический JSON.
+        Формат — единый JSON-файл (компетенции — подобъект внутри схемы
+        ``Profile``, BR-07).
         """
         eff_user = _require_user(user)
         # Некорректный файл (не JSON, не формат zakupki-profile, не-объектные
@@ -578,6 +630,11 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         name = seed.get("name") or "default"
         existing = await _repo().get_profile_by_name(eff_user.id, name)
+        old_analysis_key = (
+            _analysis_inputs_key(existing, await _license_type_ids(existing.id))
+            if existing is not None
+            else None
+        )
         try:
             profile = await _repo().upsert_profile(
                 {**seed, "name": name},
@@ -587,6 +644,14 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
+        if existing is not None:
+            start_condition_recheck(
+                state,
+                profile,
+                snapshot_from=existing.updated_at,
+                keep_fresh=_analysis_inputs_key(profile, await _license_type_ids(profile.id))
+                == old_analysis_key,
+            )
         # Импорт обновляет существующий профиль: перестраиваем результаты сбора
         # (и пересчитываем скор, если изменились компетенции). Новый профиль —
         # по нему начинает идти обход (результатов ещё нет), а покрытая

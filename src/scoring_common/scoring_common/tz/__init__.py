@@ -15,7 +15,7 @@
 Реализация разбита на подпакеты: ``files`` (маркеры имён и поиск), ``download``
 (скачивание), ``archives`` (листинг/извлечение из архивов), ``extractors``
 (docx/pdf → Markdown), ``text`` (очистка). Здесь — публичный вход ``extract_text``
-и реэкспорт для совместимости с прежним модулем ``scoring_common/tz.py``.
+и публичный интерфейс пакета.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from collections import OrderedDict
 from typing import Any
 
 from scoring_common.tz.archives import (
-    _decode_member_name,
     _extract_archive_member,
     _extract_from_7z,
     _extract_from_zip,
@@ -35,7 +34,7 @@ from scoring_common.tz.archives import (
     find_tz_in_archives,
 )
 from scoring_common.tz.download import _download
-from scoring_common.tz.extractors import _decode, _extract_docx
+from scoring_common.tz.extractors import _decode
 from scoring_common.tz.files import (
     FileRef,
     _normalize,
@@ -174,11 +173,12 @@ def extract_text_cached(
     """``extract_text`` с двухуровневым кэшем: успешно извлечённый текст не переизвлекается.
 
     L1 — в памяти процесса (этот TTL): ``(ref.url, ref.name)`` -> текст.
-    L2 — S3/MinIO (``object_cache``, TTL — lifecycle-правило бакета, по умолчанию
-    выключен), общий для ВСЕХ процессов (indexing_service/scoring_service/
-    analysis_service/API) — L1-промах сначала проверяет L2 прежде, чем реально
-    скачивать и конвертировать файл; L2-недоступность тихо игнорируется (см.
-    ``object_cache`` — там же обоснование best-effort).
+    L2 — S3/MinIO (``object_cache``, TTL — lifecycle-правило бакета; хранилище
+    обязательно, проверяется при старте сервиса), общий для ВСЕХ процессов
+    (indexing_service/scoring_service/analysis_service/API) — L1-промах сначала
+    проверяет L2 прежде, чем реально скачивать и конвертировать файл; сбой
+    отдельного обращения к L2 тихо игнорируется (см. ``object_cache`` — там же
+    обоснование best-effort).
 
     Ключ — ``(ref.url, ref.name)`` (L1) / ``ref.url`` (L2, для записей внутри
     архива уже содержит ``#внутренний_путь``, различать по ``name`` доп. не
@@ -374,7 +374,4 @@ __all__ = [
     "is_tz",
     "resolve_tz_content",
     "resolve_tz_content_cached",
-    # Совместимость с прежним монолитным модулем scoring_common/tz.py.
-    "_decode_member_name",
-    "_extract_docx",
 ]

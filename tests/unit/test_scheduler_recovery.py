@@ -73,15 +73,18 @@ class _FakeRepo:
         return []
 
     async def profile_user_map(self, profile_ids: list[int]) -> dict[int, int | None]:
-        # Профили принадлежат легаси-пользователю 1 (без триала/аккаунтов) —
-        # в effective_options это «полный доступ», recovery разрешён.
+        # Профили принадлежат пользователю 1 с активным аккаунтом со всеми
+        # платными опциями — recovery разрешён.
         return {int(pid): 1 for pid in profile_ids}
 
     async def get_users_with_trial(self, user_ids: list[int]) -> dict[int, datetime | None]:
         return {int(uid): None for uid in user_ids}
 
     async def accounts_by_users(self, user_ids: list[int]) -> dict[int, list[Any]]:
-        return {}
+        full = UserAccount(
+            user_id=1, name="full", options=paid_default_options(True), is_active=True
+        )
+        return {int(uid): [full] for uid in user_ids}
 
 
 def _item(

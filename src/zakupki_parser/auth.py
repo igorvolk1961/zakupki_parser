@@ -114,9 +114,5 @@ def decode_token(token: str, secret: str, now: float | None = None) -> dict[str,
         return None
     roles = payload.get("roles")
     if not isinstance(roles, list) or not all(isinstance(r, str) for r in roles):
-        # Совместимость с токенами до ролевой модели: один claim ``role``.
-        legacy = payload.get("role")
-        if not isinstance(legacy, str) or not legacy:
-            return None
-        payload["roles"] = [legacy]
+        return None
     return payload

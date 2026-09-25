@@ -25,7 +25,7 @@ def test_check_config_summary(app_config: AppConfig) -> None:
 
     # Файлы конфигурации.
     assert "config_service.yaml" in out
-    assert "config_dom.yaml" in out
+    assert "dom/" in out
 
     # Ключевые параметры из config_service.yaml.
     assert "Площадок в списке сайтов" in out

@@ -163,6 +163,8 @@ def api_client(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[TestC
                 user = await repo.create_user(
                     "admin", "test-hash", [ROLE_ADMIN, ROLE_USER, ROLE_DEVOPS]
                 )
+            # Как начальный администратор: активный аккаунт со всеми платными опциями.
+            await repo.ensure_default_account(user.id, paid_default=True)
             await repo.upsert_profile(
                 {
                     "name": "default",
@@ -871,7 +873,11 @@ def test_export_procurement_xlsx_highlights_blocking_field_mismatch(
                             "found": True,
                             "value": 300,
                             "unit": "м3",
-                            "expected_value": "не менее 500",
+                            "condition": {
+                                "op": "llm",
+                                "value_kind": "scalar",
+                                "value": "не менее 500",
+                            },
                             "match": False,
                             "blocking": True,
                         }
@@ -892,7 +898,7 @@ def test_export_procurement_xlsx_highlights_blocking_field_mismatch(
     field_value = str(rows_by_label["Поле: объём партии"])
     assert "300" in field_value
     assert "не менее 500" in field_value
-    assert "НЕ совпадает" in field_value
+    assert "НЕ выполнено" in field_value
 
     label_cells = {cell.value: cell for row in ws.iter_rows(min_row=2) for cell in [row[0]]}
     assert label_cells["Поле: объём партии"].font.color.rgb == "FFDC2626"
@@ -1862,8 +1868,11 @@ def test_profile_website_url_persists_across_save(api_client: tuple[TestClient, 
 
 def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) -> None:
     """Конструктор отчётных полей (FR-12.1): поля профиля сохраняются полной
-    заменой вместе с профилем и возвращаются как есть при чтении.
-    Ожидаемое значение/блокировка (FR-13.5) — часть того же поля профиля."""
+    заменой вместе с профилем и возвращаются в каноническом виде
+    (``normalize_report_fields``); условие и блокировка — часть того же поля
+    профиля (FR-13.5, FR-13.7)."""
+    from scoring_common.conditions import normalize_report_fields
+
     client, _ = api_client
     fields = [
         {
@@ -1879,7 +1888,7 @@ def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) ->
             "hint": "объём вывоза",
             "type": "number",
             "unit": "м3",
-            "expected_value": "не менее 500",
+            "condition": {"op": "gte", "value": "500"},
             "blocking": True,
         },
     ]
@@ -1889,10 +1898,12 @@ def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) ->
     )
     assert created.status_code == 200, created.text
     profile_id = created.json()["id"]
-    assert created.json()["report_fields"] == fields
+    expected = normalize_report_fields(fields)
+    assert expected[1]["condition"] == {"op": "gte", "value_kind": "scalar", "value": "500"}
+    assert created.json()["report_fields"] == expected
 
     fetched = client.get(f"/api/clients/{profile_id}")
-    assert fetched.json()["report_fields"] == fields
+    assert fetched.json()["report_fields"] == expected
 
     replaced = client.put(
         f"/api/clients/{profile_id}",
@@ -1903,7 +1914,7 @@ def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) ->
         },
     )
     assert replaced.status_code == 200, replaced.text
-    assert replaced.json()["report_fields"] == [fields[0]]
+    assert replaced.json()["report_fields"] == [expected[0]]
 
 
 def test_customers_list_and_rating(api_client: tuple[TestClient, Path], inserted_id: int) -> None:
@@ -2241,13 +2252,11 @@ def test_analysis_prompts_list_get_put(tmp_path: Path, analyst_headers: dict[str
     os.environ.pop("ZAKUPKI_ANALYSIS_PROMPTS_DIR", None)
 
 
-def test_active_context_creates_default_profile(api_client: tuple[TestClient, Path]) -> None:
-    """Легаси-аккаунт с ролью user, но без профиля: активный контекст само-лечится.
-
-    Регрессия: «Активный профиль не найден (примените миграции)» для базовых
-    эндпоинтов закупок у аккаунтов, созданных до мультитенантности
-    (``create_user`` без default-профиля).
-    """
+def test_active_context_without_profile_is_conflict(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Пользователь без профилей получает 409 — профиль не досоздаётся на лету
+    (профиль создаётся вместе с пользователем и при выдаче роли user/analyst)."""
     client, _ = api_client
 
     async def _mk_user() -> int:
@@ -2255,32 +2264,15 @@ def test_active_context_creates_default_profile(api_client: tuple[TestClient, Pa
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            user = await repo.create_user("legacy-no-profile", "h", [ROLE_USER])
-            assert await repo.get_active_profile(user.id) is None
+            user = await repo.create_user("no-profile-user", "h", [ROLE_USER])
             return user.id
         finally:
             await db.dispose()
 
     user_id = asyncio.run(_mk_user())
     token = create_token(user_id, [ROLE_USER], AUTH_SECRET, 3600)
-    headers = {"Authorization": f"Bearer {token}"}
-
-    # Список закупок — базовый эндпоинт, зависящий от активного профиля.
-    resp = client.get("/api/procurements", headers=headers)
-    assert resp.status_code == 200
-
-    async def _profile_created() -> None:
-        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
-        await db.connect()
-        try:
-            repo = ProcurementRepository(db)
-            profile = await repo.get_active_profile(user_id)
-            assert profile is not None
-            assert profile.is_active is True
-        finally:
-            await db.dispose()
-
-    asyncio.run(_profile_created())
+    resp = client.get("/api/procurements", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 409
 
 
 def test_active_context_uses_disabled_profile(
@@ -2300,7 +2292,7 @@ def test_active_context_uses_disabled_profile(
         await db.connect()
         try:
             repo = ProcurementRepository(db)
-            user = await repo.create_user("legacy-disabled-profile", "h", [ROLE_USER])
+            user = await repo.create_user("disabled-profile-user", "h", [ROLE_USER])
             await repo.upsert_profile(
                 {
                     "name": "disabled-only",
@@ -2391,3 +2383,149 @@ def test_monitoring_returns_queues_index_and_resources(
     assert isinstance(body["storage"]["file_storage_bytes"], int)
     assert isinstance(body["storage"]["db_bytes"], int)
     assert body["storage"]["db_bytes"] > 0
+
+
+def test_profile_report_field_invalid_condition_rejected(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Условие проверяется при записи профиля: оператор не подходит к типу поля."""
+    client, _ = api_client
+    resp = client.post(
+        "/api/clients",
+        json={
+            "name": "bad-condition-profile",
+            "competencies": COMP_JSON,
+            "report_fields": [
+                {
+                    "id": "f1",
+                    "name": "объём",
+                    "type": "number",
+                    "condition": {"op": "all_in", "value": ["1"]},
+                }
+            ],
+        },
+    )
+    assert resp.status_code == 400
+    assert "объём" in resp.json()["detail"]
+
+
+def test_condition_change_rechecks_reports_without_llm(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Правка условия поля пересчитывает сохранённые отчёты профиля без LLM:
+    match и авто-отклонение меняются, отчёт остаётся актуальным (кнопка
+    «Анализ» не загорается), ход пересчёта виден в /recheck."""
+    from scoring_common.conditions import apply_condition, extraction_key, normalize_report_fields
+
+    client, _ = api_client
+    active = client.get("/api/clients/active").json()
+    profile_id = active["id"]
+
+    def _field(threshold: str) -> dict[str, Any]:
+        return {
+            "id": "vol",
+            "name": "объём партии",
+            "type": "number",
+            "unit": "м3",
+            "condition": {"op": "gte", "value": threshold},
+            "blocking": True,
+        }
+
+    def _put(threshold: str) -> dict[str, Any]:
+        resp = client.put(
+            f"/api/clients/{profile_id}",
+            json={
+                "name": active["name"],
+                "competencies": COMP_JSON,
+                "report_fields": [_field(threshold)],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        return cast(dict[str, Any], resp.json())
+
+    def _wait_recheck() -> dict[str, Any]:
+        for _ in range(100):
+            status = cast(dict[str, Any], client.get(f"/api/clients/{profile_id}/recheck").json())
+            if not status["running"]:
+                return status
+            time.sleep(0.05)
+        raise AssertionError("пересчёт условий не завершился")
+
+    saved = _put("500")
+    _wait_recheck()
+    field_def = normalize_report_fields([_field("500")])[0]
+    stored = apply_condition(
+        {
+            "field_id": "vol",
+            "field_name": "объём партии",
+            "field_type": "number",
+            "unit": "м3",
+            "found": True,
+            "value": 300.0,
+            "extraction_key": extraction_key(field_def),
+        },
+        field_def,
+    )
+    assert stored["match"] is False
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {"number": "RECHECK-1", "platform_id": "zakupki_mos", "subject": "Пересчёт"}
+            )
+            rows, _ = await repo.list_procurements(number="RECHECK-1")
+            pid = rows[0].id
+            await repo.upsert_score(
+                pid,
+                profile_id,
+                score_method="fit",
+                rag_report={
+                    "status": "ok",
+                    "fields": [stored],
+                    "verdict": {
+                        "accepted": False,
+                        "blocking_reasons": [{"source": "field:vol", "label": "объём партии"}],
+                    },
+                },
+                auto_rejected=True,
+                auto_rejection_reason="Авто: объём партии",
+                analysis_profile_snapshot=datetime.fromisoformat(saved["updated_at"]),
+            )
+            return pid
+        finally:
+            await db.dispose()
+
+    pid = asyncio.run(_seed())
+    before = client.get(f"/api/procurements/{pid}").json()
+    assert before["status"] == "rejected"
+    assert before["auto_rejected"] is True
+    assert before["analysis_stale"] is False
+
+    _put("200")
+    status = _wait_recheck()
+    assert status["total"] >= 1
+    assert status["done"] == status["total"]
+    assert status["error"] is None
+
+    after = client.get(f"/api/procurements/{pid}").json()
+    [field] = after["rag_report"]["fields"]
+    assert field["value"] == 300.0
+    assert field["condition"]["value"] == "200"
+    assert field["match"] is True
+    assert after["rag_report"]["verdict"]["accepted"] is True
+    assert after["status"] == "new"
+    assert after["auto_rejected"] is False
+    assert after["analysis_stale"] is False
+
+    # Переименование поля — нужно повторное извлечение: отчёт устаревает.
+    renamed = {**_field("200"), "name": "объём вывоза"}
+    resp = client.put(
+        f"/api/clients/{profile_id}",
+        json={"name": active["name"], "competencies": COMP_JSON, "report_fields": [renamed]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert _wait_recheck()["stale"] >= 1
+    assert client.get(f"/api/procurements/{pid}").json()["analysis_stale"] is True

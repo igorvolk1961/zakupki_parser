@@ -7,7 +7,7 @@ flowchart TB
     subgraph Engine["Парсер-движок"]
         ORC["Orchestrator<br/>основной алгоритм прохода"]
         LST["Lister<br/>вход, сортировка, фильтры, пагинация"]
-        EXT["Extractor<br/>извлечение по config_dom"]
+        EXT["Extractor<br/>извлечение по configs/dom"]
         DET["Detail<br/>детальная страница, файлы"]
         FLT["Filters engine<br/>шаги фильтров"]
         HND["Handlers<br/>постобработка значений"]

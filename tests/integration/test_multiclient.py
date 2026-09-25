@@ -48,6 +48,8 @@ async def _seed_default_profile(repo: ProcurementRepository) -> int:
     user = await repo.first_user()
     if user is None:
         user = await repo.create_user("admin", "test-hash", [ROLE_ADMIN, ROLE_USER])
+    # Как начальный администратор: активный аккаунт со всеми платными опциями.
+    await repo.ensure_default_account(user.id, paid_default=True)
     profile = await repo.upsert_profile(
         {
             "name": "default",
@@ -570,6 +572,67 @@ def test_profile_target_regions_roundtrip(mc_client: TestClient) -> None:
     assert updated.status_code == 200
     assert updated.json()["target_regions"] == []
     assert updated.json()["max_region_distance_km"] is None
+
+
+def test_profile_export_import_restores_report_fields_and_blocking(
+    mc_client: TestClient,
+) -> None:
+    """Профиль переносится полностью: отчётные поля с условиями и блокировки
+    категорий требований уходят в файл и восстанавливаются импортом."""
+    client = mc_client
+    fields = [
+        {
+            "id": "fkko",
+            "name": "коды ФККО",
+            "hint": "коды отходов",
+            "type": "list",
+            "value_mode": "code",
+            "extend_list": False,
+            "condition": {"op": "all_in", "value": ["1 11 010 21 49 2", "4 71 101 01 52 1"]},
+            "blocking": True,
+        }
+    ]
+    blocking = {"licenses": True, "experience": False, "minprom": True, "subcontractors": False}
+    created = client.post(
+        "/api/clients",
+        json={
+            "name": "portable-profile",
+            "competencies": COMP_JSON,
+            "report_fields": fields,
+            "requirement_blocking": blocking,
+        },
+    )
+    assert created.status_code == 200, created.text
+    profile_id = created.json()["id"]
+    saved_fields = created.json()["report_fields"]
+    assert saved_fields[0]["condition"]["value"] == ["1 11 010 21 49 2", "4 71 101 01 52 1"]
+
+    exported = client.get(f"/api/clients/{profile_id}/export")
+    assert exported.status_code == 200
+    content = exported.json()["profile_content"]
+    profile = json.loads(content)["profile"]
+    assert profile["report_fields"] == saved_fields
+    assert profile["requirement_blocking"] == blocking
+    assert profile["report_field_mapping"] == {}
+
+    # Портим профиль и восстанавливаем из файла.
+    cleared = client.put(
+        f"/api/clients/{profile_id}",
+        json={
+            "name": "portable-profile",
+            "competencies": COMP_JSON,
+            "report_fields": [],
+            "requirement_blocking": {},
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["report_fields"] == []
+
+    imported = client.post("/api/clients/import", json={"content": content})
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["id"] == profile_id
+    assert imported.json()["report_fields"] == saved_fields
+    assert imported.json()["requirement_blocking"] == blocking
 
 
 def test_profile_export_import_roundtrip(mc_client: TestClient) -> None:
