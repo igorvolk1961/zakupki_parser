@@ -123,6 +123,7 @@
           <button id="proc-refresh-profile" class="ghost" type="button" title="Принудительно поставить активный профиль на внеочередной обход прямо сейчас — без изменения самого профиля. Повторные нажатия ограничены тем же интервалом, что и правки профиля.">Обновить сейчас</button>
           <span id="proc-refresh-status" class="muted"></span>
         </div>
+        <div id="proc-recheck-banner" class="muted" style="display:none;margin:0 0 8px;"></div>
         <div class="toolbar" style="margin:0 0 8px;">
           <label title="URL карточки закупки на ЭТП (одна из поддерживаемых площадок). Закупка подгружается с площадки и сразу помечается «в работе» — независимо от того, подходит ли она под фильтры активного профиля." style="display:flex;align-items:center;gap:6px;flex:1;white-space:nowrap;">Добавить по URL
             <input type="text" id="proc-add-url" placeholder="https://…" spellcheck="false" style="flex:1;">
@@ -252,6 +253,7 @@
       <button class="ghost" id="profile-import" title="Загрузить профиль из файла (JSON: профиль и компетенции внутри)">Загрузить из файла</button>
       <input type="file" id="profile-import-file" accept=".json,.md,.markdown,.txt" style="display:none;">
       <span id="profile-status" class="muted"></span>
+      <div id="profile-recheck-status" class="muted" style="display:none;margin-top:4px;"></div>
     </div>
     <div class="table-wrap" id="profiles"></div>
     <div id="profile-editor" style="display:none; margin-top:12px;">
@@ -264,6 +266,7 @@
             <button type="button" id="pf-profile-from-url" class="ghost btn-mini" title="Скачивает сайт по указанному URL и просит LLM собрать по его тексту компетенции и лицензии профиля. Результат подставляется в форму (вкладки «Компетенции» и «Лицензии») — профиль не сохраняется автоматически, проверьте и поправьте перед «Сохранить профиль».">Заполнить профиль по URL</button>
           </div>
           <div id="pf-profile-url-status" class="muted" style="margin:0 0 8px;"></div>
+          <div id="pf-site-status" class="muted" style="margin:0 0 8px;" title="Текст сайта поставщика собирается по всем страницам и хранится в системе: по нему «Заполнить профиль по URL» и условия отчётных полей со значением-сайтом."></div>
           <div id="pf-profile-unmatched-licenses" style="display:none; margin:0 0 8px; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel2);">
             <div class="muted" style="margin-bottom:4px;" title="Справочник видов лицензий не исчерпывающий: LLM не имеет права придумывать id — такие лицензии не создаются как запись профиля автоматически. Заведите нужный тип на странице «Справочники» (роль analyst) и добавьте лицензию вручную на вкладке «Лицензии», если это нужно.">Упомянуты на сайте, но не найдены в справочнике видов лицензий (не сохранены как запись профиля):</div>
             <ul id="pf-profile-unmatched-licenses-list" style="margin:0; padding-left:18px;"></ul>
@@ -462,6 +465,7 @@
                 </label>
                 <label id="rf-cond-url-row" style="grid-column:1/-1;">Адрес сайта
                   <input id="rf-cond-url" placeholder="https://onlineecology.com/org/ooo-ekopattern">
+                  <span id="rf-cond-url-status" class="muted" style="display:block;margin-top:4px;"></span>
                 </label>
                 <div id="rf-near-row" style="grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                   <label title="Уточнение ищется на сайте в тексте от значения до следующего значения той же формы (строка таблицы). Значения поля берутся из ТЗ: если в ТЗ рядом с кодом указан вид работ, код требует именно его, иначе — все значения поля.">Рядом со значением на сайте должны быть
@@ -477,8 +481,11 @@
                   <label id="rf-near-labels-row" style="grid-column:1/-1;" title="Как уточнения написаны на сайте, через запятую (например, виды работ в лицензии: Сбор, Транспортирование, Утилизация). Слово из ТЗ в любом падеже сопоставляется с меткой, а на сайте ищется точная метка — слово внутри названия («пригодная для утилизации») не засчитывается. Пусто — поиск по основе слова из ТЗ.">Как это пишется на сайте (необязательно)
                     <input id="rf-near-labels" placeholder="Сбор, Транспортирование, Обработка, Утилизация, Обезвреживание, Размещение">
                   </label>
-                  <label id="rf-near-words-row" title="Через запятую; окончание можно заменить «*»: утилиз* — утилизация, утилизировать.">Слова
-                    <input id="rf-near-words" placeholder="утилиз*, обезвреж*">
+                  <label id="rf-near-words-row" title="Через запятую. Слово без «*» ищется в точной форме; «*» — любое продолжение: утилиз* — утилизация, утилизировать. Кнопка «Основы» заменит окончания звёздочкой.">Слова
+                    <span style="display:flex;gap:6px;">
+                      <input id="rf-near-words" placeholder="утилиз*, обезвреж*" style="flex:1;">
+                      <button type="button" id="rf-near-words-stem" class="ghost btn-mini">Основы</button>
+                    </span>
                   </label>
                   <label>Нужны
                     <select id="rf-near-mode">
@@ -487,6 +494,19 @@
                     </select>
                   </label>
                 </div>
+                <details id="rf-test" style="grid-column:1/-1;">
+                  <summary>Проверить условие на примере</summary>
+                  <div style="display:grid;gap:6px;margin-top:6px;">
+                    <label>Значения, как будто найденные в ТЗ (по одному в строке)
+                      <textarea id="rf-test-values" rows="3" placeholder="3 12 223 11 39 3&#10;2 12 101 01 31 3"></textarea>
+                    </label>
+                    <label id="rf-test-qualifiers-row">Уточнения из ТЗ (значения поля «рядом», через запятую)
+                      <input id="rf-test-qualifiers" placeholder="утилизации, транспортированию">
+                    </label>
+                    <span><button type="button" id="rf-test-run" class="ghost btn-mini">Проверить</button></span>
+                    <div id="rf-test-result"></div>
+                  </div>
+                </details>
                 <label id="rf-cond-list-row" style="grid-column:1/-1;" title="По одному значению в строке. Текст сравнивается без учёта окончаний; «*» на конце слова — любое продолжение (утилиз* — утилизация, утилизировать).">Список значений условия (по одному в строке)
                   <textarea id="rf-cond-list" rows="4" placeholder="1 11 010 21 49 2&#10;4 71 101 01 52 1"></textarea>
                 </label>

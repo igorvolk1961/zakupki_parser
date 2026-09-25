@@ -13,6 +13,7 @@ import {
 } from "./utils.js";
 import { state } from "./store.js";
 import { CHECK_STATUS_LABELS, conditionText } from "./conditions.js";
+import { watchRecheck } from "./progress.js";
 import { api, apiJSON, apiErrorDetail, authHeaders } from "./api.js";
 import { hasRole } from "./roles.js";
 import { renderMarkdown } from "./markdown.js";
@@ -178,7 +179,24 @@ async function procParams() {
   return params;
 }
 
+// Баннер «Пересчёт условий…» над списком: активный профиль пересчитывается
+// после правки условий или окончания сбора сайта. Проверка не чаще раза в 5 с.
+let recheckWatch = { id: null, at: 0, stop: null };
+function followRecheck() {
+  const id = Number(($("#proc-profile") || {}).value);
+  if (!id) return;
+  const now = Date.now();
+  if (recheckWatch.id === id && now - recheckWatch.at < 5000) return;
+  if (recheckWatch.stop) recheckWatch.stop();
+  recheckWatch = {
+    id,
+    at: now,
+    stop: watchRecheck(id, $("#proc-recheck-banner"), () => loadProc()),
+  };
+}
+
 async function loadProc() {
+  followRecheck();
   clampPage();
   const data = await api("procurements", await procParams());
   procTotal = data.total;

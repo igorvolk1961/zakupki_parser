@@ -10,6 +10,7 @@ import {
   opsForType,
 } from "./conditions.js";
 import { api, apiJSON, apiErrorDetail } from "./api.js";
+import { mountSourceStatus, watchRecheck } from "./progress.js";
 import { confirmDialog, confirmDialogAsync } from "./dialogs.js";
 import { loadProc, loadPlatforms } from "./procurements.js";
 import { loadCustomers } from "./customers.js";
@@ -378,8 +379,20 @@ function setProfileStatus(msg) {
   $("#profile-status").textContent = msg;
 }
 
+// Статус сбора сайта (сайт профиля / сайт в условии поля): опрос, пока идёт.
+const siteStatusStops = {};
+function showSiteStatus(elId, url) {
+  if (siteStatusStops[elId]) siteStatusStops[elId]();
+  const el = $("#" + elId);
+  el.innerHTML = "";
+  siteStatusStops[elId] = /^https?:\/\/\S+$/i.test(url || "")
+    ? mountSourceStatus(el, url)
+    : () => {};
+}
+
 function fillProfileForm(p) {
   $("#pf-profile-url").value = p ? p.website_url || "" : "";
+  showSiteStatus("pf-site-status", p ? p.website_url : "");
   setProfileUrlStatus("");
   renderUnmatchedLicenses([]);
   profileEditorName = p ? p.name : "";
@@ -783,7 +796,13 @@ async function fillProfileFromUrl() {
   }
   const btn = $("#pf-profile-from-url");
   btn.disabled = true;
-  setProfileUrlStatus("Скачиваю сайт и формирую профиль…");
+  const started = Date.now();
+  const stage = () =>
+    setProfileUrlStatus(
+      `Беру текст сайта (из собранного или скачиваю) и формирую профиль с помощью LLM… ${Math.round((Date.now() - started) / 1000)} с`
+    );
+  stage();
+  const timer = setInterval(stage, 1000);
   renderUnmatchedLicenses([]);
   try {
     const r = await apiJSON("/api/clients/profile/from-url", {
@@ -836,6 +855,7 @@ async function fillProfileFromUrl() {
   } catch (e) {
     setProfileUrlStatus("Ошибка: " + e.message, true);
   } finally {
+    clearInterval(timer);
     btn.disabled = false;
   }
 }
@@ -1350,6 +1370,8 @@ function updateConditionValueVisibility() {
   const nearSource = $("#rf-near-source").value;
   $("#rf-near-field-row").style.display = nearSource === "field" ? "" : "none";
   $("#rf-near-labels-row").style.display = nearSource === "field" ? "" : "none";
+  $("#rf-test").style.display = op ? "" : "none";
+  $("#rf-test-qualifiers-row").style.display = url && nearSource === "field" ? "" : "none";
   $("#rf-near-words-row").style.display = nearSource === "words" ? "" : "none";
   $("#rf-cond-value-row").style.display = kind === "scalar" ? "" : "none";
   $("#rf-cond-list-row").style.display = kind === "list" && !url ? "" : "none";
@@ -1379,6 +1401,8 @@ function openReportFieldForm(id) {
   const isUrl = !!cond && cond.value_kind === "url";
   $("#rf-cond-kind").value = isUrl ? "url" : "list";
   $("#rf-cond-url").value = isUrl ? cond.value || "" : "";
+  showSiteStatus("rf-cond-url-status", isUrl ? cond.value : "");
+  $("#rf-test-result").innerHTML = "";
   const near = (isUrl && cond.near) || null;
   $("#rf-near-source").value = near ? near.source : "";
   renderNearFields(near && near.source === "field" ? near.field_id : "");
@@ -1403,6 +1427,28 @@ function saveReportField() {
     return;
   }
   const type = $("#rf-type").value;
+  const built = collectCondition();
+  if (built.error) {
+    setReportFieldStatus(built.error);
+    return;
+  }
+  const condition = built.condition;
+  const data = {
+    name,
+    type,
+    hint: $("#rf-hint").value.trim() || null,
+    unit: type === "number" ? $("#rf-unit").value.trim() || null : null,
+    value_mode: type === "string" || type === "list" ? $("#rf-value-mode").value : "auto",
+    extend_list: type === "list" ? $("#rf-extend-list").checked : true,
+    condition,
+    // Блокировка без условия бессмысленна (нечего нарушать).
+    blocking: condition ? $("#rf-blocking").checked : false,
+  };
+  saveReportFieldData(data);
+}
+
+// Условие из формы редактора: {condition} или {error} (текст для пользователя).
+function collectCondition() {
   const op = $("#rf-cond-op").value;
   let condition = null;
   if (op) {
@@ -1410,16 +1456,14 @@ function saveReportField() {
     if (kind === "list" && $("#rf-cond-kind").value === "url") {
       const url = $("#rf-cond-url").value.trim();
       if (!/^https?:\/\/\S+$/i.test(url)) {
-        setReportFieldStatus("Укажите адрес сайта http(s)://…");
-        return;
+        return { error: "Укажите адрес сайта http(s)://…" };
       }
       let near = null;
       const nearSource = $("#rf-near-source").value;
       if (nearSource === "field") {
         const fieldId = $("#rf-near-field").value;
         if (!fieldId) {
-          setReportFieldStatus("Выберите поле с уточнениями");
-          return;
+          return { error: "Выберите поле с уточнениями" };
         }
         const labels = $("#rf-near-labels")
           .value.split(",")
@@ -1432,8 +1476,7 @@ function saveReportField() {
           .map((x) => x.trim())
           .filter(Boolean);
         if (!words.length) {
-          setReportFieldStatus("Укажите слова, которые должны быть рядом");
-          return;
+          return { error: "Укажите слова, которые должны быть рядом" };
         }
         near = { source: "words", words, mode: $("#rf-near-mode").value };
       }
@@ -1444,30 +1487,21 @@ function saveReportField() {
         .map((x) => x.trim())
         .filter(Boolean);
       if (!items.length) {
-        setReportFieldStatus("Укажите хотя бы одно значение списка условия");
-        return;
+        return { error: "Укажите хотя бы одно значение списка условия" };
       }
       condition = { op, value_kind: "list", value: items };
     } else {
       const value = $("#rf-cond-value").value.trim();
       if (!value) {
-        setReportFieldStatus("Укажите значение условия");
-        return;
+        return { error: "Укажите значение условия" };
       }
       condition = { op, value_kind: "scalar", value };
     }
   }
-  const data = {
-    name,
-    type,
-    hint: $("#rf-hint").value.trim() || null,
-    unit: type === "number" ? $("#rf-unit").value.trim() || null : null,
-    value_mode: type === "string" || type === "list" ? $("#rf-value-mode").value : "auto",
-    extend_list: type === "list" ? $("#rf-extend-list").checked : true,
-    condition,
-    // Блокировка без условия бессмысленна (нечего нарушать).
-    blocking: condition ? $("#rf-blocking").checked : false,
-  };
+  return { condition };
+}
+
+function saveReportFieldData(data) {
   // Поле редактируется в форме профиля и сохраняется на сервер только кнопкой
   // «Сохранить профиль» (та же модель, что у лицензий/опыта).
   if (reportFieldEditorId) {
@@ -1481,6 +1515,97 @@ function saveReportField() {
   wordCounts();
   syncEntryFormState();
   setReportFieldStatus("Сохранено — будет записано вместе с профилем");
+}
+
+// «Проверить условие на примере»: сервер проверяет условие так же, как при
+// анализе закупки, и показывает по каждому значению, что нашлось на сайте.
+async function runConditionTest() {
+  const box = $("#rf-test-result");
+  const built = collectCondition();
+  if (built.error || !built.condition) {
+    box.innerHTML = `<span class="error">${escapeHtml(built.error || "Условие не задано")}</span>`;
+    return;
+  }
+  const values = $("#rf-test-values")
+    .value.split("\n")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const qualifiers = $("#rf-test-qualifiers")
+    .value.split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  box.textContent = "Проверяю…";
+  try {
+    const r = await apiJSON("/api/conditions/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        field_type: $("#rf-type").value,
+        value_mode: $("#rf-value-mode").value || "auto",
+        condition: built.condition,
+        values,
+        qualifiers,
+      }),
+    });
+    if (!r.ok) throw new Error(await apiErrorDetail(r));
+    box.innerHTML = conditionTestHtml(await r.json(), values);
+  } catch (err) {
+    box.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function conditionTestHtml(res, values) {
+  const verdict =
+    res.match === true
+      ? "✓ условие выполнено"
+      : res.match === false
+        ? "✗ условие не выполнено"
+        : `⚪ не проверено (${escapeHtml(res.check_status)})`;
+  const reasons = res.mismatch_reasons || {};
+  const labels = res.near_labels || {};
+  const rows = values
+    .map((v) => {
+      const site = (res.on_site || {})[v];
+      const req = (res.requirements || {})[v] || [];
+      const reqText = req
+        .map((w) => escapeHtml(labels[w] ? `${w} → ${labels[w]}` : labels[w] === null ? `${w} → нет метки` : w))
+        .join(", ");
+      const siteText = site
+        ? site.occurrences
+          ? `найдено ${site.occurrences} раз<details><summary>строка на сайте</summary><pre style="white-space:pre-wrap;margin:0;">${escapeHtml(site.window)}</pre></details>`
+          : "нет на сайте"
+        : "—";
+      const ok = reasons[v] ? `✗ ${escapeHtml(reasons[v])}` : "✓";
+      return `<tr><td>${escapeHtml(v)}</td><td>${siteText}</td><td>${reqText || "—"}</td><td>${ok}</td></tr>`;
+    })
+    .join("");
+  const forms = Object.entries(res.near_matches || {})
+    .map(([q, f]) => `${escapeHtml(q)}: ${f.map(escapeHtml).join(", ")}`)
+    .join("; ");
+  return `<p style="margin:4px 0;"><b>${verdict}</b></p>
+    <div class="table-wrap"><table><thead><tr><th>Значение</th><th>На сайте</th><th>Требуется рядом</th><th>Итог</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${forms ? `<p class="muted" style="margin:4px 0;">Совпавшие словоформы: ${forms}</p>` : ""}`;
+}
+
+// «Основы»: слова уточнений -> шаблоны со звёздочкой (окончание отброшено).
+async function stemNearWords() {
+  const words = $("#rf-near-words")
+    .value.split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (!words.length) return;
+  try {
+    const r = await apiJSON("/api/conditions/stem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ words: words.filter((w) => !w.endsWith("*")) }),
+    });
+    if (!r.ok) throw new Error(await apiErrorDetail(r));
+    const map = Object.fromEntries((await r.json()).map((x) => [x.word, x.pattern]));
+    $("#rf-near-words").value = words.map((w) => map[w] || w).join(", ");
+  } catch (err) {
+    setReportFieldStatus(err.message);
+  }
 }
 
 function deleteReportField(field) {
@@ -1644,13 +1769,16 @@ async function doSaveProfile(data) {
     });
     if (!r.ok) throw new Error(await apiErrorDetail(r));
     let notice = null;
+    let savedId = profileEditorId;
     try {
       const saved = await r.json();
       notice = saved && saved.notice ? saved.notice : null;
+      savedId = saved && saved.id ? saved.id : savedId;
     } catch (e) {
       // Тело может отсутствовать/не парситься — показываем общий текст.
     }
     snapshotProfile();
+    if (savedId) watchRecheck(savedId, $("#profile-recheck-status"), () => loadProc());
     const baseMsg = profileEditorId ? "Профиль сохранён" : "Профиль создан";
     setProfileSaveStatus(notice || baseMsg);
     setProfileStatus(notice || baseMsg);
@@ -1963,6 +2091,14 @@ $("#report-field-cancel").addEventListener("click", () => {
 });
 $("#rf-type").addEventListener("change", updateReportFieldUnitVisibility);
 $("#rf-cond-op").addEventListener("change", updateConditionValueVisibility);
+$("#rf-cond-url").addEventListener("change", () =>
+  showSiteStatus("rf-cond-url-status", $("#rf-cond-url").value.trim())
+);
+$("#pf-profile-url").addEventListener("change", () =>
+  showSiteStatus("pf-site-status", $("#pf-profile-url").value.trim())
+);
+$("#rf-test-run").addEventListener("click", runConditionTest);
+$("#rf-near-words-stem").addEventListener("click", stemNearWords);
 $("#rf-cond-kind").addEventListener("change", updateConditionValueVisibility);
 $("#rf-near-source").addEventListener("change", updateConditionValueVisibility);
 $("#experience-new").addEventListener("click", () => openExperienceForm(null));

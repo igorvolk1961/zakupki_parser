@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from scoring_common.conditions import find_value, normalize_text
 from scoring_common.sources.store import get_text, text_key
+from scoring_common.sources.urls import normalize_source_url
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.net_safety import UnsafeUrlError
 from zakupki_parser.storage.db import SiteSource
@@ -101,6 +102,18 @@ def build_sources_router(ctx: ApiContext) -> APIRouter:
             source = await _manager().ensure(body.url)
         except UnsafeUrlError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _out(source)
+
+    @router.get(
+        "/api/sources/lookup",
+        response_model=SourceOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def lookup_source(url: str = Query(min_length=1, max_length=2048)) -> SourceOut:
+        """Статус сайта по URL без запуска сбора (404 — ещё не собирался)."""
+        source = await _repo().get_site_source_by_url(normalize_source_url(url))
+        if source is None:
+            raise HTTPException(status_code=404, detail="Сайт ещё не собирался")
         return _out(source)
 
     @router.get(

@@ -358,6 +358,15 @@ _CONDITION_OP_LABELS = {
 }
 
 
+_URL_OP_LABELS = {
+    "in": "есть на сайте",
+    "not_in": "нет на сайте",
+    "all_in": "все значения есть на сайте",
+    "any_in": "хотя бы одно значение есть на сайте",
+    "none_in": "ни одного значения нет на сайте",
+}
+
+
 def _field_condition_text(field_value: dict[str, Any]) -> str:
     """Условие отчётного поля текстом (Excel); пусто — условия нет."""
     condition = field_value.get("condition")
@@ -377,7 +386,8 @@ def _field_condition_text(field_value: dict[str, Any]) -> str:
             )
         else:
             near_text = ""
-        return f"{label}: сайт {target}{near_text}"
+        site_label = _URL_OP_LABELS.get(str(condition["op"]), label)
+        return f"{site_label} {target}{near_text}"
     if isinstance(target, list):
         return f"{label}: {'; '.join(str(v) for v in target)}"
     return f"{label} {target}"

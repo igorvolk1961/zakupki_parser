@@ -2792,3 +2792,134 @@ def test_url_condition_rechecked_when_site_collected(api_client: tuple[TestClien
         assert card["auto_rejected"] is False
     finally:
         manager._driver_factory = original  # noqa: SLF001
+
+
+def test_condition_stem_hint(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    resp = client.post("/api/conditions/stem", json={"words": ["утилизация", "сбор"]})
+    assert resp.status_code == 200
+    assert resp.json() == [
+        {"word": "утилизация", "pattern": "утилизац*"},
+        {"word": "сбор", "pattern": "сбор*"},
+    ]
+
+
+def test_condition_test_with_list_and_errors(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    ok = client.post(
+        "/api/conditions/test",
+        json={
+            "field_type": "list",
+            "condition": {"op": "all_in", "value": ["1 11 010 21 49 2"]},
+            "values": ["11101021492", "4 71 101 01 52 1"],
+        },
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["match"] is False
+    assert ok.json()["mismatched_values"] == ["4 71 101 01 52 1"]
+    bad = client.post(
+        "/api/conditions/test",
+        json={
+            "field_type": "number",
+            "condition": {"op": "all_in", "value": ["1"]},
+            "values": ["1"],
+        },
+    )
+    assert bad.status_code == 400
+    empty = client.post(
+        "/api/conditions/test",
+        json={"field_type": "string", "condition": {"op": "eq", "value": "abc"}, "values": []},
+    )
+    assert empty.status_code == 400
+
+
+def test_condition_test_against_site_and_lookup(api_client: tuple[TestClient, Path]) -> None:
+    """«Проверить» по сайту: окно строки кода, метки сайта, слово в названии не в счёт."""
+    from zakupki_parser.sources.crawler import NextStep
+
+    client, _ = api_client
+    manager = client.app.state.parser.source_crawls  # type: ignore[attr-defined]
+    url = "https://license.example.org/eko"
+    rows = (
+        "2 12 101 01 31 3\nконденсат газовый\nСбор (1)  Транспортирование (1)  Утилизация (1)\n"
+        "III класс\n"
+        "3 12 223 11 39 3\nосадок, отходы при их утилизации в производстве кислоты\n"
+        "Транспортирование (1)\nIII класс"
+    )
+
+    class _Site:
+        async def __aenter__(self) -> _Site:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def open(self, url: str) -> None:
+            return None
+
+        async def text(self) -> str:
+            return rows
+
+        async def fingerprint(self) -> str:
+            return "fp"
+
+        async def current_url(self) -> str:
+            return url
+
+        async def find_next(self, page_no: int) -> NextStep | None:
+            return None
+
+        async def click_next(self) -> None:
+            return None
+
+        async def scroll_to_bottom(self) -> None:
+            return None
+
+        async def wait_change(self, old: str, timeout_s: float) -> str | None:
+            return None
+
+    assert client.get("/api/sources/lookup", params={"url": url}).status_code == 404
+    original = manager._driver_factory  # noqa: SLF001
+    manager._driver_factory = _Site  # noqa: SLF001
+    try:
+        assert client.post("/api/sources", json={"url": url}).status_code == 200
+        for _ in range(100):
+            found = client.get("/api/sources/lookup", params={"url": url + "/"}).json()
+            if found["status"] == "complete":
+                break
+            time.sleep(0.05)
+        assert found["status"] == "complete" and found["active"] is False
+
+        resp = client.post(
+            "/api/conditions/test",
+            json={
+                "field_type": "list",
+                "value_mode": "code",
+                "condition": {
+                    "op": "all_in",
+                    "value_kind": "url",
+                    "value": url,
+                    "near": {
+                        "source": "field",
+                        "field_id": "works",
+                        "labels": ["Сбор", "Транспортирование", "Утилизация"],
+                    },
+                },
+                "values": ["2 12 101 01 31 3", "3 12 223 11 39 3", "9 99 999 99 99 9"],
+                "qualifiers": ["утилизации"],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["match"] is False
+        assert body["mismatch_reasons"] == {
+            "3 12 223 11 39 3": "нет рядом: утилизации",
+            "9 99 999 99 99 9": "нет в источнике",
+        }
+        assert body["near_labels"] == {"утилизации": "Утилизация"}
+        assert body["on_site"]["2 12 101 01 31 3"]["occurrences"] == 1
+        assert "Утилизация (1)" in body["on_site"]["2 12 101 01 31 3"]["window"]
+        assert body["on_site"]["9 99 999 99 99 9"]["occurrences"] == 0
+        assert body["source"]["status"] == "complete"
+    finally:
+        manager._driver_factory = original  # noqa: SLF001

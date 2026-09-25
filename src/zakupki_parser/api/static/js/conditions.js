@@ -44,6 +44,15 @@ export const CHECK_STATUS_LABELS = {
   source_failed: "текст сайта не получен",
 };
 
+// Операторы со списком, когда значение — сайт: «все значения есть на сайте …».
+const URL_OP_LABELS = {
+  in: "есть на сайте",
+  not_in: "нет на сайте",
+  all_in: "все значения есть на сайте",
+  any_in: "хотя бы одно значение есть на сайте",
+  none_in: "ни одного значения нет на сайте",
+};
+
 export function opsForType(type) {
   return Object.entries(CONDITION_OPS)
     .filter(([, def]) => def.types.includes(type))
@@ -56,6 +65,7 @@ export function conditionText(cond, maxItems = 3) {
   const def = CONDITION_OPS[cond.op];
   const label = def ? def.label : cond.op;
   if (cond.value_kind === "url") {
+    const urlLabel = URL_OP_LABELS[cond.op] || label;
     let host = cond.value;
     try {
       host = new URL(cond.value).host + new URL(cond.value).pathname.replace(/\/$/, "");
@@ -69,7 +79,7 @@ export function conditionText(cond, maxItems = 3) {
         ? `; рядом ${near.mode === "any" ? "одно из" : "все"}: ${(near.words || []).join(", ")}`
         : `; рядом — ${near.mode === "any" ? "одно из" : "все"} значения поля из ТЗ` +
           ((near.labels || []).length ? ` (метки сайта: ${near.labels.join(", ")})` : "");
-    return `${label}: сайт ${host}${nearText}`;
+    return `${urlLabel} ${host}${nearText}`;
   }
   if (Array.isArray(cond.value)) {
     const shown = cond.value.slice(0, maxItems).join("; ");

@@ -2759,6 +2759,8 @@ requirements:
       - src/scoring_common/scoring_common/sources/matching.py
       - src/scoring_common/scoring_common/verdict.py
       - src/zakupki_parser/api/app/source_links.py
+      - src/zakupki_parser/api/app/routes/conditions.py
+      - src/zakupki_parser/api/static/js/progress.js
       - src/analysis_service/analysis_service/pipeline/report_fields.py
       - src/analysis_service/analysis_service/pipeline/prompts.py
       - src/analysis_service/analysis_service/pipeline/prompts/field_extract_list.md
@@ -2811,6 +2813,13 @@ requirements:
       точно; для уточнений из ТЗ — метки сайта (near.labels), слово из ТЗ
       сопоставляется с меткой по основе, на сайте ищется точная метка.
       Пример — профиль ЭКОПАТТЕРН, docs/guides/user.md (2.7).
+      Шаг 4 (UI): ход сбора сайта (страниц, объём, время, способ перехода,
+      «Остановить»/«Обновить»; статус описывает текст, по которому идёт
+      проверка, и отдельно — итог последнего пересбора), ход пересчёта
+      условий (профиль, баннер над закупками), «Проверить условие на
+      примере» (POST /api/conditions/test: по каждому значению — найдено ли
+      на сайте, строка сайта, требования и метки), подсказка основ
+      (POST /api/conditions/stem), таймер «Заполнить профиль по URL».
   - id: FR-13.8
     type: FR
     title: Сайты-источники — сбор текста сайта по всем страницам пагинации в S3

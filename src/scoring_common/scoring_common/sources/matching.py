@@ -114,6 +114,33 @@ def qualifier_forms(window_text: str, qualifier: str, *, exact: bool = False) ->
     return [window_text[s:e] for s, e in find_value(norm, qualifier, "text", exact=exact)]
 
 
+def value_windows(
+    windows: TextWindows,
+    values: Iterable[str],
+    mode: str = "auto",
+    *,
+    window: int = DEFAULT_WINDOW,
+    max_window: int = DEFAULT_MAX_WINDOW,
+    limit_chars: int = 500,
+) -> dict[str, dict[str, Any]]:
+    """Для «Проверить» в редакторе: сколько раз значение найдено и его первое
+    окно (строка, в которой ищутся уточнения)."""
+    out: dict[str, dict[str, Any]] = {}
+    for value in values:
+        places = windows.occurrences(value, mode)
+        text = ""
+        if places:
+            page, start, end = places[0]
+            text = windows.window(
+                page, start, end, value, mode, window=window, max_window=max_window
+            )
+            if classify_value(value, mode) == "code":
+                # Окно кода начинается после него — показываем вместе с кодом.
+                text = windows.pages[page][start:end] + text
+        out[value] = {"occurrences": len(places), "window": text[:limit_chars]}
+    return out
+
+
 # ---------------------------------------------------------------------- #
 # Сайт-источник для проверки условия
 # ---------------------------------------------------------------------- #
@@ -209,4 +236,5 @@ __all__ = [
     "qualifier_forms",
     "source_context",
     "source_contexts",
+    "value_windows",
 ]
