@@ -417,7 +417,7 @@
           <div id="pf-pane-report-fields" style="display:none;">
             <div style="border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:14px;">
               <p class="muted" style="margin:0 0 8px;" title="Эти категории ищутся детерминированно (без LLM) по всем документам закупки. Найдено реальное требование (не «не требуется») — оно барьер выбранного уровня: «отклоняет закупку» — закупка автоматически отклоняется; «снижает P(win)» — закупка остаётся, её P(win) умножается на множитель из «Параметров мониторинга» (за каждый мягкий барьер).">Что делает найденное требование к участнику:</p>
-              <div class="profile-form" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;">
+              <div class="profile-form" style="display:grid; grid-template-columns:repeat(4, minmax(0, 220px)); gap:8px;">
                 <label>Лицензии <select id="rb-licenses"><option value="off">не влияет на участие в закупке</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
                 <label title="Уровень барьера зависит от того, чем в документах закупки подтверждается опыт: через электронную площадку (ПП 2571) без отметки «опыт через площадку» в профиле — закупка отклоняется; копии договоров/актов или выписка из реестра контрактов — снижает P(win); опыт указан только в критериях оценки — не барьер.">Опыт исполнения ⓘ <select id="rb-experience"><option value="off">не влияет на участие в закупке</option><option value="br03">зависит от способа подтверждения опыта</option></select></label>
                 <label>Требования Минпромторга <select id="rb-minprom"><option value="off">не влияет на участие в закупке</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
@@ -426,7 +426,10 @@
             </div>
             <p class="muted" style="margin-top:0;">Значение каждого поля программа сама находит в документах закупки (RAG-анализ) — опишите поле обычным языком, техническая формулировка запроса не нужна.</p>
             <div id="report-field-form" style="display:none; border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:10px;">
-              <div class="profile-form" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;">
+              <div class="profile-form" style="display:grid; grid-template-columns:repeat(4, minmax(0, 220px)); gap:8px;">
+                <!-- Группа 1 — что за поле: имя/тип и его параметры (единица —
+                     только у чисел; вид значений и «дополнять список» — только
+                     у списков), до 4 в ряд в зависимости от типа. -->
                 <label>Название поля <input id="rf-name" placeholder="например, код ФККО"></label>
                 <label>Тип значения
                   <select id="rf-type">
@@ -436,9 +439,6 @@
                     <option value="boolean">Да/нет</option>
                     <option value="list">Список (несколько значений)</option>
                   </select>
-                </label>
-                <label style="grid-column:1/-1;">Подсказка (что именно искать)
-                  <textarea id="rf-hint" rows="2" placeholder="например, код вида отхода по ФККО"></textarea>
                 </label>
                 <label id="rf-unit-row">Единица измерения <input id="rf-unit" placeholder="например, м3, руб."></label>
                 <label id="rf-value-mode-row" title="Коды (цифр не меньше половины: 1 11 010 21 49 2, 62.01.11) ищутся по цифрам в любой записи — с пробелами, дефисами или слитно. Текст — по словам без учёта окончаний («отходы бумаги» = «отходов бумаги»). «Авто» определяет вид по каждому значению.">Вид значений
@@ -451,49 +451,67 @@
                 <label id="rf-extend-row" style="flex-direction:row; align-items:center; gap:8px;" title="LLM видит только часть документов и может пропустить строки таблицы. Программа проверит найденные значения по полному тексту и доберёт остальные: из того же участка документа и по форме кода (1 11 010 21 49 2 → все коды вида «цифра пробел две цифры…»).">
                   <input type="checkbox" id="rf-extend-list" style="width:auto;" checked> Дополнять список по тексту документов
                 </label>
-                <label style="grid-column:1/-1;" title="Условие проверяет программа по найденному значению (без LLM), кроме «соответствует по смыслу» — его оценивает LLM. Условие можно менять без повторного анализа: отчёты пересчитываются сразу.">Условие (необязательно)
+                <!-- Группа 2 — что искать (свободное описание, всегда во всю ширину). -->
+                <label style="grid-column:1/-1;">Подсказка (что именно искать)
+                  <textarea id="rf-hint" rows="2" placeholder="например, код вида отхода по ФККО"></textarea>
+                </label>
+                <!-- Группа 3 — условие: что проверяем и чем (список ниже/
+                     сайт поставщика — по типу условия), до 4 в ряд. -->
+                <label title="Условие проверяет программа по найденному значению (без LLM), кроме «соответствует по смыслу» — его оценивает LLM. Условие можно менять без повторного анализа: отчёты пересчитываются сразу.">Условие (необязательно)
                   <select id="rf-cond-op"></select>
                 </label>
-                <label id="rf-cond-value-row" style="grid-column:1/-1;">Значение условия
-                  <input id="rf-cond-value" placeholder="например, 500000">
-                </label>
-                <label id="rf-cond-kind-row" style="grid-column:1/-1;" title="Сравнить значения из ТЗ со списком, заданным здесь, или с текстом сайта поставщика (например, лицензии поставщика со всеми кодами ФККО). Сайт поставщика собирается целиком, по всем страницам, и хранится в системе.">Сравнить со значениями
+                <label id="rf-cond-kind-row" title="Сравнить значения из ТЗ со списком, заданным здесь, или с текстом сайта поставщика (например, лицензии поставщика со всеми кодами ФККО). Сайт поставщика собирается целиком, по всем страницам, и хранится в системе.">Сравнить со значениями
                   <select id="rf-cond-kind">
                     <option value="list">из списка ниже</option>
                     <option value="url">на сайте поставщика</option>
                   </select>
                 </label>
-                <label id="rf-cond-url-row" style="grid-column:1/-1;">Адрес сайта поставщика
+                <label id="rf-cond-value-row">Значение условия
+                  <input id="rf-cond-value" placeholder="например, 500000">
+                </label>
+                <label id="rf-cond-url-row" style="grid-column:span 2;">Адрес сайта поставщика
                   <input id="rf-cond-url" placeholder="https://onlineecology.com/org/ooo-ekopattern">
                   <span id="rf-cond-url-status" class="muted" style="display:block;margin-top:4px;"></span>
                 </label>
-                <div id="rf-near-row" style="grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                  <label title="Уточнение ищется на сайте поставщика в тексте от значения до следующего значения той же формы (строка таблицы). Значения поля берутся из ТЗ: если в ТЗ рядом с кодом указан вид работ, код требует именно его, иначе — все значения поля.">Рядом со значением на сайте поставщика должны быть
-                    <select id="rf-near-source">
-                      <option value="">— не проверять —</option>
-                      <option value="field">значения поля из ТЗ</option>
-                      <option value="words">слова</option>
-                    </select>
-                  </label>
-                  <label id="rf-near-field-row">Поле с уточнениями
-                    <select id="rf-near-field"></select>
-                  </label>
-                  <label id="rf-near-labels-row" style="grid-column:1/-1;" title="Как уточнения написаны на сайте поставщика, через запятую (например, виды работ в лицензии: Сбор, Транспортирование, Утилизация). Слово из ТЗ в любом падеже сопоставляется с меткой, а на сайте поставщика ищется точная метка — слово внутри названия («пригодная для утилизации») не засчитывается. Пусто — поиск по основе слова из ТЗ.">Как это пишется на сайте поставщика (необязательно)
-                    <input id="rf-near-labels" placeholder="Сбор, Транспортирование, Обработка, Утилизация, Обезвреживание, Размещение">
-                  </label>
-                  <label id="rf-near-words-row" title="Через запятую. Слово без «*» ищется в точной форме; «*» — любое продолжение: утилиз* — утилизация, утилизировать. Кнопка «Основы» заменит окончания звёздочкой.">Слова
-                    <span style="display:flex;gap:6px;">
-                      <input id="rf-near-words" placeholder="утилиз*, обезвреж*" style="flex:1;">
-                      <button type="button" id="rf-near-words-stem" class="ghost btn-mini">Основы</button>
-                    </span>
-                  </label>
-                  <label>Нужны
-                    <select id="rf-near-mode">
-                      <option value="all">все</option>
-                      <option value="any">хотя бы одно</option>
-                    </select>
-                  </label>
-                </div>
+                <!-- Группа 4а — ветка «список ниже»: сами значения (многострочно). -->
+                <label id="rf-cond-list-row" style="grid-column:1/-1;" title="По одному значению в строке. Текст сравнивается без учёта окончаний; «*» на конце слова — любое продолжение (утилиз* — утилизация, утилизировать).">Список значений условия (по одному в строке)
+                  <textarea id="rf-cond-list" rows="4" placeholder="1 11 010 21 49 2&#10;4 71 101 01 52 1"></textarea>
+                </label>
+                <!-- Группа 4б — ветка «сайт поставщика»: уточнение «рядом со
+                     значением» (источник/поле/слова/режим — до 4 в ряд), затем
+                     последствие невыполнения условия, затем расшифровка меток
+                     на сайте. Видимость каждого поля своя (без общей обёртки),
+                     чтобы «Если условие не выполнено» не зависело от ветки. -->
+                <label id="rf-near-source-row" title="Уточнение ищется на сайте поставщика в тексте от значения до следующего значения той же формы (строка таблицы). Значения поля берутся из ТЗ: если в ТЗ рядом с кодом указан вид работ, код требует именно его, иначе — все значения поля.">Рядом со значением на сайте поставщика должны быть
+                  <select id="rf-near-source">
+                    <option value="">— не проверять —</option>
+                    <option value="field">значения поля из ТЗ</option>
+                    <option value="words">слова</option>
+                  </select>
+                </label>
+                <label id="rf-near-field-row">Поле с уточнениями
+                  <select id="rf-near-field"></select>
+                </label>
+                <label id="rf-near-words-row" title="Через запятую. Слово без «*» ищется в точной форме; «*» — любое продолжение: утилиз* — утилизация, утилизировать. Кнопка «Основы» заменит окончания звёздочкой.">Слова
+                  <span style="display:flex;gap:6px;">
+                    <input id="rf-near-words" placeholder="утилиз*, обезвреж*" style="flex:1;">
+                    <button type="button" id="rf-near-words-stem" class="ghost btn-mini">Основы</button>
+                  </span>
+                </label>
+                <label id="rf-near-labels-row" style="grid-column:1/-1;" title="Как уточнения написаны на сайте поставщика, через запятую (например, виды работ в лицензии: Сбор, Транспортирование, Утилизация). Слово из ТЗ в любом падеже сопоставляется с меткой, а на сайте поставщика ищется точная метка — слово внутри названия («пригодная для утилизации») не засчитывается. Пусто — поиск по основе слова из ТЗ.">Как это пишется на сайте поставщика (необязательно)
+                  <input id="rf-near-labels" placeholder="Сбор, Транспортирование, Обработка, Утилизация, Обезвреживание, Размещение">
+                </label>
+                <!-- Последствие невыполнения условия — в самом конце, после
+                     всех вариантов условия (список/сайт/уточнения). Явный
+                     grid-column:1 (не полная ширина) — колонка 1 в текущей
+                     строке почти всегда уже занята предыдущим полем, поэтому
+                     сетка переносит это поле на новую строку колонкой 1,
+                     вместо того чтобы молча заполнить им свободную ячейку в
+                     конце текущей строки (как было при auto-размещении). -->
+                <label id="rf-severity-row" style="grid-column:1;" title="«Отклоняет закупку» — невыполненное условие автоматически отклоняет закупку; «снижает P(win)» — закупка остаётся, её P(win) умножается на множитель из «Параметров мониторинга». Если значение не удалось проверить (не найдено, сбой) — это не барьер.">Если условие не выполнено
+                  <select id="rf-severity"><option value="off">только показать в отчёте</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select>
+                </label>
+                <!-- Группа 5 — проверка условия на примере, не зависит от ветки. -->
                 <details id="rf-test" style="grid-column:1/-1;">
                   <summary>Проверить условие на примере</summary>
                   <div style="display:grid;gap:6px;margin-top:6px;">
@@ -507,12 +525,6 @@
                     <div id="rf-test-result"></div>
                   </div>
                 </details>
-                <label id="rf-cond-list-row" style="grid-column:1/-1;" title="По одному значению в строке. Текст сравнивается без учёта окончаний; «*» на конце слова — любое продолжение (утилиз* — утилизация, утилизировать).">Список значений условия (по одному в строке)
-                  <textarea id="rf-cond-list" rows="4" placeholder="1 11 010 21 49 2&#10;4 71 101 01 52 1"></textarea>
-                </label>
-                <label id="rf-severity-row" style="grid-column:1/-1;" title="«Отклоняет закупку» — невыполненное условие автоматически отклоняет закупку; «снижает P(win)» — закупка остаётся, её P(win) умножается на множитель из «Параметров мониторинга». Если значение не удалось проверить (не найдено, сбой) — это не барьер.">Если условие не выполнено
-                  <select id="rf-severity"><option value="off">только показать в отчёте</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select>
-                </label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">
                 <button class="primary" id="report-field-save">Сохранить поле</button>

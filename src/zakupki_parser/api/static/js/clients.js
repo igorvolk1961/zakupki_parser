@@ -1367,13 +1367,18 @@ function updateConditionValueVisibility() {
   if (!canUrl) $("#rf-cond-kind").value = "list";
   const url = canUrl && $("#rf-cond-kind").value === "url";
   $("#rf-cond-url-row").style.display = url ? "" : "none";
-  $("#rf-near-row").style.display = url ? "grid" : "none";
+  // Поля уточнения «рядом» больше не в общей обёртке (rf-severity-row теперь
+  // стоит между ними и должен оставаться видимым независимо от ветки url) —
+  // у каждого своя видимость, source — по url, field/words/labels — ещё и по
+  // выбранному источнику уточнения. Режим («все»/«хотя бы одно») больше не
+  // настраивается — всегда "any" (см. collectCondition).
   const nearSource = $("#rf-near-source").value;
-  $("#rf-near-field-row").style.display = nearSource === "field" ? "" : "none";
-  $("#rf-near-labels-row").style.display = nearSource === "field" ? "" : "none";
+  $("#rf-near-source-row").style.display = url ? "" : "none";
+  $("#rf-near-field-row").style.display = url && nearSource === "field" ? "" : "none";
+  $("#rf-near-labels-row").style.display = url && nearSource === "field" ? "" : "none";
   $("#rf-test").style.display = op ? "" : "none";
   $("#rf-test-qualifiers-row").style.display = url && nearSource === "field" ? "" : "none";
-  $("#rf-near-words-row").style.display = nearSource === "words" ? "" : "none";
+  $("#rf-near-words-row").style.display = url && nearSource === "words" ? "" : "none";
   $("#rf-cond-value-row").style.display = kind === "scalar" ? "" : "none";
   $("#rf-cond-list-row").style.display = kind === "list" && !url ? "" : "none";
   $("#rf-severity-row").style.display = op ? "" : "none";
@@ -1410,7 +1415,6 @@ function openReportFieldForm(id) {
   $("#rf-near-words").value = near && near.source === "words" ? (near.words || []).join(", ") : "";
   $("#rf-near-labels").value =
     near && near.source === "field" ? (near.labels || []).join(", ") : "";
-  $("#rf-near-mode").value = near ? near.mode || "all" : "all";
   $("#rf-cond-value").value =
     cond && !isUrl && !Array.isArray(cond.value) ? cond.value || "" : "";
   $("#rf-cond-list").value = cond && Array.isArray(cond.value) ? cond.value.join("\n") : "";
@@ -1470,7 +1474,10 @@ function collectCondition() {
           .value.split(",")
           .map((x) => x.trim())
           .filter(Boolean);
-        near = { source: "field", field_id: fieldId, labels, mode: $("#rf-near-mode").value };
+        // Режим «рядом» больше не настраивается: всегда достаточно одного
+        // совпавшего уточнения ("any" — не все сразу, см. scoring_common.
+        // conditions._evaluate_url).
+        near = { source: "field", field_id: fieldId, labels, mode: "any" };
       } else if (nearSource === "words") {
         const words = $("#rf-near-words")
           .value.split(",")
@@ -1479,7 +1486,7 @@ function collectCondition() {
         if (!words.length) {
           return { error: "Укажите слова, которые должны быть рядом" };
         }
-        near = { source: "words", words, mode: $("#rf-near-mode").value };
+        near = { source: "words", words, mode: "any" };
       }
       condition = { op, value_kind: "url", value: url, near };
     } else if (kind === "list") {
