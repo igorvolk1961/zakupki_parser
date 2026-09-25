@@ -1181,6 +1181,7 @@ class ProcurementMixin(RepositoryMixin):
                     existing.fit_score = None
                     existing.score = None
                     existing.p_win = None
+                    existing.p_win_base = None
                     existing.margin = None
                     existing.score_method = "default"
                     existing.embedding_similarity = None

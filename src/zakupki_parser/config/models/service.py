@@ -111,6 +111,16 @@ class ScoringConfig(_BaseConfig):
     tz_download_timeout: float = Field(
         default=30.0, gt=0, description="лимит времени на скачивание файла ТЗ для уточнения (сек)"
     )
+    soft_pwin_factor: float = Field(
+        default=0.7,
+        ge=0,
+        le=1,
+        description=(
+            "Множитель P(win) за каждый мягкий барьер вердикта (невыполненное мягкое "
+            "условие, опыт по BR-03 со сканами/реестром): P(win) = P(win) модели × "
+            "множитель^N. 1 — мягкие барьеры P(win) не снижают"
+        ),
+    )
 
 
 class IndexingConfig(_BaseConfig):

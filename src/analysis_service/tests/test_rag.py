@@ -400,7 +400,7 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
             "check_status": "no_condition",
             "mismatched_values": [],
             "llm_match": None,
-            "blocking": False,
+            "severity": None,
             "value_sources": None,
             "unconfirmed_values": [],
             "rejected_values": [],

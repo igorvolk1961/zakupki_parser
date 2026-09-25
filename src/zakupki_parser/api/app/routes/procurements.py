@@ -754,15 +754,20 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         assert ws is not None
         ws.title = "Закупка"
         ws.append(["Поле", "Значение"])
-        red_font = Font(color="FFDC2626", bold=True)
+        fonts = {
+            "block": Font(color="FFDC2626", bold=True),
+            "soft": Font(color="FFB45309", bold=True),
+        }
 
-        def add(label: str, value: Any, *, blocking: bool = False) -> None:
+        def add(label: str, value: Any, *, severity: str | None = None) -> None:
+            """Строка отчёта; барьер — цветом: жёсткий красным, мягкий янтарным."""
             if isinstance(value, (dict, list)):
                 value = json.dumps(value, ensure_ascii=False)
             ws.append([label, value])
-            if blocking:
+            font = fonts.get(severity or "")
+            if font is not None:
                 for cell in ws[ws.max_row]:
-                    cell.font = red_font
+                    cell.font = font
 
         method_labels = {
             "manual": "ручная",
@@ -792,17 +797,24 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
 
         # Отчёт (единый отчёт — см. «Отчёт» на карточке, cardReportPanel):
         # вердикт приемлемости + требования к участнику + geo-дистанция.
-        # Блокирующие пункты — красным.
+        # Жёсткие барьеры — красным, мягкие (снижают P(win)) — янтарным.
         report = out.rag_report or {}
         verdict = report.get("verdict")
         if isinstance(verdict, dict):
-            blocking_reasons = verdict.get("blocking_reasons") or []
-            reasons = ", ".join(r.get("label", "") for r in blocking_reasons if isinstance(r, dict))
+
+            def _labels(key: str) -> str:
+                items = verdict.get(key) or []
+                return ", ".join(r.get("label", "") for r in items if isinstance(r, dict))
+
             add(
                 "Вердикт приемлемости",
-                "Допустима" if verdict.get("accepted") else f"Отклонена: {reasons}",
-                blocking=not verdict.get("accepted"),
+                "Допустима"
+                if verdict.get("accepted")
+                else f"Отклонена: {_labels('blocking_reasons')}",
+                severity=None if verdict.get("accepted") else "block",
             )
+            if verdict.get("soft_reasons"):
+                add("Снижают P(win)", _labels("soft_reasons"), severity="soft")
         requirements = out.requirements_json or {}
         req_verdict = report.get("requirements_verdict") or {}
         for key, label in REQUIREMENT_CATEGORY_LABELS.items():
@@ -815,12 +827,12 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             # Лицензии — компактная сводка (что требуется + есть ли у поставщика),
             # без сырого текста требования.
             if key == "licenses" and status is not None:
-                add(label, _license_summary_text(status), blocking=bool(info.get("blocking")))
+                add(label, _license_summary_text(status), severity=info.get("severity"))
                 continue
             items = requirements.get(key)
             if status is not None and not status.get("required"):
                 # «не требуется» / «не найдено» — явно указываем в отчёте.
-                add(label, _requirement_status_text(status), blocking=bool(info.get("blocking")))
+                add(label, _requirement_status_text(status), severity=info.get("severity"))
                 continue
             if not items:
                 continue
@@ -834,25 +846,34 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                     for i in items
                     if isinstance(i, dict)
                 )
-            add(label, texts, blocking=bool(info.get("blocking")))
+            add(label, texts, severity=info.get("severity"))
         geo = report.get("geo")
         if isinstance(geo, dict):
             geo_text = (
                 f"{geo.get('distance_km')} км (лимит {geo.get('max_distance_km')} км, "
                 f"регион: {geo.get('region') or '—'})"
             )
-            add("Расстояние до центра региона", geo_text, blocking=bool(geo.get("too_far")))
+            add(
+                "Расстояние до центра региона",
+                geo_text,
+                severity="block" if geo.get("too_far") else None,
+            )
 
         add("Score", out.score)
         add("Метод скоринга", method_labels.get(out.score_method or "", out.score_method))
         add("Fit-скор", out.fit_score)
-        add("P(win)", out.p_win)
+        add(
+            "P(win)",
+            out.p_win
+            if out.p_win_base is None or out.p_win == out.p_win_base
+            else f"{out.p_win} (модель: {out.p_win_base}, снижено за мягкие барьеры)",
+        )
         add("Margin", out.margin)
         add("Близость эмбеддингов", out.embedding_similarity)
         for fv in (out.rag_report or {}).get("fields", []) or []:
             if not isinstance(fv, dict) or not fv.get("found"):
                 continue
-            mismatch = bool(fv.get("blocking")) and fv.get("match") is False
+            severity = fv.get("severity") if fv.get("match") is False else None
             value = fv.get("value")
             if isinstance(value, list):
                 value = "; ".join(str(v) for v in value)
@@ -874,7 +895,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                     else ""
                 )
                 value = f"{value} [условие: {condition}{match_mark}{extra}]"
-            add(f"Поле: {fv.get('field_name', '')}", value, blocking=mismatch)
+            add(f"Поле: {fv.get('field_name', '')}", value, severity=severity)
 
         buf = io.BytesIO()
         wb.save(buf)
@@ -1114,6 +1135,11 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             costs["scoring"] = body.score_costs
         if body.rag_report and body.rag_report.get("cost"):
             costs["analysis"] = body.rag_report.pop("cost")
+        # Мягкие барьеры вердикта снижают P(win). P(win) модели приходит только
+        # от pwin-стадии; margin-стадия эхом возвращает уже сниженный p_win —
+        # базой он не считается.
+        soft_pwin_factor = state.cfg.service.scoring.soft_pwin_factor
+        p_win_base = body.p_win if body.score_method == "pwin" else None
         if body.rag_report is not None:
             # Анализ стоп-условий: сохраняем отчёт профилю (score_method не меняем).
             await _repo().update_rag_report(
@@ -1126,6 +1152,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 auto_rejected=body.auto_rejected,
                 auto_rejection_reason=body.auto_rejection_reason,
                 analysis_profile_snapshot=body.analysis_profile_snapshot,
+                soft_pwin_factor=soft_pwin_factor,
             )
         # Результат стадии каскада (fit/pwin/margin/sim) применяется и вместе с
         # rag_report: rag_report не отменяет скоринг. Чисто аналитический результат
@@ -1148,6 +1175,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                 costs=costs,
                 iteration=batch_iteration,
                 platform=batch_platform,
+                p_win_base=p_win_base,
+                soft_pwin_factor=soft_pwin_factor,
             )
             # BR-07 (дедупликация по содержанию компетенций): результат, посчитанный
             # для представителя группы идентичного содержания компетенций,
@@ -1186,6 +1215,8 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
                         costs=costs,
                         iteration=batch_iteration,
                         platform=batch_platform,
+                        p_win_base=p_win_base,
+                        soft_pwin_factor=soft_pwin_factor,
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(

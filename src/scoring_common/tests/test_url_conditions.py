@@ -231,7 +231,7 @@ def _fields(**near: Any) -> list[dict[str, Any]]:
             "name": "коды",
             "type": "list",
             "condition": {"op": "all_in", "value_kind": "url", "value": URL, "near": near or None},
-            "blocking": True,
+            "severity": "block",
         },
     ]
 

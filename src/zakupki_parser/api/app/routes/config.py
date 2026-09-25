@@ -310,6 +310,7 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
         "min_fit_score": "Минимальный Fit",
         "score_round_digits": "Округление score",
         "tz_download_timeout": "Таймаут скачивания ТЗ",
+        "soft_pwin_factor": "Снижение P(win) за мягкий барьер",
     }
     for field in schema:
         if field.get("key") == "sites" and field.get("kind") == "list":

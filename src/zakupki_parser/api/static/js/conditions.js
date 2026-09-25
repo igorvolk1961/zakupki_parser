@@ -33,6 +33,16 @@ export const REPORT_FIELD_TYPE_LABELS = {
   list: "Список",
 };
 
+// Уровень барьера (scoring_common.verdict): block — закупка отклоняется,
+// soft — остаётся, но её P(win) снижается.
+export const SEVERITY_LABELS = { block: "отклоняет закупку", soft: "снижает P(win)" };
+export const SEVERITY_PILLS = {
+  block: ' <span class="pill inactive">отклоняет</span>',
+  soft: ' <span class="pill soft">снижает P(win)</span>',
+};
+// Категории требований к участнику с настраиваемым уровнем (id селектов rb-*).
+export const REQUIREMENT_SEVERITY_KEYS = ["licenses", "experience", "minprom", "subcontractors"];
+
 // Почему условие не проверено (check_status с сервера).
 export const CHECK_STATUS_LABELS = {
   not_found_in_tz: "значение не найдено в документах",

@@ -329,12 +329,18 @@ requirements:
       - src/scoring_common/tests/test_requirements.py
       - src/analysis_service/tests/test_rag.py
       - src/scoring_common/tests/test_verdict.py
+      - tests/integration/test_api.py
     notes: >-
       2026-09-24: LLM-опрос sys:exp_2571 (FR-4.3, удалено вместе с мёртвым
       кодом) заменён детерминированным извлечением категории «experience» из
       ``requirements_json`` (``scoring_common.requirements``, все документы,
       без LLM) — блокирует приемлемость, если профиль отметил категорию
       блокирующей (``compute_requirements_verdict``, FR-13.1/13.2).
+
+      2026-09-25: BR-03 восстановлено — уровень барьера опыта решает способ
+      подтверждения (``scoring_common.verdict.experience_confirmation``):
+      площадка без опыта «через площадку» в профиле — жёсткий, сканы/реестр —
+      мягкий (снижает P(win)), только критерии оценки — не барьер. См. BR-03.
   - id: US-4.3
     type: US
     title: Реестр Минпромторга
@@ -2581,7 +2587,7 @@ requirements:
       вручную, ни автоматически. Единый способ для обеих причин отклонения.
   - id: FR-13.2
     type: FR
-    title: Блокирующие настройки категорий требований в профиле
+    title: Уровни барьеров категорий требований в профиле
     stakeholder: Тендеролог (user)
     stage: "5"
     status: implemented
@@ -2595,10 +2601,11 @@ requirements:
     tests:
       - src/scoring_common/tests/test_verdict.py
     notes: >-
-      ``profiles.requirement_blocking`` — {"licenses": bool, "experience":
-      bool, "minprom": bool, "subcontractors": bool}, отсутствующий ключ = не
-      блокирует. UI — 4 чекбокса на вкладке «Отчётные поля» редактора
-      профиля. Используется ``compute_requirements_verdict`` (FR-13.1).
+      ``profiles.requirement_severity`` (миграция 1.70, было
+      ``requirement_blocking`` с bool) — {"licenses"|"minprom"|"subcontractors":
+      "block"|"soft"|"off", "experience": "br03"|"off"}, отсутствующий ключ = не
+      учитывается. UI — 4 списка на вкладке «Отчётные поля» редактора профиля.
+      Используется ``compute_requirements_verdict`` (FR-13.1); опыт — по BR-03.
   - id: FR-13.3
     type: FR
     title: Гейт кнопки «Анализ» — заблокирована, пока профиль не изменился
@@ -2660,7 +2667,7 @@ requirements:
       ответе карточки.
   - id: FR-13.5
     type: FR
-    title: Отчётные поля — ожидаемое значение, LLM-сравнение, блокировка
+    title: Отчётные поля — стоп-условие (жёсткий / мягкий барьер)
     stakeholder: Тендеролог (user)
     stage: "5"
     status: implemented
@@ -2684,10 +2691,13 @@ requirements:
       - src/zakupki_parser/storage/profile_json.py
       - src/zakupki_parser/api/app/schemas.py
       - docker/liquibase/changelog/db.changelog-1.67.yaml
+      - docker/liquibase/changelog/db.changelog-1.70.yaml
+      - src/zakupki_parser/storage/repository/evaluations.py#_apply_pwin_penalty
     tests:
       - src/analysis_service/tests/test_report_fields.py
       - src/scoring_common/tests/test_verdict.py
       - tests/unit/test_profile_json.py
+      - tests/unit/test_pwin_penalty.py
     notes: >-
       Отчётное поле профиля может задавать необязательное «ожидаемое
       значение» (свободный текст, может быть условием — «не менее 500000»,
@@ -2714,6 +2724,16 @@ requirements:
       ``_minprom_verdict``/``_license_verdict`` — см. FR-4.5), который ни разу
       не вызывался в проде и функционально был давно заменён детерминированным
       ``scoring_common.requirements`` (US-4.2/4.3).
+
+      2026-09-25: свободное «ожидаемое значение» с LLM-сравнением заменено условием поля (FR-13.7): операторы проверяет код, LLM-сравнение осталось оператором «соответствует по смыслу» (op=llm, в него мигрированы прежние значения, миграция 1.68). Флаг «блокирует» и вердикт — как описано выше.
+
+      2026-09-25: флаг ``blocking`` заменён уровнем барьера ``severity``
+      (миграция 1.70): ``block`` — невыполненное условие авто-отклоняет
+      закупку (``blocking_reasons``), ``soft`` — закупка остаётся, причина в
+      ``verdict.soft_reasons``, P(win) = ``p_win_base`` × ``soft_pwin_factor``^N
+      (``scoring.soft_pwin_factor``, по умолчанию 0,7; применяет API при записи
+      pwin/margin, анализа и пересчёта), ``null`` — только в отчёте. Карточка и
+      Excel: жёсткие — красным, мягкие — янтарным.
   - id: FR-13.6
     type: FR
     title: Корректные GFM-таблицы при извлечении текста PDF (до записи в кэш/хранилище)
@@ -2800,7 +2820,7 @@ requirements:
       актуальным, если правка не затронула извлечение и не-пересчитываемые
       входы анализа (регионы, лицензии). Значение-сайт (URL) — шаг 3 плана.
       Профиль переносится JSON-файлом полностью (решение пользователя):
-      отчётные поля с условиями, requirement_blocking, report_field_mapping.
+      отчётные поля с условиями, requirement_severity, report_field_mapping.
       Шаг 3: условие со значением-сайтом (value_kind=url) — значения ТЗ ищутся
       в тексте сайта-источника (FR-13.8); уточнения «рядом» (значения другого
       поля из ТЗ или слова) — в окне от значения до следующего значения той
@@ -2902,13 +2922,34 @@ requirements:
     status: implemented
     adr: ADR-10
     code:
+      - src/scoring_common/scoring_common/verdict.py#_experience_severity
+      - src/scoring_common/scoring_common/verdict.py#experience_confirmation
+      - src/analysis_service/analysis_service/worker.py
+      - src/zakupki_parser/api/app/condition_recheck.py
+      - src/zakupki_parser/storage/repository/evaluations.py#_apply_pwin_penalty
       - src/analysis_service/analysis_service/pipeline/matcher.py
       - src/zakupki_parser/api/app/routes/reference.py
       - src/zakupki_parser/api/app/routes/facts.py
     tests:
+      - src/scoring_common/tests/test_verdict.py
+      - tests/unit/test_pwin_penalty.py
+      - tests/integration/test_api.py
       - src/analysis_service/tests/test_rag.py
       - tests/integration/test_profile_licenses_experience.py
       - tests/integration/test_reference_admin.py
+    notes: >-
+      2026-09-25 (восстановлено): профиль включает правило
+      (``requirement_severity.experience = br03``) или отключает его; уровень
+      решает способ подтверждения опыта — LLM-поле ``data.confirmation``/
+      ``ref_2571`` (платная опция), иначе формулировка требования: площадка
+      (ПП 2571) без опыта ``platform`` в профиле — жёсткий барьер
+      (авто-отклонение), с ним — не барьер; копии договоров/актов, выписка из
+      реестра контрактов, не распознанный способ — мягкий (P(win) ×
+      ``soft_pwin_factor``); только критерии оценки и «не требуется» — не
+      барьер. Правка опыта профиля пересчитывает вердикты без LLM.
+
+      История: 2026-09-24 правило удалялось вместе с LLM-опросом sys:exp_2571
+      (до восстановления опыт блокировал только флагом профиля).
   - id: BR-04
     type: BR
     title: Реестр Минпромторга («не установлено»)

@@ -57,8 +57,21 @@ erDiagram
         float nmck_min
         float nmck_max
         text competencies
-        jsonb questions
+        text website_url
+        jsonb report_fields
+        jsonb requirement_severity
         datetime created_at
+    }
+
+    SITE_SOURCES {
+        int id PK
+        string url_norm UK
+        string status
+        string stop_reason
+        int pages
+        jsonb progress
+        datetime fetched_at
+        bool text_complete
     }
 
     KEYWORDS {
@@ -176,6 +189,7 @@ erDiagram
         float fit_score
         float score
         float p_win
+        float p_win_base "P(win) модели до мягких барьеров"
         float margin
         string score_method
         jsonb rag_report
@@ -236,14 +250,22 @@ erDiagram
   nullable boolean соответствия требованию Минпромторга об импортонезависимости
   (NULL — неизвестно/не применимо). CRUD — вложенные эндпоинты
   `/api/clients/{id}/licenses` и `/api/clients/{id}/experience` (tenant-скоуп BR-07).
-- **Вопросы к ТЗ и факты анализа**: `profiles.questions` (jsonb `{id, text}`) хранит
-  только **пользовательские** вопросы. Обязательные системные проверки (ids `sys:*`,
-  опыт 2571 / реестр Минпромторга / лицензии) живут вне БД — константа
-  `analysis_service` (`pipeline/system_questions.py`, версия `SYSTEM_QUESTIONS_VERSION`);
-  при сохранении профиля вопросы `sys:*` фильтруются (FR-4.4). `procurement_evaluations.rag_report`
-  содержит per-question `{question_id, verdict, marker, source, facts, question_version, ...}`;
-  факты профиля для Stage B (коды лицензий/опыта) собираются из `profile_licenses` +
-  `profile_experience` (`get_profile_facts`) и отдаются конвейеру в `GET /api/clients/active` → `facts`.
+- **Отчётные поля, условия и факты анализа**: `profiles.report_fields` (jsonb) —
+  поля, значения которых извлекаются из документов закупки, с условием
+  `{op, value_kind, value, near?}` и уровнем барьера `severity` (`block`/`soft`;
+  FR-13.7; условие проверяет код, кроме `op=llm`). Значение-сайт (`value_kind=url`) проверяется по тексту
+  сайта-источника: статус сбора — `site_sources`, текст — объектное хранилище
+  (FR-13.8). `procurement_evaluations.rag_report.fields[]` — значения полей и итог
+  проверки условий; требования к участнику (лицензии/опыт/Минпромторг/
+  соисполнители) — детерминированно, `procurements.requirements_json`; факты
+  профиля для сопоставления (коды лицензий/опыта) собираются из
+  `profile_licenses` + `profile_experience` (`get_profile_facts`) и отдаются
+  конвейеру в `GET /api/clients/active` → `facts`.
+- **Уровни барьеров и BR-03** (миграция 1.70): `profiles.requirement_severity` —
+  уровень категорий требований (`block`/`soft`/`off`; опыт — `br03`/`off`: уровень
+  решает способ подтверждения опыта и опыт профиля `platform`). Жёсткий барьер —
+  авто-отклонение; мягкие (`rag_report.verdict.soft_reasons`) снижают P(win):
+  `p_win = p_win_base × soft_pwin_factor^N`, `p_win_base` — P(win) модели.
 - **Изоляция через user_id / profile_id** (BR-07): все таблицы с приватными данными
   (`profiles`, `procurement_evaluations`, `profile_licenses`, `profile_experience`)
   привязаны к пользователю/профилю; tenant-скоуп реализован в репозитории.

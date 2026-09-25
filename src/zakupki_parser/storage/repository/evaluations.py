@@ -134,6 +134,33 @@ class EvaluationMixin(RepositoryMixin):
         if analysis_profile_snapshot is not None:
             evaluation.analysis_profile_snapshot = analysis_profile_snapshot
 
+    @staticmethod
+    def _apply_pwin_penalty(evaluation: ProcurementEvaluation, factor: float) -> None:
+        """Снижение P(win) за мягкие барьеры вердикта (``soft_reasons``).
+
+        ``p_win = p_win_base × factor^N``, где N — число мягких барьеров в
+        ``rag_report.verdict``; накопленный score пересчитывается из своих
+        составляющих (``fit × p_win`` или ``fit × p_win × margin`` — как у
+        pwin/margin-воркеров). Вызывается при любом изменении P(win) модели или
+        вердикта: результат не зависит от того, что пришло раньше — скоринг
+        или анализ.
+        """
+        base = evaluation.p_win_base
+        if base is None:
+            return
+        verdict = (evaluation.rag_report or {}).get("verdict") or {}
+        soft = verdict.get("soft_reasons") if isinstance(verdict, dict) else None
+        n = len(soft) if isinstance(soft, list) else 0
+        p_win = base * (factor**n)
+        evaluation.p_win = _round_score(p_win)
+        fit = evaluation.fit_score
+        if fit is None:
+            return
+        if evaluation.score_method == "pwin":
+            evaluation.score = _round_score(fit * p_win)
+        elif evaluation.score_method == "margin" and evaluation.margin is not None:
+            evaluation.score = _round_score(fit * p_win * evaluation.margin)
+
     async def upsert_score(
         self,
         procurement_id: int,
@@ -153,11 +180,15 @@ class EvaluationMixin(RepositoryMixin):
         auto_rejected: bool | None = None,
         auto_rejection_reason: str | None = None,
         analysis_profile_snapshot: datetime | None = None,
+        p_win_base: float | None = None,
+        soft_pwin_factor: float = 1.0,
     ) -> ProcurementEvaluation:
         """Обновляет/создаёт per-profile результат скоринга закупки.
 
         ``auto_rejected``/``auto_rejection_reason``/``analysis_profile_snapshot``
-        — см. ``_apply_auto_verdict``.
+        — см. ``_apply_auto_verdict``. ``p_win_base`` — P(win) модели (у
+        pwin-стадии это её ``p_win``); итоговые ``p_win``/``score`` снижаются
+        за мягкие барьеры (``_apply_pwin_penalty``).
         """
         async with self._db.session() as session:
             evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
@@ -169,6 +200,8 @@ class EvaluationMixin(RepositoryMixin):
                 evaluation.p_win = _round_score(p_win)
             if margin is not None:
                 evaluation.margin = _round_score(margin)
+            if p_win_base is not None:
+                evaluation.p_win_base = _round_score(p_win_base)
             evaluation.score_method = score_method
             if embedding_similarity is not None:
                 evaluation.embedding_similarity = embedding_similarity
@@ -179,6 +212,7 @@ class EvaluationMixin(RepositoryMixin):
             self._apply_auto_verdict(
                 evaluation, auto_rejected, auto_rejection_reason, analysis_profile_snapshot
             )
+            self._apply_pwin_penalty(evaluation, soft_pwin_factor)
             self._set_batch_meta(evaluation, iteration, platform)
             self._merge_costs_into(evaluation, costs)
             await session.commit()
@@ -196,8 +230,10 @@ class EvaluationMixin(RepositoryMixin):
         self,
         profile_id: int,
         field_defs: list[dict[str, Any]],
-        requirement_blocking: dict[str, Any],
+        requirement_severity: dict[str, Any],
         *,
+        experience_codes: list[str] | None = None,
+        soft_pwin_factor: float = 1.0,
         snapshot_from: datetime | None = None,
         snapshot_to: datetime | None = None,
         on_progress: Callable[[int, int], Awaitable[None] | None] | None = None,
@@ -209,8 +245,9 @@ class EvaluationMixin(RepositoryMixin):
         Для каждой оценки профиля с ``rag_report``: условия полей
         (``scoring_common.conditions.recompute_field_values``) и вердикт
         (``scoring_common.verdict.compute_verdict``: требования закупки +
-        ``requirement_blocking`` + поля) пересчитываются по уже извлечённым
-        значениям; авто-отклонение ставится/снимается как при анализе.
+        ``requirement_severity`` + опыт по BR-03 + поля) пересчитываются по уже
+        извлечённым значениям; авто-отклонение ставится/снимается как при
+        анализе, P(win) снижается за мягкие барьеры (``_apply_pwin_penalty``).
 
         ``snapshot_to`` — новый ``profiles.updated_at``: оценка, которая была
         актуальна до правки (``analysis_profile_snapshot == snapshot_from``) и
@@ -258,7 +295,9 @@ class EvaluationMixin(RepositoryMixin):
                     if report.get("status") == "llm_disabled":
                         # LLM-часть не выполнялась вовсе: поля и не ожидаются.
                         fields, complete = [], True
-                    verdict = compute_verdict(requirements or {}, requirement_blocking, fields)
+                    verdict = compute_verdict(
+                        requirements or {}, requirement_severity, fields, experience_codes or []
+                    )
                     report["fields"] = fields
                     report["requirements_verdict"] = verdict["requirements_verdict"]
                     report["verdict"] = verdict["verdict"]
@@ -279,6 +318,7 @@ class EvaluationMixin(RepositoryMixin):
                     self._apply_auto_verdict(
                         evaluation, not accepted, reason, snapshot_to if keep_fresh else None
                     )
+                    self._apply_pwin_penalty(evaluation, soft_pwin_factor)
                     stats["rechecked"] += 1
                     if not complete:
                         stats["stale"] += 1
@@ -486,6 +526,8 @@ class EvaluationMixin(RepositoryMixin):
         costs: dict[str, Any] | None = None,
         iteration: int | None = None,
         platform: str | None = None,
+        p_win_base: float | None = None,
+        soft_pwin_factor: float = 1.0,
     ) -> int:
         """Распространяет результат скоринга на всех подписанных профилей группы.
 
@@ -498,6 +540,9 @@ class EvaluationMixin(RepositoryMixin):
         представителя. Группа обрабатывается одним вызовом (дедуп BR-07), поэтому
         стоимость этапа одинакова для всех участников и распространяется на всю
         группу наравне со скором.
+
+        P(win) модели (``p_win_base``) общий, а мягкие барьеры у каждого профиля
+        свои: итоговые ``p_win``/``score`` пересчитываются по отчёту каждой оценки.
         """
         async with self._db.session() as session:
             stmt = select(ProcurementEvaluation).where(
@@ -514,6 +559,8 @@ class EvaluationMixin(RepositoryMixin):
                     evaluation.p_win = _round_score(p_win)
                 if margin is not None:
                     evaluation.margin = _round_score(margin)
+                if p_win_base is not None:
+                    evaluation.p_win_base = _round_score(p_win_base)
                 evaluation.score_method = score_method
                 if embedding_similarity is not None:
                     evaluation.embedding_similarity = embedding_similarity
@@ -523,6 +570,7 @@ class EvaluationMixin(RepositoryMixin):
                     evaluation.rag_report = rag_report
                 # Стоимость этапа одинакова для всей группы: накладываем (merge,
                 # не замена), чтобы не затереть соседнюю ветку (scoring/analysis).
+                self._apply_pwin_penalty(evaluation, soft_pwin_factor)
                 self._set_batch_meta(evaluation, iteration, platform)
                 self._merge_costs_into(evaluation, costs)
             await session.commit()
@@ -540,11 +588,13 @@ class EvaluationMixin(RepositoryMixin):
         auto_rejected: bool | None = None,
         auto_rejection_reason: str | None = None,
         analysis_profile_snapshot: datetime | None = None,
+        soft_pwin_factor: float = 1.0,
     ) -> ProcurementEvaluation:
         """Сохраняет RAG-отчёт анализа стоп-условий (не меняя score_method).
 
         ``auto_rejected``/``auto_rejection_reason``/``analysis_profile_snapshot``
-        — см. ``_apply_auto_verdict``.
+        — см. ``_apply_auto_verdict``; мягкие барьеры нового вердикта снижают
+        P(win) (``_apply_pwin_penalty``).
         """
         async with self._db.session() as session:
             evaluation = await self._find_or_create_evaluation(session, procurement_id, profile_id)
@@ -552,6 +602,7 @@ class EvaluationMixin(RepositoryMixin):
             self._apply_auto_verdict(
                 evaluation, auto_rejected, auto_rejection_reason, analysis_profile_snapshot
             )
+            self._apply_pwin_penalty(evaluation, soft_pwin_factor)
             self._set_batch_meta(evaluation, iteration, platform)
             self._merge_costs_into(evaluation, costs)
             await session.commit()

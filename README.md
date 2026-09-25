@@ -96,7 +96,7 @@ src/scoring_service/           # стадия Fit каскада: LLM-скори
 src/scoring_transport/         # gateway скоринга: ingest (POST /api/scoring/jobs), Redis-очереди, возврат результата
 src/pwin_service/              # стадия P(win) каскада: вероятность победы (Redis-воркер)
 src/margin_service/            # стадия Margin каскада: маржа (НМЦК × margin_rate, Redis-воркер)
-src/analysis_service/          # on-demand анализ документов: требования к участнику (LLM data) + вопросы профиля
+src/analysis_service/          # on-demand анализ документов: требования к участнику + отчётные поля с условиями
 src/scoring_common/            # общий код стадий: очередь, клиент API парсера, формула P(win)
 tests/                         # unit + integration тесты, HTML-фикстуры
 docker/                        # Dockerfile, docker-compose, Liquibase
@@ -334,7 +334,7 @@ docker compose -f docker/docker-compose.yml up --build
 ```
 Запустит единый стек одной командой: PostgreSQL + Liquibase-миграции + Redis +
 `scoring_service` (воркер стадии Fit) + `scoring_transport` + `pwin_service` +
-`margin_service` + `analysis_service` (анализ документов: требования к участнику + вопросы профиля) +
+`margin_service` + `analysis_service` (анализ документов: требования к участнику + отчётные поля с условиями) +
 `api` (FastAPI на `http://localhost:8000/`; веб-интерфейс и, по умолчанию, цикл
 мониторинга парсера в том же процессе — флаг `auto_start_monitoring` в
 `config_ops.yaml`). Сервисы связаны по имени (api ↔

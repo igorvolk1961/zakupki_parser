@@ -115,13 +115,13 @@ class Profile(Base):
     # pipeline.report_fields). Заменяет прежнее свободное поле «Вопросы по ТЗ»
     # (profiles.questions, удалено FR-13.5) — стоп-условие задаётся прямо на
     # отчётном поле: условие {op, value_kind, value} (scoring_common.conditions,
-    # проверяется кодом) + blocking.
+    # проверяется кодом) + severity (block — не принята, soft — снижает P(win)).
     report_fields: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
-    # Блокирует ли несоответствие детерминированной категории требований
-    # (лицензии/опыт/минпромторг/соисполнители, scoring_common.requirements)
-    # приемлемость закупки: {"licenses": bool, "experience": bool, "minprom":
-    # bool, "subcontractors": bool}. Отсутствующий ключ — не блокирует.
-    requirement_blocking: Mapped[dict[str, Any]] = mapped_column(
+    # Уровень барьера детерминированных категорий требований
+    # (scoring_common.verdict): {"licenses"|"minprom"|"subcontractors":
+    # "block"|"soft"|"off", "experience": "br03"|"off"}. Опыт — по правилу
+    # BR-03 (уровень задаёт способ подтверждения). Нет ключа — не учитывается.
+    requirement_severity: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict
     )
     # Сопоставление колонок последнего загруженного шаблона отчёта заказчика

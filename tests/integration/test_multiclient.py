@@ -577,8 +577,8 @@ def test_profile_target_regions_roundtrip(mc_client: TestClient) -> None:
 def test_profile_export_import_restores_report_fields_and_blocking(
     mc_client: TestClient,
 ) -> None:
-    """Профиль переносится полностью: отчётные поля с условиями и блокировки
-    категорий требований уходят в файл и восстанавливаются импортом."""
+    """Профиль переносится полностью: отчётные поля с условиями и уровни
+    барьеров категорий требований уходят в файл и восстанавливаются импортом."""
     client = mc_client
     fields = [
         {
@@ -589,17 +589,22 @@ def test_profile_export_import_restores_report_fields_and_blocking(
             "value_mode": "code",
             "extend_list": False,
             "condition": {"op": "all_in", "value": ["1 11 010 21 49 2", "4 71 101 01 52 1"]},
-            "blocking": True,
+            "severity": "block",
         }
     ]
-    blocking = {"licenses": True, "experience": False, "minprom": True, "subcontractors": False}
+    severity = {
+        "licenses": "block",
+        "experience": "br03",
+        "minprom": "soft",
+        "subcontractors": "off",
+    }
     created = client.post(
         "/api/clients",
         json={
             "name": "portable-profile",
             "competencies": COMP_JSON,
             "report_fields": fields,
-            "requirement_blocking": blocking,
+            "requirement_severity": severity,
         },
     )
     assert created.status_code == 200, created.text
@@ -612,7 +617,7 @@ def test_profile_export_import_restores_report_fields_and_blocking(
     content = exported.json()["profile_content"]
     profile = json.loads(content)["profile"]
     assert profile["report_fields"] == saved_fields
-    assert profile["requirement_blocking"] == blocking
+    assert profile["requirement_severity"] == severity
     assert profile["report_field_mapping"] == {}
 
     # Портим профиль и восстанавливаем из файла.
@@ -622,7 +627,7 @@ def test_profile_export_import_restores_report_fields_and_blocking(
             "name": "portable-profile",
             "competencies": COMP_JSON,
             "report_fields": [],
-            "requirement_blocking": {},
+            "requirement_severity": {},
         },
     )
     assert cleared.status_code == 200
@@ -632,7 +637,7 @@ def test_profile_export_import_restores_report_fields_and_blocking(
     assert imported.status_code == 200, imported.text
     assert imported.json()["id"] == profile_id
     assert imported.json()["report_fields"] == saved_fields
-    assert imported.json()["requirement_blocking"] == blocking
+    assert imported.json()["requirement_severity"] == severity
 
 
 def test_profile_export_import_roundtrip(mc_client: TestClient) -> None:
@@ -736,7 +741,7 @@ def test_rag_report_via_score_endpoint(mc_client: TestClient) -> None:
                 "field_name": "Объём партии",
                 "found": True,
                 "value": "4000",
-                "blocking": False,
+                "severity": None,
             }
         ],
         "generated_at": "2026-08-19T00:00:00+00:00",

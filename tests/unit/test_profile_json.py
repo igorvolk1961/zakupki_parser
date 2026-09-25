@@ -429,41 +429,41 @@ _FIELDS = [
         "value_mode": "code",
         "extend_list": True,
         "condition": {"op": "all_in", "value_kind": "list", "value": ["1 11 010 21 49 2"]},
-        "blocking": True,
+        "severity": "block",
     }
 ]
 
 
-def test_serialize_includes_report_fields_blocking_and_mapping() -> None:
+def test_serialize_includes_report_fields_severity_and_mapping() -> None:
     payload = json.loads(
         serialize_profile_json(
             {
                 "name": "x",
                 "competencies": "{}",
                 "report_fields": _FIELDS,
-                "requirement_blocking": {"licenses": True},
+                "requirement_severity": {"licenses": "block"},
                 "report_field_mapping": {"код отхода": "fkko"},
             }
         )
     )
     assert payload["profile"]["report_fields"] == _FIELDS
-    assert payload["profile"]["requirement_blocking"] == {"licenses": True}
+    assert payload["profile"]["requirement_severity"] == {"licenses": "block"}
     assert payload["profile"]["report_field_mapping"] == {"код отхода": "fkko"}
 
 
-def test_parse_roundtrip_report_fields_blocking_and_mapping() -> None:
+def test_parse_roundtrip_report_fields_severity_and_mapping() -> None:
     content = serialize_profile_json(
         {
             "name": "x",
             "competencies": "{}",
             "report_fields": _FIELDS,
-            "requirement_blocking": {"licenses": True, "minprom": False},
+            "requirement_severity": {"licenses": "soft", "experience": "br03"},
             "report_field_mapping": {"код отхода": "fkko", "цена": "base:nmck"},
         }
     )
     seed = parse_profile_json(content)
     assert seed["report_fields"] == _FIELDS
-    assert seed["requirement_blocking"] == {"licenses": True, "minprom": False}
+    assert seed["requirement_severity"] == {"licenses": "soft", "experience": "br03"}
     assert seed["report_field_mapping"] == {"код отхода": "fkko", "цена": "base:nmck"}
 
 
@@ -471,7 +471,7 @@ def test_parse_missing_report_keys_mean_empty() -> None:
     """Файл — полный профиль: отсутствующие ключи = пустые значения (полная замена)."""
     seed = parse_profile_json(json.dumps({"profile": {"name": "x"}, "competencies": {}}))
     assert seed["report_fields"] == []
-    assert seed["requirement_blocking"] == {}
+    assert seed["requirement_severity"] == {}
     assert seed["report_field_mapping"] == {}
 
 
@@ -479,7 +479,9 @@ def test_parse_missing_report_keys_mean_empty() -> None:
     "profile",
     [
         {"report_fields": [{"id": "f1", "name": "x", "type": "number", "condition": {"op": "zz"}}]},
-        {"requirement_blocking": ["licenses"]},
+        {"requirement_severity": ["licenses"]},
+        {"requirement_severity": {"licenses": True}},
+        {"requirement_severity": {"experience": "block"}},
         {"report_field_mapping": ["a"]},
     ],
 )

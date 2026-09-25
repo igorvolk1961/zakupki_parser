@@ -416,12 +416,12 @@
           </div>
           <div id="pf-pane-report-fields" style="display:none;">
             <div style="border:1px solid var(--line); border-radius:8px; padding:10px; margin-bottom:14px;">
-              <p class="muted" style="margin:0 0 8px;" title="Эти категории ищутся детерминированно (без LLM) по всем документам закупки — scoring_common.requirements. Если для категории найдено реальное требование (не «не требуется») и здесь она отмечена — закупка автоматически отклоняется (вердикт приемлемости в отчёте).">Блокирует ли найденное требование приемлемость закупки:</p>
-              <div class="profile-checks">
-                <label><input type="checkbox" id="rb-licenses"> Лицензии</label>
-                <label><input type="checkbox" id="rb-experience"> Опыт исполнения</label>
-                <label><input type="checkbox" id="rb-minprom"> Требования Минпромторга</label>
-                <label><input type="checkbox" id="rb-subcontractors"> Запрет/ограничение на соисполнителей</label>
+              <p class="muted" style="margin:0 0 8px;" title="Эти категории ищутся детерминированно (без LLM) по всем документам закупки. Найдено реальное требование (не «не требуется») — оно барьер выбранного уровня: «отклоняет закупку» — закупка автоматически отклоняется; «снижает P(win)» — закупка остаётся, её P(win) умножается на множитель из «Параметров мониторинга» (за каждый мягкий барьер).">Что делает найденное требование к участнику:</p>
+              <div class="profile-form" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <label>Лицензии <select id="rb-licenses"><option value="off">не учитывать</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
+                <label title="Правило BR-03: подтверждение опыта через электронную площадку (ПП 2571), а в профиле нет опыта «через площадку» — закупка отклоняется; копии договоров/актов или выписка из реестра контрактов — снижает P(win); опыт только в критериях оценки — не барьер.">Опыт исполнения <select id="rb-experience"><option value="off">не учитывать</option><option value="br03">по способу подтверждения (BR-03)</option></select></label>
+                <label>Требования Минпромторга <select id="rb-minprom"><option value="off">не учитывать</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
+                <label>Запрет/ограничение на соисполнителей <select id="rb-subcontractors"><option value="off">не учитывать</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select></label>
               </div>
             </div>
             <p class="muted" style="margin-top:0;">Значение каждого поля программа сама находит в документах закупки (RAG-анализ) — опишите поле обычным языком, техническая формулировка запроса не нужна.</p>
@@ -510,8 +510,8 @@
                 <label id="rf-cond-list-row" style="grid-column:1/-1;" title="По одному значению в строке. Текст сравнивается без учёта окончаний; «*» на конце слова — любое продолжение (утилиз* — утилизация, утилизировать).">Список значений условия (по одному в строке)
                   <textarea id="rf-cond-list" rows="4" placeholder="1 11 010 21 49 2&#10;4 71 101 01 52 1"></textarea>
                 </label>
-                <label id="rf-blocking-row" style="grid-column:1/-1; flex-direction:row; align-items:center; gap:8px;" title="Если условие не выполнено — закупка автоматически отклоняется (вердикт приемлемости в отчёте). Если значение не удалось проверить (не найдено, сбой) — закупка не отклоняется.">
-                  <input type="checkbox" id="rf-blocking" style="width:auto;"> Блокирует приемлемость закупки, если условие не выполнено
+                <label id="rf-severity-row" style="grid-column:1/-1;" title="«Отклоняет закупку» — невыполненное условие автоматически отклоняет закупку; «снижает P(win)» — закупка остаётся, её P(win) умножается на множитель из «Параметров мониторинга». Если значение не удалось проверить (не найдено, сбой) — это не барьер.">Если условие не выполнено
+                  <select id="rf-severity"><option value="off">только показать в отчёте</option><option value="soft">снижает P(win)</option><option value="block">отклоняет закупку</option></select>
                 </label>
               </div>
               <div class="toolbar editor-actions" style="margin:8px 0 0;">

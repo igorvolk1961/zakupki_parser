@@ -253,10 +253,10 @@ def test_no_condition() -> None:
 # --- Нормализация полей профиля -------------------------------------------------
 
 
-def test_normalize_blocking_without_condition_is_dropped() -> None:
-    [field] = normalize_report_fields([{"id": "f1", "name": "x", "blocking": True}])
+def test_normalize_severity_without_condition_is_dropped() -> None:
+    [field] = normalize_report_fields([{"id": "f1", "name": "x", "severity": "block"}])
     assert field["condition"] is None
-    assert field["blocking"] is False
+    assert field["severity"] is None
     assert field["type"] == "string"
 
 
@@ -324,8 +324,8 @@ def _stored(field_def: dict[str, Any], **extra: Any) -> dict[str, Any]:
 
 
 def test_recompute_applies_changed_code_condition() -> None:
-    old = _def(condition={"op": "gte", "value": "500"}, blocking=True)
-    new = _def(condition={"op": "gte", "value": "700"}, blocking=True)
+    old = _def(condition={"op": "gte", "value": "500"}, severity="block")
+    new = _def(condition={"op": "gte", "value": "700"}, severity="block")
     stored = _stored(old)
     assert stored["match"] is True
     values, complete = recompute_field_values([stored], [new])
@@ -367,9 +367,24 @@ def test_recompute_llm_condition_kept_if_unchanged_else_needs_reanalysis() -> No
     assert values[0]["check_status"] == "needs_reanalysis"
 
 
-def test_recompute_blocking_flag_follows_profile() -> None:
-    old = _def(condition={"op": "gte", "value": "700"}, blocking=False)
-    new = _def(condition={"op": "gte", "value": "700"}, blocking=True)
+def test_recompute_severity_follows_profile() -> None:
+    old = _def(condition={"op": "gte", "value": "700"})
+    new = _def(condition={"op": "gte", "value": "700"}, severity="soft")
     values, _ = recompute_field_values([_stored(old)], [new])
-    assert values[0]["blocking"] is True
+    assert values[0]["severity"] == "soft"
     assert values[0]["match"] is False
+
+
+def test_normalize_rejects_unknown_severity() -> None:
+    with pytest.raises(ConditionError, match="«объём».*block, soft"):
+        normalize_report_fields(
+            [
+                {
+                    "id": "f1",
+                    "name": "объём",
+                    "type": "number",
+                    "condition": {"op": "gte", "value": "5"},
+                    "severity": "hard",
+                }
+            ]
+        )

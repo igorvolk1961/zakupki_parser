@@ -12,7 +12,7 @@ import {
   fmtDT,
 } from "./utils.js";
 import { state } from "./store.js";
-import { CHECK_STATUS_LABELS, conditionText } from "./conditions.js";
+import { CHECK_STATUS_LABELS, SEVERITY_LABELS, conditionText } from "./conditions.js";
 import { watchRecheck } from "./progress.js";
 import { api, apiJSON, apiErrorDetail, authHeaders } from "./api.js";
 import { hasRole } from "./roles.js";
@@ -393,7 +393,13 @@ function cardScoringPanel(row, f) {
   return `<table>
     ${f("Score", (row.score ?? "—") + " <span class='muted'>(" + escapeHtml(methodLabel) + ")</span>")}
     ${f("Fit-скор", fitCell(row))}
-    ${f("P(win)", row.p_win ?? "—")}
+    ${f(
+      "P(win)",
+      (row.p_win ?? "—") +
+        (pwinReduced(row)
+          ? ` <span class="muted">(модель: ${row.p_win_base}, снижено за мягкие барьеры — см. «Отчёт»)</span>`
+          : "")
+    )}
     ${f("Margin", row.margin ?? "—")}
     ${f("Близость эмбеддингов", row.embedding_similarity ?? "—")}
     ${f("Трейс скоринга", scoreTrace)}
@@ -745,34 +751,53 @@ function subcontractorInnerHtml(items) {
     .join("<br>");
 }
 
+// Цвета барьеров вердикта: жёсткий (отклоняет) и мягкий (снижает P(win)).
+const SEVERITY_COLORS = { block: "#dc2626", soft: "#b45309" };
+const SEVERITY_BG = { block: "rgba(220,38,38,0.08)", soft: "rgba(180,83,9,0.08)" };
+
+// Снижено ли P(win) за мягкие барьеры (p_win_base — P(win) модели).
+function pwinReduced(row) {
+  return row.p_win_base != null && row.p_win != null && row.p_win !== row.p_win_base;
+}
+
 // Вкладка «Отчёт»: результат анализа закупки целиком — требования к участнику
 // (лицензии/опыт/минпромторг/соисполнители, детерминированно, доступно ЛЮБОМУ
 // аккаунту), geo-дистанция до центра региона (если профиль её ограничивает),
 // вопросы по ТЗ/отчётные поля (LLM — платные опции, см. ragReportHtml) и
-// итоговый вердикт приемлемости. Блокирующие пункты — красным (var(--warn)
-// недостаточно контрастен для «блокирует», используем явный #dc2626, как и
-// остальные ошибки в этом файле).
+// итоговый вердикт приемлемости. Жёсткие барьеры — красным (var(--warn)
+// недостаточно контрастен для «отклоняет», используем явный #dc2626, как и
+// остальные ошибки в этом файле), мягкие (снижают P(win)) — янтарным.
 function cardReportPanel(row, isAnalyzing, containerId) {
   const report = row.rag_report;
   const verdict = report && report.verdict;
   const reqVerdict = (report && report.requirements_verdict) || {};
   const requirements = row.requirements_json || {};
 
+  const reasons = (list) => escapeHtml((list || []).map((r) => r.label).join(", "));
+  const soft = (verdict && verdict.soft_reasons) || [];
+  const softBanner = soft.length
+    ? `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid ${SEVERITY_COLORS.soft};border-radius:8px;background:rgba(180,83,9,0.08);color:${SEVERITY_COLORS.soft};font-weight:600;">◐ Снижают P(win)${pwinReduced(row) ? ` (${row.p_win_base} → ${row.p_win})` : ""}: ${reasons(soft)}</div>`
+    : "";
   const verdictBanner = !verdict
     ? ""
-    : verdict.accepted
-      ? `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #16a34a;border-radius:8px;background:rgba(22,163,74,0.08);color:#16a34a;font-weight:600;">✓ Закупка допустима</div>`
-      : `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #dc2626;border-radius:8px;background:rgba(220,38,38,0.08);color:#dc2626;font-weight:600;">✗ Закупка отклонена: ${escapeHtml((verdict.blocking_reasons || []).map((r) => r.label).join(", "))}</div>`;
+    : (verdict.accepted
+        ? `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #16a34a;border-radius:8px;background:rgba(22,163,74,0.08);color:#16a34a;font-weight:600;">✓ Закупка допустима</div>`
+        : `<div style="margin:0 0 12px;padding:10px 12px;border:1px solid #dc2626;border-radius:8px;background:rgba(220,38,38,0.08);color:#dc2626;font-weight:600;">✗ Закупка отклонена: ${reasons(verdict.blocking_reasons)}</div>`) +
+      softBanner;
 
   const reqStatus = (report && report.requirements_status) || {};
 
-  const categoryBlock = (key, blocking, inner) =>
-    `<div style="margin:0 0 10px; padding:8px 10px; border-radius:8px; ${
-      blocking ? "border:1px solid #dc2626; background:rgba(220,38,38,0.08);" : "border:1px solid var(--line);"
+  const categoryBlock = (key, severity, inner) => {
+    const color = SEVERITY_COLORS[severity];
+    const info = reqVerdict[key] || {};
+    const detail = info.detail ? ` (${escapeHtml(info.detail)})` : "";
+    return `<div style="margin:0 0 10px; padding:8px 10px; border-radius:8px; ${
+      color ? `border:1px solid ${color}; background:${SEVERITY_BG[severity]};` : "border:1px solid var(--line);"
     }">
-      <b${blocking ? ' style="color:#dc2626;"' : ""}>${REQUIREMENT_CATEGORY_LABELS[key]}${blocking ? " — блокирует" : ""}</b>
+      <b${color ? ` style="color:${color};"` : ""}>${REQUIREMENT_CATEGORY_LABELS[key]}${color ? ` — ${SEVERITY_LABELS[severity]}${detail}` : ""}</b>
       <div class="muted" style="margin-top:4px;">${inner}</div>
     </div>`;
+  };
 
   const licenseInner = (status) => {
     if (status && status.items && status.items.length) {
@@ -792,13 +817,13 @@ function cardReportPanel(row, isAnalyzing, containerId) {
     .map((key) => {
       const items = requirements[key];
       const hasItems = !!(items && items.length);
-      const blocking = !!(reqVerdict[key] || {}).blocking;
+      const severity = (reqVerdict[key] || {}).severity || null;
       if (key === "licenses") {
         const status = reqStatus.licenses;
         // Новый отчёт: компактная сводка «какие лицензии нужны + есть ли».
-        if (status) return categoryBlock(key, blocking, licenseInner(status));
+        if (status) return categoryBlock(key, severity, licenseInner(status));
         // Старый отчёт без requirements_status: как раньше, сырой текст.
-        return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
+        return hasItems ? categoryBlock(key, severity, requirementRawTextHtml(items)) : "";
       }
       if (REQUIREMENT_STATUS_KEYS.includes(key)) {
         const status = reqStatus[key];
@@ -806,16 +831,16 @@ function cardReportPanel(row, isAnalyzing, containerId) {
           // Требование найдено → показываем пункты (сырой текст); иначе — статус.
           return categoryBlock(
             key,
-            blocking,
+            severity,
             status.required && hasItems ? requirementRawTextHtml(items) : requirementStatusText(status)
           );
         }
-        return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
+        return hasItems ? categoryBlock(key, severity, requirementRawTextHtml(items)) : "";
       }
       if (key === "subcontractors") {
-        return hasItems ? categoryBlock(key, blocking, subcontractorInnerHtml(items)) : "";
+        return hasItems ? categoryBlock(key, severity, subcontractorInnerHtml(items)) : "";
       }
-      return hasItems ? categoryBlock(key, blocking, requirementRawTextHtml(items)) : "";
+      return hasItems ? categoryBlock(key, severity, requirementRawTextHtml(items)) : "";
     })
     .join("");
 
@@ -899,9 +924,11 @@ function reportFieldRow(f) {
     value = `${escapeHtml(String(f.value ?? ""))}${f.unit ? " " + escapeHtml(f.unit) : ""}`;
   }
   const title = f.found && f.excerpt ? ` title="«${escapeHtml(f.excerpt)}»"` : "";
-  // Блокирует невыполненное условие — красным, как и остальные блокирующие пункты отчёта.
-  const mismatch = f.blocking && f.match === false;
-  const rowStyle = mismatch ? ' style="background:rgba(220,38,38,0.08); color:#dc2626;"' : "";
+  // Невыполненное условие-барьер — цветом уровня, как и остальные барьеры отчёта.
+  const severity = f.match === false ? f.severity : null;
+  const rowStyle = SEVERITY_COLORS[severity]
+    ? ` style="background:${SEVERITY_BG[severity]}; color:${SEVERITY_COLORS[severity]};"`
+    : "";
   const cond = f.condition;
   let condCell = '<span class="muted">—</span>';
   if (cond) {

@@ -1,0 +1,95 @@
+databaseChangeLog:
+- changeSet:
+    id: 76
+    author: zakupki-parser
+    comment: "profiles.requirement_blocking (bool по категориям) -> requirement_severity (уровень барьера): true -> block, false -> off; опыт — по правилу BR-03 (true -> br03)."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE profiles RENAME COLUMN requirement_blocking TO requirement_severity;
+          UPDATE profiles
+          SET requirement_severity = COALESCE((
+            SELECT jsonb_object_agg(e.k, to_jsonb(CASE
+              WHEN e.v = 'true'::jsonb AND e.k = 'experience' THEN 'br03'
+              WHEN e.v = 'true'::jsonb THEN 'block'
+              ELSE 'off' END))
+            FROM jsonb_each(requirement_severity) AS e(k, v)), '{}'::jsonb)
+          WHERE jsonb_typeof(requirement_severity) = 'object';
+          UPDATE profiles SET requirement_severity = '{}'::jsonb
+          WHERE jsonb_typeof(requirement_severity) <> 'object';
+          COMMENT ON COLUMN profiles.requirement_severity IS
+            'Уровень барьера категорий требований: {licenses|minprom|subcontractors: block|soft|off, experience: br03|off}.';
+- changeSet:
+    id: 77
+    author: zakupki-parser
+    comment: "profiles.report_fields: флаг blocking -> уровень severity (block — не принята, soft — снижает P(win), null — не барьер)."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          UPDATE profiles p
+          SET report_fields = sub.fields
+          FROM (
+            SELECT pr.id,
+                   jsonb_agg(
+                     (f.elem - 'blocking') || jsonb_build_object('severity',
+                       CASE WHEN f.elem->'blocking' = 'true'::jsonb THEN '"block"'::jsonb
+                            ELSE 'null'::jsonb END)
+                     ORDER BY f.ord) AS fields
+            FROM profiles pr,
+                 jsonb_array_elements(pr.report_fields) WITH ORDINALITY AS f(elem, ord)
+            WHERE jsonb_typeof(pr.report_fields) = 'array'
+            GROUP BY pr.id
+          ) sub
+          WHERE p.id = sub.id;
+- changeSet:
+    id: 78
+    author: zakupki-parser
+    comment: "procurement_evaluations.rag_report: blocking -> severity в полях и в requirements_verdict уже сохранённых отчётов (карточка и Excel читают только severity)."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          UPDATE procurement_evaluations pe
+          SET rag_report = jsonb_set(pe.rag_report, '{fields}', sub.fields)
+          FROM (
+            SELECT e.id,
+                   jsonb_agg(
+                     (f.elem - 'blocking') || jsonb_build_object('severity',
+                       CASE WHEN f.elem->'blocking' = 'true'::jsonb THEN '"block"'::jsonb
+                            ELSE 'null'::jsonb END)
+                     ORDER BY f.ord) AS fields
+            FROM procurement_evaluations e,
+                 jsonb_array_elements(e.rag_report->'fields') WITH ORDINALITY AS f(elem, ord)
+            WHERE jsonb_typeof(e.rag_report->'fields') = 'array'
+            GROUP BY e.id
+          ) sub
+          WHERE pe.id = sub.id;
+          UPDATE procurement_evaluations pe
+          SET rag_report = jsonb_set(pe.rag_report, '{requirements_verdict}', sub.verdict)
+          FROM (
+            SELECT e.id,
+                   jsonb_object_agg(r.k,
+                     (r.v - 'blocking') || jsonb_build_object('severity',
+                       CASE WHEN r.v->'blocking' = 'true'::jsonb THEN '"block"'::jsonb
+                            ELSE 'null'::jsonb END)) AS verdict
+            FROM procurement_evaluations e,
+                 jsonb_each(e.rag_report->'requirements_verdict') AS r(k, v)
+            WHERE jsonb_typeof(e.rag_report->'requirements_verdict') = 'object'
+              AND jsonb_typeof(r.v) = 'object'
+            GROUP BY e.id
+          ) sub
+          WHERE pe.id = sub.id;
+- changeSet:
+    id: 79
+    author: zakupki-parser
+    comment: "procurement_evaluations.p_win_base: P(win) модели до снижения за мягкие барьеры (p_win = p_win_base × soft_pwin_factor^N)."
+    changes:
+    - sql:
+        splitStatements: false
+        sql: |
+          ALTER TABLE procurement_evaluations ADD COLUMN IF NOT EXISTS p_win_base DOUBLE PRECISION;
+          UPDATE procurement_evaluations SET p_win_base = p_win WHERE p_win IS NOT NULL;
+          COMMENT ON COLUMN procurement_evaluations.p_win_base IS
+            'P(win) модели до снижения за мягкие барьеры вердикта (p_win = p_win_base * soft_pwin_factor^N).';

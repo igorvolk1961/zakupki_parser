@@ -18,8 +18,8 @@
 (``resolve_profile_fact_refs``) перед записью в БД.
 
 Профиль переносится ПОЛНОСТЬЮ: кроме критериев сбора, компетенций и фактов —
-отчётные поля с условиями (``report_fields``, id полей сохраняются), блокировки
-категорий требований (``requirement_blocking``) и сопоставление колонок шаблона
+отчётные поля с условиями (``report_fields``, id полей сохраняются), уровни
+барьера категорий требований (``requirement_severity``) и сопоставление колонок шаблона
 отчёта заказчика с полями (``report_field_mapping``). Не переносятся только
 служебные/вычисляемые данные: id, владелец, даты, кэш геокодирования регионов.
 """
@@ -186,7 +186,7 @@ def serialize_profile_json(profile: dict[str, Any]) -> str:
             "licenses": _serialize_licenses(profile.get("licenses") or []),
             "experience": _serialize_experience(profile.get("experience") or []),
             "report_fields": list(profile.get("report_fields") or []),
-            "requirement_blocking": dict(profile.get("requirement_blocking") or {}),
+            "requirement_severity": dict(profile.get("requirement_severity") or {}),
             "report_field_mapping": dict(profile.get("report_field_mapping") or {}),
         },
         "competencies": block,
@@ -324,25 +324,17 @@ def parse_profile_json(content: str) -> dict[str, Any]:
     experience = _fact_entries(src.get("experience"), _EXPERIENCE_FIELDS)
     if experience is not None:
         seed["experience"] = experience
-    # Отчётные поля/блокировки/сопоставление — полной заменой из файла.
+    # Отчётные поля/уровни барьеров/сопоставление — полной заменой из файла.
     from scoring_common.conditions import normalize_report_fields
+    from scoring_common.verdict import normalize_requirement_severity
 
     seed["report_fields"] = normalize_report_fields(src.get("report_fields"))
-    seed["requirement_blocking"] = _as_bool_map(src.get("requirement_blocking"))
+    seed["requirement_severity"] = normalize_requirement_severity(src.get("requirement_severity"))
     mapping = src.get("report_field_mapping")
     if mapping is not None and not isinstance(mapping, dict):
         raise ValueError("report_field_mapping должен быть объектом")
     seed["report_field_mapping"] = dict(mapping or {})
     return seed
-
-
-def _as_bool_map(value: Any) -> dict[str, bool]:
-    """Объект {ключ: bool} (блокировки категорий требований), иначе ``ValueError``."""
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError("requirement_blocking должен быть объектом")
-    return {str(k): bool(v) for k, v in value.items()}
 
 
 def _resolve_license(

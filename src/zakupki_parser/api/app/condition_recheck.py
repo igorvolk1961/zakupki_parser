@@ -70,7 +70,7 @@ def start_condition_recheck(
             state,
             status,
             list(profile.report_fields or []),
-            dict(profile.requirement_blocking or {}),
+            dict(profile.requirement_severity or {}),
             snapshot_from=snapshot_from if keep_fresh else None,
             snapshot_to=profile.updated_at if keep_fresh else None,
         )
@@ -83,7 +83,7 @@ async def _run(
     state: AppState,
     status: RecheckStatus,
     field_defs: list[dict[str, Any]],
-    requirement_blocking: dict[str, Any],
+    requirement_severity: dict[str, Any],
     *,
     snapshot_from: datetime | None,
     snapshot_to: datetime | None,
@@ -101,10 +101,14 @@ async def _run(
         # Условия со значением-сайтом проверяются по тексту сайта из хранилища.
         defs = await with_source_meta(state, field_defs)
         sources = await asyncio.to_thread(source_contexts, defs)
+        # Опыт профиля — для правила BR-03 (способ подтверждения опыта).
+        facts = await repo.get_profile_facts(status.profile_id)
         stats = await repo.recheck_profile_conditions(
             status.profile_id,
             defs,
-            requirement_blocking,
+            requirement_severity,
+            experience_codes=list(facts.get("experience_codes") or []),
+            soft_pwin_factor=state.cfg.service.scoring.soft_pwin_factor,
             snapshot_from=snapshot_from,
             snapshot_to=snapshot_to,
             on_progress=progress,

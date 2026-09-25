@@ -169,7 +169,7 @@ def test_extract_found_value_and_source() -> None:
             "check_status": "no_condition",
             "mismatched_values": [],
             "llm_match": None,
-            "blocking": False,
+            "severity": None,
             "value_sources": None,
             "unconfirmed_values": [],
             "rejected_values": [],
@@ -306,14 +306,14 @@ def test_extract_llm_condition_uses_llm_judgement() -> None:
         "name": "объём",
         "type": "number",
         "condition": _llm_condition("не менее 500"),
-        "blocking": True,
+        "severity": "block",
     }
     result = _run_one(field, {"found": True, "value": 600, "confidence": "high", "match": True})
     assert result["condition"] == _llm_condition("не менее 500")
     assert result["match"] is True
     assert result["llm_match"] is True
     assert result["check_status"] == "ok"
-    assert result["blocking"] is True
+    assert result["severity"] == "block"
 
 
 def test_extract_llm_match_ignored_without_condition() -> None:
@@ -322,7 +322,7 @@ def test_extract_llm_match_ignored_without_condition() -> None:
     result = _run_one(field, {"found": True, "value": 600, "confidence": "high", "match": True})
     assert result["condition"] is None
     assert result["match"] is None
-    assert result["blocking"] is False
+    assert result["severity"] is None
 
 
 def test_extract_match_none_when_not_found() -> None:
@@ -339,11 +339,11 @@ def test_extract_llm_condition_mismatch() -> None:
         "name": "объём",
         "type": "number",
         "condition": _llm_condition("не менее 500"),
-        "blocking": True,
+        "severity": "block",
     }
     result = _run_one(field, {"found": True, "value": 100, "confidence": "high", "match": False})
     assert result["match"] is False
-    assert result["blocking"] is True
+    assert result["severity"] == "block"
 
 
 def test_extract_code_condition_checked_by_code_not_llm() -> None:
@@ -353,7 +353,7 @@ def test_extract_code_condition_checked_by_code_not_llm() -> None:
         "name": "объём",
         "type": "number",
         "condition": {"op": "gte", "value_kind": "scalar", "value": "500"},
-        "blocking": True,
+        "severity": "block",
     }
     result = _run_one(field, {"found": True, "value": 100, "confidence": "high", "match": True})
     assert result["match"] is False
@@ -502,7 +502,7 @@ def test_list_duplicates_in_other_notation_are_merged() -> None:
 def test_list_all_in_condition_reports_missing_values() -> None:
     field = _list_field(
         condition={"op": "all_in", "value": ["1 11 010 21 49 2", "7 33 100 01 72 4"]},
-        blocking=True,
+        severity="block",
     )
     result, _ = _run_list(
         field,
@@ -511,7 +511,7 @@ def test_list_all_in_condition_reports_missing_values() -> None:
     )
     assert result["match"] is False
     assert result["mismatched_values"] == ["4 71 101 01 52 1"]
-    assert result["blocking"] is True
+    assert result["severity"] == "block"
 
 
 def test_list_nothing_found_is_not_found() -> None:
@@ -555,7 +555,7 @@ def _fkko_fields(site_meta: dict[str, Any]) -> list[dict[str, Any]]:
                     "value": _SITE_URL,
                     "near": {"source": "field", "field_id": "works"},
                 },
-                "blocking": True,
+                "severity": "block",
             },
         ]
     )
@@ -631,7 +631,7 @@ def test_fkko_code_without_required_work_on_site_blocks() -> None:
 
     codes = _run_fkko(meta)["codes"]
     assert codes["match"] is False
-    assert codes["blocking"] is True
+    assert codes["severity"] == "block"
     assert codes["mismatch_reasons"] == {"4 71 101 01 52 1": "нет рядом: утилизация"}
 
 

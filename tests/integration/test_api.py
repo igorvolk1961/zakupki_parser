@@ -676,7 +676,7 @@ def test_export_procurement_xlsx_highlights_blocking_rows(
                         "blocking_reasons": [{"source": "licenses", "label": "Лицензии"}],
                     },
                     "requirements_verdict": {
-                        "licenses": {"blocking": True, "negated": False, "count": 1}
+                        "licenses": {"severity": "block", "negated": False, "count": 1}
                     },
                     "geo": {
                         "too_far": True,
@@ -756,7 +756,7 @@ def test_export_procurement_xlsx_license_summary(api_client: tuple[TestClient, P
                         }
                     },
                     "requirements_verdict": {
-                        "licenses": {"blocking": False, "negated": False, "count": 1}
+                        "licenses": {"severity": None, "negated": False, "count": 1}
                     },
                 },
             )
@@ -834,7 +834,7 @@ def test_export_procurement_xlsx_subcontractors_simple_answer(
 def test_export_procurement_xlsx_highlights_blocking_field_mismatch(
     api_client: tuple[TestClient, Path],
 ) -> None:
-    """Excel-экспорт (FR-13.5): отчётное LLM-поле с blocking=True и
+    """Excel-экспорт (FR-13.5): отчётное LLM-поле с severity=block и
     match=False — красным, наряду с ожидаемым значением в тексте ячейки."""
     import openpyxl
 
@@ -879,7 +879,7 @@ def test_export_procurement_xlsx_highlights_blocking_field_mismatch(
                                 "value": "не менее 500",
                             },
                             "match": False,
-                            "blocking": True,
+                            "severity": "block",
                         }
                     ],
                 },
@@ -1889,7 +1889,7 @@ def test_profile_report_fields_roundtrip(api_client: tuple[TestClient, Path]) ->
             "type": "number",
             "unit": "м3",
             "condition": {"op": "gte", "value": "500"},
-            "blocking": True,
+            "severity": "block",
         },
     ]
     created = client.post(
@@ -2428,7 +2428,7 @@ def test_condition_change_rechecks_reports_without_llm(
             "type": "number",
             "unit": "м3",
             "condition": {"op": "gte", "value": threshold},
-            "blocking": True,
+            "severity": "block",
         }
 
     def _put(threshold: str) -> dict[str, Any]:
@@ -2529,6 +2529,133 @@ def test_condition_change_rechecks_reports_without_llm(
     assert resp.status_code == 200, resp.text
     assert _wait_recheck()["stale"] >= 1
     assert client.get(f"/api/procurements/{pid}").json()["analysis_stale"] is True
+
+
+def test_br03_and_soft_barrier_on_recheck(api_client: tuple[TestClient, Path]) -> None:
+    """Уровни барьеров: опыт по BR-03 (подтверждение через площадку, опыта
+    «через площадку» в профиле нет) — жёсткий барьер, невыполненное мягкое
+    условие поля — снижает P(win) (p_win_base × soft_pwin_factor). Добавление
+    опыта «через площадку» пересчитывает вердикт без LLM и снимает авто-отклонение."""
+    from scoring_common.conditions import apply_condition, extraction_key, normalize_report_fields
+
+    client, _ = api_client
+    active = client.get("/api/clients/active").json()
+    profile_id = active["id"]
+    factor = client.app.state.parser.cfg.service.scoring.soft_pwin_factor  # type: ignore[attr-defined]
+    field = {
+        "id": "vol",
+        "name": "объём партии",
+        "type": "number",
+        "condition": {"op": "gte", "value": "500"},
+        "severity": "soft",
+    }
+
+    def _wait_recheck() -> None:
+        for _ in range(100):
+            if not client.get(f"/api/clients/{profile_id}/recheck").json()["running"]:
+                return
+            time.sleep(0.05)
+        raise AssertionError("пересчёт условий не завершился")
+
+    resp = client.put(
+        f"/api/clients/{profile_id}",
+        json={
+            "name": active["name"],
+            "competencies": COMP_JSON,
+            "report_fields": [field],
+            "requirement_severity": {"experience": "br03", "licenses": "block"},
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["requirement_severity"] == {"experience": "br03", "licenses": "block"}
+    assert resp.json()["report_fields"][0]["severity"] == "soft"
+    _wait_recheck()
+    field_def = normalize_report_fields([field])[0]
+    stored = apply_condition(
+        {
+            "field_id": "vol",
+            "field_name": "объём партии",
+            "field_type": "number",
+            "found": True,
+            "value": 300.0,
+            "extraction_key": extraction_key(field_def),
+        },
+        field_def,
+    )
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            assert await repo.upsert(
+                {"number": "BR03-1", "platform_id": "zakupki_mos", "subject": "BR-03"}
+            )
+            rows, _ = await repo.list_procurements(number="BR03-1")
+            pid = rows[0].id
+            await repo.save_requirements(
+                pid,
+                {
+                    "experience": [
+                        {
+                            "text": "Опыт подтверждается сведениями на электронной площадке "
+                            "(ПП 2571)",
+                            "data": {"confirmation": "platform"},
+                        }
+                    ]
+                },
+            )
+            await repo.upsert_score(
+                pid,
+                profile_id,
+                score=4.0,
+                fit_score=8.0,
+                p_win=0.5,
+                p_win_base=0.5,
+                score_method="pwin",
+                rag_report={"status": "ok", "fields": [stored]},
+            )
+            return pid
+        finally:
+            await db.dispose()
+
+    pid = asyncio.run(_seed())
+    # Правка профиля (пересчёт) — вердикт по новым уровням.
+    resp = client.put(
+        f"/api/clients/{profile_id}",
+        json={"name": active["name"], "competencies": COMP_JSON, "min_fit_threshold": 0.0},
+    )
+    assert resp.status_code == 200, resp.text
+    _wait_recheck()
+    row = client.get(f"/api/procurements/{pid}").json()
+    verdict = row["rag_report"]["verdict"]
+    assert verdict["accepted"] is False
+    assert [r["source"] for r in verdict["blocking_reasons"]] == ["experience"]
+    assert "площадк" in verdict["blocking_reasons"][0]["label"]
+    assert [r["source"] for r in verdict["soft_reasons"]] == ["field:vol"]
+    assert row["status"] == "rejected"
+    assert row["p_win_base"] == 0.5
+    assert row["p_win"] == round(0.5 * factor, 2)
+    assert row["score"] == round(8.0 * 0.5 * factor, 2)
+
+    # Опыт «через площадку» появился — жёсткий барьер BR-03 снят.
+    platform = next(
+        t for t in client.get("/api/confirmation-types").json() if t["code"] == "platform"
+    )
+    resp = client.post(
+        f"/api/clients/{profile_id}/experience",
+        json={"title": "Контракт через площадку", "confirmation_type_id": platform["id"]},
+    )
+    assert resp.status_code == 200, resp.text
+    _wait_recheck()
+    row = client.get(f"/api/procurements/{pid}").json()
+    verdict = row["rag_report"]["verdict"]
+    assert verdict["accepted"] is True
+    assert [r["source"] for r in verdict["soft_reasons"]] == ["field:vol"]
+    assert row["status"] == "new"
+    assert row["p_win"] == round(0.5 * factor, 2)
+    client.delete(f"/api/clients/{profile_id}/experience/{resp.json()['id']}")
+    _wait_recheck()
 
 
 def test_site_source_crawl_status_and_text(api_client: tuple[TestClient, Path]) -> None:
@@ -2693,7 +2820,7 @@ def test_url_condition_rechecked_when_site_collected(api_client: tuple[TestClien
                 "value": "https://fkko.example.org/org",
                 "near": {"source": "field", "field_id": "works"},
             },
-            "blocking": True,
+            "severity": "block",
         },
     ]
 

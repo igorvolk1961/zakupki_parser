@@ -6,6 +6,8 @@ import { $, escapeHtml, fmtMoney } from "./utils.js";
 import {
   CONDITION_OPS,
   REPORT_FIELD_TYPE_LABELS,
+  REQUIREMENT_SEVERITY_KEYS,
+  SEVERITY_PILLS,
   conditionText,
   opsForType,
 } from "./conditions.js";
@@ -437,7 +439,7 @@ function fillProfileForm(p) {
       value_mode: f.value_mode || "auto",
       extend_list: f.extend_list !== false,
       condition: f.condition || null,
-      blocking: !!f.blocking,
+      severity: f.severity || null,
     })
   );
   reportFieldSeq = Math.max(
@@ -445,14 +447,13 @@ function fillProfileForm(p) {
     ...profileReportFields.map((f) => (parseInt(String(f.id).replace(/\D/g, ""), 10) || 0) + 1)
   );
   renderReportFields();
-  // Блокирующие фиксированные категории требований (единый отчёт, без LLM,
-  // scoring_common.requirements) — {"licenses": bool, ...}, отсутствующий
-  // ключ = не блокирует (дефолт нового профиля).
-  const reqBlocking = p ? p.requirement_blocking || {} : {};
-  $("#rb-licenses").checked = !!reqBlocking.licenses;
-  $("#rb-experience").checked = !!reqBlocking.experience;
-  $("#rb-minprom").checked = !!reqBlocking.minprom;
-  $("#rb-subcontractors").checked = !!reqBlocking.subcontractors;
+  // Уровень барьера категорий требований (единый отчёт, без LLM,
+  // scoring_common.verdict): block/soft/off, опыт — br03/off; нет ключа —
+  // не учитывается (дефолт нового профиля).
+  const reqSeverity = p ? p.requirement_severity || {} : {};
+  REQUIREMENT_SEVERITY_KEYS.forEach((key) => {
+    $(`#rb-${key}`).value = reqSeverity[key] || "off";
+  });
   // Компетенции: сервер хранит только каноническую JSON-схему (проверка при записи).
   compStructured = parseComp(p ? p.competencies || "" : "") || defaultComp();
   compMode = "structured";
@@ -1298,7 +1299,7 @@ function renderReportFields() {
       <td>${escapeHtml(REPORT_FIELD_TYPE_LABELS[f.type] || f.type)}</td>
       <td>${escapeHtml(f.hint || "")}</td>
       <td>${escapeHtml(f.unit || "")}</td>
-      <td>${f.condition ? escapeHtml(conditionText(f.condition)) + (f.blocking ? ' <span class="pill inactive">блокирует</span>' : "") : "—"}</td>
+      <td>${f.condition ? escapeHtml(conditionText(f.condition)) + (SEVERITY_PILLS[f.severity] || "") : "—"}</td>
       <td>
         <button class="ghost" data-action="edit">Редактировать</button>
         <button class="ghost" data-action="delete">Удалить поле</button>
@@ -1375,7 +1376,7 @@ function updateConditionValueVisibility() {
   $("#rf-near-words-row").style.display = nearSource === "words" ? "" : "none";
   $("#rf-cond-value-row").style.display = kind === "scalar" ? "" : "none";
   $("#rf-cond-list-row").style.display = kind === "list" && !url ? "" : "none";
-  $("#rf-blocking-row").style.display = op ? "" : "none";
+  $("#rf-severity-row").style.display = op ? "" : "none";
   const placeholders = {
     number: "например, 500000",
     date: "например, 2026-12-31",
@@ -1413,7 +1414,7 @@ function openReportFieldForm(id) {
   $("#rf-cond-value").value =
     cond && !isUrl && !Array.isArray(cond.value) ? cond.value || "" : "";
   $("#rf-cond-list").value = cond && Array.isArray(cond.value) ? cond.value.join("\n") : "";
-  $("#rf-blocking").checked = f ? !!f.blocking : false;
+  $("#rf-severity").value = (f && f.severity) || "off";
   updateReportFieldUnitVisibility();
   setReportFieldStatus("");
   $("#report-field-form").style.display = "block";
@@ -1441,8 +1442,8 @@ function saveReportField() {
     value_mode: type === "string" || type === "list" ? $("#rf-value-mode").value : "auto",
     extend_list: type === "list" ? $("#rf-extend-list").checked : true,
     condition,
-    // Блокировка без условия бессмысленна (нечего нарушать).
-    blocking: condition ? $("#rf-blocking").checked : false,
+    // Барьер без условия бессмыслен (нечего нарушать).
+    severity: condition && $("#rf-severity").value !== "off" ? $("#rf-severity").value : null,
   };
   saveReportFieldData(data);
 }
@@ -1643,14 +1644,11 @@ function profileFormData() {
       value_mode: f.value_mode || "auto",
       extend_list: f.extend_list !== false,
       condition: f.condition || null,
-      blocking: !!f.blocking,
+      severity: f.severity || null,
     })),
-    requirement_blocking: {
-      licenses: $("#rb-licenses").checked,
-      experience: $("#rb-experience").checked,
-      minprom: $("#rb-minprom").checked,
-      subcontractors: $("#rb-subcontractors").checked,
-    },
+    requirement_severity: Object.fromEntries(
+      REQUIREMENT_SEVERITY_KEYS.map((key) => [key, $(`#rb-${key}`).value])
+    ),
     competencies:
       compMode === "structured" ? JSON.stringify(collectComp(), null, 2) : $("#pf-competencies").value,
     // Лицензии/опыт — часть формы профиля (BR-03): сохраняются только вместе

@@ -46,6 +46,8 @@ class ProcurementOut(BaseModel):
     score: float | None = None
     fit_score: float | None = None
     p_win: float | None = None
+    # P(win) модели до снижения за мягкие барьеры вердикта (p_win — итоговый).
+    p_win_base: float | None = None
     margin: float | None = None
     score_method: str | None = None
     embedding_similarity: float | None = None
@@ -483,13 +485,14 @@ class ProfileIn(BaseModel):
     # вводить адрес заново при повторном заполнении).
     website_url: str | None = Field(default=None, max_length=2048)
     # Конструктор отчётных полей (FR-12.1): [{id, name, hint, type, unit,
-    # value_mode, extend_list, condition, blocking}], сохраняется вместе с
+    # value_mode, extend_list, condition, severity}], сохраняется вместе с
     # профилем полной заменой; проверяется scoring_common.conditions.
     # normalize_report_fields.
     report_fields: list[dict[str, Any]] | None = None
-    # Блокирует ли найденное требование (лицензии/опыт/минпромторг/
-    # соисполнители) приемлемость закупки — {"licenses": bool, ...}.
-    requirement_blocking: dict[str, Any] | None = None
+    # Уровень барьера категорий требований (scoring_common.verdict):
+    # {"licenses"|"minprom"|"subcontractors": "block"|"soft"|"off",
+    # "experience": "br03"|"off"}; проверяется normalize_requirement_severity.
+    requirement_severity: dict[str, Any] | None = None
     licenses: list[LicenseIn] | None = None
     experience: list[ExperienceIn] | None = None
 
@@ -584,10 +587,9 @@ class ProfileOut(BaseModel):
     search_in_documents: bool = False
     website_url: str | None = None
     report_fields: list[dict[str, Any]] = Field(default_factory=list)
-    # Блокирует ли несоответствие детерминированной категории требований
-    # (лицензии/опыт/минпромторг/соисполнители) приемлемость закупки —
-    # {"licenses": bool, ...}, отсутствующий ключ = не блокирует.
-    requirement_blocking: dict[str, Any] = Field(default_factory=dict)
+    # Уровень барьера категорий требований: {"licenses": "block"|"soft"|"off",
+    # ..., "experience": "br03"|"off"}; нет ключа — не учитывается.
+    requirement_severity: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     # Факты профиля для сопоставления с фактами ТЗ (только в active_client).

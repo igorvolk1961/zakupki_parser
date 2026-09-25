@@ -93,7 +93,32 @@ erDiagram
         double nmck_min "мин. НМЦК"
         double nmck_max "макс. НМЦК"
         text competencies "компетенции (для LLM-скоринга)"
-        jsonb questions "вопросы к ТЗ: [{id, text}]"
+        jsonb target_regions "регионы закупок"
+        double max_region_distance_km "макс. расстояние от центра региона, км"
+        boolean search_in_documents "искать ключевые слова и в документах"
+        text website_url "сайт поставщика (собирается в site_sources)"
+        jsonb report_fields "отчётные поля: [{id, name, hint, type, value_mode, extend_list, condition, severity}]"
+        jsonb requirement_severity "уровень барьера категорий требований: {licenses|minprom|subcontractors: block|soft|off, experience: br03|off}"
+        jsonb report_field_mapping "колонки шаблона отчёта заказчика -> поля"
+        timestamptz created_at "server_default now()"
+        timestamptz updated_at "server_default now(), onupdate"
+    }
+
+    SITE_SOURCES {
+        bigint id PK "автоинкремент"
+        text url_norm "нормализованный URL, UNIQUE (один сайт — одна запись)"
+        text url "URL, как введён"
+        text status "pending | running | complete | incomplete | failed (итог последнего сбора)"
+        text stop_reason "no_next | repeat | no_change | page_limit | size_limit | time_limit | cancelled | nav_failed | error"
+        int pages "страниц в сохранённом тексте"
+        int text_chars "символов в сохранённом тексте"
+        jsonb progress "ход сбора: {pages, chars, current_url, mode, elapsed_s}"
+        boolean cancel_requested "запрошена остановка"
+        text error "ошибка сбора"
+        timestamptz started_at "начало последнего сбора"
+        timestamptz finished_at "конец последнего сбора"
+        timestamptz fetched_at "когда получен сохранённый текст (S3, бакет site-sources)"
+        boolean text_complete "сохранённый текст — из полного сбора"
         timestamptz created_at "server_default now()"
         timestamptz updated_at "server_default now(), onupdate"
     }
@@ -114,6 +139,7 @@ erDiagram
         double score "накопленное произведение Fit × P(win) × Margin"
         double fit_score "множитель Fit стадии каскада (0..1)"
         double p_win "множитель P(win) стадии каскада (0..1)"
+        double p_win_base "P(win) модели до снижения за мягкие барьеры"
         double margin "множитель Margin стадии каскада (НМЦК × margin_rate)"
         varchar(64) score_method "default | fit | pwin | margin | deadline_expired | sim"
         double embedding_similarity "косинусная близость 0..1 (Giga Embedder)"
@@ -213,6 +239,25 @@ erDiagram
 ```
 
 ## Замечания
+- **Отчётные поля и условия** (миграция 1.68, FR-13.7): `profiles.report_fields` —
+  поля, значения которых извлекаются из документов закупки; у поля — условие
+  `{op, value_kind (scalar | list | url), value, near?}` и уровень барьера
+  `severity` (`block` — закупка не принята, `soft` — снижает P(win), null — не барьер).
+  Условие проверяет код (кроме `op=llm`); результат — в
+  `procurement_evaluations.rag_report.fields[]` (`value`, `match`, `check_status`,
+  причины, окна значений в ТЗ `tz_windows` — для пересчёта без LLM).
+- **Уровни барьеров** (миграция 1.70, BR-03): `profiles.requirement_severity` —
+  уровень категорий требований к участнику (`block`/`soft`/`off`; опыт —
+  `br03`/`off`: уровень решает способ подтверждения опыта). Мягкие барьеры
+  вердикта (`rag_report.verdict.soft_reasons`) снижают P(win):
+  `p_win = p_win_base × soft_pwin_factor^N`, score пересчитывается из составляющих.
+- **Сайты-источники** (миграция 1.69, FR-13.8): `site_sources` — статус и ход сбора
+  сайта по всем страницам пагинации; сам текст — в объектном хранилище (S3/MinIO,
+  бакет `site-sources`, ключ — хэш `url_norm`). `status` — итог последнего сбора,
+  `text_complete`/`fetched_at` — полнота и время текста, по которому проверяются
+  условия (полный текст не заменяется неполным пересбором). Связи с профилями
+  нет: URL хранится в условии поля / `profiles.website_url`, сопоставление — по
+  нормализованному URL.
 - **Основные таблицы**: `procurements`, справочники `customers` (ADR-4),
   `procedure_types`, `procedure_type_mappings`, `platforms` и мультитенантные
   `users`/`profiles`/`keywords`/`procurement_evaluations` (BR-07, миграции 1.29–1.31).

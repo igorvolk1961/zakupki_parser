@@ -50,6 +50,9 @@ class ProcurementEvaluation(Base):
     fit_score: Mapped[float | None] = mapped_column(Float)
     score: Mapped[float | None] = mapped_column(Float)
     p_win: Mapped[float | None] = mapped_column(Float)
+    # P(win) модели (pwin-воркер) до снижения за мягкие барьеры вердикта:
+    # p_win = p_win_base × soft_pwin_factor^N (EvaluationMixin._apply_pwin_penalty).
+    p_win_base: Mapped[float | None] = mapped_column(Float)
     margin: Mapped[float | None] = mapped_column(Float)
     score_method: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
     # Векторная близость терминальной отсечки (score_method=sim, ADR-8).

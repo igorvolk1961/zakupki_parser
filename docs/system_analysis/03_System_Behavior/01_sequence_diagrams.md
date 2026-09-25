@@ -50,7 +50,7 @@ sequenceDiagram
     end
 ```
 
-## Диаграмма последовательности детальной проверки ТЗ (двухстадийный анализ)
+## Диаграмма последовательности анализа документов закупки
 
 ```mermaid
 sequenceDiagram
@@ -64,83 +64,86 @@ sequenceDiagram
     participant DB as "База данных"
     participant OBS as "LangFuse"
 
-    Note over TS,OBS: Асинхронный on-demand анализ ТЗ (US-4.1): Stage A (факты ТЗ) → Stage B (матчер с фактами профиля)
+    Note over TS,OBS: Асинхронный on-demand анализ документов закупки (US-4.1): отчётные поля + требования к участнику → единый вердикт
 
-    TS->>UI: Клик по кнопке "Проанализировать ТЗ"
+    TS->>UI: Клик по кнопке "Анализ"
     UI->>API: POST /api/procurements/analyze
     API->>DB: Проверка прав (активный профиль)
     DB-->>API: Доступ разрешен
 
     API->>QUEUE: Постановка задачи analysis
     API-->>UI: {"status": "queued"}
-    UI-->>TS: Статус "Идет анализ ТЗ..."
+    UI-->>TS: Статус "Идет анализ..."
 
     QUEUE->>WORKER: Передача задачи analysis
-    WORKER->>DB: GET /api/clients/active (вопросы профиля + факты BR-03)
-    DB-->>WORKER: questions[] + facts{license_codes, experience_codes}
+    WORKER->>API: GET /api/clients/active (X-Profile-ID)
+    API-->>WORKER: report_fields (+ сведения о сайтах условий), requirement_severity, facts (опыт — для BR-03), регионы
 
-    WORKER->>ETP: Скачивание файла ТЗ по URL (On-Demand)
-    ETP-->>WORKER: Текст/Файл ТЗ
+    WORKER->>ETP: Скачивание ВСЕХ документов закупки (архивы разворачиваются)
+    ETP-->>WORKER: Текст документов (кэш текста — S3)
 
     rect rgb(240, 248, 255)
-    Note over WORKER,RAG: Stage A — извлечение фактов из ТЗ (профиль в промпт НЕ попадает)
-    WORKER->>RAG: Чанки ТЗ (split_tz_sections)
-    RAG->>RAG: Лексический отбор секций по паттернам sys-проверок
-    RAG->>RAG: 1 batch-LLM-вызов (sys:exp_2571, sys:minprom_registry, sys:license_sro) → факты
-    WORKER->>RAG: Пользовательские вопросы профиля (эмбеддинги → top-k → LLM)
+    Note over WORKER,RAG: Отчётные поля (FR-12.x, FR-13.7) — LLM только извлекает значения
+    WORKER->>RAG: Чанки всех документов + эмбеддинги (1 вызов на закупку)
+    RAG->>RAG: По каждому полю: top-k чанков → LLM → значение (параллельно)
+    RAG->>RAG: Поле-список: проверка значений по тексту + дополнение (участок, форма кода)
+    RAG->>RAG: Окна значений в ТЗ (tz_windows) — связка «код → уточнения»
+    RAG->>RAG: Условия полей — код (кроме «по смыслу»); значение-сайт — текст сайта из S3
     end
 
     rect rgb(255, 250, 235)
-    Note over WORKER,RAG: Stage B — сопоставление фактов ТЗ с фактами профиля (код, без LLM)
-    RAG->>RAG: matcher.py: правила BR-03/BR-04 → verdict + marker 🔴/🟡/🟢
-    RAG-->>WORKER: JSON rag_report (source=system|profile, marker, facts)
+    Note over WORKER,RAG: Детерминированная часть (без LLM, кроме заполнения data)
+    WORKER->>WORKER: Расстояние до центра региона (гео, кэш координат)
+    WORKER->>WORKER: Требования к участнику по всем документам: лицензии, опыт, Минпромторг, соисполнители
+    WORKER->>RAG: LLM-заполнение data требований (платная опция)
+    WORKER->>WORKER: Сводка по лицензиям (какой вид нужен, есть ли у поставщика)
+    WORKER->>WORKER: Вердикт: уровни категорий требований (опыт — BR-03) + поля с severity и match=false → жёсткие / мягкие барьеры
     end
 
     WORKER->>OBS: Логирование трейса (cost, latency, tokens)
-    WORKER->>DB: Обновление procurement_evaluations.rag_report
-    WORKER->>UI: WebSocket: "Анализ ТЗ завершен"
+    WORKER->>API: POST /api/procurements/{id}/score (rag_report, auto_rejected, snapshot)
+    API->>DB: procurement_evaluations.rag_report, статус (авто-отклонение), p_win = p_win_base × soft_pwin_factor^N
+    API->>UI: WebSocket: данные изменились
 
-    UI->>DB: Запрос обновленной карточки
-    DB-->>UI: Данные с вердиктами и маркерами
-    UI-->>TS: Раздел «Анализ ТЗ»: системные проверки (обязат.) + вопросы клиента
+    UI->>API: Запрос обновленной карточки
+    API-->>UI: Отчёт: поля и условия, требования, расстояние, вердикт
+    UI-->>TS: Раздел «Анализ документов» + причины авто-отклонения
 
-    Note over TS,UI: Реализовано: маркеры 🔴/🟡/🟢 по проверкам опыт 2571 / Минпромторг / лицензии (US-4.5, BR-03/BR-04)
+    Note over TS,UI: Правка условий полей/блокировок и окончание сбора сайта пересчитывают отчёты без LLM
 ```
 
-## Диаграмма процесса двухстадийного анализа ТЗ (Stage A / Stage B)
+## Диаграмма процесса анализа документов закупки
 
 ```mermaid
 flowchart LR
-    TZ[Текст ТЗ] --> CH[split_tz_sections → чанки]
-    CH --> EMB[Эмбеддинги чанков<br/>1 вызов на карточку]
+    DOCS[Все документы закупки] --> CH[split_tz_sections → чанки]
+    CH --> EMB[Эмбеддинги чанков<br/>1 вызов на закупку]
 
-    subgraph A[Stage A — факты ТЗ (LLM, on-demand)]
-        LEX[Лексический ретривал секций<br/>по паттернам sys-проверок]
-        CH --> LEX
-        LEX -->|нет совпадений| SKIP[sys-вердикты no_stop_condition<br/>LLM не вызывается]
-        LEX -->|релевантные секции| BATCH[1 batch-LLM-вызов<br/>batch_system.md]
-        BATCH --> F1[Факты: опыт 2571,<br/>реестр Минпромторга, лицензии/СРО]
-        EMB --> RETR[top-k по эмбеддингам]
-        CH --> RETR
-        RETR --> USERQ[Per-question LLM-вызовы<br/>пользовательские вопросы]
-        USERQ --> VUSER[Вердикты пользовательских вопросов]
+    subgraph F[Отчётные поля профиля — LLM извлекает, код проверяет]
+        EMB --> TOPK[top-k чанков на поле]
+        TOPK --> LLM[LLM: значение поля<br/>field_extract_*.md]
+        LLM --> LIST[Список: проверка по тексту,<br/>дополнение участком и формой кода]
+        LIST --> WIN[Окна значений в ТЗ<br/>tz_windows]
+        WIN --> COND[Условие поля — код:<br/>сравнение / список / сайт + «рядом»]
+        SITE[(Текст сайта-источника<br/>S3, site_sources)] --> COND
     end
 
-    subgraph B[Stage B — сопоставление с профилем (код, ≈$0)]
-        PF[Факты профиля:<br/>license_codes, experience_codes<br/>GET /api/clients/active → facts] --> MATCH
-        F1 --> MATCH[matcher.py<br/>правила BR-03/BR-04/US-4.4]
-        MATCH --> VSYS[Вердикты sys-проверок<br/>+ marker 🔴/🟡/🟢]
-        MATCH -->|вид лицензии не распознан| SOFT[soft «требует проверки»]
+    subgraph R[Требования к участнику — код]
+        DOCS --> REQ[scoring_common.requirements:<br/>лицензии, опыт, Минпромторг,<br/>соисполнители]
+        REQ --> DATA[LLM-заполнение data<br/>платная опция]
+        DATA --> LIC[Сводка по лицензиям<br/>vs лицензии профиля]
     end
 
-    VSYS --> RAG[rag_report: verdict, marker,<br/>source system/profile, facts]
-    VUSER --> RAG
-    SKIP --> VSYS
+    GEO[Расстояние до центра региона] --> V
+    COND --> V[Вердикт: requirement_severity, опыт — BR-03<br/>+ поля с severity и match=false]
+    REQ --> V
+    V --> RR[rag_report + авто-отклонение жёсткими,<br/>снижение P(win) мягкими — API]
 ```
 
-> Экономичность: эмбеддинги системных вопросов не вычисляются (лексический ретривал);
-> на типовую карточку — 1 эмбеддинг-вызов (чанки) + 1 batch-LLM-вызов (системные проверки)
-> + редкие вызовы на пользовательские вопросы; Stage B — чистый код.
+> Экономичность: на закупку — 1 эмбеддинг-вызов (чанки документов) и по одному
+> LLM-вызову на отчётное поле (у поля-списка — не больше одного дополнительного,
+> если LLM не видела участок документа со списком целиком). Условия, требования,
+> вердикт и их пересчёт — чистый код.
 
 ## Диаграмма последовательности on-demand P(win)/Margin
 

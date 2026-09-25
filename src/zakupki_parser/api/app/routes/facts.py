@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from zakupki_parser.api.app.condition_recheck import start_condition_recheck
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.schemas import (
     ConfirmationTypeOut,
@@ -15,7 +16,7 @@ from zakupki_parser.api.app.schemas import (
     LicenseOut,
     LicenseTypeOut,
 )
-from zakupki_parser.storage.db import User
+from zakupki_parser.storage.db import Profile, User
 
 
 def build_facts_router(ctx: ApiContext) -> APIRouter:
@@ -27,6 +28,14 @@ def build_facts_router(ctx: ApiContext) -> APIRouter:
     _license_out = ctx._license_out
     _experience_out = ctx._experience_out
     require_user = ctx.require_user
+
+    def _recheck_experience(profile: Profile) -> None:
+        # Опыт профиля решает барьер BR-03 — вердикт готовых отчётов
+        # пересчитывается без LLM (сам профиль не менялся: актуальность
+        # отчётов сохраняется).
+        start_condition_recheck(
+            ctx.state, profile, snapshot_from=profile.updated_at, keep_fresh=True
+        )
 
     @router.get(
         "/api/license-types",
@@ -132,11 +141,12 @@ def build_facts_router(ctx: ApiContext) -> APIRouter:
     async def create_experience(
         client_id: int, body: ExperienceIn, user: User | None = Depends(require_user)
     ) -> ExperienceOut:
-        await _owned_profile(user, client_id)
+        profile = await _owned_profile(user, client_id)
         types_map = await _confirmation_types_map()
         if body.confirmation_type_id not in types_map:
             raise HTTPException(status_code=422, detail="Неизвестный тип подтверждения")
         row = await _repo().create_experience(client_id, body.model_dump())
+        _recheck_experience(profile)
         return _experience_out(row, types_map)
 
     @router.put(
@@ -150,7 +160,7 @@ def build_facts_router(ctx: ApiContext) -> APIRouter:
         body: ExperienceIn,
         user: User | None = Depends(require_user),
     ) -> ExperienceOut:
-        await _owned_profile(user, client_id)
+        profile = await _owned_profile(user, client_id)
         # 404 раньше валидации ссылки на справочник: статусы не зависят от тела.
         if await _repo().get_experience(client_id, experience_id) is None:
             raise HTTPException(status_code=404, detail="Запись опыта не найдена")
@@ -158,6 +168,7 @@ def build_facts_router(ctx: ApiContext) -> APIRouter:
         if body.confirmation_type_id not in types_map:
             raise HTTPException(status_code=422, detail="Неизвестный тип подтверждения")
         row = await _repo().update_experience(client_id, experience_id, body.model_dump())
+        _recheck_experience(profile)
         return _experience_out(row, types_map)
 
     @router.delete(
@@ -168,8 +179,9 @@ def build_facts_router(ctx: ApiContext) -> APIRouter:
     async def delete_experience(
         client_id: int, experience_id: int, user: User | None = Depends(require_user)
     ) -> None:
-        await _owned_profile(user, client_id)
+        profile = await _owned_profile(user, client_id)
         if not await _repo().delete_experience(client_id, experience_id):
             raise HTTPException(status_code=404, detail="Запись опыта не найдена")
+        _recheck_experience(profile)
 
     return router

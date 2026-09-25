@@ -686,6 +686,15 @@ class ProfileMixin(RepositoryMixin):
             from scoring_common.conditions import normalize_report_fields
 
             data = {**data, "report_fields": normalize_report_fields(data["report_fields"])}
+        if "requirement_severity" in data:
+            from scoring_common.verdict import normalize_requirement_severity
+
+            data = {
+                **data,
+                "requirement_severity": normalize_requirement_severity(
+                    data["requirement_severity"]
+                ),
+            }
         wants_keywords = "keywords" in data or "exclusion_words" in data
         async with self._db.session() as session:
             stmt = (
@@ -725,8 +734,8 @@ class ProfileMixin(RepositoryMixin):
                 profile.website_url = data["website_url"]
             if "report_fields" in data:
                 profile.report_fields = list(data["report_fields"])
-            if "requirement_blocking" in data:
-                profile.requirement_blocking = dict(data["requirement_blocking"] or {})
+            if "requirement_severity" in data:
+                profile.requirement_severity = dict(data["requirement_severity"] or {})
             if "report_field_mapping" in data:
                 profile.report_field_mapping = dict(data["report_field_mapping"] or {})
             # Профиль становится активным: явно (is_active=true) или по умолчанию

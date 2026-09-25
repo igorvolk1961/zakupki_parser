@@ -80,7 +80,7 @@ class AnalysisWorker:
         """Профиль клиента целиком (кэшировано ``ParserApiClient``, TTL ~секунды).
 
         Нужен для флага ``analysis_llm_enabled`` (звать ли LLM-стадию) и
-        полей ``requirement_blocking``/``updated_at`` (вердикт приемлемости +
+        полей ``requirement_severity``/``facts``/``updated_at`` (вердикт приемлемости +
         гейт кнопки «Анализ», см. ``compute()``). {} при сбое — деградация
         оставляет весь единый отчёт в детерминированном виде, без LLM.
         """
@@ -338,13 +338,14 @@ class AnalysisWorker:
                 "experience": requirement_category_status(filled_requirements, "experience"),
                 "minprom": requirement_category_status(filled_requirements, "minprom"),
             }
-            # Вердикт приемлемости (единый отчёт, Фаза A — по детерминированным
-            # требованиям): блокирующая категория -> закупку авто-отклоняем.
-            requirement_blocking = profile.get("requirement_blocking") or {}
+            # Вердикт приемлемости: жёсткий барьер -> закупку авто-отклоняем,
+            # мягкие барьеры снижают P(win) (применяет API). Опыт — по правилу
+            # BR-03: способ подтверждения берётся из LLM-поля data, если заполнено.
             verdict_report = compute_verdict(
-                requirements,
-                requirement_blocking,
+                filled_requirements,
+                profile.get("requirement_severity") or {},
                 report.get("fields"),
+                (profile.get("facts") or {}).get("experience_codes") or [],
             )
             report["requirements_verdict"] = verdict_report["requirements_verdict"]
             report["verdict"] = verdict_report["verdict"]

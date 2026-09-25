@@ -234,7 +234,8 @@
 - **Скоринг в БД** — per-profile, таблица `procurement_evaluations` (BR-07, UNIQUE
   `(procurement_id, profile_id)`): `fit_score`/`p_win`/`margin` — множители стадий
   каскада, `score` — накопленное произведение (после завершённой стадии =
-  fit × p_win × margin), `score_method` — `default | fit | pwin | margin |
+  fit × p_win × margin; `p_win` снижен за мягкие барьеры вердикта, P(win) модели —
+  `p_win_base`), `score_method` — `default | fit | pwin | margin |
   deadline_expired | sim`; `embedding_similarity` — косинусная близость ветки
   Giga Embedder; `rag_report` — отчёт анализа стоп-условий (ADR-10); `comp_hash` —
   хэш канонического содержания компетенций (дедупликация скоринга по группе, BR-07);
@@ -363,8 +364,8 @@ Giga-эмбеддингов, вес ветки, число рефайн-раун
 
 **Модель:** каждый пользователь (тендеролог) — отдельный tenant (BR-07): профили
 фильтрации (`profiles`, принадлежат `user_id`) задают компетенции, ключевые слова,
-слова-исключения, вопросы к ТЗ, критерии поиска (ОКПД2/НМЦК), целевые ЭТП/законы и
-порог Fit. Результаты скоринга хранятся **per-profile** в таблице
+слова-исключения, отчётные поля с условиями и блокирующие категории требований,
+критерии поиска (ОКПД2/НМЦК), целевые ЭТП/законы и порог Fit. Результаты скоринга хранятся **per-profile** в таблице
 `procurement_evaluations` (`fit_score/score/p_win/margin/score_method/rag_report/...`,
 UNIQUE `(procurement_id, profile_id)`). Активный профиль — per-user (единственный;
 `profiles.is_active`, `POST /api/clients/{id}/activate`); по умолчанию для новых/
@@ -387,26 +388,35 @@ UNIQUE `(procurement_id, profile_id)`). Активный профиль — per-
 Ручные корректировки оценок (`manual-score`/`reject`, Эпик 5) — **вне MVP** (этап 7,
 пост-MVP): сейчас оценки только автоматические (auto-Fit).
 
-**analysis_service** (`src/analysis_service/`, on-demand двухстадийный анализ ТЗ):
+**analysis_service** (`src/analysis_service/`, on-demand анализ документов закупки):
 - очередь `analysis:jobs`/`analysis:results` (маршрутизация в транспорте по `stage`);
-- чанкинг ТЗ по разделам (чанк не пересекает границу раздела, `pipeline/chunker.py`);
-- **обязательные системные проверки** (опыт ПП 2571, реестр Минпромторга,
-  лицензии/СРО; ids `sys:*`, версия `SYSTEM_QUESTIONS_VERSION`): лексический отбор
-  секций по паттернам (`pipeline/system_questions.py`) → один batch-LLM-вызов
-  (`pipeline/prompts/batch_system.md`) → факты ТЗ; при отсутствии релевантных секций
-  LLM не вызывается;
-- пользовательские вопросы профиля — эмбеддинги чанков/вопросов (Giga Embedder или
-  gpt2giga-прокси) → cosine top-k → per-question LLM-вердикт
-  (`no_stop_condition | soft | absolute`);
-- **Stage B**: `pipeline/matcher.py` сопоставляет факты ТЗ с фактами профиля
-  (коды лицензий/типов опыта из `GET /api/clients/active` → `facts`)
-  детерминированными правилами BR-03/BR-04 → вердикт + маркер 🔴/🟡/🟢;
-  нераспознанный вид лицензии → `soft` «требует проверки» (recall-over-precision);
-  профиль в промпт не попадает;
-- результат `rag_report` (per-question: `verdict`, `marker`, `source` (`system|profile`),
-  `facts`, `question_version`) сохраняется в `procurement_evaluations.rag_report`
-  (`POST /score` с полем `rag_report`, score_method не меняется) и показывается
-  тендерологу в карточке закупки (раздел «Анализ ТЗ»).
+- охват — ВСЕ документы закупки (архивы разворачиваются, `enumerate_document_refs`),
+  текст — через общий кэш (S3); чанкинг по разделам (`pipeline/chunker.py`);
+- **требования к участнику** — детерминированно, без LLM (`scoring_common.requirements`):
+  лицензии, опыт (в т.ч. ПП 2571), реестр Минпромторга, допустимость соисполнителей;
+  значения-маркеры «не установлено»/«не требуется» делают требование отрицаемым
+  (`negated`, BR-04); LLM дозаполняет структуру `data` (платная опция);
+  `pipeline/matcher.py` — сводка по лицензиям (вид требования vs названия лицензий
+  профиля из `GET /api/clients/active` → `facts`) и статус категорий;
+- **отчётные поля профиля** (`pipeline/report_fields.py`, FR-12.x): эмбеддинги чанков
+  (Giga Embedder или gpt2giga-прокси) → top-k по запросу поля → LLM извлекает значение
+  (промпт по типу поля); поле-список проверяется по тексту документов и дополняется;
+  **условие поля** проверяет код (`scoring_common.conditions`, FR-13.7), кроме
+  «соответствует по смыслу»; значение-сайт — по тексту сайта-источника из объектного
+  хранилища с уточнениями «между значениями» (`scoring_common.sources.matching`, FR-13.8);
+- расстояние от центра целевого региона до места поставки (гео);
+- **вердикт** (`scoring_common.verdict`): барьеры категорий требований
+  (`profiles.requirement_severity`: `block`/`soft`/`off`; опыт — по правилу BR-03:
+  подтверждение через площадку ПП 2571 без такого опыта в профиле — жёсткий,
+  сканы договоров/актов или выписка из реестра — мягкий, только критерии оценки —
+  не барьер) + поля с `match=false` уровня `severity` → жёсткий барьер —
+  авто-отклонение с причиной, мягкий — P(win) × `soft_pwin_factor` за каждый
+  (`p_win_base` — P(win) модели; применяет API);
+- результат `rag_report` (`fields[]`, `requirements_status`, `geo`, `verdict`)
+  сохраняется в `procurement_evaluations.rag_report` (`POST /score` с полем
+  `rag_report`, score_method не меняется) и показывается в карточке закупки (раздел
+  «Анализ документов»); правка условий/уровней барьеров, опыта профиля и окончание
+  сбора сайта пересчитывают отчёты без LLM (API). Профиль в промпт LLM не попадает.
 
 **Предварительная фильтрация (слова-исключения):** `stop_conditions.exclusion_words_present`
 включает проверку слов-исключений активного профиля в описании (стем-матчинг по границе
@@ -606,7 +616,7 @@ DSN задаётся через `ZAKUPKI_DB_DSN`.
 | US-2.4 Не прошедшие фильтр не попадают в список | 🟡 stop-условия (`keyword_context_required`, `exclusion_words_present`); R9 меняет механику на клиентскую пост-фильтрацию **до записи в БД** | `parser/orchestrator/stop.py` | 3 || US-2.5 Не показывать отклонённые повторно | ❌ ручное отклонение — вне MVP; скрытия из выдачи нет | — | 7 || US-3.1 Оповещение о высокорелевантных закупках в Telegram | 🟡 уведомления после стадий каскада есть (Telegram/MAX/webhook); оповещение по каждой высокорелевантной закупке в Telegram — с этапа 8; дайджест топ-3 **не нужен** (US-3.4 удалён решением заказчика) | `notify.py`, `api/app/` | 8 |
 | US-3.3 Экспорт XLSX | 🟡 только CSV | `api/app.py` (`/api/procurements/export`) | 8 |
 | US-4.1 Инициация детального анализа ТЗ | ✅ `POST /api/procurements/analyze` → `analysis_service` | `api/app.py`, `analysis_service/` | — |
-| US-4.2 Проверка опыта (ПП 2571, hard/soft) | ✅ системная проверка `sys:exp_2571`: Stage A (batch-LLM факты) + Stage B (матчер с фактами профиля), маркер | `analysis_service/pipeline/rag.py`, `matcher.py` | 5 || US-4.3 Реестр Минпромторга с учётом «не установлено» | ✅ системная проверка `sys:minprom_registry` (учёт «не установлено») | `rag.py`, `matcher.py` | 5 || US-4.4 Лицензии (какая требуется) | ✅ системная проверка `sys:license_sro` (сопоставление с `license_types` профиля) | `rag.py`, `matcher.py` | 5 || US-4.5 Маркеры 🔴/🟡/🟢 в карточке | ✅ маркеры и `source=system` в `rag_report`, раздел «Анализ ТЗ» | `rag.py`, `api/zakupki.html` | 5 || US-5.1 «В работу» / «Отклонить» | ❌ ручные пресеты (`manual-score`)/`reject` — вне MVP (удалены); статуса «В работе» нет | — | 7 || US-5.2 Причина отклонения | ❌ | — | 7 || US-5.3 Предложение добавить слово-исключение | ❌ | — | 7 || US-6.1/6.2 Сводка «В работу» в XLSX с маркерами | ❌ | — | 8 |
+| US-4.2 Проверка опыта (ПП 2571, hard/soft) | 🟡 требование опыта находится детерминированно (`scoring_common.requirements`), блокировка — по профилю; жёсткий/мягкий по типу подтверждения — нет | `scoring_common/requirements.py`, `scoring_common/verdict.py` | 5 || US-4.3 Реестр Минпромторга с учётом «не установлено» | ✅ детерминированно, «не установлено» не блокирует | `scoring_common/requirements.py` | 5 || US-4.4 Лицензии (какая требуется) | ✅ сводка по лицензиям: вид требования vs лицензии профиля | `analysis_service/pipeline/matcher.py` | 5 || US-4.5 Маркеры в карточке | ✅ раздел «Анализ документов»: требования, отчётные поля ✓/✗/⚪, вердикт и причины | `api/static/js/procurements.js` | 5 || US-5.1 «В работу» / «Отклонить» | ❌ ручные пресеты (`manual-score`)/`reject` — вне MVP (удалены); статуса «В работе» нет | — | 7 || US-5.2 Причина отклонения | ❌ | — | 7 || US-5.3 Предложение добавить слово-исключение | ❌ | — | 7 || US-6.1/6.2 Сводка «В работу» в XLSX с маркерами | ❌ | — | 8 |
 
 > Этапы 6, 4C, 7, 8, 9, 10 — **пост-MVP (вне MVP)**; этапы 1, 2, 3, 4 (4A+4B), 5 — в MVP.
 > В MVP пользователь **не корректирует оценки вручную** (auto-Fit; `manual-score`/`reject`, Эпик 5 — пост-MVP).
@@ -619,7 +629,7 @@ DSN задаётся через `ZAKUPKI_DB_DSN`.
 | ER: `subscriptions` | ❌ (заглушка; оплата вне MVP) | — | 1 |
 | ER: `audit_log` | ❌ | — | 1, 6, 9 || ER: `procedure_categories` (pwin_coefficient) | ❌ (заглушка) | — | 1 |
 | BR-01 Кэширование/пропуск неизменного | 🟡 `known_numbers`, `total_results` early-exit, unique-constraint; кэша ответов ЭТП нет | `orchestrator.py`, `repository.py` | 4 || BR-02 Первичный скоринг Fit (стоп-слова, веса, порог) | ✅ | `scoring_service/`, `config_score.yaml` | — |
-| BR-03 Валидация опыта (ПП 2571) | ✅ (см. US-4.2) | `rag.py`, `matcher.py` | 5 || BR-04 Контекстный анализ реестра Минпромторга («не установлено») | ✅ (см. US-4.3) | `rag.py`, `matcher.py` | 5 || BR-05 Жизненный цикл аккаунта | ❌ | — | 6 || BR-06 Обработка ошибок, DLQ после 3 попыток | 🟡 retry/backoff/recovery, circuit breaker; явной DLQ нет | `retry.py`, `circuit.py`, `scoring_common/stage_worker.py` | 10 |
+| BR-03 Валидация опыта (ПП 2571) | ✅ (см. US-4.2): способ подтверждения → жёсткий/мягкий/не барьер | `scoring_common/verdict.py`, `requirements.py` | 5 || BR-04 Контекстный анализ реестра Минпромторга («не установлено») | ✅ (см. US-4.3) | `rag.py`, `matcher.py` | 5 || BR-05 Жизненный цикл аккаунта | ❌ | — | 6 || BR-06 Обработка ошибок, DLQ после 3 попыток | 🟡 retry/backoff/recovery, circuit breaker; явной DLQ нет | `retry.py`, `circuit.py`, `scoring_common/stage_worker.py` | 10 |
 | US-8.1 Метрики (Prometheus/LangFuse) | 🟡 LangFuse-трейсинг LLM есть; `GET /metrics` нет | `scoring_service/`, `docker-compose.yml` | 10 |
 | US-8.2 Админ-панель пользователей | 🟡 web-интерфейс без управления аккаунтами | `api/zakupki.html` | 6, 10 || US-8.3 Stateless-воркеры, горизонтальное масштабирование | 🟡 стадии скоринга — stateless; парсер — один процесс | `scoring_*`, `docker-compose.yml` | 4C |
 | US-9.1 Дисклеймер в UI/экспортах | ❌ | — | 8, 9 |
@@ -668,7 +678,9 @@ erDiagram
         bool enabled
         bool is_active
         text competencies
-        jsonb questions
+        text website_url
+        jsonb report_fields
+        jsonb requirement_severity
         jsonb okpd_codes
         float nmck_min
         float nmck_max

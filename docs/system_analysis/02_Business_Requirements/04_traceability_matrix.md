@@ -30,7 +30,7 @@
 | US-3.2 | Базовые поля карточки | — | NFR-PERF-1 | PROCUREMENT, CUSTOMER | TO-BE шаг 4 | 3 | ✅ |
 | US-3.3 | Экспорт XLSX | BR-02 | NFR-SEC-4 | PROCUREMENT, PROCUREMENT_EVALUATION | TO-BE шаг 9 | 8 | 🟡 CSV |
 | US-4.1 | Инициация анализа ТЗ | — | NFR-PERF-2, NFR-FT-2 | PROCUREMENT, PROCUREMENT_EVALUATION | Анализ ТЗ; TO-BE шаг 5 | 5 | ✅ |
-| US-4.2 | Проверка опыта 2571 | BR-03 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | Анализ ТЗ | 5 | ✅ |
+| US-4.2 | Проверка опыта 2571 | BR-03 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report, p_win_base), PROFILE (requirement_severity) | Анализ ТЗ | 5 | ✅ |
 | US-4.3 | Реестр Минпромторга | BR-04 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | Анализ ТЗ | 5 | ✅ |
 | US-4.4 | Проверка лицензий | — | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | Анализ ТЗ | 5 | ✅ |
 | US-4.5 | Маркеры в карточке | BR-03, BR-04 | — | PROCUREMENT_EVALUATION (rag_report) | Анализ ТЗ; TO-BE шаг 6 | 5 | ✅ |
@@ -74,7 +74,7 @@
 | :-- | :------- | :----------- | :-- | :---------- | :--- | :----- |
 | BR-01 | Частота парсинга и кэширование | US-2.1, US-2.5 | NFR-COST-2, NFR-PERF-2 | PROCUREMENT | 3, 4 | 🟡 |
 | BR-02 | Первичный скоринг Fit и пост-фильтрация | US-1.1, US-2.2–2.4, US-3.1, US-5.3 | NFR-PERF-1, NFR-COST-1/3 | KEYWORD, PROCUREMENT_EVALUATION | 3 | ✅ |
-| BR-03 | Валидация опыта (ПП 2571) | US-4.2, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
+| BR-03 | Валидация опыта (ПП 2571) | US-4.2, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report, p_win_base), PROFILE (requirement_severity) | 5 | ✅ |
 | BR-04 | Реестр Минпромторга («не установлено») | US-4.3, US-4.5 | NFR-COST-1/3 | PROCUREMENT_EVALUATION (rag_report) | 5 | ✅ |
 | BR-05 | Жизненный цикл аккаунта | US-7.2–7.5, US-10.6 | — | USER (trial_end_at), SUBSCRIPTION (цель) | 6 | 🟡 (trial/аккаунты-опции реализованы; freeze/удаление — цель) |
 | BR-06 | Обработка ошибок (DLQ) | US-8.3 | NFR-REL-2, NFR-FT-1/3/4 | PROCUREMENT | 4, 10 | 🟡 |

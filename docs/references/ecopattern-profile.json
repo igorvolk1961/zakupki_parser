@@ -96,7 +96,7 @@
         "name": "Что (вид работ и вид отхода)",
         "type": "string",
         "unit": null,
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "auto"
       },
@@ -106,7 +106,7 @@
         "name": "Где (место забора)",
         "type": "string",
         "unit": null,
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "auto"
       },
@@ -116,7 +116,7 @@
         "name": "Коды ФККО отходов",
         "type": "list",
         "unit": null,
-        "blocking": true,
+        "severity": "block",
         "condition": {
           "op": "all_in",
           "near": {
@@ -146,7 +146,7 @@
         "name": "Виды работ с отходами",
         "type": "list",
         "unit": null,
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "text",
         "extend_list": true
@@ -157,7 +157,7 @@
         "name": "Объём отходов",
         "type": "number",
         "unit": "т",
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "auto"
       },
@@ -167,7 +167,7 @@
         "name": "Цена за единицу",
         "type": "number",
         "unit": "руб/т",
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "auto"
       },
@@ -177,7 +177,7 @@
         "name": "Возможность привлечения соисполнителей",
         "type": "string",
         "unit": null,
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "auto"
       },
@@ -187,7 +187,7 @@
         "name": "Вид транспорта",
         "type": "string",
         "unit": null,
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "auto"
       },
@@ -197,16 +197,16 @@
         "name": "Минимальный объём партии",
         "type": "number",
         "unit": "т",
-        "blocking": false,
+        "severity": null,
         "condition": null,
         "value_mode": "auto"
       }
     ],
-    "requirement_blocking": {
-      "minprom": false,
-      "licenses": false,
-      "experience": false,
-      "subcontractors": false
+    "requirement_severity": {
+      "minprom": "off",
+      "licenses": "off",
+      "experience": "off",
+      "subcontractors": "off"
     },
     "report_field_mapping": {}
   },

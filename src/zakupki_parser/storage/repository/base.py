@@ -69,6 +69,7 @@ def _apply_profile_score(
             row.score = evaluation.score
             row.fit_score = evaluation.fit_score
             row.p_win = evaluation.p_win
+            row.p_win_base = evaluation.p_win_base
             row.margin = evaluation.margin
             row.score_method = evaluation.score_method
             row.embedding_similarity = evaluation.embedding_similarity

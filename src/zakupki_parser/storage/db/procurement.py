@@ -207,6 +207,7 @@ class Procurement(Base):
     score: float | None = None
     fit_score: float | None = None
     p_win: float | None = None
+    p_win_base: float | None = None
     margin: float | None = None
     score_method: str | None = None
     embedding_similarity: float | None = None

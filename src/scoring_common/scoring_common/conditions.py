@@ -446,7 +446,9 @@ def _check_searchable(value: str, mode: str) -> None:
 def normalize_report_fields(fields: Any) -> list[dict[str, Any]]:
     """Отчётные поля профиля в каноническом виде (запись профиля).
 
-    ``blocking`` без условия сбрасывается — нечего нарушать.
+    ``severity`` (``block`` — невыполненное условие отклоняет закупку, ``soft`` —
+    снижает её P(win), нет — только показывается) без условия сбрасывается —
+    нечего нарушать.
 
     Raises:
         ConditionError: с именем поля в сообщении.
@@ -471,6 +473,7 @@ def normalize_report_fields(fields: Any) -> list[dict[str, Any]]:
             raise ConditionError(f"Поле «{name}»: неизвестный вид значений {mode}")
         try:
             condition = normalize_condition(raw.get("condition"), field_type, mode)
+            severity = _severity(raw.get("severity")) if condition is not None else None
         except ConditionError as exc:
             raise ConditionError(f"Поле «{name}»: {exc}") from exc
         entry: dict[str, Any] = {
@@ -481,7 +484,7 @@ def normalize_report_fields(fields: Any) -> list[dict[str, Any]]:
             "unit": (_str(raw.get("unit")) or None) if field_type == "number" else None,
             "value_mode": mode,
             "condition": condition,
-            "blocking": bool(raw.get("blocking")) and condition is not None,
+            "severity": severity,
         }
         if field_type == "list":
             extend = raw.get("extend_list")
@@ -502,6 +505,14 @@ def normalize_report_fields(fields: Any) -> list[dict[str, Any]]:
                 f"Поле «{entry['name']}»: уточнения берутся из поля-строки или поля-списка"
             )
     return out
+
+
+def _severity(value: Any) -> str | None:
+    if value in (None, "", "off"):
+        return None
+    if value not in ("block", "soft"):
+        raise ConditionError(f"Уровень поля — block, soft или пусто, а не {value!r}")
+    return str(value)
 
 
 def extraction_key(field_def: Mapping[str, Any]) -> str:
@@ -881,7 +892,7 @@ def apply_condition(
 ) -> dict[str, Any]:
     """Проставляет в значение поля результат проверки условия из ``field_def``.
 
-    Меняются только поля результата проверки (``condition``/``blocking``/
+    Меняются только поля результата проверки (``condition``/``severity``/
     ``match``/``check_status``/``mismatched_values``/…); извлечённое значение
     не трогается.
     """
@@ -901,7 +912,7 @@ def apply_condition(
     )
     updated = dict(field_value)
     updated["condition"] = _stored_condition(condition)
-    updated["blocking"] = bool(field_def.get("blocking")) and condition is not None
+    updated["severity"] = field_def.get("severity") if condition is not None else None
     updated["match"] = outcome.match
     updated["check_status"] = outcome.check_status
     updated["mismatched_values"] = outcome.mismatched_values[:50]

@@ -149,6 +149,7 @@ def _row_to_record(row: Procurement) -> dict[str, Any]:
         "score": row.score,
         "fit_score": row.fit_score,
         "p_win": row.p_win,
+        "p_win_base": getattr(row, "p_win_base", None),
         "margin": row.margin,
         "score_method": row.score_method,
         "embedding_similarity": row.embedding_similarity,

@@ -487,6 +487,9 @@ class RecordProcessingMixin(OrchestratorState):
                                         p_win=dedup.p_win,
                                         margin=dedup.margin,
                                         score_method=dedup.score_method,
+                                        # P(win) модели общий; сниженный p_win
+                                        # представителя — его мягкие барьеры.
+                                        p_win_base=dedup.p_win_base,
                                         embedding_similarity=dedup.embedding_similarity,
                                         langfuse_trace_url=dedup.langfuse_trace_url,
                                     )
