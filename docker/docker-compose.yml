@@ -115,6 +115,7 @@ services:
       until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-} ${MINIO_ROOT_PASSWORD:-}; do sleep 2; done;
       mc mb --ignore-existing local/${LANG_S3_BUCKET:-langfuse};
       mc mb --ignore-existing local/${OBJECT_STORAGE_TZ_CACHE_BUCKET:-tz-text-cache};
+      mc mb --ignore-existing local/${OBJECT_STORAGE_SOURCES_BUCKET:-site-sources};
       "
 
   langfuse-web:
@@ -267,6 +268,7 @@ services:
       OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
       OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
       OBJECT_STORAGE_TZ_CACHE_BUCKET: ${OBJECT_STORAGE_TZ_CACHE_BUCKET:-tz-text-cache}
+      OBJECT_STORAGE_SOURCES_BUCKET: ${OBJECT_STORAGE_SOURCES_BUCKET:-site-sources}
     volumes:
       - ../src/scoring_service/scoring_service/pipeline/prompts:/app/prompts
       - ../data/logs:/app/scoring_service/data/logs
@@ -372,6 +374,7 @@ services:
       OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
       OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
       OBJECT_STORAGE_TZ_CACHE_BUCKET: ${OBJECT_STORAGE_TZ_CACHE_BUCKET:-tz-text-cache}
+      OBJECT_STORAGE_SOURCES_BUCKET: ${OBJECT_STORAGE_SOURCES_BUCKET:-site-sources}
     volumes:
       - ../src/analysis_service/analysis_service/pipeline/prompts:/app/analysis-prompts
       - ../data/logs:/app/analysis_service/data/logs
@@ -400,6 +403,7 @@ services:
       OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
       OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
       OBJECT_STORAGE_TZ_CACHE_BUCKET: ${OBJECT_STORAGE_TZ_CACHE_BUCKET:-tz-text-cache}
+      OBJECT_STORAGE_SOURCES_BUCKET: ${OBJECT_STORAGE_SOURCES_BUCKET:-site-sources}
     volumes:
       - ../data/logs:/app/indexing_service/data/logs
     restart: unless-stopped
@@ -444,6 +448,7 @@ services:
       OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-}
       OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-}
       OBJECT_STORAGE_TZ_CACHE_BUCKET: ${OBJECT_STORAGE_TZ_CACHE_BUCKET:-tz-text-cache}
+      OBJECT_STORAGE_SOURCES_BUCKET: ${OBJECT_STORAGE_SOURCES_BUCKET:-site-sources}
     ports:
       - "${API_PORT:-8000}:8000"
     command: >

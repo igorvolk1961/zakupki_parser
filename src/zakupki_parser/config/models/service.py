@@ -165,6 +165,34 @@ class IndexingConfig(_BaseConfig):
     )
 
 
+class SiteSourcesConfig(_BaseConfig):
+    """Сбор сайтов-источников (текст сайта по всем страницам пагинации).
+
+    Сайт — значение условия отчётного поля (URL) или сайт поставщика в профиле;
+    сбор идёт фоновой задачей API (``zakupki_parser.sources``).
+    """
+
+    max_pages: int = Field(default=500, ge=1, description="максимум страниц одного сайта")
+    max_text_mb: float = Field(
+        default=30.0, gt=0, description="максимум текста одного сайта, МБ (символов × 10⁶)"
+    )
+    page_timeout_s: float = Field(
+        default=20.0, gt=0, description="ожидание загрузки/смены страницы, сек"
+    )
+    total_timeout_min: float = Field(
+        default=20.0, gt=0, description="максимальная длительность сбора одного сайта, мин"
+    )
+    delay_ms: tuple[int, int] = Field(
+        default=(300, 800), description="пауза между страницами, мс (случайная в диапазоне)"
+    )
+    max_concurrent: int = Field(
+        default=2, ge=1, description="одновременных сборов (на один хост — всегда один)"
+    )
+    ttl_days: float = Field(
+        default=30.0, gt=0, description="через сколько дней текст сайта считается устаревшим"
+    )
+
+
 class ServiceConfig(_BaseConfig):
     """Сервисная конфигурация (аналитика): список сайтов, критерии, пороги, флаги."""
 
@@ -199,4 +227,8 @@ class ServiceConfig(_BaseConfig):
     indexing: IndexingConfig = Field(
         default_factory=IndexingConfig,
         description="фоновая индексация закупок+документов по ОКПД2",
+    )
+    site_sources: SiteSourcesConfig = Field(
+        default_factory=SiteSourcesConfig,
+        description="сбор сайтов-источников (условия отчётных полей, сайт профиля)",
     )

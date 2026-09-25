@@ -18,6 +18,7 @@ from zakupki_parser.storage.repository.platform_stats import PlatformStatsMixin
 from zakupki_parser.storage.repository.procurements import ProcurementMixin
 from zakupki_parser.storage.repository.profiles import ProfileMixin
 from zakupki_parser.storage.repository.search_index import SearchIndexMixin
+from zakupki_parser.storage.repository.site_sources import SiteSourceMixin
 from zakupki_parser.storage.repository.users import UserMixin
 
 
@@ -32,6 +33,7 @@ class ProcurementRepository(
     CycleStatsMixin,
     DbStatsMixin,
     PlatformStatsMixin,
+    SiteSourceMixin,
 ):
     """Операции с таблицей ``procurements`` (и смежными доменами).
 

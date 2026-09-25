@@ -6,6 +6,7 @@ import os
 import re
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -99,3 +100,65 @@ def strip_scripts(html: str) -> str:
 
 async def set_html(page: Page, html: str) -> None:
     await page.set_content(strip_scripts(html), wait_until="domcontentloaded")
+
+
+class _StubSourceDriver:
+    """Драйвер сбора сайтов для тестов: одна страница, без браузера и сети."""
+
+    async def __aenter__(self) -> _StubSourceDriver:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def open(self, url: str) -> None:
+        self._url = url
+
+    async def text(self) -> str:
+        return "тестовая страница"
+
+    async def fingerprint(self) -> str:
+        return "fp"
+
+    async def current_url(self) -> str:
+        return self._url
+
+    async def find_next(self, page_no: int) -> None:
+        return None
+
+    async def click_next(self) -> None:
+        return None
+
+    async def scroll_to_bottom(self) -> None:
+        return None
+
+    async def wait_change(self, old_fingerprint: str, timeout_s: float) -> None:
+        return None
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _source_crawls_without_browser() -> Iterator[None]:
+    """Сбор сайтов-источников в тестах API — без браузера и без сети.
+
+    Приложение (``create_app``) иначе запускало бы Chromium и DNS-проверку для
+    каждого ``website_url`` профиля. Тесты, которым нужен свой сценарий сбора,
+    подменяют ``state.source_crawls`` сами.
+    """
+    from zakupki_parser.api import app as app_module
+    from zakupki_parser.sources.manager import SourceCrawlManager
+
+    def _build(state: Any) -> SourceCrawlManager:
+        async def _any_url(url: str) -> None:
+            return None
+
+        return SourceCrawlManager(
+            state.repository,
+            state.cfg.service.site_sources,
+            _StubSourceDriver,
+            check_url=_any_url,
+        )
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(app_module, "_build_source_crawls", _build)
+    yield
+    mp.undo()

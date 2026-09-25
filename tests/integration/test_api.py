@@ -2529,3 +2529,105 @@ def test_condition_change_rechecks_reports_without_llm(
     assert resp.status_code == 200, resp.text
     assert _wait_recheck()["stale"] >= 1
     assert client.get(f"/api/procurements/{pid}").json()["analysis_stale"] is True
+
+
+def test_site_source_crawl_status_and_text(api_client: tuple[TestClient, Path]) -> None:
+    """Сайт-источник: POST ставит сбор, GET показывает ход и итог, текст ищется
+    так же, как значения условий (код — в любой записи)."""
+    client, _ = api_client
+    manager = client.app.state.parser.source_crawls  # type: ignore[attr-defined]
+
+    class _TwoPages:
+        pages = ["Шапка\nкод 1 11 010 21 49 2\nПодвал", "Шапка\nкод 4 71 101 01 52 1\nПодвал"]
+
+        def __init__(self) -> None:
+            self.i = 0
+
+        async def __aenter__(self) -> _TwoPages:
+            return self
+
+        async def __aexit__(self, *exc: object) -> None:
+            return None
+
+        async def open(self, url: str) -> None:
+            return None
+
+        async def text(self) -> str:
+            return self.pages[self.i]
+
+        async def fingerprint(self) -> str:
+            return self.pages[self.i]
+
+        async def current_url(self) -> str:
+            return f"https://example.org/p{self.i + 1}"
+
+        async def find_next(self, page_no: int) -> Any:
+            from zakupki_parser.sources.crawler import NextStep
+
+            return NextStep(mode="number") if self.i == 0 else None
+
+        async def click_next(self) -> None:
+            self.i += 1
+
+        async def scroll_to_bottom(self) -> None:
+            return None
+
+        async def wait_change(self, old: str, timeout_s: float) -> str | None:
+            return self.pages[self.i] if self.pages[self.i] != old else None
+
+    original = manager._driver_factory  # noqa: SLF001
+    manager._driver_factory = _TwoPages  # noqa: SLF001
+    try:
+        created = client.post("/api/sources", json={"url": "https://Example.org/list/"})
+        assert created.status_code == 200, created.text
+        source_id = created.json()["id"]
+
+        status: dict[str, Any] = {}
+        for _ in range(100):
+            status = client.get(f"/api/sources/{source_id}").json()
+            if not status["active"] and status["status"] != "pending":
+                break
+            time.sleep(0.05)
+        assert status["status"] == "complete"
+        assert status["stop_reason"] == "no_next"
+        assert status["pages"] == 2
+        assert status["text_complete"] is True
+        assert status["progress"]["pages"] == 2
+
+        # Тот же сайт в другой записи URL — та же запись, сбор не повторяется.
+        again = client.post("/api/sources", json={"url": "https://example.org/list"})
+        assert again.json()["id"] == source_id
+        assert again.json()["active"] is False
+
+        found = client.get(f"/api/sources/{source_id}/text", params={"q": "47110101521"})
+        assert found.status_code == 200
+        assert found.json()["matches"] == 1
+        assert "4 71 101 01 52 1" in found.json()["fragments"][0]
+        head = client.get(f"/api/sources/{source_id}/text").json()
+        assert "=== page 1: https://example.org/p1 ===" in head["fragments"][0]
+    finally:
+        manager._driver_factory = original  # noqa: SLF001
+
+
+def test_site_source_unsafe_url_rejected(api_client: tuple[TestClient, Path]) -> None:
+    from zakupki_parser.net_safety import UnsafeUrlError
+
+    client, _ = api_client
+    manager = client.app.state.parser.source_crawls  # type: ignore[attr-defined]
+
+    async def reject(url: str) -> None:
+        raise UnsafeUrlError("URL указывает на внутренний/локальный адрес")
+
+    original = manager._check_url  # noqa: SLF001
+    manager._check_url = reject  # noqa: SLF001
+    try:
+        resp = client.post("/api/sources", json={"url": "http://127.0.0.1/admin"})
+        assert resp.status_code == 400
+        assert "внутренний" in resp.json()["detail"]
+    finally:
+        manager._check_url = original  # noqa: SLF001
+
+
+def test_site_source_not_found(api_client: tuple[TestClient, Path]) -> None:
+    client, _ = api_client
+    assert client.get("/api/sources/999999").status_code == 404

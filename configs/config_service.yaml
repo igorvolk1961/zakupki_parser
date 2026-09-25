@@ -43,3 +43,13 @@ indexing:
   - b2b_center
   max_attempts: 5
   retry_ttl_seconds: 3600.0
+site_sources:
+  max_pages: 500
+  max_text_mb: 30.0
+  page_timeout_s: 20.0
+  total_timeout_min: 20.0
+  delay_ms:
+  - 300
+  - 800
+  max_concurrent: 2
+  ttl_days: 30.0

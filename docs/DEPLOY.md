@@ -150,8 +150,9 @@ LANG_ADMIN_PASSWORD=<пароль админа LangFuse>
 ### 4.4 MinIO и LangFuse-порты
 
 MinIO — **обязательная** часть стека: это объектное хранилище приложения
-(`scoring_common.object_storage`, переменные `OBJECT_STORAGE_*`, кэш
-извлечённого текста документов закупки), а не только хранилище LangFuse.
+(`scoring_common.object_storage`, переменные `OBJECT_STORAGE_*`: кэш
+извлечённого текста документов закупки — бакет `tz-text-cache`, тексты
+сайтов-источников — бакет `site-sources`), а не только хранилище LangFuse.
 `api`, `indexing-service`, `scoring-service`, `analysis-service` ждут
 `minio-init` (создаёт бакеты) и без доступного хранилища не стартуют —
 в логе причина: «Объектное хранилище … недоступно или нет бакетов …».

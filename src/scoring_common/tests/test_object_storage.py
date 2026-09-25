@@ -27,7 +27,8 @@ def test_settings_defaults(clean_env) -> None:
     settings = os_.ObjectStorageSettings()
     assert settings.endpoint_url is None
     assert settings.tz_cache_bucket == "tz-text-cache"
-    assert settings.buckets() == ["tz-text-cache"]
+    assert settings.sources_bucket == "site-sources"
+    assert settings.buckets() == ["tz-text-cache", "site-sources"]
 
 
 def test_settings_new_names(clean_env, monkeypatch) -> None:

@@ -65,6 +65,9 @@ class AppState:
         # (condition_recheck.py): статус и задача по id профиля.
         self.condition_rechecks: dict[int, Any] = {}
         self.condition_recheck_tasks: dict[int, asyncio.Task[None]] = {}
+        # Очередь сборов сайтов-источников (sources.manager.SourceCrawlManager);
+        # создаётся при старте, когда доступна БД.
+        self.source_crawls: Any | None = None
 
 
 async def _broadcast(state: AppState, message: str = "data-changed") -> None:

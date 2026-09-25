@@ -11,12 +11,12 @@ from zakupki_parser.api.app.profile_source import (
     ProfileFromUrlError,
     ProfileFromUrlNotConfigured,
     _ensure_public_host,
-    _is_public_ip,
     _split_licenses,
     fetch_url_html,
     generate_profile_from_url,
     html_to_text,
 )
+from zakupki_parser.net_safety import is_public_ip as _is_public_ip
 
 _LICENSE_TYPES = [(1, "Лицензия на утилизацию отходов"), (2, "Лицензия ФСБ на шифрование")]
 
@@ -47,7 +47,7 @@ async def test_ensure_public_host_blocks_private_ip(monkeypatch: pytest.MonkeyPa
     async def fake_resolve(host: str) -> list[_IpAddress]:
         return [ipaddress.ip_address("10.0.0.1")]
 
-    monkeypatch.setattr("zakupki_parser.api.app.profile_source._resolve", fake_resolve)
+    monkeypatch.setattr("zakupki_parser.net_safety._resolve", fake_resolve)
     with pytest.raises(ProfileFromUrlError, match="внутренний"):
         await _ensure_public_host("internal.example")
 
@@ -56,7 +56,7 @@ async def test_ensure_public_host_allows_public_ip(monkeypatch: pytest.MonkeyPat
     async def fake_resolve(host: str) -> list[_IpAddress]:
         return [ipaddress.ip_address("93.184.216.34")]
 
-    monkeypatch.setattr("zakupki_parser.api.app.profile_source._resolve", fake_resolve)
+    monkeypatch.setattr("zakupki_parser.net_safety._resolve", fake_resolve)
     await _ensure_public_host("example.com")  # не бросает
 
 

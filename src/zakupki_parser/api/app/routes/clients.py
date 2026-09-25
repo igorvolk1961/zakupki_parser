@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -9,6 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from scoring_common.sources.store import first_page_key, get_text
 from zakupki_parser.api.app.condition_recheck import recheck_status, start_condition_recheck
 from zakupki_parser.api.app.deps import ApiContext
 from zakupki_parser.api.app.profile_source import (
@@ -31,6 +33,7 @@ from zakupki_parser.api.app.schemas import (
     UnmatchedLicenseOut,
 )
 from zakupki_parser.api.app.state import _broadcast, _sync_profile_results
+from zakupki_parser.net_safety import UnsafeUrlError
 from zakupki_parser.storage.db import User
 from zakupki_parser.storage.profile_json import (
     parse_profile_json,
@@ -164,6 +167,35 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             regions=list(row.geo_regions or []),
             centers=list(row.geo_centers or []),
         )
+
+    async def _source_first_page(url: str) -> str | None:
+        """Текст первой страницы сайта из хранилища источников; сбор всего сайта
+        ставится в очередь, если текста ещё нет или он устарел. Небезопасный URL —
+        400 (как и при прямом скачивании)."""
+        manager = state.source_crawls
+        if manager is None or not url.strip():
+            return None
+        try:
+            source = await manager.ensure(url)
+        except UnsafeUrlError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if source.fetched_at is None:
+            return None
+        text: str | None = await asyncio.to_thread(get_text, first_page_key(source.url_norm))
+        return text
+
+    async def _ensure_profile_site(profile: Any) -> None:
+        """Сайт поставщика из профиля собирается в хранилище источников (фоном).
+
+        Не мешает сохранению профиля: недоступный/небезопасный адрес — в лог."""
+        manager = state.source_crawls
+        url = (getattr(profile, "website_url", None) or "").strip()
+        if manager is None or not url:
+            return
+        try:
+            await manager.ensure(url)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Сайт профиля %s не поставлен в сбор: %s", profile.id, exc)
 
     async def _license_type_ids(profile_id: int) -> list[int]:
         return [lic.license_type_id for lic in await _repo().list_licenses(profile_id)]
@@ -448,6 +480,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await _ensure_profile_site(profile)
         covered = await _request_refresh_for(profile)
         notice = _collection_notice(
             profile, refresh_requested=bool(profile.enabled), fully_index_covered=covered
@@ -486,6 +519,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         new_words = await _repo().get_profile_keywords(updated.id)
         crawl_changed = _crawl_state_key(updated, new_words) != old_key
+        await _ensure_profile_site(updated)
         # Условия полей/блокировки пересчитываются по готовым отчётам без LLM.
         start_condition_recheck(
             state,
@@ -644,6 +678,7 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         logger.info("Профиль %s (id=%s) загружен из файла (web)", name, profile.id)
         await _broadcast(state)
+        await _ensure_profile_site(profile)
         if existing is not None:
             start_condition_recheck(
                 state,
@@ -702,8 +737,11 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
                 ),
             )
         license_types = [(t.id, t.name) for t in await _repo().list_license_types()]
+        page_text = await _source_first_page(payload.url)
         try:
-            result = await generate_profile_from_url(payload.url, license_types)
+            result = await generate_profile_from_url(
+                payload.url, license_types, page_text=page_text
+            )
         except ProfileFromUrlNotConfigured as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ProfileFromUrlError as exc:

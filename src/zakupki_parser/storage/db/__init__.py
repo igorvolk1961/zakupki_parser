@@ -31,9 +31,12 @@ from zakupki_parser.storage.db.profile import (
     ProfileLicense,
 )
 from zakupki_parser.storage.db.search_index import ProcurementSearchIndex
+from zakupki_parser.storage.db.site_source import SOURCE_FINAL_STATUSES, SiteSource
 from zakupki_parser.storage.db.user import User
 
 __all__ = [
+    "SOURCE_FINAL_STATUSES",
+    "SiteSource",
     "ALL_PLATFORMS_SENTINEL",
     "Base",
     "Customer",

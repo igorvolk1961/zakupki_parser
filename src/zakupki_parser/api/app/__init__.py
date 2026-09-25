@@ -34,9 +34,12 @@ from zakupki_parser.api.app.routes.metrics import build_metrics_router
 from zakupki_parser.api.app.routes.monitoring import build_monitoring_router
 from zakupki_parser.api.app.routes.procurements import build_procurements_router
 from zakupki_parser.api.app.routes.reference import build_reference_router
+from zakupki_parser.api.app.routes.sources import build_sources_router
 from zakupki_parser.api.app.routes.users import build_users_router
-from zakupki_parser.api.app.state import _create_state, _spawn_parser
+from zakupki_parser.api.app.state import AppState, _broadcast, _create_state, _spawn_parser
 from zakupki_parser.notify import Notifier
+from zakupki_parser.sources.manager import SourceCrawlManager
+from zakupki_parser.sources.playwright_driver import PlaywrightDriver
 from zakupki_parser.storage.db import Database
 from zakupki_parser.storage.repository import ProcurementRepository
 
@@ -46,6 +49,24 @@ logger = logging.getLogger(__name__)
 _STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 __all__ = ["create_app", "_meets_stage_notify_threshold"]
+
+
+def _build_source_crawls(state: AppState) -> SourceCrawlManager:
+    """Очередь сборов сайтов-источников: браузер — отдельный от парсера площадок."""
+    cfg = state.cfg
+
+    def driver_factory() -> PlaywrightDriver:
+        return PlaywrightDriver(
+            cfg.parser.browser, page_timeout_s=cfg.service.site_sources.page_timeout_s
+        )
+
+    async def on_change() -> None:
+        await _broadcast(state)
+
+    assert state.repository is not None, "очередь сборов создаётся только при доступной БД"
+    return SourceCrawlManager(
+        state.repository, cfg.service.site_sources, driver_factory, on_change=on_change
+    )
 
 
 def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
@@ -87,6 +108,8 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
                 await ctx._seed_initial_admin()
             except Exception as exc:  # noqa: BLE001
                 logger.error("Не удалось создать начального администратора: %s", exc)
+            state.source_crawls = _build_source_crawls(state)
+            await state.source_crawls.recover()
         # Автозапуск цикла мониторинга при старте сервиса (config_ops.yaml, devops):
         # выключенный флаг (auto_start_monitoring=false) — мониторинг запускается
         # только вручную с панели devops (POST /api/parser/start).
@@ -100,6 +123,8 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
                     "(auto_start_monitoring=true)"
                 )
         yield
+        if state.source_crawls is not None:
+            await state.source_crawls.shutdown()
         parser_task = state.parser_task
         if parser_task is not None and not parser_task.done():
             parser_task.cancel()
@@ -134,4 +159,5 @@ def create_app(configs_dir: str = "configs", port: int = 8000) -> FastAPI:
     app.include_router(build_logs_router(ctx))
     app.include_router(build_metrics_router(ctx))
     app.include_router(build_monitoring_router(ctx))
+    app.include_router(build_sources_router(ctx))
     return app

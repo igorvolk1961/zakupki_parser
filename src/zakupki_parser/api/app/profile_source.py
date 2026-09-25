@@ -15,19 +15,17 @@ analysis_service), настраивается отдельными env-пере�
 
 from __future__ import annotations
 
-import asyncio
 import io
-import ipaddress
 import json
 import logging
 import os
-import socket
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
 import httpx
 
+from zakupki_parser.net_safety import UnsafeUrlError, ensure_public_host
 from zakupki_parser.storage.competencies import CompetenciesError, normalize_competencies
 
 logger = logging.getLogger(__name__)
@@ -97,45 +95,12 @@ class ProfileFromUrl:
     unmatched_licenses: list[dict[str, Any]] = field(default_factory=list)
 
 
-def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """True, если адрес — публичный маршрутизируемый IP (не внутренняя сеть)."""
-    return (
-        ip.is_global
-        and not ip.is_private
-        and not ip.is_loopback
-        and not ip.is_link_local
-        and not ip.is_multicast
-        and not ip.is_reserved
-        and not ip.is_unspecified
-    )
-
-
 async def _ensure_public_host(host: str) -> None:
-    """SSRF-защита: запрещает URL, ведущие на внутренние/локальные адреса.
-
-    Резолвит хост через DNS (или разбирает IP-литерал) и требует, чтобы ВСЕ
-    полученные адреса были публичными. Не защищает от DNS rebinding (сервер меняет
-    ответ между этой проверкой и фактическим запросом) — компромисс ради простоты:
-    вызывающие эндпоинт — уже аутентифицированные пользователи приложения, не
-    анонимные третьи лица.
-    """
-    if not host:
-        raise ProfileFromUrlError("В URL не указан хост")
+    """SSRF-защита (``net_safety.ensure_public_host``) с ошибкой этого модуля."""
     try:
-        infos = await _resolve(host)
-    except OSError as exc:
-        raise ProfileFromUrlError(f"Не удалось разрешить адрес «{host}»") from exc
-    if not infos:
-        raise ProfileFromUrlError(f"Не удалось разрешить адрес «{host}»")
-    if not all(_is_public_ip(ip) for ip in infos):
-        raise ProfileFromUrlError(
-            "URL указывает на внутренний/локальный адрес — такие адреса запрещены"
-        )
-
-
-async def _resolve(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-    infos = await asyncio.to_thread(socket.getaddrinfo, host, None)
-    return [ipaddress.ip_address(sockaddr[0]) for _, _, _, _, sockaddr in infos]
+        await ensure_public_host(host)
+    except UnsafeUrlError as exc:
+        raise ProfileFromUrlError(str(exc)) from exc
 
 
 def _llm_config() -> tuple[str, str, str, float]:
@@ -322,12 +287,15 @@ async def generate_profile_from_url(
     url: str,
     license_types: list[tuple[int, str]],
     *,
+    page_text: str | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> ProfileFromUrl:
     """URL сайта поставщика -> компетенции (схема ``Profile``) + лицензии.
 
     Компетенции уже провалидированы ``normalize_competencies`` — можно напрямую
     вернуть в веб-форму (та же схема, что при ручном заполнении/импорте).
+    ``page_text`` — уже собранный текст первой страницы сайта (сайт-источник):
+    передан — страница не скачивается повторно.
     Лицензии сопоставлены с переданным справочником ``license_types``
     (``(id, name)``): с найденным типом — в ``licenses`` (готовы к сохранению),
     без — в ``unmatched_licenses`` (справочник не исчерпывающий; сохранить как
@@ -338,8 +306,11 @@ async def generate_profile_from_url(
     stripped = url.strip()
     if not stripped:
         raise ProfileFromUrlError("Укажите URL сайта")
-    html = await fetch_url_html(stripped, client=http_client)
-    text = html_to_text(html)
+    if page_text and page_text.strip():
+        # Текст первой страницы уже собран (сайт-источник, S3) — не скачиваем заново.
+        text = page_text.strip()[:_MAX_TEXT_CHARS]
+    else:
+        text = html_to_text(await fetch_url_html(stripped, client=http_client))
     system, user = _build_messages(text, stripped, license_types)
     raw = await _call_llm(system, user, client=http_client)
     try:

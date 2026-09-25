@@ -59,6 +59,7 @@ from zakupki_parser.config.models.service import (
     SearchCriteria,
     ServiceConfig,
     SiteServiceEntry,
+    SiteSourcesConfig,
 )
 from zakupki_parser.config.models.services import (
     AnalysisServiceConfig,
@@ -98,6 +99,7 @@ __all__ = [
     "SCORE_METHOD_SIM",
     "SCORE_METHOD_STAGES",
     "IndexingConfig",
+    "SiteSourcesConfig",
     "ScoreConfig",
     "ScoringConfig",
     "SearchCriteria",

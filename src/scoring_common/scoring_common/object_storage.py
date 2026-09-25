@@ -1,7 +1,7 @@
 """Общее объектное хранилище S3/MinIO — обязательная зависимость сервисов.
 
 Используется L2-кэшем извлечённого текста документов (``tz/object_cache.py``)
-и далее — хранилищем текстов сайтов-источников. Хранилище не отключается:
+и хранилищем текстов сайтов-источников (``sources/store.py``). Хранилище не отключается:
 сервисы, работающие с текстом документов (API, indexing_service,
 scoring_service, analysis_service), при старте вызывают
 ``require_object_storage`` и не стартуют без настроенного и доступного S3.
@@ -41,10 +41,12 @@ class ObjectStorageSettings(BaseSettings):
     region: str = "us-east-1"
     # Бакет L2-кэша извлечённого текста документов закупки.
     tz_cache_bucket: str = "tz-text-cache"
+    # Бакет текстов сайтов-источников (scoring_common.sources.store).
+    sources_bucket: str = "site-sources"
 
     def buckets(self) -> list[str]:
         """Все бакеты, которые должны существовать (проверяются при старте)."""
-        return [self.tz_cache_bucket]
+        return [self.tz_cache_bucket, self.sources_bucket]
 
 
 class _Body:

@@ -2796,6 +2796,49 @@ requirements:
       входы анализа (регионы, лицензии). Значение-сайт (URL) — шаг 3 плана.
       Профиль переносится JSON-файлом полностью (решение пользователя):
       отчётные поля с условиями, requirement_blocking, report_field_mapping.
+  - id: FR-13.8
+    type: FR
+    title: Сайты-источники — сбор текста сайта по всем страницам пагинации в S3
+    stakeholder: Тендеролог (user)
+    stage: "6"
+    status: implemented
+    adr: "-"
+    code:
+      - src/zakupki_parser/sources/crawler.py
+      - src/zakupki_parser/sources/playwright_driver.py
+      - src/zakupki_parser/sources/manager.py
+      - src/zakupki_parser/sources/text.py
+      - src/zakupki_parser/sources/urls.py
+      - src/zakupki_parser/net_safety.py
+      - src/zakupki_parser/storage/db/site_source.py
+      - src/zakupki_parser/storage/repository/site_sources.py
+      - src/zakupki_parser/api/app/routes/sources.py
+      - src/zakupki_parser/api/app/routes/clients.py
+      - src/zakupki_parser/api/app/profile_source.py
+      - src/scoring_common/scoring_common/sources/store.py
+      - docker/liquibase/changelog/db.changelog-1.69.yaml
+    tests:
+      - tests/unit/test_sources_crawler.py
+      - tests/unit/test_sources_manager.py
+      - tests/unit/test_sources_text_urls.py
+      - tests/unit/test_profile_source.py
+      - tests/integration/test_sources_browser.py
+      - tests/integration/test_api.py
+      - src/scoring_common/tests/test_sources_store.py
+    notes: >-
+      2026-09-25 (план plans/06_plan.md, шаг 2). Текст сайта — значение
+      условий отчётных полей (URL, шаг 3) и сайт поставщика в профиле —
+      собирается по всем страницам пагинации без адаптеров под сайт:
+      следующая страница — rel=next / подпись «след./›/Страница N+1» /
+      номер N+1 в ряду номеров / «показать ещё» / номер в параметре URL /
+      бесконечная прокрутка; конец — по повтору или неизменности основного
+      содержимого (без счётчика результатов). Итог complete/incomplete/
+      failed; полный текст не заменяется неполным пересбором. Общие шапка и
+      подвал страниц убираются. Текст — в S3 (бакет site-sources), статус и
+      ход сбора — site_sources, API /api/sources. Сбор — фоновая очередь API
+      (не больше max_concurrent, один на хост), SSRF-проверка каждого
+      запроса браузера. Сайт профиля ставится в сбор при сохранении, «Заполнить
+      профиль по URL» берёт уже собранную первую страницу.
 
   # ===== Бизнес-правила =====
   - id: BR-01
