@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -27,6 +28,14 @@ def _estimate_tokens(text: str) -> int:
 
 class LlmClient:
     """Вызов ``/chat/completions`` (OpenAI-совместимый) со строгим JSON-ответом."""
+
+    # Временная перегрузка (429/5xx) — повтор, а не сбой всего вызова; найдено
+    # вживую (аудит анализа профиля «Экопаттерн»): DeepSeek изредка отдаёт
+    # пустой/невалидный JSON («Expecting value: line 1 column 1») без явного
+    # HTTP-кода ошибки — тоже трактуем как временный сбой и повторяем.
+    _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+    _MAX_RETRY_ATTEMPTS = 3
+    _RETRY_BASE_DELAY_SECONDS = 1.0
 
     def __init__(
         self,
@@ -83,7 +92,41 @@ class LlmClient:
         self._latency_ms = 0.0
 
     async def chat_json(self, system: str, user: str) -> dict[str, Any] | None:
-        """Запрос с JSON-ответом; None — сбой (best-effort, не роняет задание)."""
+        """Запрос с JSON-ответом; None — сбой после исчерпания повторов (best-effort).
+
+        Временные сбои (429/5xx, транспортные ошибки, пустой/невалидный JSON в
+        ответе) — повтор с экспоненциальной задержкой; постоянные ошибки
+        (4xx, кроме 429) — сразу None, повтор не поможет.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(self._MAX_RETRY_ATTEMPTS):
+            try:
+                return await self._chat_once(system, user)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in self._RETRYABLE_STATUS_CODES:
+                    logger.warning("LLM-вердикт не получен (%s): %s", self._model, exc)
+                    return None
+                last_exc = exc
+            except (
+                httpx.TransportError,
+                json.JSONDecodeError,
+                KeyError,
+                IndexError,
+                TypeError,
+            ) as exc:
+                last_exc = exc
+            if attempt < self._MAX_RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(self._RETRY_BASE_DELAY_SECONDS * (2**attempt))
+        logger.warning(
+            "LLM-вердикт не получен после %d попыток (%s): %s",
+            self._MAX_RETRY_ATTEMPTS,
+            self._model,
+            last_exc,
+        )
+        return None
+
+    async def _chat_once(self, system: str, user: str) -> dict[str, Any]:
+        """Один вызов ``/chat/completions``; бросает исключение при сбое."""
         url = f"{self._base}/chat/completions"
         headers = {"Content-Type": "application/json"}
         if self._api_key:
@@ -132,10 +175,11 @@ class LlmClient:
             obs.end()
             return result
         except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError, TypeError) as exc:
+            # Логируем и трассируем каждую попытку, но не гасим исключение —
+            # решение «повторить или сдаться» принимает вызывающий chat_json.
             obs.update(level="WARNING", status_message=f"LLM-вердикт не получен: {exc}")
             obs.end()
-            logger.warning("LLM-вердикт не получен (%s): %s", self._model, exc)
-            return None
+            raise
 
     def _usage_and_cost(
         self, data: dict[str, Any], messages: list[dict[str, str]]
