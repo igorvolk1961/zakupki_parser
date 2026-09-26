@@ -175,17 +175,34 @@ def _best_match(proc_text: str, law_texts: list[str]) -> float:
     Слишком короткие тексты норм (≈заголовки) отбрасываем: пара слов вроде
     «Дополнительные требования.» давала бы покрытие 1.0 на любом «дополнительном».
     """
+    return _best_match_detailed(proc_text, law_texts)[0]
+
+
+def _best_match_detailed(proc_text: str, law_texts: list[str]) -> tuple[float, float]:
+    """(recall, precision) для лучшего по recall совпадения с текстами закона.
+
+    ``recall`` — доля терминов нормы, покрытая текстом закупки (как ``_best_match``).
+    ``precision`` — обратная доля: сколько из терминов ИМЕННО ЭТОГО текста закупки
+    объясняется данным пунктом нормы. Нужна, чтобы отличить «дословный пересказ»
+    (высокие и recall, и precision — весь текст закупки — это норма) от «ссылки на
+    статью закона + дальше специфичное значение» (высокий recall — типовая фраза
+    ссылки покрыта, но низкий precision — бо́льшая часть текста закупки — это НЕ
+    норма, а именно специфика). См. ``annotate_requirements``.
+    """
     proc_terms = _terms(proc_text)
     if not proc_terms:
-        return 0.0
-    best = 0.0
+        return 0.0, 0.0
+    best_recall, best_precision = 0.0, 0.0
     for law in law_texts:
         law_terms = _terms(law)
         if len(law_terms) < 3:
             continue
-        score = len(proc_terms & law_terms) / len(law_terms)
-        best = max(best, score)
-    return best
+        overlap = len(proc_terms & law_terms)
+        recall = overlap / len(law_terms)
+        if recall > best_recall:
+            best_recall = recall
+            best_precision = overlap / len(proc_terms)
+    return best_recall, best_precision
 
 
 def universal_overlap(proc_text: str, doc: dict[str, Any]) -> float:
@@ -210,7 +227,13 @@ def is_negated(item: dict[str, Any]) -> bool:
 
 # Корпус нормы «Требования к участникам»: тексты всех частей ст.31 и их пункты —
 # то, с чем сравниваем требование закупки (пересказ нормы). НЕ только ч.1.
-_LAW_MATCH_RESTATE = 0.75  # покрытие ≥ → дословный пересказ нормы → исключить
+_LAW_MATCH_RESTATE = 0.75  # recall ≥ → дословный пересказ нормы → исключить...
+# ...НО только если ещё и precision ≥ этого порога: иначе типовая фраза-ссылка на
+# статью («предусмотренные п.1 ч.1 ст.31 Закона») перед специфичным, длинным и
+# конкретным значением (напр. конкретная лицензия с номером постановления и
+# кодами отходов) исключала бы это значение целиком — recall по короткой фразе
+# ссылки был бы высоким при почти любом продолжении. Найдено на реальных данных.
+_LAW_MATCH_PRECISION_MIN = 0.5
 _LAW_MATCH_UNCLEAR = 0.30  # покрытие ≤ → низкая зона (не норма)
 _LAW_VALUE_TEXT_MAX = 150  # макс. длина текста «настоящего значения» параметра
 
@@ -238,8 +261,18 @@ def _restatement_corpus(doc: dict[str, Any]) -> list[str]:
 
 
 def law_match(text: str, doc: dict[str, Any]) -> float:
-    """0..1 — насколько требование похоже на норму 44-ФЗ (пересказ)."""
+    """0..1 — насколько требование похоже на норму 44-ФЗ (пересказ, recall)."""
     return _best_match(text, _restatement_corpus(doc))
+
+
+def law_match_detailed(text: str, doc: dict[str, Any]) -> tuple[float, float]:
+    """(recall, precision) относительно наиболее похожего пункта/части нормы.
+
+    См. ``_best_match_detailed`` — используется решением об исключении в
+    ``annotate_requirements`` (одного recall недостаточно, чтобы отличить
+    «дословный пересказ» от «ссылка на статью + специфичное значение»).
+    """
+    return _best_match_detailed(text, _restatement_corpus(doc))
 
 
 def is_real_value(item: dict[str, Any]) -> bool:
@@ -261,11 +294,14 @@ def annotate_requirements(
 ) -> dict[str, Any]:
     """Зонная классификация требований (два порога похожести на норму).
 
-    * покрытие ``≥`` верхнего → дословный пересказ нормы → исключить;
-    * покрытие ``≤`` нижнего → «не норма»: пока всегда оставляем (фильтр «настоящего
+    * recall ``≥`` верхнего И precision ``≥`` своего порога → дословный пересказ
+      нормы → исключить (оба порога — иначе ссылка на статью закона перед
+      длинным специфичным значением исключала бы значение целиком, см.
+      ``law_match_detailed``);
+    * recall ``≤`` нижнего → «не норма»: пока всегда оставляем (фильтр «настоящего
       значения» параметра отложен — ``is_real_value`` готов к включению);
-    * между порогами → неоднозначно: пометить ``embed_review`` для последующей
-      обработки эмбеддингами (если включено в профиле).
+    * между порогами (по recall) → неоднозначно: пометить ``embed_review`` для
+      последующей обработки эмбеддингами (если включено в профиле).
     * ``negated`` (отклонения) — всегда оставляем с флагом ``negated``.
     """
     if doc is None:
@@ -289,10 +325,24 @@ def annotate_requirements(
                 item["negated"] = True
                 kept.append(item)
                 continue
-            score = law_match(item.get("text") or "", doc)
-            if score >= _LAW_MATCH_RESTATE:
+            # Табличные строки (``_table_requirement_candidates``): у части
+            # строк ``text`` — только номер + заголовок-ссылка на статью
+            # закона, а САМО значение — в ``additional`` (3-я ячейка); у
+            # других (нет отдельной 3-й ячейки) заголовок и значение слиты в
+            # одном ``text``. Сравниваем ту часть, где есть значение.
+            item_text = item.get("additional") or item.get("text") or ""
+            recall, precision = law_match_detailed(item_text, doc)
+            # Исключаем, только если пересказ ЗАНИМАЕТ БОЛЬШУЮ ЧАСТЬ текста
+            # требования (precision), а не только если типовая фраза-ссылка на
+            # статью («…предусмотренные п.1 ч.1 ст.31 Закона о контрактной
+            # системе») покрыта целиком (recall) — иначе такая ссылка перед
+            # длинным специфичным значением (найдено на реальных данных:
+            # конкретная лицензия с номером постановления и кодами отходов)
+            # исключала бы значение целиком из-за высокого recall при почти
+            # любом продолжении текста.
+            if recall >= _LAW_MATCH_RESTATE and precision >= _LAW_MATCH_PRECISION_MIN:
                 continue  # дословный пересказ нормы — исключить
-            if score <= _LAW_MATCH_UNCLEAR:
+            if recall <= _LAW_MATCH_UNCLEAR:
                 kept.append(item)  # нижняя зона — пока всегда оставляем (решение отложено)
                 continue
             item["embed_review"] = True  # неоднозначно — на проверку эмбеддингами
@@ -310,6 +360,7 @@ __all__ = [
     "is_real_value",
     "is_universal",
     "law_match",
+    "law_match_detailed",
     "load_law_requirements",
     "universal_items",
     "universal_overlap",
