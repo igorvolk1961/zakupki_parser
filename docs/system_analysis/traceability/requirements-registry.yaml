@@ -2755,9 +2755,11 @@ requirements:
     code:
       - src/scoring_common/scoring_common/tz/extractors.py#_extract_pdf
       - src/scoring_common/scoring_common/tables.py
+      - src/scoring_common/scoring_common/ocr.py
     tests:
       - src/scoring_common/tests/test_extractors.py
       - src/scoring_common/tests/test_tables.py
+      - src/scoring_common/tests/test_ocr.py
     notes: >-
       2026-09-24 (решение пользователя): MarkItDown нередко расплющивает
       layout-таблицы PDF (ЕАИСТ/Росэлторг и др.) в сплошной текст без
@@ -2778,6 +2780,16 @@ requirements:
       именно при сборке JSON требований к участнику
       (``requirements._replace_marker_values``), в общий путь извлечения
       текста НЕ включена (по явному разделению ответственности).
+
+      2026-09-26 (аудит анализа профиля «Экопаттерн», решение пользователя):
+      добавлен третий, последний фолбэк — OCR (``scoring_common.ocr``),
+      только когда ни pdfplumber, ни MarkItDown не нашли текстовый слой
+      вовсе (настоящий скан). Сменяемая модель (как эмбеддинги/LLM,
+      ``OCR_PROVIDER``) — сейчас Yandex Cloud Vision
+      (``POST /ocr/v1/recognizeText``, ``mimeType=PDF``, весь PDF целиком,
+      без рендера страниц в изображения на нашей стороне). Без настройки
+      (``OCR_PROVIDER=none`` или нет ключа/folder_id) — поведение как
+      раньше, документ просто не читается (best-effort).
   - id: FR-13.7
     type: FR
     title: Условия отчётных полей (оператор + значение, проверка кодом), поле-список

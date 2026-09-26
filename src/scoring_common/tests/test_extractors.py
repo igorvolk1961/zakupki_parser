@@ -124,3 +124,36 @@ def test_extract_pdf_falls_back_to_markitdown_when_no_text_layer(monkeypatch) ->
     monkeypatch.setattr(extractors, "pdf_to_markdown_tables", lambda raw: None)
     monkeypatch.setattr(extractors, "_convert_markdown", lambda raw, ext: "markitdown-text")
     assert extractors._extract_pdf(b"%PDF-1.7...") == "markitdown-text"
+
+
+def test_extract_pdf_falls_back_to_ocr_when_no_text_layer_at_all(monkeypatch) -> None:
+    """Ни pdfplumber, ни MarkItDown не нашли текст (настоящий скан) — последний
+    фолбэк: OCR (только если настроен — см. scoring_common.ocr.get_client)."""
+    from scoring_common import ocr as ocr_mod
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(extractors, "pdf_to_markdown_tables", lambda raw: None)
+    monkeypatch.setattr(extractors, "_convert_markdown", lambda raw, ext: None)
+
+    class _FakeOcr:
+        def recognize_pdf(self, raw: bytes) -> str:
+            return "ocr-text"
+
+    ocr_mod.set_client(_FakeOcr())
+    try:
+        assert extractors._extract_pdf(b"%PDF-1.7...") == "ocr-text"
+    finally:
+        ocr_mod.set_client(None)
+
+
+def test_extract_pdf_no_ocr_configured_returns_none(monkeypatch) -> None:
+    """Скан без текста и без настроенного OCR — как раньше, None (не падает)."""
+    from scoring_common import ocr as ocr_mod
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(extractors, "pdf_to_markdown_tables", lambda raw: None)
+    monkeypatch.setattr(extractors, "_convert_markdown", lambda raw, ext: None)
+
+    ocr_mod.set_client(None)  # сброс к «реальному» провайдеру
+    monkeypatch.setattr(ocr_mod, "OcrSettings", lambda: SimpleNamespace(provider="none"))
+    assert extractors._extract_pdf(b"%PDF-1.7...") is None

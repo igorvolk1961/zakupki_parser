@@ -141,7 +141,7 @@ def _extract_docx(raw: bytes) -> str | None:
 
 
 def _extract_pdf(raw: bytes) -> str | None:
-    """Markdown из PDF: сначала pdfplumber (``pdf_to_markdown_tables``), потом MarkItDown.
+    """Markdown/текст из PDF: pdfplumber -> MarkItDown -> OCR (в этом порядке).
 
     MarkItDown нередко расплющивает layout-таблицы (ЕАИСТ/Росэлторг и др.) в
     сплошной текст без ``|``-разметки — LLM и просмотр ТЗ в карточке теряют
@@ -150,13 +150,25 @@ def _extract_pdf(raw: bytes) -> str | None:
     записи текста в кэш/хранилище (нормализация значений-маркеров вида «не
     установлено» — отдельный, более узкий шаг именно при сборке JSON
     требований к участнику, см. ``scoring_common.requirements``, не здесь).
-    Возвращает ``None``, только если в PDF нет текстового слоя вовсе (сканы) —
-    тогда фолбэк на MarkItDown (может справиться через другой конвертер/OCR).
+
+    Если оба прямых способа не нашли текстовый слой вовсе (скан без текста) —
+    последний фолбэк: OCR (``scoring_common.ocr``, сменяемая модель, сейчас
+    Yandex Cloud Vision), только если он настроен (``OCR_PROVIDER``) — иначе,
+    как и раньше, ``None`` (сервис не падает, значение просто не извлечётся).
     """
     markdown = pdf_to_markdown_tables(raw)
     if markdown:
         return markdown
-    return _convert_markdown(raw, ".pdf")
+    text = _convert_markdown(raw, ".pdf")
+    if text:
+        return text
+    from scoring_common.ocr import get_client as _get_ocr_client
+
+    ocr = _get_ocr_client()
+    if ocr is None:
+        return None
+    logger.info("PDF без текстового слоя — пробуем OCR-фолбэк")
+    return ocr.recognize_pdf(raw)
 
 
 def _extract_doc(raw: bytes, timeout: float = _DOC_CONVERT_TIMEOUT) -> str | None:
