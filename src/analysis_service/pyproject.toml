@@ -12,8 +12,10 @@ dependencies = [
     "pyyaml>=6.0",
     # LangFuse-трассировка LLM-вердиктов и эмбеддингов (опционально: без ключей — no-op).
     "langfuse>=4.0",
-    # Через scoring_common.tz: конвертация docx/pdf в Markdown (заголовки/таблицы).
-    "markitdown[docx,pdf]>=0.1.7",
+    # Через scoring_common.tz: конвертация docx/pdf/xlsx в Markdown
+    # (заголовки/таблицы) — приложения закупки часто включают xlsx
+    # (напр. форму заполнения ценовой информации).
+    "markitdown[docx,pdf,xlsx]>=0.1.7",
     # Чтение 7z-архивов закупок (Закупочная_документация.7z и т.п.).
     # scoring_common подключается через PYTHONPATH (не как пакет), поэтому его
     # зависимости в venv analysis_service не резолвятся автоматически.
