@@ -202,8 +202,14 @@ class ReportFieldExtractor:
         chunks: list[str],
         chunk_vectors: list[list[float]],
         chunk_sources: list[str],
+        subject: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Значения всех активных полей — параллельно, под ограниченным семафором."""
+        """Значения всех активных полей — параллельно, под ограниченным семафором.
+
+        ``subject`` — предмет ЭТОЙ закупки, передаётся LLM как ориентир: один
+        документ иногда описывает сразу несколько похожих лотов/позиций с
+        разными значениями (см. ``build_field_extract_messages``).
+        """
         # Поля приходят из профиля уже в каноническом виде (проверяются при
         # записи профиля, scoring_common.conditions.normalize_report_fields).
         active = [
@@ -219,7 +225,7 @@ class ReportFieldExtractor:
         async def _bounded(field_def: dict[str, Any]) -> dict[str, Any]:
             async with sem:
                 return await self._extract_one(
-                    field_def, chunks, chunk_vectors, chunk_sources, corpus
+                    field_def, chunks, chunk_vectors, chunk_sources, corpus, subject
                 )
 
         results = await asyncio.gather(*(_bounded(f) for f in active))
@@ -269,6 +275,7 @@ class ReportFieldExtractor:
         chunk_vectors: list[list[float]],
         chunk_sources: list[str],
         corpus: _Corpus,
+        subject: str | None = None,
     ) -> dict[str, Any]:
         field_id = str(field_def.get("id") or "")
         field_name = str(field_def.get("name") or "").strip()
@@ -305,7 +312,7 @@ class ReportFieldExtractor:
             f"[Источник: {chunk_sources[idx]}]\n{chunks[idx]}" for idx in top_idx
         )
 
-        system, user = build_field_extract_messages(field_def, context)
+        system, user = build_field_extract_messages(field_def, context, subject)
         data = await self._llm.chat_json(system, user)
         if data is None:
             return self._finish(base, field_def, reasoning="LLM-извлечение не выполнено (сбой)")
@@ -330,7 +337,7 @@ class ReportFieldExtractor:
         )
         if field_type == "list":
             values = _coerce_list(data.get("value")) if found else []
-            base.update(await self._complete_list(field_def, values, set(top_idx), corpus))
+            base.update(await self._complete_list(field_def, values, set(top_idx), corpus, subject))
             base["found"] = bool(base["value"])
             return self._finish(base, field_def)
         value = self._coerce_value(data.get("value") if found else None, field_type)
@@ -343,6 +350,7 @@ class ReportFieldExtractor:
         llm_values: list[str],
         seen_chunks: set[int],
         corpus: _Corpus,
+        subject: str | None = None,
     ) -> dict[str, Any]:
         """Проверка и дополнение списка по полному тексту документов закупки."""
         mode = str(field_def.get("value_mode") or "auto")
@@ -381,7 +389,7 @@ class ReportFieldExtractor:
             if span is not None and not corpus.span_seen(span, seen_chunks):
                 name, start, end = span
                 context = f"[Источник: {name}]\n{corpus.sources[name].text[start:end]}"
-                system, user = build_field_extract_messages(field_def, context)
+                system, user = build_field_extract_messages(field_def, context, subject)
                 extra = await self._llm.chat_json(system, user)
                 if isinstance(extra, dict) and extra.get("found"):
                     for value in _coerce_list(extra.get("value")):

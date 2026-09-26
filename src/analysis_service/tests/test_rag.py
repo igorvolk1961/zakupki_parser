@@ -495,3 +495,15 @@ def test_requirement_category_status() -> None:
         "required": True,
         "negated": False,
     }
+    # negated (детерминированный маркер «не требуется» в самой ячейке) сильнее
+    # LLM-догадки data.required, если они противоречат друг другу — LLM видела
+    # урезанный текст без маркера и ошибочно решила "required" (см. аудит
+    # профиля «Экопаттерн», закупка с 44-ФЗ п.10.12.1).
+    assert requirement_category_status(
+        {
+            "experience": [
+                {"text": "доп. требования по ПП 2571", "negated": True, "data": {"required": True}}
+            ]
+        },
+        "experience",
+    ) == {"found": True, "required": False, "negated": True}

@@ -154,7 +154,7 @@ class RagAnalyzer:
             }
 
         field_values = await self._field_extractor.extract(
-            report_fields, chunks, chunk_vectors, chunk_sources
+            report_fields, chunks, chunk_vectors, chunk_sources, str(record.get("subject") or "")
         )
 
         return {

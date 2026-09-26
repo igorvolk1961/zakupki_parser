@@ -25,6 +25,18 @@ def test_build_field_extract_messages_substitutes_name_and_hint() -> None:
     assert "код отхода по ФККО" in user
     assert "Чанк 1" in user
     assert "{field_name}" not in user and "{field_hint}" not in user and "{context}" not in user
+    # subject не передан — плейсхолдер не должен остаться незаполненным.
+    assert "{subject}" not in user
+    assert "не указан" in user
+
+
+def test_build_field_extract_messages_passes_subject() -> None:
+    """Предмет закупки нужен модели, чтобы не перепутать значение с чужим лотом
+    в общем документе (см. аудит профиля «Экопаттерн»: объём отходов был взят
+    от другой категории лома из того же ТУ)."""
+    field = {"id": "f1", "name": "объём отходов", "type": "number"}
+    _, user = build_field_extract_messages(field, "Чанк 1", "Стружка чугунная (категория 24А)")
+    assert "Стружка чугунная (категория 24А)" in user
 
 
 def test_build_field_extract_messages_type_selects_prompt() -> None:

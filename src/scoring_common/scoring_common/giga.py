@@ -123,6 +123,15 @@ class GigaEmbedder:
     # эмбеддинги усредняются.
     MAX_CHARS_PER_CHUNK = 12000
 
+    # Временная перегрузка Giga (429 — превышен RPS при последовательных
+    # запросах на чанки одной закупки, 503) — повтор, а не сбой всей закупки;
+    # экспоненциальный бэкофф, ограниченное число попыток.
+    _RETRY_STATUS_CODES = frozenset({429, 503})
+    _MAX_RETRY_ATTEMPTS = 4
+    _RETRY_BASE_DELAY_SECONDS = 1.0
+    # Ниже этой длины сегмент при 413 дальше не делим (см. _embed_resilient).
+    _MIN_SPLITTABLE_CHARS = 200
+
     def __init__(
         self,
         base_url: str,
@@ -200,9 +209,37 @@ class GigaEmbedder:
     def _embed_one(self, text: str) -> list[float]:
         chunks = self._chunks(text)
         if len(chunks) == 1:
-            return self._embed_raw(chunks[0])
-        vecs = [self._embed_raw(chunk) for chunk in chunks]
+            return self._embed_resilient(chunks[0])
+        vecs = [self._embed_resilient(chunk) for chunk in chunks]
         return self._average(vecs)
+
+    def _embed_resilient(self, text: str, attempt: int = 0) -> list[float]:
+        """``_embed_raw`` с адаптацией к реальным лимитам Giga (наблюдалось в
+        проде: и 429, и 413 — при этом ``MAX_CHARS_PER_CHUNK`` не спасал).
+
+        ``429``/``503`` (временная перегрузка) — повтор с экспоненциальной
+        задержкой, текст не трогаем. ``413`` (реальный лимит длины у Giga ниже
+        нашей оценки ``MAX_CHARS_PER_CHUNK`` — бывает у текста с «дорогими» для
+        токенизатора символами/языком) — сегмент делится пополам по границе
+        пробела и усредняется рекурсивно, пока не пройдёт или не станет
+        тривиально коротким (``_MIN_SPLITTABLE_CHARS`` — дальше делить уже не
+        поможет, исходная ошибка поднимается как есть, а не глушится молча).
+        """
+        try:
+            return self._embed_raw(text)
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in self._RETRY_STATUS_CODES and attempt < self._MAX_RETRY_ATTEMPTS - 1:
+                time.sleep(self._RETRY_BASE_DELAY_SECONDS * (2**attempt))
+                return self._embed_resilient(text, attempt + 1)
+            if status == 413 and len(text) > self._MIN_SPLITTABLE_CHARS:
+                mid = len(text) // 2
+                cut = text.rfind(" ", 0, mid)
+                if cut <= 0:
+                    cut = mid
+                left, right = text[:cut], text[cut:].lstrip()
+                return self._average([self._embed_resilient(left), self._embed_resilient(right)])
+            raise
 
     def _chunks(self, text: str) -> list[str]:
         """Разбить текст на чанки не длиннее MAX_CHARS_PER_CHUNK (по границам абзацев)."""

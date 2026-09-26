@@ -131,13 +131,22 @@ def _llm_expected_value(field: dict[str, Any]) -> str:
     return "не задано"
 
 
-def build_field_extract_messages(field: dict[str, Any], context: str) -> tuple[str, str]:
+def build_field_extract_messages(
+    field: dict[str, Any], context: str, subject: str | None = None
+) -> tuple[str, str]:
     """Системный и пользовательский промпты для значения одного отчётного поля.
 
     Системный промпт выбирается по ``field["type"]`` (строка/число/дата/да-нет/список) —
     неизвестный/отсутствующий тип трактуется как ``string`` (самый общий случай).
     Домен поля (что именно ищем) не зашит в промпт — задаётся исключительно
     пользовательскими ``name``/``hint`` поля, подставляемыми в user-промпт.
+
+    ``subject`` — предмет ИМЕННО ЭТОЙ закупки (не часть домена поля): один
+    документ иногда описывает сразу несколько похожих лотов/позиций с разными
+    значениями (напр. несколько категорий лома в одном ТУ) — без ориентира,
+    к какой закупке относится этот вызов, модель может взять значение чужого
+    лота (подтверждено аудитом: объём вида отходов подставлен от другой
+    категории лома из того же документа).
     """
     ftype = str(field.get("type") or "")
     system = FIELD_EXTRACT_SYSTEM_BY_TYPE.get(ftype, FIELD_EXTRACT_SYSTEM_BY_TYPE["string"])
@@ -148,6 +157,7 @@ def build_field_extract_messages(field: dict[str, Any], context: str) -> tuple[s
             "field_hint": str(field.get("hint") or "нет"),
             "unit": str(field.get("unit") or "не указана"),
             "expected_value": _llm_expected_value(field),
+            "subject": (subject or "").strip() or "не указан",
             "context": context,
         },
     )

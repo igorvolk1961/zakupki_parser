@@ -2449,9 +2449,11 @@ requirements:
       - src/analysis_service/analysis_service/pipeline/rag.py
       - src/analysis_service/analysis_service/worker.py
       - src/analysis_service/analysis_service/settings.py
+      - src/scoring_common/scoring_common/giga.py
     tests:
       - src/analysis_service/tests/test_report_fields.py
       - src/analysis_service/tests/test_rag.py
+      - src/scoring_common/tests/test_giga.py
     notes: >-
       Переиспользует уже собранные чанки/эмбеддинги документов закупки
       (RagAnalyzer._collect_document_chunks, тот же охват ВСЕХ документов
@@ -2470,10 +2472,19 @@ requirements:
       на кэшированных документах закупок по отходам) подтвердила
       корректное извлечение (например, «объём партии» -> «4000.0 м3» с
       точной цитатой). Попутно обнаружен пред-существующий дефект:
-      Giga Embeddings API отдаёт 413 на батче ~20+ чанков в одном вызове
-      embed() — затрагивает и вопросы профиля (тот же вызов в
-      RagAnalyzer._analyze), не только отчётные поля; не исправлялся
-      (отдельная задача, вне рамок этой фичи).
+      Giga Embeddings API отдаёт 429/413 на отдельных чанках — затрагивает
+      и вопросы профиля (тот же вызов в RagAnalyzer._analyze), не только
+      отчётные поля.
+
+      Исправлено 2026-09-26 (аудит анализа профиля «Экопаттерн»):
+      GigaEmbedder.embed() (giga.py) падал на первой же 429/413 у ОДНОГО
+      чанка, роняя эмбеддинги всей закупки целиком (rag_report.status =
+      deferred, отчётные поля не оценивались). Добавлен _embed_resilient —
+      повтор с экспоненциальным бэкоффом на 429/503, рекурсивное деление
+      чанка пополам по границе слова на 413 (наша оценка
+      MAX_CHARS_PER_CHUNK не всегда верна). Живая проверка: закупка,
+      падавшая на 413 (fields=0, status=deferred), после фикса —
+      status=ok, 8/8 полей оценены.
   - id: FR-12.3
     type: FR
     title: Очистка табличного шума (Unnamed/NaN) при извлечении текста документов

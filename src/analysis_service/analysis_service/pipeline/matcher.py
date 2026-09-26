@@ -255,9 +255,17 @@ def build_license_summary(
 def requirement_category_status(requirements: dict[str, Any] | None, key: str) -> dict[str, Any]:
     """Статус категории требований: найдено / требуется / «не требуется».
 
-    ``required`` — есть хотя бы один НЕ-отрицаемый пункт (LLM ``data.required``,
-    если заполнено, иначе отсутствие ``negated``). Нужен отчёту, чтобы явно
-    показать «требований не найдено» / «не требуется» (лицензии/опыт/Минпромторг).
+    ``required`` — есть хотя бы один пункт без надёжной (детерминированной)
+    пометки ``negated`` и с ``data.required`` (LLM), если оно заполнено,
+    иначе — предполагаем требуется. ``negated`` на пункте — сигнал точнее LLM
+    (регэксп-совпадение с маркером «не установлено»/«не требуется» в самой
+    ячейке таблицы, а не пересказ LLM по возможно урезанному тексту) и
+    ПОБЕЖДАЕТ ``data.required``, если они противоречат друг другу — иначе
+    ошибка LLM на усечённом тексте (пункт реально «не требуется», а LLM,
+    не увидев маркер в переданном ей тексте, решает «требуется») превращалась
+    бы в статус «требуется», вплоть до ложного жёсткого барьера по BR-03.
+    Нужен отчёту, чтобы явно показать «требований не найдено» / «не требуется»
+    (лицензии/опыт/Минпромторг).
     """
     raw = (requirements or {}).get(key)
     if isinstance(raw, dict):
@@ -272,13 +280,11 @@ def requirement_category_status(requirements: dict[str, Any] | None, key: str) -
     for item in items:
         if not isinstance(item, dict):
             continue
+        if item.get("negated"):
+            continue
         raw_data = item.get("data")
         data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
-        req = (
-            data.get("required")
-            if isinstance(data.get("required"), bool)
-            else not bool(item.get("negated"))
-        )
+        req = data.get("required") if isinstance(data.get("required"), bool) else True
         if req:
             any_required = True
             break
