@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 import pytest
+from PIL import Image
 
 from scoring_common import ocr as ocr_mod
 from scoring_common.ocr import (
@@ -18,6 +19,25 @@ from scoring_common.ocr import (
     YandexOcrSettings,
     _text_from_yandex_response,
 )
+
+
+def _fake_pdfplumber_with_pages(count: int) -> SimpleNamespace:
+    """Фейковый ``pdfplumber`` с ``count`` страницами, каждая рендерится в
+    реальную (крошечную) картинку Pillow — код клиента вызывает
+    ``image.convert("RGB").save(...)``, фейковый объект тут не подходит."""
+
+    class _FakePage:
+        def to_image(self, resolution: int) -> Any:
+            return SimpleNamespace(original=Image.new("RGB", (2, 2), "white"))
+
+    class _FakePdf:
+        def __enter__(self) -> Any:
+            return SimpleNamespace(pages=[_FakePage() for _ in range(count)])
+
+        def __exit__(self, *exc: Any) -> None:
+            return None
+
+    return SimpleNamespace(open=lambda _stream: _FakePdf())
 
 
 @pytest.fixture(autouse=True)
@@ -35,88 +55,118 @@ def test_yandex_client_requires_credentials() -> None:
         YandexOcrClient(YandexOcrSettings(api_key="k1", folder_id=None))
 
 
-def test_text_from_yandex_response_joins_pages_blocks_lines() -> None:
+def test_text_from_yandex_response_returns_full_text() -> None:
     data: dict[str, Any] = {
-        "result": {
-            "textAnnotation": {
-                "pages": [
-                    {
-                        "blocks": [
-                            {"lines": [{"words": [{"text": "Привет"}, {"text": "мир"}]}]},
-                        ]
-                    },
-                    {
-                        "blocks": [
-                            {
-                                "lines": [
-                                    {"words": [{"text": "Вторая"}]},
-                                    {"words": [{"text": "строка"}]},
-                                ]
-                            },
-                        ]
-                    },
-                ]
-            }
-        }
+        "result": {"textAnnotation": {"fullText": " Привет мир\n ", "blocks": []}}
     }
-    assert _text_from_yandex_response(data) == "Привет мир\nВторая\nстрока"
+    assert _text_from_yandex_response(data) == "Привет мир"
 
 
-def test_text_from_yandex_response_empty_pages_returns_none() -> None:
-    assert _text_from_yandex_response({"result": {"textAnnotation": {"pages": []}}}) is None
+def test_text_from_yandex_response_empty_returns_none() -> None:
+    assert _text_from_yandex_response({"result": {"textAnnotation": {"fullText": ""}}}) is None
     assert _text_from_yandex_response({}) is None
 
 
-def test_yandex_client_recognize_pdf_sends_expected_payload(
+def test_yandex_client_recognize_pdf_sends_jpeg_per_page(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Запрос: mimeType=PDF, base64-контент, заголовки Api-Key + x-folder-id."""
+    """PDF рендерится в JPEG постранично (mimeType=PDF ненадёжен на практике —
+    см. docstring класса); каждая страница — отдельный запрос, ответы (fullText)
+    склеиваются через двойной перевод строки."""
     settings = YandexOcrSettings(api_key="k1", folder_id="f1", language_codes=["ru"], model="page")
     client = YandexOcrClient(settings)
-    captured: dict[str, Any] = {}
+    monkeypatch.setitem(sys.modules, "pdfplumber", _fake_pdfplumber_with_pages(2))
+
+    captured: list[dict[str, Any]] = []
+    responses = iter(["первая страница", "вторая страница"])
 
     def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
-        captured["url"] = url
-        captured["json"] = json
-        captured["headers"] = headers
+        captured.append({"url": url, "json": json, "headers": headers})
         request = httpx.Request("POST", url)
         return httpx.Response(
             200,
             request=request,
-            json={
-                "result": {
-                    "textAnnotation": {
-                        "pages": [{"blocks": [{"lines": [{"words": [{"text": "ok"}]}]}]}]
-                    }
-                }
-            },
+            json={"result": {"textAnnotation": {"fullText": next(responses)}}},
         )
 
     monkeypatch.setattr(client._client, "post", fake_post)
-    assert client.recognize_pdf(b"%PDF-1.7-raw-bytes") == "ok"
-    assert captured["url"] == YandexOcrClient._URL
-    assert captured["json"]["mimeType"] == "PDF"
-    assert captured["json"]["languageCodes"] == ["ru"]
-    assert captured["headers"]["Authorization"] == "Api-Key k1"
-    assert captured["headers"]["x-folder-id"] == "f1"
-    # content — валидный base64 исходных байт.
-    import base64
+    assert client.recognize_pdf(b"%PDF-1.7-raw-bytes") == "первая страница\n\nвторая страница"
+    assert len(captured) == 2
+    for call in captured:
+        assert call["url"] == YandexOcrClient._URL
+        assert call["json"]["mimeType"] == "JPEG"
+        assert call["json"]["languageCodes"] == ["ru"]
+        assert call["headers"]["Authorization"] == "Api-Key k1"
+        assert call["headers"]["x-folder-id"] == "f1"
+        assert call["json"]["content"]  # непустой base64 JPEG
 
-    assert base64.b64decode(captured["json"]["content"]) == b"%PDF-1.7-raw-bytes"
 
-
-def test_yandex_client_recognize_pdf_http_error_returns_none(
+def test_yandex_client_recognize_pdf_unparsable_pdf_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = YandexOcrSettings(api_key="k1", folder_id="f1")
     client = YandexOcrClient(settings)
 
+    def fake_open(_stream: Any) -> Any:
+        raise ValueError("broken pdf")
+
+    monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=fake_open))
+    assert client.recognize_pdf(b"raw") is None
+
+
+def test_yandex_client_recognize_pdf_non_retryable_error_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = YandexOcrSettings(api_key="k1", folder_id="f1")
+    client = YandexOcrClient(settings)
+    monkeypatch.setitem(sys.modules, "pdfplumber", _fake_pdfplumber_with_pages(1))
+
     def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
         request = httpx.Request("POST", url)
-        return httpx.Response(500, request=request, text="internal error")
+        return httpx.Response(400, request=request, text="Can't decode image")
 
     monkeypatch.setattr(client._client, "post", fake_post)
     assert client.recognize_pdf(b"raw") is None
+
+
+def test_yandex_client_retries_on_429_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = YandexOcrSettings(api_key="k1", folder_id="f1")
+    client = YandexOcrClient(settings)
+    monkeypatch.setitem(sys.modules, "pdfplumber", _fake_pdfplumber_with_pages(1))
+    monkeypatch.setattr(ocr_mod.time, "sleep", lambda _s: None)
+
+    calls = {"n": 0}
+
+    def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
+        calls["n"] += 1
+        request = httpx.Request("POST", url)
+        if calls["n"] < 3:
+            return httpx.Response(429, request=request, text="rate limited")
+        return httpx.Response(
+            200, request=request, json={"result": {"textAnnotation": {"fullText": "ok"}}}
+        )
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+    assert client.recognize_pdf(b"raw") == "ok"
+    assert calls["n"] == 3
+
+
+def test_yandex_client_gives_up_after_max_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = YandexOcrSettings(api_key="k1", folder_id="f1")
+    client = YandexOcrClient(settings)
+    monkeypatch.setitem(sys.modules, "pdfplumber", _fake_pdfplumber_with_pages(1))
+    monkeypatch.setattr(ocr_mod.time, "sleep", lambda _s: None)
+
+    calls = {"n": 0}
+
+    def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
+        calls["n"] += 1
+        request = httpx.Request("POST", url)
+        return httpx.Response(429, request=request, text="rate limited")
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+    assert client.recognize_pdf(b"raw") is None
+    assert calls["n"] == YandexOcrClient._MAX_RETRY_ATTEMPTS + 1
 
 
 def test_get_client_disabled_by_provider_none(monkeypatch: pytest.MonkeyPatch) -> None:

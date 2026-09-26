@@ -35,6 +35,7 @@ import io
 import logging
 import shutil
 import threading
+import time
 from typing import Any, Protocol
 
 import httpx
@@ -69,20 +70,31 @@ class YandexOcrSettings(BaseSettings):
     language_codes: list[str] = ["ru", "en"]  # noqa: RUF012 — pydantic-модель, не dataclass
     model: str = "page"
     timeout: float = 60.0
+    resolution: int = 200  # dpi рендера страницы PDF в изображение (pdfplumber)
 
 
 class YandexOcrClient:
-    """OCR через Yandex Cloud Vision (``POST /ocr/v1/recognizeText``, ``mimeType=PDF``).
+    """OCR через Yandex Cloud Vision (``POST /ocr/v1/recognizeText``, постранично).
 
-    https://cloud.yandex.ru/docs/vision/ocr/api-ref/TextRecognition/recognize
+    https://aistudio.yandex.ru/docs/vision/ocr/api-ref/TextRecognition/recognize
 
-    Синхронный метод принимает PDF целиком (в т.ч. многостраничный) как base64
-    в ``content`` — Yandex сам разбивает распознавание по страницам результата
-    (``result.textAnnotation.pages[].blocks[].lines[].words[].text``), рендеринг
-    страниц в изображения на нашей стороне не нужен.
+    ``mime_type=PDF`` у синхронного ``recognizeText`` заявлен в API, но на
+    практике ненадёжен: реальный многостраничный PDF и даже искусственный
+    одностраничный (``Pillow``-конвертация) оба дали ``400 Can't decode
+    image`` — не помог ни один из наших тестовых файлов (при том, что
+    документация сама ограничивает синхронный метод ОДНОЙ страницей PDF).
+    Обходим рендером каждой страницы в JPEG через ``pdfplumber`` (тот же
+    механизм, что и у ``TesseractOcrClient``) и отдельным запросом на
+    страницу — так и с ограничением в 1 страницу проблем нет, и формат
+    декодируется надёжно (проверено вживую на реальных сканах). Ответ на
+    одно изображение — не ``result.textAnnotation.pages[]``, а прямо
+    ``result.textAnnotation.fullText``.
     """
 
     _URL = "https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText"
+    _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+    _MAX_RETRY_ATTEMPTS = 4
+    _RETRY_BASE_DELAY_SECONDS = 2.0
 
     def __init__(self, settings: YandexOcrSettings) -> None:
         if not settings.api_key or not settings.folder_id:
@@ -94,14 +106,36 @@ class YandexOcrClient:
         self._folder_id: str = settings.folder_id
         self._language_codes = settings.language_codes
         self._model = settings.model
+        self._resolution = settings.resolution
         self._client = httpx.Client(timeout=settings.timeout)
 
     def recognize_pdf(self, raw: bytes) -> str | None:
+        try:
+            import pdfplumber
+        except ImportError as exc:  # noqa: BLE001 - опциональная зависимость
+            logger.warning("Yandex OCR: недоступен pdfplumber для рендера страниц: %s", exc)
+            return None
+        try:
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                images = [page.to_image(resolution=self._resolution).original for page in pdf.pages]
+        except Exception as exc:  # noqa: BLE001 - битый PDF, best-effort
+            logger.warning("Yandex OCR: не удалось отрендерить страницы PDF: %s", exc)
+            return None
+        texts: list[str] = []
+        for image in images:
+            text = self._recognize_image(image)
+            if text:
+                texts.append(text)
+        return "\n\n".join(texts).strip() or None
+
+    def _recognize_image(self, image: Any, attempt: int = 0) -> str | None:
+        buf = io.BytesIO()
+        image.convert("RGB").save(buf, format="JPEG")
         payload = {
-            "mimeType": "PDF",
+            "mimeType": "JPEG",
             "languageCodes": self._language_codes,
             "model": self._model,
-            "content": base64.b64encode(raw).decode("ascii"),
+            "content": base64.b64encode(buf.getvalue()).decode("ascii"),
         }
         headers = {
             "Authorization": f"Api-Key {self._api_key}",
@@ -112,23 +146,33 @@ class YandexOcrClient:
             resp = self._client.post(self._URL, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            if (
+                exc.response.status_code in self._RETRYABLE_STATUS_CODES
+                and attempt < self._MAX_RETRY_ATTEMPTS
+            ):
+                delay = self._RETRY_BASE_DELAY_SECONDS * (2**attempt)
+                logger.warning(
+                    "Yandex OCR: %s на странице, повтор через %.1fс (попытка %d/%d)",
+                    exc.response.status_code,
+                    delay,
+                    attempt + 1,
+                    self._MAX_RETRY_ATTEMPTS,
+                )
+                time.sleep(delay)
+                return self._recognize_image(image, attempt=attempt + 1)
+            logger.warning("Yandex OCR: сбой распознавания страницы: %s", exc)
+            return None
         except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("Yandex OCR: сбой распознавания PDF: %s", exc)
+            logger.warning("Yandex OCR: сбой распознавания страницы: %s", exc)
             return None
         return _text_from_yandex_response(data)
 
 
 def _text_from_yandex_response(data: dict[str, Any]) -> str | None:
-    """Текст постранично из ответа Yandex OCR (строки — в порядке блоков/строк)."""
-    pages = ((data.get("result") or {}).get("textAnnotation") or {}).get("pages") or []
-    lines_out: list[str] = []
-    for page in pages:
-        for block in page.get("blocks") or []:
-            for line in block.get("lines") or []:
-                words = [w.get("text", "") for w in (line.get("words") or [])]
-                if words:
-                    lines_out.append(" ".join(words))
-    text = "\n".join(lines_out).strip()
+    """``fullText`` одной страницы (ответ ``recognizeText`` на одно изображение)."""
+    text = ((data.get("result") or {}).get("textAnnotation") or {}).get("fullText") or ""
+    text = text.strip()
     return text or None
 
 
