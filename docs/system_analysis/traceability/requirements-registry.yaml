@@ -3166,9 +3166,28 @@ requirements:
       - src/analysis_service/analysis_service/llm.py
       - src/scoring_common/scoring_common/giga.py
       - src/scoring_common/scoring_common/embeddings.py
+      - src/scoring_common/scoring_common/ocr.py
     tests:
       - src/scoring_common/tests/test_costing.py
       - src/analysis_service/tests/test_llm.py
+      - src/scoring_common/tests/test_ocr.py
+    notes: >-
+      2026-09-27 (решение пользователя): добавлена тарификация платного Yandex
+      Cloud Vision OCR (``ocr_cost_rub``/``ocr_cost_usd``, 0.1321 ₽ за
+      распознанную страницу/изображение — цена подтверждена по
+      https://aistudio.yandex.ru/docs/ru/vision/pricing.html, переопределяется
+      ``COSTING_YANDEX_OCR_RUB_PER_PAGE``). ``YandexOcrClient`` считает
+      ``pages_billed``/``cost_rub``/``cost_usd`` по тому же паттерну
+      (``_cost_usd`` аккумулятор + ``reset_cost()``), что и ``LlmClient``/
+      Giga-эмбеддинги — счётчик растёт только на успешно оплаченных запросах,
+      не на попытках, отклонённых retry-логикой (429/5xx) до финального
+      успеха/отказа. В сводный отчёт стадии анализа (``rag.py``
+      ``stage_metrics_with_components``) пока НЕ подключено — OCR вызывается
+      из общего кэшируемого извлечения текста (``tz.extract_text_cached``),
+      используемого разными пайплайнами не только в рамках одного прогона
+      анализа, поэтому подключение к per-procurement отчёту требует отдельного
+      решения об архитектуре (риск не- или задвоенного учёта уже
+      закешированного OCR).
 
   - id: NFR-PERF-1
     type: NFR

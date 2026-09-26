@@ -231,6 +231,16 @@
       Системный бинарник `tesseract` по-прежнему не установлен в этом
       окружении (`apt install tesseract-ocr tesseract-ocr-rus` не
       выполнялся) — фолбэк на него остаётся непроверенным вживую.
+      **Тарификация (2026-09-27, решение пользователя):** Yandex OCR —
+      платный сервис (0.1321 ₽/распознанная страница, подтверждено по
+      документации). Добавлены `ocr_cost_rub`/`ocr_cost_usd` в
+      `scoring_common/costing.py` (переопределение —
+      `COSTING_YANDEX_OCR_RUB_PER_PAGE`, задокументировано в `.env.example`
+      рядом с `COSTING_GIGA_EMBEDDING_RUB_PER_1M`); `YandexOcrClient` считает
+      `pages_billed`/`cost_rub`/`cost_usd` по тому же паттерну, что
+      `LlmClient`/Giga-эмбеддинги. В сводный отчёт стоимости стадии анализа
+      (карточка закупки, `rag.py`) пока не подключено — см. заметку в
+      реестре трассируемости (NFR-COST-5).
 
 ## Развитие
 - [ ] **ЕИС (zakupki.gov.example)** — уточнить:

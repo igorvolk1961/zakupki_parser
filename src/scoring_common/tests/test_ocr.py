@@ -169,6 +169,37 @@ def test_yandex_client_gives_up_after_max_retries(monkeypatch: pytest.MonkeyPatc
     assert calls["n"] == YandexOcrClient._MAX_RETRY_ATTEMPTS + 1
 
 
+def test_yandex_client_tracks_billed_pages_and_cost(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Платный сервис — счётчик растёт только на успешно оплаченных страницах,
+    не на попытках, отклонённых retry (429) до финального успеха."""
+    settings = YandexOcrSettings(api_key="k1", folder_id="f1")
+    client = YandexOcrClient(settings)
+    monkeypatch.setitem(sys.modules, "pdfplumber", _fake_pdfplumber_with_pages(2))
+    monkeypatch.setattr(ocr_mod.time, "sleep", lambda _s: None)
+
+    calls = {"n": 0}
+
+    def fake_post(url: str, json: dict, headers: dict) -> httpx.Response:
+        calls["n"] += 1
+        request = httpx.Request("POST", url)
+        if calls["n"] == 1:
+            # Первая страница: один 429 перед успехом — не должен учитываться в billed.
+            return httpx.Response(429, request=request, text="rate limited")
+        return httpx.Response(
+            200, request=request, json={"result": {"textAnnotation": {"fullText": "ok"}}}
+        )
+
+    monkeypatch.setattr(client._client, "post", fake_post)
+    assert client.recognize_pdf(b"raw") == "ok\n\nok"
+    assert client.pages_billed == 2  # 2 страницы, каждая оплачена ровно один раз (успех)
+    assert client.cost_rub == round(2 * 0.1321, 6)
+    assert client.cost_usd > 0.0
+
+    client.reset_cost()
+    assert client.pages_billed == 0
+    assert client.cost_rub == 0.0
+
+
 def test_get_client_disabled_by_provider_none(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ocr_mod, "OcrSettings", lambda: SimpleNamespace(provider="none"))
     assert ocr_mod.get_client() is None

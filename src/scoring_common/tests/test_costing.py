@@ -13,6 +13,8 @@ from scoring_common.costing import (
     llm_cost_details,
     llm_cost_usd,
     normalize_model,
+    ocr_cost_rub,
+    ocr_cost_usd,
 )
 
 
@@ -86,6 +88,17 @@ def test_embedding_input_tokens_usage_or_estimate() -> None:
     assert embedding_input_tokens({"usage": {"prompt_tokens": 123}}, ["текст"]) == 123
     assert embedding_input_tokens({}, ["0123456789"]) == 3  # 10 симв. / 3 → 3
     assert embedding_input_tokens({}, ["0123456789", "ab"]) == 4  # 3 + 1
+
+
+def test_ocr_cost() -> None:
+    assert ocr_cost_rub(10, rub_per_page=0.1321) == round(1.321, 6)
+    assert round(ocr_cost_usd(10, rub_per_page=0.1321, rub_to_usd=100.0), 8) == round(
+        1.321 / 100.0, 8
+    )
+    assert ocr_cost_usd(10, rub_per_page=0.1321, rub_to_usd=0.0) == 0.0
+    # Default rate (env override or 0.1321) применяется без явного rub_per_page.
+    assert ocr_cost_rub(0) == 0.0
+    assert ocr_cost_rub(-5) == 0.0  # отрицательное число страниц — не бывает, но не уходит в минус
 
 
 def test_deepseek_peak_rates() -> None:

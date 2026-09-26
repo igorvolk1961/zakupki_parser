@@ -41,6 +41,8 @@ from typing import Any, Protocol
 import httpx
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from scoring_common.costing import ocr_cost_rub, ocr_cost_usd
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,6 +91,13 @@ class YandexOcrClient:
     декодируется надёжно (проверено вживую на реальных сканах). Ответ на
     одно изображение — не ``result.textAnnotation.pages[]``, а прямо
     ``result.textAnnotation.fullText``.
+
+    Платный сервис (0.1321 ₽/страница, см. ``scoring_common.costing`` —
+    ``ocr_cost_rub``/``ocr_cost_usd``) — биллинговая единица Yandex это КАЖДЫЙ
+    успешно выполненный запрос распознавания одного изображения/страницы,
+    поэтому счётчик ``pages_billed`` растёт только на реально оплаченных
+    (успешных) запросах, а не на попытках, отклонённых retry-логикой
+    (429/5xx до финального успеха или отказа).
     """
 
     _URL = "https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText"
@@ -108,6 +117,26 @@ class YandexOcrClient:
         self._model = settings.model
         self._resolution = settings.resolution
         self._client = httpx.Client(timeout=settings.timeout)
+        self._pages_billed = 0
+
+    @property
+    def pages_billed(self) -> int:
+        """Число успешно оплаченных запросов распознавания с последнего ``reset_cost``."""
+        return self._pages_billed
+
+    @property
+    def cost_usd(self) -> float:
+        """Стоимость с последнего ``reset_cost`` в USD (для единообразия с LLM/эмбеддингами)."""
+        return ocr_cost_usd(self._pages_billed)
+
+    @property
+    def cost_rub(self) -> float:
+        """Стоимость с последнего ``reset_cost`` в рублях (нативная валюта тарифа)."""
+        return ocr_cost_rub(self._pages_billed)
+
+    def reset_cost(self) -> None:
+        """Сбросить счётчик оплаченных страниц (перед прогоном, как у LLM/эмбеддингов)."""
+        self._pages_billed = 0
 
     def recognize_pdf(self, raw: bytes) -> str | None:
         try:
@@ -146,6 +175,7 @@ class YandexOcrClient:
             resp = self._client.post(self._URL, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
+            self._pages_billed += 1  # тарифицируется по факту успешного ответа Yandex
         except httpx.HTTPStatusError as exc:
             if (
                 exc.response.status_code in self._RETRYABLE_STATUS_CODES

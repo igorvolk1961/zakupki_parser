@@ -18,6 +18,12 @@ DeepSeek (USD), пик/непик (непик = 50% от пика), пиковы
 
 GigaChat ``EmbeddingsGigaR`` (RUB): 14 ₽/1M токенов.
 
+Yandex Cloud Vision OCR, распознавание печатного текста (модель ``page``,
+синхронный ``recognizeText``, см. ``scoring_common.ocr.YandexOcrClient``) (RUB):
+0.1321 ₽ за единицу тарификации (одна распознанная страница/изображение,
+с НДС) — https://aistudio.yandex.ru/docs/ru/vision/pricing.html (проверено
+2026-09-27). Без деления по объёму.
+
 Тарифы переопределяются переменными окружения ``COSTING_*`` (см. ``_env_float``),
 курс рубль→доллар — ``COSTING_RUB_TO_USD`` (по умолчанию 90.0).
 """
@@ -36,6 +42,8 @@ __all__ = [
     "embedding_cost_rub",
     "embedding_cost_usd",
     "embedding_input_tokens",
+    "ocr_cost_rub",
+    "ocr_cost_usd",
     "is_deepseek_peak",
     "normalize_model",
     "deepseek_peak_rates",
@@ -43,6 +51,7 @@ __all__ = [
     "stage_metrics_with_components",
     "merge_usage",
     "GIGA_EMBEDDING_RUB_PER_1M",
+    "YANDEX_OCR_RUB_PER_PAGE",
 ]
 
 
@@ -100,6 +109,8 @@ _MODEL_ALIASES: dict[str, str] = {
 
 # GigaChat эмбеддинги: RUB / 1M токенов.
 GIGA_EMBEDDING_RUB_PER_1M = _env_float("COSTING_GIGA_EMBEDDING_RUB_PER_1M", 14.0)
+# Yandex Cloud Vision OCR: RUB / распознанная страница (модель "page", с НДС).
+YANDEX_OCR_RUB_PER_PAGE = _env_float("COSTING_YANDEX_OCR_RUB_PER_PAGE", 0.1321)
 DEFAULT_RUB_TO_USD = _env_float("COSTING_RUB_TO_USD", 90.0)
 
 
@@ -206,6 +217,28 @@ def embedding_cost_usd(
     if rate <= 0:
         return 0.0
     return round(embedding_cost_rub(token_count, rub_per_1m=rub_per_1m) / rate, 8)
+
+
+def ocr_cost_rub(pages: int, *, rub_per_page: float | None = None) -> float:
+    """Стоимость распознавания Yandex OCR в рублях (``pages`` — число запросов,
+
+    т.е. распознанных страниц/изображений — биллинговая единица Yandex).
+    """
+    rate = rub_per_page if rub_per_page is not None else YANDEX_OCR_RUB_PER_PAGE
+    return round(max(0, pages) * rate, 6)
+
+
+def ocr_cost_usd(
+    pages: int,
+    *,
+    rub_to_usd: float | None = None,
+    rub_per_page: float | None = None,
+) -> float:
+    """Стоимость распознавания Yandex OCR в USD (для Langfuse ``cost_details``)."""
+    rate = rub_to_usd if rub_to_usd is not None else DEFAULT_RUB_TO_USD
+    if rate <= 0:
+        return 0.0
+    return round(ocr_cost_rub(pages, rub_per_page=rub_per_page) / rate, 8)
 
 
 def embedding_input_tokens(data: dict[str, Any], texts: Sequence[str]) -> int:
