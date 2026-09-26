@@ -140,7 +140,9 @@ def test_report_embed_unavailable_gives_deferred_status(monkeypatch: pytest.Monk
     def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
         return [tz_ref]
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+    def fake_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str:
         return "Общее описание работ."
 
     monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
@@ -152,6 +154,47 @@ def test_report_embed_unavailable_gives_deferred_status(monkeypatch: pytest.Monk
     report = asyncio.run(analyzer.analyze(record, report_fields=[{"id": "f1", "name": "объём"}]))
     assert report["status"] == "deferred"
     assert report["fields"] == []
+
+
+def test_analyze_passes_ocr_enabled_through_to_extraction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``ocr_enabled=False`` (опция аккаунта выключена) доходит и до поиска файла
+    ТЗ (``resolve_tz_content``), и до сбора чанков (``extract_text_cached``)."""
+    from analysis_service.pipeline import rag as rag_mod
+
+    from scoring_common.tz.files import FileRef
+
+    tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
+    resolve_calls: list[bool] = []
+    extract_calls: list[bool] = []
+
+    def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
+        return [tz_ref]
+
+    def fake_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str:
+        extract_calls.append(ocr_enabled)
+        return "Общее описание работ."
+
+    def fake_resolve(
+        rec: dict, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> tuple[FileRef, str]:
+        resolve_calls.append(ocr_enabled)
+        return (tz_ref, "Общее описание работ.")
+
+    monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
+    monkeypatch.setattr(rag_mod, "extract_text_cached", fake_extract)
+    monkeypatch.setattr(rag_mod, "resolve_tz_content", fake_resolve)
+
+    analyzer = _analyzer(_FakeLlm([None]))
+    record = {"files_json": [{"name": "ТЗ.docx", "url": "http://x/ТЗ.docx"}]}
+    asyncio.run(
+        analyzer.analyze(record, report_fields=[{"id": "f1", "name": "объём"}], ocr_enabled=False)
+    )
+    assert resolve_calls == [False]
+    assert extract_calls == [False]
 
 
 def test_report_status() -> None:
@@ -275,7 +318,7 @@ def test_analyze_falls_back_to_description_when_tz_has_no_duties(
     desc_ref = FileRef("Описание.docx", "http://x/Описание.docx")
 
     def fake_resolve(
-        rec: dict, timeout: float = 30.0, verify_ssl: bool = True
+        rec: dict, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
     ) -> tuple[FileRef, str]:
         return (desc_ref, "Исполнитель обязан предоставить отчёт о выполнении работ.")
 
@@ -294,7 +337,7 @@ def test_analyze_keeps_tz_when_duties_present(monkeypatch: pytest.MonkeyPatch) -
     tz_ref = FileRef("ТЗ.docx", "http://x/ТЗ.docx")
 
     def fake_resolve(
-        rec: dict, timeout: float = 30.0, verify_ssl: bool = True
+        rec: dict, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
     ) -> tuple[FileRef, str]:
         return (tz_ref, "Исполнитель обязан предоставить отчёт о выполнении.")
 
@@ -322,7 +365,9 @@ def test_collect_document_chunks_covers_all_documents(monkeypatch: pytest.Monkey
     def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
         return [tz_ref, contract_ref]
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+    def fake_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str:
         if ref.name == "ТЗ.docx":
             return "Общее описание работ по установке оборудования."
         return "Исполнитель вправе привлекать соисполнителей без ограничения по объёму."
@@ -357,7 +402,9 @@ def test_collect_document_chunks_dedups_identical_attachments(
     def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
         return [ref_a, ref_b]
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+    def fake_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str:
         return text  # оба «файла» — байт-в-байт один и тот же текст
 
     monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
@@ -397,7 +444,9 @@ def test_analyze_includes_report_fields(monkeypatch: pytest.MonkeyPatch) -> None
     def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
         return [tz_ref]
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+    def fake_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str:
         return "Объём партии отходов составляет 4000 м3."
 
     monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)

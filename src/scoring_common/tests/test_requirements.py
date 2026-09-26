@@ -235,7 +235,9 @@ def _fake_extract_text(monkeypatch):
     clear_tz_text_cache()
     docs: dict[str, str] = {}
 
-    def fake(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    def fake(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str | None:
         return docs.get(ref.name)
 
     monkeypatch.setattr("scoring_common.requirements.extract_text_cached", fake)
@@ -243,6 +245,24 @@ def _fake_extract_text(monkeypatch):
     monkeypatch.setattr("scoring_common.requirements._download", lambda *a, **k: None)
     yield docs
     clear_tz_text_cache()
+
+
+def test_extract_requirements_passes_ocr_enabled_to_extraction(
+    monkeypatch, _fake_extract_text: dict[str, str]
+) -> None:
+    """``ocr_enabled`` (опция аккаунта) пробрасывается в извлечение текста документов
+    (не в table-путь — тот работает напрямую через pdfplumber, без OCR вовсе)."""
+    captured: list[bool] = []
+
+    def spy(ref, timeout=30.0, verify_ssl=True, ocr_enabled=True):
+        captured.append(ocr_enabled)
+        return _fake_extract_text.get(ref.name)
+
+    monkeypatch.setattr("scoring_common.requirements.extract_text_cached", spy)
+    _fake_extract_text["req.pdf"] = "# Требования к участнику\n\nТребуется лицензия МЧС."
+    record = {"files_json": [{"name": "req.pdf", "url": "http://x/req.pdf"}]}
+    extract_requirements(record, ocr_enabled=False)
+    assert captured and all(v is False for v in captured)
 
 
 def test_extract_requirements_by_heading(_fake_extract_text: dict[str, str]) -> None:

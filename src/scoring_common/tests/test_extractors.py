@@ -75,7 +75,7 @@ def test_decode_detects_pdf_by_signature(monkeypatch) -> None:
     """Имя без расширения → PDF по сигнатуре %PDF."""
     from scoring_common.tz import extractors
 
-    monkeypatch.setattr(extractors, "_extract_pdf", lambda raw: f"pdf:{raw!r}")
+    monkeypatch.setattr(extractors, "_extract_pdf", lambda raw, ocr_enabled=True: f"pdf:{raw!r}")
     assert _decode(b"%PDF-1.7", "Техническое задание") == "pdf:b'%PDF-1.7'"
 
 
@@ -92,7 +92,7 @@ def test_decode_extension_takes_precedence_over_signature(monkeypatch) -> None:
     from scoring_common.tz import extractors
 
     # Тот же документ, но с расширением .pdf — должен уйти в pdf, а не в docx.
-    monkeypatch.setattr(extractors, "_extract_pdf", lambda raw: "pdf-branch")
+    monkeypatch.setattr(extractors, "_extract_pdf", lambda raw, ocr_enabled=True: "pdf-branch")
     monkeypatch.setattr(extractors, "_extract_docx", lambda raw: "docx-branch")
     assert _decode(b"PK\x03\x04", "Техническое задание.pdf") == "pdf-branch"
 
@@ -142,6 +142,26 @@ def test_extract_pdf_falls_back_to_ocr_when_no_text_layer_at_all(monkeypatch) ->
     ocr_mod.set_client(_FakeOcr())
     try:
         assert extractors._extract_pdf(b"%PDF-1.7...") == "ocr-text"
+    finally:
+        ocr_mod.set_client(None)
+
+
+def test_extract_pdf_ocr_disabled_skips_ocr_even_when_configured(monkeypatch) -> None:
+    """``ocr_enabled=False`` (опция аккаунта выключена) — OCR не вызывается вовсе,
+    даже если провайдер настроен и готов был бы распознать."""
+    from scoring_common import ocr as ocr_mod
+    from scoring_common.tz import extractors
+
+    monkeypatch.setattr(extractors, "pdf_to_markdown_tables", lambda raw: None)
+    monkeypatch.setattr(extractors, "_convert_markdown", lambda raw, ext: None)
+
+    class _FakeOcr:
+        def recognize_pdf(self, raw: bytes) -> str:
+            raise AssertionError("OCR не должен вызываться при ocr_enabled=False")
+
+    ocr_mod.set_client(_FakeOcr())
+    try:
+        assert extractors._extract_pdf(b"%PDF-1.7...", ocr_enabled=False) is None
     finally:
         ocr_mod.set_client(None)
 

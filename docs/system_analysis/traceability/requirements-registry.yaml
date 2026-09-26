@@ -3093,11 +3093,68 @@ requirements:
       - src/zakupki_parser/options.py
       - src/zakupki_parser/storage/repository/accounts.py
       - src/zakupki_parser/api/app/routes/account.py
+      - src/zakupki_parser/api/app/deps.py
+      - src/zakupki_parser/api/app/routes/procurements.py#get_procurement_tz
       - src/zakupki_parser/scheduler.py
+      - src/scoring_common/scoring_common/tz/extractors.py
+      - src/scoring_common/scoring_common/tz/__init__.py
+      - src/scoring_common/scoring_common/tz/archives.py
+      - src/scoring_common/scoring_common/requirements.py
+      - src/analysis_service/analysis_service/pipeline/rag.py
+      - src/analysis_service/analysis_service/worker.py
+      - src/scoring_service/scoring_service/worker.py
+      - src/scoring_service/scoring_service/scoring/__init__.py
+      - src/scoring_service/scoring_service/scoring/pipeline.py
+      - src/scoring_service/scoring_service/pipeline/tz_reviewer.py
     tests:
       - tests/unit/test_user_options.py
       - tests/unit/test_scheduler_recovery.py
-    notes: один активный аккаунт; триал включает все опции; гейт платных операций и сохранение профиля без компетенций по аккаунту
+      - tests/integration/test_multiclient.py
+      - tests/integration/test_api.py
+      - src/scoring_common/tests/test_extractors.py
+      - src/scoring_common/tests/test_tz_cache.py
+      - src/scoring_common/tests/test_requirements.py
+      - src/analysis_service/tests/test_rag.py
+      - src/scoring_service/tests/test_scoring.py
+      - src/scoring_service/tests/test_worker.py
+    notes: >-
+      Один активный аккаунт; триал включает все опции; гейт платных операций и
+      сохранение профиля без компетенций по аккаунту.
+
+      2026-09-27 (решение пользователя — «на странице аккаунт должна быть
+      возможность включить/выключить платный OCR», уточнено: покрытие ВЕЗДЕ в
+      системе): добавлена платная опция ``ocr`` (options.py) — включается на
+      странице личного кабинета как любая другая платная опция (UI рендерится
+      генерически из каталога, изменений во фронтенде не потребовалось).
+      Флаг ``ocr_enabled`` (``ProfileOut``, вычисляется в ``deps.py`` по опции
+      аккаунта ВЛАДЕЛЬЦА профиля — тот же паттерн, что ``analysis_llm_enabled``/
+      ``scoring_embeddings_enabled``) прокинут через ``ocr_enabled: bool = True``
+      keyword-only параметр по всей цепочке извлечения текста документов
+      (``scoring_common.tz``: ``extract_text``/``extract_text_cached``/
+      ``resolve_tz_content(_cached)``, вложенные архивы zip/7z,
+      ``scoring_common.requirements.extract_requirements``) до самой точки
+      вызова OCR (``_extract_pdf``: при ``ocr_enabled=False`` OCR не вызывается
+      вовсе, прямое извлечение текстовых форматов не затрагивается). Все 4
+      реальных потребителя платного OCR подключены: ``analysis_service.worker``
+      (LLM-часть отчёта И детерминированное извлечение требований — обе точки,
+      т.к. извлечение требований выполняется независимо от ``analysis_llm_enabled``),
+      ``scoring_service`` (``TzReviewer`` через ``Scorer.score`` per-job флаг,
+      как ``embeddings_filter_enabled``), просмотр ТЗ в карточке
+      (``procurements.py::get_procurement_tz`` — по опции ТЕКУЩЕГО
+      пользователя, он же владелец профиля в этой модели; внутренний вызов без
+      пользователя не ограничивается). ``indexing_service`` — единственное
+      исключение: обрабатывает закупки системным «индексным» профилем без
+      владельца-аккаунта (см. FR-11.1/README indexing_service), поэтому платная
+      опция к нему неприменима — OCR там управляется только глобальным
+      ``OCR_PROVIDER`` (решение оператора системы, не клиента).
+
+      Кэши извлечённого текста (L1/L2 в ``scoring_common.tz``,
+      ``resolve_tz_content_cached``) НЕ учитывают ``ocr_enabled`` в ключе:
+      однажды оплаченный (через OCR) результат переиспользуется бесплатно
+      ВСЕМИ последующими запросами независимо от их флага — тот же принцип
+      «раз извлечено — не переизвлекаем», что уже действовал для кэша до этой
+      фичи; неуспех (в т.ч. «OCR был выключен на этом вызове») по-прежнему не
+      кэшируется, следующий запрос с ``ocr_enabled=True`` пробует заново.
   - id: BR-10
     type: BR
     title: Устойчивое определение принадлежности закупки диапазону ОКПД2

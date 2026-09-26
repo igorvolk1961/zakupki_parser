@@ -20,12 +20,15 @@ logger = logging.getLogger(__name__)
 _DOC_CONVERT_TIMEOUT = 90.0
 
 
-def _decode(raw: bytes, name: str) -> str | None:
+def _decode(raw: bytes, name: str, *, ocr_enabled: bool = True) -> str | None:
     """Извлечь текст из байт по расширению (docx/xlsx/pptx/pdf/dot — Markdown/текст).
 
     Если расширение неизвестно или отсутствует (например, у Росэлторг имя файла
     «Техническое задание» без расширения, а URL вида ``/api/v1/documents/<uuid>``),
     формат определяется по содержимому — иначе такие файлы никогда не читаются.
+
+    ``ocr_enabled`` — платная опция аккаунта (см. ``_extract_pdf``), гейтит
+    только OCR-фолбэк для PDF-сканов; остальные форматы не затрагивает.
     """
     ext = _normalize(name)
     for candidate in _PLAIN_TEXT_EXTENSIONS:
@@ -34,7 +37,7 @@ def _decode(raw: bytes, name: str) -> str | None:
     if ext.endswith(".docx"):
         # Имя может «врать»: площадки нередко отдают xlsx/PDF под именем .docx.
         # Если конвертация docx не удалась — определяем формат по содержимому.
-        return _extract_docx(raw) or _decode_by_signature(raw)
+        return _extract_docx(raw) or _decode_by_signature(raw, ocr_enabled=ocr_enabled)
     if ext.endswith(".xlsx") or ext.endswith(".xlsm"):
         return _convert_markdown(raw, ".xlsx")
     if ext.endswith(".pptx"):
@@ -42,9 +45,11 @@ def _decode(raw: bytes, name: str) -> str | None:
     if ext.endswith(".doc"):
         return _extract_doc(raw)
     if ext.endswith(".pdf"):
-        return _extract_pdf(raw) or _decode_by_signature(raw)
+        return _extract_pdf(raw, ocr_enabled=ocr_enabled) or _decode_by_signature(
+            raw, ocr_enabled=ocr_enabled
+        )
     # Нераспознанное/отсутствующее расширение — формат по содержимому.
-    return _decode_by_signature(raw)
+    return _decode_by_signature(raw, ocr_enabled=ocr_enabled)
 
 
 def _decode_text(raw: bytes) -> str | None:
@@ -57,7 +62,7 @@ def _decode_text(raw: bytes) -> str | None:
     return None
 
 
-def _decode_by_signature(raw: bytes) -> str | None:
+def _decode_by_signature(raw: bytes, *, ocr_enabled: bool = True) -> str | None:
     """Определить формат по магическим байтам, когда расширение неизвестно.
 
     Покрывает файлы ЭТП с именами без расширения: PDF (``%PDF``), OOXML/zip
@@ -65,7 +70,7 @@ def _decode_by_signature(raw: bytes) -> str | None:
     иначе — plain-text.
     """
     if raw.startswith(b"%PDF"):
-        return _extract_pdf(raw)
+        return _extract_pdf(raw, ocr_enabled=ocr_enabled)
     if raw.startswith(b"PK\x03\x04"):
         # OOXML — это zip, и по PK-сигнатуре нельзя понять docx/xlsx/pptx.
         # Подтип определяем по внутренней структуре архива.
@@ -140,7 +145,7 @@ def _extract_docx(raw: bytes) -> str | None:
     return _convert_markdown(raw, ".docx")
 
 
-def _extract_pdf(raw: bytes) -> str | None:
+def _extract_pdf(raw: bytes, *, ocr_enabled: bool = True) -> str | None:
     """Markdown/текст из PDF: pdfplumber -> MarkItDown -> OCR (в этом порядке).
 
     MarkItDown нередко расплющивает layout-таблицы (ЕАИСТ/Росэлторг и др.) в
@@ -153,8 +158,12 @@ def _extract_pdf(raw: bytes) -> str | None:
 
     Если оба прямых способа не нашли текстовый слой вовсе (скан без текста) —
     последний фолбэк: OCR (``scoring_common.ocr``, сменяемая модель, сейчас
-    Yandex Cloud Vision), только если он настроен (``OCR_PROVIDER``) — иначе,
-    как и раньше, ``None`` (сервис не падает, значение просто не извлечётся).
+    Yandex Cloud Vision), только если он настроен (``OCR_PROVIDER``) И
+    ``ocr_enabled=True`` — платная опция аккаунта владельца профиля
+    (``zakupki_parser.options``: ``ocr``, см. вызывающую сторону), иначе, как
+    и раньше, ``None`` (сервис не падает, значение просто не извлечётся).
+    Прямое извлечение (pdfplumber/MarkItDown) опцией НЕ затрагивается —
+    гейтится только сам платный OCR-запрос.
     """
     markdown = pdf_to_markdown_tables(raw)
     if markdown:
@@ -162,6 +171,8 @@ def _extract_pdf(raw: bytes) -> str | None:
     text = _convert_markdown(raw, ".pdf")
     if text:
         return text
+    if not ocr_enabled:
+        return None
     from scoring_common.ocr import get_client as _get_ocr_client
 
     ocr = _get_ocr_client()

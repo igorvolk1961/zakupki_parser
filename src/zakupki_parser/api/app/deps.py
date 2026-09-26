@@ -140,6 +140,25 @@ def build_context(state: AppState) -> ApiContext:
         eff = effective_options(accounts, owner.trial_end_at)
         return eff.has_option("analysis") and eff.has_option("analysis_embeddings")
 
+    async def _ocr_enabled(profile: Profile) -> bool:
+        """Включена ли в аккаунте владельца профиля платная опция «распознавание
+        сканов (OCR)» (options.py: ``ocr``).
+
+        Читается конвейерами по всей цепочке извлечения текста документов
+        (``scoring_common.tz`` — общая библиотека для analysis_service,
+        scoring_service и просмотра ТЗ в карточке): при выключенной опции
+        OCR-фолбэк для сканов PDF без текстового слоя не вызывается вовсе —
+        такие документы остаются нечитаемыми, как до появления OCR (прямое
+        извлечение текстовых PDF/DOCX опцией не затрагивается).
+        """
+        if profile.user_id is None:
+            return False
+        owner = await _repo().get_user(profile.user_id)
+        if owner is None:
+            return False
+        accounts = await _repo().list_accounts(profile.user_id)
+        return effective_options(accounts, owner.trial_end_at).has_option("ocr")
+
     async def _profile_out(
         profile: Profile,
         keywords: dict[str, list[str]] | None = None,
@@ -161,6 +180,7 @@ def build_context(state: AppState) -> ApiContext:
             data["facts"] = ProfileFactsOut(**await _repo().get_profile_facts(profile.id))
             data["scoring_embeddings_enabled"] = await _scoring_embeddings_enabled(profile)
             data["analysis_llm_enabled"] = await _analysis_llm_enabled(profile)
+            data["ocr_enabled"] = await _ocr_enabled(profile)
         return ProfileOut(**data)
 
     async def _effective_options(user: User) -> EffectiveOptions:

@@ -504,7 +504,7 @@ def test_procurement_tz_text(
             return FileRef("ТЗ.docx", "http://x/a.zip#doc/ТЗ.docx")
 
         def fake_extract(
-            ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True
+            ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
         ) -> str | None:
             extract_calls.append((ref.url, ref.name))
             # Текст должен содержать требование к Исполнителю, иначе resolve_tz_content

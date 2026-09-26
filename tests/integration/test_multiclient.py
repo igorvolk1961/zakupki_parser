@@ -222,6 +222,33 @@ def test_active_client_exposes_scoring_embeddings_enabled_false_by_default(
     assert resp.json()["scoring_embeddings_enabled"] is False
 
 
+@pytest.mark.slow  # тот же module-scoped mc_client (см. комментарий выше по файлу)
+def test_active_client_exposes_ocr_enabled_true(mc_client: TestClient) -> None:
+    """/api/clients/active отдаёт ocr_enabled=True, когда платная опция OCR
+    (options.py: ocr) включена в аккаунте владельца профиля."""
+    client = mc_client
+    profile_id = asyncio.run(_seed_profile_with_account("ocrtest-on", {"ocr": True}))
+    resp = client.get(
+        "/api/clients/active",
+        headers={**INTERNAL_HEADERS, "X-Profile-ID": str(profile_id)},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ocr_enabled"] is True
+
+
+def test_active_client_exposes_ocr_enabled_false_by_default(mc_client: TestClient) -> None:
+    """Опция OCR не включена в аккаунте — ocr_enabled=False (явное включение,
+    как у остальных платных опций)."""
+    client = mc_client
+    profile_id = asyncio.run(_seed_profile_with_account("ocrtest-off", {}))
+    resp = client.get(
+        "/api/clients/active",
+        headers={**INTERNAL_HEADERS, "X-Profile-ID": str(profile_id)},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ocr_enabled"] is False
+
+
 class _FakeSchedulerForRefresh:
     """Минимальный планировщик для теста ``POST /api/clients/{id}/refresh``:
     только методы, которые реально вызывает ``refresh_client``/``_collection_

@@ -285,12 +285,19 @@ class AnalysisWorker:
             # analysis_llm_enabled, см. zakupki_parser.api.app.deps). Без них
             # отчёт остаётся полностью детерминированным (требования + geo, без LLM).
             llm_enabled = bool(profile.get("analysis_llm_enabled"))
+            # Платная опция аккаунта владельца профиля «распознавание сканов (OCR)»
+            # (options.py: ocr, ProfileOut.ocr_enabled) — разрешает OCR-фолбэк для
+            # сканов PDF без текстового слоя И в LLM-части (RagAnalyzer), И в
+            # детерминированном извлечении требований ниже. Без неё такие
+            # документы просто не читаются (как до появления OCR).
+            ocr_enabled = bool(profile.get("ocr_enabled"))
             if llm_enabled:
                 report_fields = await self._resolve_report_fields(pfd)
                 report = await self._analyzer.analyze(
                     record,
                     report_fields=report_fields,
                     metadata={"procurement_id": pid, "profile_id": pfd},
+                    ocr_enabled=ocr_enabled,
                 )
             else:
                 report = {
@@ -317,6 +324,7 @@ class AnalysisWorker:
                     record,
                     self._settings.tz_download_timeout,
                     self._settings.tz_verify_ssl,
+                    ocr_enabled=ocr_enabled,
                 )
             requirements = requirements or {}
             filled_requirements = requirements

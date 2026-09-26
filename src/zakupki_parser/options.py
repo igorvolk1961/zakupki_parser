@@ -157,6 +157,18 @@ PAID_OPTIONS: tuple[OptionDef, ...] = (
         group=GROUP_PAID,
         available=False,
     ),
+    OptionDef(
+        key="ocr",
+        title="Распознавание сканов (OCR)",
+        description=(
+            "Распознавание текста в отсканированных документах закупки без "
+            "текстового слоя (PDF-скан) через облачный сервис (Yandex Cloud "
+            "Vision OCR, платно, по числу страниц). Без опции такие документы "
+            "просто не читаются — как до появления фолбэка; текстовые PDF/DOCX "
+            "извлекаются как обычно вне зависимости от опции."
+        ),
+        group=GROUP_PAID,
+    ),
 )
 
 ALL_OPTIONS: tuple[OptionDef, ...] = FREE_OPTIONS + PAID_OPTIONS

@@ -158,7 +158,7 @@ def find_description_in_archives(
     return None
 
 
-def _extract_zip_text(raw: bytes, inner_path: str) -> str | None:
+def _extract_zip_text(raw: bytes, inner_path: str, *, ocr_enabled: bool = True) -> str | None:
     """Текст записи zip-архива (по ``inner_path``; пустой путь — поиск по маркеру)."""
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as zf:
@@ -171,7 +171,7 @@ def _extract_zip_text(raw: bytes, inner_path: str) -> str | None:
                 if inner_path and member_name != inner_path:
                     continue
                 if inner_path or is_tz(PurePosixPath(member_name).name):
-                    text = _decode(zf.read(info), member_name)
+                    text = _decode(zf.read(info), member_name, ocr_enabled=ocr_enabled)
                     if text:
                         return text
     except zipfile.BadZipFile:
@@ -179,13 +179,15 @@ def _extract_zip_text(raw: bytes, inner_path: str) -> str | None:
     return None
 
 
-def _extract_from_zip(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+def _extract_from_zip(
+    ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, *, ocr_enabled: bool = True
+) -> str | None:
     """Текст ТЗ внутри zip-архива (по имени записи в ``ref.url#inner``)."""
     raw = _download(ref.url, timeout=timeout, verify_ssl=verify_ssl)
     if raw is None:
         return None
     _, _, inner_path = ref.url.partition("#")
-    return _extract_zip_text(raw, inner_path)
+    return _extract_zip_text(raw, inner_path, ocr_enabled=ocr_enabled)
 
 
 def _extract_7z_member(raw: bytes, member_name: str) -> bytes | None:
@@ -215,33 +217,40 @@ def _extract_7z_member(raw: bytes, member_name: str) -> bytes | None:
         return None
 
 
-def _extract_7z_text(raw: bytes, inner_path: str) -> str | None:
+def _extract_7z_text(raw: bytes, inner_path: str, *, ocr_enabled: bool = True) -> str | None:
     """Текст записи 7z-архива (по ``inner_path``; пустой путь — поиск по маркеру)."""
     if inner_path:
         data = _extract_7z_member(raw, inner_path)
-        return _decode(data, inner_path) if data else None
+        return _decode(data, inner_path, ocr_enabled=ocr_enabled) if data else None
     # Без внутреннего пути: находим запись с маркером ТЗ по имени.
     for member in _list_7z(raw) or []:
         if is_tz(PurePosixPath(member).name):
             data = _extract_7z_member(raw, member)
             if data:
-                text = _decode(data, member)
+                text = _decode(data, member, ocr_enabled=ocr_enabled)
                 if text:
                     return text
     return None
 
 
-def _extract_from_7z(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+def _extract_from_7z(
+    ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, *, ocr_enabled: bool = True
+) -> str | None:
     """Текст ТЗ внутри 7z-архива (по имени записи в ``ref.url#inner``)."""
     raw = _download(ref.url, timeout=timeout, verify_ssl=verify_ssl)
     if raw is None:
         return None
     _, _, inner_path = ref.url.partition("#")
-    return _extract_7z_text(raw, inner_path)
+    return _extract_7z_text(raw, inner_path, ocr_enabled=ocr_enabled)
 
 
 def _extract_archive_member(
-    url: str, inner_path: str, timeout: float = 30.0, verify_ssl: bool = True
+    url: str,
+    inner_path: str,
+    timeout: float = 30.0,
+    verify_ssl: bool = True,
+    *,
+    ocr_enabled: bool = True,
 ) -> str | None:
     """Текст записи внутри архива, когда формат архива не виден из URL.
 
@@ -253,7 +262,7 @@ def _extract_archive_member(
     if not raw:
         return None
     if _list_7z(raw) is not None:
-        return _extract_7z_text(raw, inner_path)
+        return _extract_7z_text(raw, inner_path, ocr_enabled=ocr_enabled)
     if _list_zip(raw) is not None:
-        return _extract_zip_text(raw, inner_path)
+        return _extract_zip_text(raw, inner_path, ocr_enabled=ocr_enabled)
     return None

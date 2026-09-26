@@ -60,12 +60,19 @@ class RagAnalyzer:
         record: dict[str, Any],
         report_fields: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
+        *,
+        ocr_enabled: bool = True,
     ) -> dict[str, Any]:
         """RAG-отчёт по отчётным полям профиля. best-effort.
 
         Весь прогон (эмбеддинги, LLM-вызовы) вкладывается в единый родительский
         span LangFuse ``rag_analysis``: трейсы эмбеддингов становятся дочерними
         спанами с общим родителем вместо отдельных корневых наблюдений.
+
+        ``ocr_enabled`` — платная опция аккаунта владельца профиля
+        (``zakupki_parser.options``: ``ocr``, см. ``analysis_service.worker``):
+        разрешает OCR-фолбэк для сканов PDF без текстового слоя при сборе
+        чанков документов.
         """
         generated_at = datetime.now(UTC).isoformat()
         run_metadata = {"generated_at": generated_at}
@@ -80,7 +87,7 @@ class RagAnalyzer:
             self._llm.reset_cost()
             getattr(self._embedder, "reset_cost", lambda: None)()
             getattr(self._embedder, "reset_metrics", lambda: None)()
-            report = await self._analyze(record, report_fields or [], generated_at)
+            report = await self._analyze(record, report_fields or [], generated_at, ocr_enabled)
         duration_ms = (time.perf_counter() - stage_start) * 1000.0
         llm_metrics: dict[str, Any] = getattr(self._llm, "metrics", lambda: {})()
         emb_metrics: dict[str, Any] = getattr(self._embedder, "metrics", lambda: {})()
@@ -114,6 +121,7 @@ class RagAnalyzer:
         record: dict[str, Any],
         report_fields: list[dict[str, Any]],
         generated_at: str,
+        ocr_enabled: bool = True,
     ) -> dict[str, Any]:
         # «ТЗ»/«Описание» — только понятное имя файла для карточки (та же эвристика
         # «нет обязанностей Исполнителя → взять Описание», что и раньше); НЕ сужает
@@ -124,13 +132,14 @@ class RagAnalyzer:
                 record,
                 self._settings.tz_download_timeout,
                 self._settings.tz_verify_ssl,
+                ocr_enabled=ocr_enabled,
             )
         except Exception as exc:  # noqa: BLE001 — best-effort, не критично для tz_file
             logger.warning("Не удалось определить файл ТЗ закупки: %s", exc)
             ref = None
         tz_file = ref.name if ref is not None else None
 
-        chunks, chunk_sources = await self._collect_document_chunks(record)
+        chunks, chunk_sources = await self._collect_document_chunks(record, ocr_enabled)
         if not chunks:
             return {
                 "tz_found": ref is not None,
@@ -165,7 +174,9 @@ class RagAnalyzer:
             "status": self._status(True, None),
         }
 
-    async def _collect_document_chunks(self, record: dict[str, Any]) -> tuple[list[str], list[str]]:
+    async def _collect_document_chunks(
+        self, record: dict[str, Any], ocr_enabled: bool = True
+    ) -> tuple[list[str], list[str]]:
         """Чанки со ВСЕХ документов закупки (не только файла ТЗ), с указанием источника.
 
         Требования к участнику часто лежат не в ТЗ, а в проекте контракта,
@@ -201,6 +212,7 @@ class RagAnalyzer:
                     ref,
                     self._settings.tz_download_timeout,
                     verify_ssl=self._settings.tz_verify_ssl,
+                    ocr_enabled=ocr_enabled,
                 )
             except Exception as exc:  # noqa: BLE001 — сбой одного файла не роняет остальные
                 logger.warning("Не удалось извлечь текст документа %s: %s", ref.name, exc)

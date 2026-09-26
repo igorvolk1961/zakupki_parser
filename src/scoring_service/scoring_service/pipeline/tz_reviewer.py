@@ -38,8 +38,10 @@ class TzReviewer:
         parent_config: RunnableConfig,
         trace_meta: dict[str, Any],
         session_id: str | None,
+        *,
+        ocr_enabled: bool = True,
     ) -> TzReviewOutcome:
-        runner = RunnableLambda(self._impl, name="tz_review")
+        runner = RunnableLambda(lambda rec: self._impl(rec, ocr_enabled), name="tz_review")
         return runner.invoke(
             record,
             config={
@@ -52,12 +54,15 @@ class TzReviewer:
             },
         )
 
-    def _impl(self, record: dict[str, Any]) -> TzReviewOutcome:
+    def _impl(self, record: dict[str, Any], ocr_enabled: bool = True) -> TzReviewOutcome:
         timeout = self._settings.tz_download_timeout
         verify_ssl = self._settings.tz_verify_ssl
         # Единая логика поиска/извлечения/очистки ТЗ (в т.ч. фолбэк на «Описание»)
         # — та же, что у анализа стоп-условий и просмотра ТЗ с карточки.
-        ref, cleaned = resolve_tz_content(record, timeout=timeout, verify_ssl=verify_ssl)
+        # ocr_enabled — платная опция аккаунта владельца профиля (options.py: ocr).
+        ref, cleaned = resolve_tz_content(
+            record, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+        )
         if ref is None:
             return TzReviewOutcome(
                 found=False,

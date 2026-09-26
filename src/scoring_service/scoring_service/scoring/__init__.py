@@ -147,6 +147,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         metadata: dict[str, Any] | None = None,
         run_name: str = "scoring_job",
         embeddings_filter_enabled: bool = True,
+        ocr_enabled: bool = True,
     ) -> ScoringOutput:
         """Полный скоринг закупки по карточке и профилю поставщика.
 
@@ -167,6 +168,10 @@ class Scorer(EmbeddingMixin, PipelineMixin):
         embeddings; ``worker.py`` передаёт её из ``/api/clients/active``).
         Ветка запускается только при ``self._embedder is not None`` (сервис
         сконфигурирован) И этом флаге (по умолчанию разрешена).
+
+        ``ocr_enabled`` — per-job разрешение на платный OCR-фолбэк для сканов
+        PDF без текстового слоя при извлечении текста ТЗ (опция аккаунта
+        владельца профиля, options.py: ``ocr``); передаётся в ``TzReviewer``.
 
         Весь скоринг одного задания выполняется внутри единого корневого run,
         поэтому fit/judge/refine попадают в ОДИН трейс как дочерние спаны.
@@ -213,6 +218,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
                 trace_meta,
                 root_config,
                 embeddings_filter_enabled,
+                ocr_enabled,
             ),
             config=root_config,
         )
@@ -258,6 +264,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             dict[str, Any],
             RunnableConfig,
             bool,
+            bool,
         ],
         config: RunnableConfig | None = None,
     ) -> ScoringOutput:
@@ -270,6 +277,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
             trace_meta,
             root_config,
             embeddings_filter_enabled,
+            ocr_enabled,
         ) = inputs
         parent_config = config or root_config
         description = extract_description(record)
@@ -297,7 +305,7 @@ class Scorer(EmbeddingMixin, PipelineMixin):
                 return self._filtered_output(description, embed_sim, procurement_id)
 
         result = self._run_pipeline(
-            record, texts.llm, description, session_id, trace_meta, parent_config
+            record, texts.llm, description, session_id, trace_meta, parent_config, ocr_enabled
         )
         return self._build_output(result, embed_sim, procurement_id)
 

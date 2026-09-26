@@ -163,10 +163,14 @@ def enumerate_document_refs(
     return refs
 
 
-def _extract_doc_text(ref: FileRef, timeout: float, verify_ssl: bool) -> str | None:
+def _extract_doc_text(
+    ref: FileRef, timeout: float, verify_ssl: bool, *, ocr_enabled: bool = True
+) -> str | None:
     """Извлечь текст документа (best-effort: сбой одного файла не роняет остальные)."""
     try:
-        text = extract_text_cached(ref, timeout=timeout, verify_ssl=verify_ssl)
+        text = extract_text_cached(
+            ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+        )
         return clean_text(text) if text else None
     except Exception as exc:  # noqa: BLE001
         logger.warning("Не удалось извлечь текст документа %s: %s", ref.name, exc)
@@ -250,7 +254,11 @@ def _classify_subcontractor_clause(sentence: str) -> tuple[str, float | None]:
 
 
 def _find_subcontractor_clauses(
-    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+    record: dict[str, Any],
+    timeout: float = 30.0,
+    verify_ssl: bool = True,
+    *,
+    ocr_enabled: bool = True,
 ) -> list[dict[str, Any]]:
     """Найти во ВСЕХ документах закупки условия о привлечении соисполнителей.
 
@@ -273,7 +281,9 @@ def _find_subcontractor_clauses(
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
     for ref in enumerate_document_refs(record, timeout=timeout, verify_ssl=verify_ssl):
-        text = _extract_doc_text(ref, timeout=timeout, verify_ssl=verify_ssl)
+        text = _extract_doc_text(
+            ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+        )
         if not text:
             continue
         base_name = ref.name.rsplit("/", 1)[-1]
@@ -302,7 +312,11 @@ def _find_subcontractor_clauses(
 
 
 def _candidate_sections(
-    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+    record: dict[str, Any],
+    timeout: float = 30.0,
+    verify_ssl: bool = True,
+    *,
+    ocr_enabled: bool = True,
 ) -> list[dict[str, str]]:
     """Найти разделы требований к участнику (по имени файла/заголовку → фолбэк по тексту).
 
@@ -313,7 +327,9 @@ def _candidate_sections(
     fallback_docs: list[tuple[str, list[dict[str, str]]]] = []
 
     for ref in enumerate_document_refs(record, timeout=timeout, verify_ssl=verify_ssl):
-        text = _extract_doc_text(ref, timeout=timeout, verify_ssl=verify_ssl)
+        text = _extract_doc_text(
+            ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+        )
         if not text:
             continue
         if len(text) > _MAX_SECTION_CHARS:
@@ -512,7 +528,11 @@ def build_structure(candidates: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def extract_requirements(
-    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+    record: dict[str, Any],
+    timeout: float = 30.0,
+    verify_ssl: bool = True,
+    *,
+    ocr_enabled: bool = True,
 ) -> dict[str, Any]:
     """Извлечь структуру требований к участнику из всех документов карточки.
 
@@ -530,15 +550,25 @@ def extract_requirements(
     «Требования к участнику» (см. ``_find_subcontractor_clauses``), и не
     проходит через сопоставление с нормой 44-ФЗ (``annotate_requirements``):
     это условие договора, а не пересказ статьи о требованиях к участникам.
+
+    ``ocr_enabled`` — платная опция аккаунта владельца профиля
+    (``zakupki_parser.options``: ``ocr``): разрешает OCR-фолбэк для PDF-сканов
+    без текстового слоя при извлечении текста документов (``_candidate_sections``/
+    ``_find_subcontractor_clauses``). Table-путь (``_table_requirement_candidates``)
+    не затрагивается — он использует только pdfplumber, без OCR вовсе.
     """
     if candidates := _table_requirement_candidates(record, timeout=timeout, verify_ssl=verify_ssl):
         structure = build_structure(candidates)
     else:
         structure = build_structure(
-            _candidate_sections(record, timeout=timeout, verify_ssl=verify_ssl)
+            _candidate_sections(
+                record, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+            )
         )
     structure = annotate_requirements(structure)
-    subcontractors = _find_subcontractor_clauses(record, timeout=timeout, verify_ssl=verify_ssl)
+    subcontractors = _find_subcontractor_clauses(
+        record, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+    )
     if subcontractors:
         structure["subcontractors"] = subcontractors
     return structure

@@ -929,6 +929,11 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         прямой файл ТЗ → поиск внутри архивов (zip/tar) → извлечение docx/pdf.
         Текст кэшируется (``extract_text_cached``): при повторном открытии карточки
         файл заново не скачивается и не конвертируется.
+
+        OCR-фолбэк для сканов PDF без текстового слоя — только при включённой
+        платной опции аккаунта текущего пользователя (options.py: ``ocr``);
+        внутренний вызов (``user is None``) не ограничивается (системный контекст,
+        не привязан к конкретному аккаунту).
         """
         _, profile = await _active_context(user)
         row = await _repo().get_by_id(
@@ -937,6 +942,7 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         if row is None:
             raise HTTPException(status_code=404, detail="Закупка не найдена")
         record = {"files_json": row.files_json or []}
+        ocr_enabled = True if user is None else (await _effective_options(user)).has_option("ocr")
         # Тяжёлые блокирующие операции выполняем в потоке, но ограничиваем их
         # число семафором (см. _TZ_EXTRACT_CONCURRENCY): холодный кэш не должен
         # насыщать общий thread-pool одновременными скачиваниями/конвертациями.
@@ -944,7 +950,9 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
         # что и конвейер анализа стоп-условий (scoring_common.tz), и кэширует
         # результат — при повторном открытии карточки файл заново не скачивается.
         async with _tz_extract_semaphore:
-            ref, text = await asyncio.to_thread(resolve_tz_content_cached, record, 30.0)
+            ref, text = await asyncio.to_thread(
+                resolve_tz_content_cached, record, 30.0, ocr_enabled=ocr_enabled
+            )
         if ref is None or text is None:
             return {
                 "found": False,

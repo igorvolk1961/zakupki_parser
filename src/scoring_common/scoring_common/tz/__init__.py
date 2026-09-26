@@ -144,24 +144,38 @@ def find_description_reference(
     return find_description_in_archives(record, timeout=timeout, verify_ssl=verify_ssl)
 
 
-def extract_text(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
-    """Извлечь Markdown-текст из файла ТЗ (в т.ч. из zip/7z-архива)."""
+def extract_text(
+    ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, *, ocr_enabled: bool = True
+) -> str | None:
+    """Извлечь Markdown-текст из файла ТЗ (в т.ч. из zip/7z-архива).
+
+    ``ocr_enabled`` — платная опция аккаунта владельца профиля
+    (``zakupki_parser.options``: ``ocr``, см. ``scoring_common.tz.extractors._extract_pdf``):
+    разрешает OCR-фолбэк для PDF-сканов без текстового слоя; прямое извлечение
+    текстовых форматов не затрагивает.
+    """
     url, sep, inner = ref.url.partition("#")
     name = _normalize(ref.name)
     if sep:
         # Запись внутри архива: формат определяем по содержимому (URL может быть
         # глухим, без расширения — например etp.gpb.example ``/file/get/.../name/<hash>``).
-        return _extract_archive_member(url, inner, timeout=timeout, verify_ssl=verify_ssl)
+        return _extract_archive_member(
+            url, inner, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+        )
     if name.endswith(".7z"):
-        return _extract_from_7z(ref, timeout=timeout, verify_ssl=verify_ssl)
+        return _extract_from_7z(
+            ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+        )
     if name.endswith(".zip"):
-        return _extract_from_zip(ref, timeout=timeout, verify_ssl=verify_ssl)
+        return _extract_from_zip(
+            ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+        )
     if is_archive(name):
         return None  # прочие архивы (rar/tar) — требуют внешних утилит
     raw = _download(url, timeout=timeout, verify_ssl=verify_ssl)
     if raw is None:
         return None
-    return _decode(raw, name)
+    return _decode(raw, name, ocr_enabled=ocr_enabled)
 
 
 def extract_text_cached(
@@ -169,6 +183,8 @@ def extract_text_cached(
     timeout: float = 30.0,
     ttl: float = _TZ_TEXT_TTL_SECONDS,
     verify_ssl: bool = True,
+    *,
+    ocr_enabled: bool = True,
 ) -> str | None:
     """``extract_text`` с двухуровневым кэшем: успешно извлечённый текст не переизвлекается.
 
@@ -182,11 +198,17 @@ def extract_text_cached(
 
     Ключ — ``(ref.url, ref.name)`` (L1) / ``ref.url`` (L2, для записей внутри
     архива уже содержит ``#внутренний_путь``, различать по ``name`` доп. не
-    нужно). Кэшируется только успех: неуспех (``None``) не кэшируется и
-    перепробуется при следующем обращении (транзиентный/чинимый случай).
-    L1 ограничен: LRU по числу записей + суммарный бюджет символов; очень
-    большие тексты (``_TZ_TEXT_MAX_CHARS_PER_ENTRY``) отдаются, но не кэшируются
-    ни в L1, ни в L2 (та же защита от неограниченного роста памяти/хранилища).
+    нужно) — БЕЗ ``ocr_enabled``: если текст уже получен через платный OCR одним
+    вызовом (опция была включена), он кэшируется и отдаётся бесплатно всем
+    последующим вызовам независимо от их ``ocr_enabled`` — тот же принцип, что и
+    у остальной части кэша (документ уже извлечён — повторно не оплачивается).
+    Кэшируется только успех: неуспех (``None``) не кэшируется и перепробуется
+    при следующем обращении (транзиентный/чинимый случай, в т.ч. «OCR был
+    выключен на этом вызове» — следующий вызов с ``ocr_enabled=True`` попробует
+    заново). L1 ограничен: LRU по числу записей + суммарный бюджет символов;
+    очень большие тексты (``_TZ_TEXT_MAX_CHARS_PER_ENTRY``) отдаются, но не
+    кэшируются ни в L1, ни в L2 (та же защита от неограниченного роста
+    памяти/хранилища).
     """
     key = (ref.url, ref.name)
     now = time.monotonic()
@@ -203,7 +225,7 @@ def extract_text_cached(
             _tz_text_cache.move_to_end(key)
             _prune_tz_text_cache(time.monotonic(), ttl=ttl)
         return cached_remote
-    text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl)
+    text = extract_text(ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled)
     if text is None:
         # Неуспех извлечения не кэшируем: он бывает транзиентным (сбой конвертера,
         # битый файл) либо чинимым (правка конвертера/OCR) — кэш «на час» замазал бы
@@ -245,7 +267,11 @@ def find_tz_reference_cached(
 
 
 def resolve_tz_content(
-    record: dict[str, Any], timeout: float = 30.0, verify_ssl: bool = True
+    record: dict[str, Any],
+    timeout: float = 30.0,
+    verify_ssl: bool = True,
+    *,
+    ocr_enabled: bool = True,
 ) -> tuple[FileRef | None, str | None]:
     """Единое разрешение текста ТЗ: поиск файла → извлечение → очистка.
 
@@ -256,20 +282,25 @@ def resolve_tz_content(
        «Описание» (и это не тот же файл) — текст берётся из «Описания»;
     3. текст очищается (``clean_text``).
 
+    ``ocr_enabled`` — платная опция аккаунта (см. ``extract_text``), пробрасывается
+    в оба извлечения (ТЗ и «Описание»).
+
     Возвращает ``(None, None)``, если файл ТЗ не найден, либо ``(ref, None)``,
     если файл найден, но текст извлечь не удалось.
     """
     ref = find_tz_reference(record, timeout=timeout, verify_ssl=verify_ssl)
     if ref is None:
         return None, None
-    raw = extract_text_cached(ref, timeout=timeout, verify_ssl=verify_ssl)
+    raw = extract_text_cached(ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled)
     text = clean_text(raw) if raw else ""
     if not text:
         return ref, None
     if not _has_executor_duties(text):
         desc_ref = find_description_reference(record, timeout=timeout, verify_ssl=verify_ssl)
         if desc_ref is not None and desc_ref.url != ref.url:
-            raw_desc = extract_text_cached(desc_ref, timeout=timeout, verify_ssl=verify_ssl)
+            raw_desc = extract_text_cached(
+                desc_ref, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+            )
             desc_text = clean_text(raw_desc) if raw_desc else ""
             if desc_text:
                 ref = desc_ref
@@ -282,13 +313,17 @@ def resolve_tz_content_cached(
     timeout: float = 30.0,
     ttl: float = _TZ_TEXT_TTL_SECONDS,
     verify_ssl: bool = True,
+    *,
+    ocr_enabled: bool = True,
 ) -> tuple[FileRef | None, str | None]:
     """``resolve_tz_content`` с TTL-кэшем: стабильный итог не пересчитывается.
 
-    Ключ — сигнатура ``files_json``. Кэшируется либо «файл не найден» (список
-    файлов за час не меняется), либо успешно извлечённый текст. Случай «файл
-    найден, но текст не извлечён» НЕ кэшируется — он транзиентный/чинимый, и
-    повторное открытие карточки перепробует файл заново.
+    Ключ — сигнатура ``files_json`` (БЕЗ ``ocr_enabled`` — тот же принцип «раз
+    оплачено — переиспользуется бесплатно», что и у ``extract_text_cached``).
+    Кэшируется либо «файл не найден» (список файлов за час не меняется), либо
+    успешно извлечённый текст. Случай «файл найден, но текст не извлечён» НЕ
+    кэшируется — он транзиентный/чинимый (в т.ч. «OCR был выключен на этом
+    вызове»), и повторное открытие карточки перепробует файл заново.
     """
     key = _record_signature(record)
     now = time.monotonic()
@@ -297,7 +332,9 @@ def resolve_tz_content_cached(
         if cached is not None and now - cached[0] < ttl:
             _tz_resolve_cache.move_to_end(key)
             return cached[1], cached[2]
-    ref, text = resolve_tz_content(record, timeout=timeout, verify_ssl=verify_ssl)
+    ref, text = resolve_tz_content(
+        record, timeout=timeout, verify_ssl=verify_ssl, ocr_enabled=ocr_enabled
+    )
     # Кэшируем только стабильный итог: файл не найден (None, None) или успех.
     # «(ref, None)» (файл найден, текст не извлечён) не кэшируем и перепробуем.
     if ref is None or text:

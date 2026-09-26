@@ -41,6 +41,19 @@ def test_profile_from_url_option_registered() -> None:
     assert option.available is True
 
 
+def test_ocr_option_registered_and_included_in_trial() -> None:
+    """Опция «распознавание сканов (OCR)» — платная, реализована, и включена в
+    триал по умолчанию (разовая/выборочная операция по явному запросу
+    пользователя — тот же принцип, что у analysis/profile_from_url, а не
+    scoring, который исключён из триала явно)."""
+    option = option_by_key("ocr")
+    assert option is not None
+    assert option.group == "paid"
+    assert option.available is True
+    assert "ocr" not in TRIAL_EXCLUDED_KEYS
+    assert trial_default_options()["ocr"] is True
+
+
 def test_default_account_is_free_only() -> None:
     assert paid_default_options(enabled=False) == dict.fromkeys(PAID_KEYS, False)
     assert paid_default_options(enabled=True) == dict.fromkeys(PAID_KEYS, True)

@@ -66,6 +66,7 @@ class PipelineMixin:
         session_id: str | None,
         trace_meta: dict[str, Any],
         parent_config: RunnableConfig,
+        ocr_enabled: bool = True,
     ) -> _PipelineResult:
         """Основной LLM-пайплайн (fit → tz_review → judge → refine)."""
         # Описание обрезано многоточием: явно сообщаем модели о неполноте описания.
@@ -89,7 +90,9 @@ class PipelineMixin:
         # True, только если уточнение реально состоялось (ТЗ найден и текст непустой).
         tz_refined = False
         if fit.requires_tz_review and self._tz_reviewer is not None:
-            tz_outcome = self._tz_reviewer.invoke(record, parent_config, trace_meta, session_id)
+            tz_outcome = self._tz_reviewer.invoke(
+                record, parent_config, trace_meta, session_id, ocr_enabled=ocr_enabled
+            )
             if tz_outcome.found and tz_outcome.description and tz_outcome.description.strip():
                 tz_refined = True
                 extended = extend_description_from_tz(description, tz_outcome.description)

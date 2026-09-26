@@ -603,6 +603,13 @@ class ProfileOut(BaseModel):
     # active_client (analysis_service.worker решает, звать ли LLM-стадию).
     # None вне active_client.
     analysis_llm_enabled: bool | None = None
+    # Опция аккаунта владельца «распознавание сканов (OCR)» (options.py: ocr) —
+    # только в active_client; читают analysis_service.worker, scoring_service.worker
+    # (TzReviewer) и API-роут просмотра ТЗ в карточке (по опции ВЛАДЕЛЬЦА профиля,
+    # не текущего пользователя, для единообразия с остальными опциями конвейера).
+    # Разрешает платный OCR-фолбэк для сканов PDF без текстового слоя; при False —
+    # такие документы просто не читаются (как до появления OCR). None вне active_client.
+    ocr_enabled: bool | None = None
 
 
 class ProfileSaveOut(ProfileOut):

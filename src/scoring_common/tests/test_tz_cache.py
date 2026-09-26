@@ -17,7 +17,9 @@ from scoring_common.tz.files import FileRef
 def _calls(monkeypatch) -> list[tuple[str, str]]:
     calls: list[tuple[str, str]] = []
 
-    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    def fake_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str | None:
         calls.append((ref.url, ref.name))
         return f"text:{ref.url}"
 
@@ -111,7 +113,7 @@ def test_extract_text_cached_oversized_text_not_written_to_l2(monkeypatch) -> No
     )
     monkeypatch.setattr(
         "scoring_common.tz.extract_text",
-        lambda ref, timeout=30.0, verify_ssl=True: "X" * 100,
+        lambda ref, timeout=30.0, verify_ssl=True, ocr_enabled=True: "X" * 100,
     )
     ref = FileRef("ТЗ.docx", "http://x/tz.docx")
     try:
@@ -127,7 +129,9 @@ def test_extract_text_cached_does_not_cache_failure(monkeypatch) -> None:
     clear_tz_text_cache()
     calls: list[tuple[str, str]] = []
 
-    def failing_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    def failing_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str | None:
         calls.append((ref.url, ref.name))
         return None
 
@@ -148,7 +152,9 @@ def test_extract_text_cached_recovers_after_fix(monkeypatch) -> None:
     clear_tz_text_cache()
     state = {"ok": False}
 
-    def flaky_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    def flaky_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str | None:
         return "извлечённый текст" if state["ok"] else None
 
     monkeypatch.setattr("scoring_common.tz.extract_text", flaky_extract)
@@ -175,7 +181,9 @@ def test_resolve_tz_content_cached_does_not_cache_found_but_not_extracted(
         lambda rec, timeout=30.0, verify_ssl=True: ref,
     )
 
-    def failing_extract(r: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    def failing_extract(
+        r: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str | None:
         extract_calls.append(1)
         return None
 
@@ -298,7 +306,9 @@ def test_extract_text_cached_per_entry_cap(monkeypatch) -> None:
     clear_tz_text_cache()
     calls: list[tuple[str, str]] = []
 
-    def big_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str | None:
+    def big_extract(
+        ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True, ocr_enabled: bool = True
+    ) -> str | None:
         calls.append((ref.url, ref.name))
         return "X" * 100
 
@@ -324,7 +334,7 @@ def test_extract_text_cached_total_budget(monkeypatch) -> None:
     sizes = {"s": 40, "b": 70}
     monkeypatch.setattr(
         "scoring_common.tz.extract_text",
-        lambda ref, timeout=30.0, verify_ssl=True: ref.name * sizes[ref.name],
+        lambda ref, timeout=30.0, verify_ssl=True, ocr_enabled=True: ref.name * sizes[ref.name],
     )
     small = FileRef("s", "http://x/small.docx")
     big = FileRef("b", "http://x/b.docx")

@@ -300,6 +300,8 @@ def _fake_tz_reviewer(description: str | None) -> object:
             parent_config: object,
             trace_meta: dict[str, object],
             session_id: str | None,
+            *,
+            ocr_enabled: bool = True,
         ) -> TzReviewOutcome:
             return TzReviewOutcome(
                 found=description is not None,
