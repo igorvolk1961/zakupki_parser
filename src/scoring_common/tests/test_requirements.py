@@ -345,6 +345,52 @@ def test_subcontractors_limited_percent_with_decimal_comma(
     assert item["limit_percent"] == 12.5
 
 
+def test_subcontractors_allowed_infinitive_without_vprave(
+    _fake_extract_text: dict[str, str],
+) -> None:
+    """Реальный текст из аудита: «вправе» стоит в заголовке перечня прав (не в
+    этом предложении, часть 5.3./5.3.1./5.3.2. отсеяна разбиением по
+    предложениям) — раньше классифицировалось как unclear."""
+    _fake_extract_text["dogovor.pdf"] = (
+        "Привлечь к исполнению своих обязательств по Контракту других лиц - "
+        "соисполнителей, обладающих специальными знаниями, навыками, "
+        "специальным оборудованием и т.п., по видам (содержанию) услуг, "
+        "предусмотренных в Техническом задании."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    item = structure["subcontractors"][0]
+    assert item["status"] == "allowed"
+    assert item.get("negated") is True
+
+
+def test_subcontractors_bare_negation_without_vprave_is_forbidden(
+    _fake_extract_text: dict[str, str],
+) -> None:
+    """«Не привлекать…» без «вправе»/«может»/«допускает» — тоже запрет."""
+    _fake_extract_text["dogovor.pdf"] = (
+        "Исполнитель обязуется не привлекать к исполнению Договора соисполнителей."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    item = structure["subcontractors"][0]
+    assert item["status"] == "forbidden"
+    assert "negated" not in item
+
+
+def test_subcontractors_zapretit_root_is_forbidden(
+    _fake_extract_text: dict[str, str],
+) -> None:
+    """«запретить»/«запрет» — другой корень (т/щ), не ловится «запрещ*»."""
+    _fake_extract_text["dogovor.pdf"] = (
+        "Заказчик вправе запретить Исполнителю привлечение соисполнителей."
+    )
+    record = {"files_json": [{"name": "dogovor.pdf", "url": "http://x/dogovor.pdf"}]}
+    structure = extract_requirements(record)
+    item = structure["subcontractors"][0]
+    assert item["status"] == "forbidden"
+
+
 def test_subcontractors_unclear_when_no_keyword_matches(
     _fake_extract_text: dict[str, str],
 ) -> None:
