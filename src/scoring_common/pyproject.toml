@@ -19,6 +19,12 @@ dependencies = [
     # Основы слов (русский/английский) для поиска значений отчётных полей в
     # тексте без учёта окончаний (conditions.py).
     "snowballstemmer>=2.2",
+    # Локальный OCR-фолбэк для сканов PDF (scoring_common.ocr.TesseractOcrClient) —
+    # подхватывает, если облачный провайдер (Yandex) не настроен или недоступен.
+    # Рендер страниц PDF в изображения — уже используемый pdfplumber (транзитивная
+    # зависимость markitdown[pdf]), системный бинарник tesseract (apt: tesseract-ocr,
+    # tesseract-ocr-rus) нужен отдельно — best-effort, без него фолбэк просто недоступен.
+    "pytesseract>=0.3.10",
 ]
 
 [dependency-groups]
@@ -64,7 +70,7 @@ files = ["."]
 exclude = ["tests"]
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "yaml.*", "py7zr.*", "boto3.*", "botocore.*"]
+module = ["redis.*", "yaml.*", "py7zr.*", "boto3.*", "botocore.*", "pytesseract.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

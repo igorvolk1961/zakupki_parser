@@ -58,7 +58,7 @@ exclude = ["tests"]
 mypy_path = [".", "../scoring_common"]
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "langchain.*", "langchain_openai.*", "langfuse.*", "fastapi.*", "uvicorn.*", "yaml.*", "py7zr.*", "boto3.*", "botocore.*"]
+module = ["redis.*", "langchain.*", "langchain_openai.*", "langfuse.*", "fastapi.*", "uvicorn.*", "yaml.*", "py7zr.*", "boto3.*", "botocore.*", "pytesseract.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

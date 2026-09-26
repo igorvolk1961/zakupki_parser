@@ -6,10 +6,18 @@
 является сканом без текста). Прямое извлечение всегда пробуется первым — OCR
 дороже и медленнее.
 
-Провайдер переключается переменной окружения ``OCR_PROVIDER`` (сейчас — только
-``yandex``; ``none``/не задано — OCR-фолбэк отключён целиком, поведение как до
-появления этого модуля). Добавить второго провайдера — новый класс с тем же
-протоколом ``Ocrable`` + ветка в ``get_client()``, вызывающий код не меняется.
+Провайдер выбирается переменной окружения ``OCR_PROVIDER``:
+
+* ``yandex`` (по умолчанию) — облачный Yandex Cloud Vision; если ключ/folder_id
+  не заданы ИЛИ сам запрос к сервису не удался (сеть/таймаут/HTTP-ошибка —
+  ``YandexOcrClient.recognize_pdf`` уже гасит это в ``None``), автоматически
+  подключается локальный ``tesseract`` как резервный вариант (``ChainOcrClient``);
+* ``tesseract`` — только локальный OCR, без обращения к Yandex вовсе;
+* ``none`` — OCR-фолбэк отключён целиком, поведение как до появления модуля.
+
+Добавить нового облачного провайдера — новый класс с тем же протоколом
+``Ocrable`` + своя ветка в ``get_client()`` (по образцу ``yandex``), вызывающий
+код не меняется.
 
 Настройки — из окружения процесса (``OCR_``/``YANDEX_OCR_`` namespace), не из
 ``settings.py`` конкретного сервиса — как ``OBJECT_STORAGE_``
@@ -23,7 +31,9 @@ Best-effort: не настроен/сбой — ``get_client()``/``recognize_pdf
 from __future__ import annotations
 
 import base64
+import io
 import logging
+import shutil
 import threading
 from typing import Any, Protocol
 
@@ -122,6 +132,77 @@ def _text_from_yandex_response(data: dict[str, Any]) -> str | None:
     return text or None
 
 
+class TesseractOcrSettings(BaseSettings):
+    """Параметры локального OCR через системный ``tesseract``."""
+
+    model_config = SettingsConfigDict(env_prefix="TESSERACT_OCR_", extra="ignore")
+
+    languages: str = "rus+eng"  # см. `tesseract --list-langs`, языки через "+"
+    resolution: int = 200  # dpi рендера страницы PDF в изображение (pdfplumber)
+
+
+class TesseractOcrClient:
+    """Локальный OCR — резервный вариант без сети/API-ключа.
+
+    Требует установленный бинарник ``tesseract`` в системе (apt: ``tesseract-ocr``,
+    ``tesseract-ocr-rus`` для русского языка) — best-effort: если бинарника нет,
+    ``recognize_pdf`` возвращает ``None`` (не бросает исключение), как отсутствие
+    LibreOffice/catdoc/antiword у ``scoring_common.tz.extractors._extract_doc``.
+    Страницы PDF рендерятся в изображения через уже используемый pdfplumber
+    (транзитивная зависимость ``markitdown[pdf]``) — Yandex OCR принимает PDF
+    целиком, а pytesseract работает только с изображениями.
+    """
+
+    def __init__(self, settings: TesseractOcrSettings | None = None) -> None:
+        self._settings = settings or TesseractOcrSettings()
+
+    def recognize_pdf(self, raw: bytes) -> str | None:
+        if shutil.which("tesseract") is None:
+            logger.warning(
+                "Локальный OCR-фолбэк недоступен: бинарник tesseract не найден "
+                "в PATH (apt install tesseract-ocr tesseract-ocr-rus)"
+            )
+            return None
+        try:
+            import pdfplumber
+            import pytesseract
+        except ImportError as exc:  # noqa: BLE001 - опциональная зависимость
+            logger.warning("Локальный OCR-фолбэк недоступен: %s", exc)
+            return None
+        try:
+            texts: list[str] = []
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                for page in pdf.pages:
+                    image = page.to_image(resolution=self._settings.resolution).original
+                    page_text = pytesseract.image_to_string(image, lang=self._settings.languages)
+                    if page_text.strip():
+                        texts.append(page_text.strip())
+        except Exception as exc:  # noqa: BLE001 - битый PDF/сбой tesseract, best-effort
+            logger.warning("Tesseract: сбой распознавания PDF: %s", exc)
+            return None
+        text = "\n\n".join(texts).strip()
+        return text or None
+
+
+class ChainOcrClient:
+    """Пробует несколько OCR-провайдеров по порядку — первый непустой результат.
+
+    Нужен, чтобы облачный провайдер (Yandex) при отсутствии ключа или сбое
+    сети/API не оставлял скан вовсе нераспознанным — локальный ``tesseract``
+    (если установлен) подхватывает как резервный вариант.
+    """
+
+    def __init__(self, providers: list[Ocrable]) -> None:
+        self._providers = providers
+
+    def recognize_pdf(self, raw: bytes) -> str | None:
+        for provider in self._providers:
+            text = provider.recognize_pdf(raw)
+            if text:
+                return text
+        return None
+
+
 _lock = threading.Lock()
 _override: Ocrable | None = None
 _client: Ocrable | None = None
@@ -137,14 +218,18 @@ def set_client(client: Ocrable | None) -> None:
 
 
 def get_client() -> Ocrable | None:
-    """OCR-клиент по настройкам окружения (ленивый синглтон — только успешно
-    созданный реальный клиент кэшируется; «отключён/не настроен» не кэшируется
-    и проверяется заново на каждый вызов — путь редкий (только сканы без
+    """OCR-клиент по настройкам окружения (ленивый синглтон — пересчитывается,
+    только пока не собран ни один провайдер; путь редкий (только сканы без
     текстового слоя), пересчёт дешёвый).
 
-    ``None`` — OCR отключён (``OCR_PROVIDER=none``), не настроен (нет ключа/
-    folder_id) или неизвестный провайдер — во всех случаях best-effort,
-    вызывающий код просто не получит OCR-фолбэк.
+    ``OCR_PROVIDER=yandex`` (по умолчанию): при заданных
+    ``YANDEX_OCR_API_KEY``/``YANDEX_OCR_FOLDER_ID`` — цепочка Yandex ->
+    tesseract (сбой/сеть Yandex на конкретном документе -> пробуется
+    tesseract); без ключа/folder_id — сразу tesseract (если бинарник не
+    найден, ``TesseractOcrClient.recognize_pdf`` сама вернёт ``None``).
+    ``OCR_PROVIDER=tesseract`` — только локальный OCR, Yandex не участвует.
+    ``OCR_PROVIDER=none`` или неизвестное значение — OCR-фолбэк отключён
+    целиком (``None``).
     """
     global _client
     with _lock:
@@ -155,15 +240,19 @@ def get_client() -> Ocrable | None:
         provider = OcrSettings().provider.strip().lower()
         if provider in ("", "none"):
             return None
+        if provider == "tesseract":
+            _client = TesseractOcrClient()
+            return _client
         if provider == "yandex":
             settings = YandexOcrSettings()
             if not settings.api_key or not settings.folder_id:
                 logger.warning(
                     "OCR_PROVIDER=yandex, но YANDEX_OCR_API_KEY/YANDEX_OCR_FOLDER_ID "
-                    "не заданы — OCR-фолбэк для сканов PDF отключён"
+                    "не заданы — используется только локальный OCR-фолбэк (tesseract)"
                 )
-                return None
-            _client = YandexOcrClient(settings)
+                _client = TesseractOcrClient()
+                return _client
+            _client = ChainOcrClient([YandexOcrClient(settings), TesseractOcrClient()])
             return _client
         logger.warning("Неизвестный OCR_PROVIDER=%r — OCR-фолбэк отключён", provider)
         return None

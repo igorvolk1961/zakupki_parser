@@ -48,7 +48,7 @@ exclude = ["tests"]
 mypy_path = [".", "../scoring_common"]
 
 [[tool.mypy.overrides]]
-module = ["redis.*", "fastapi.*", "uvicorn.*"]
+module = ["redis.*", "fastapi.*", "uvicorn.*", "pytesseract.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
