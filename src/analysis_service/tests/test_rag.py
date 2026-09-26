@@ -338,6 +338,40 @@ def test_collect_document_chunks_covers_all_documents(monkeypatch: pytest.Monkey
     assert set(sources) == {"ТЗ.docx", "Проект контракта.docx"}
 
 
+def test_collect_document_chunks_dedups_identical_attachments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Одно и то же вложение под двумя разными ссылками (площадка отдаёт файл
+    под разными id) — раньше дублировало чанки, из-за чего top-k эмбеддинг-
+    поиска на отчётное поле забивался копиями одной и той же строки, вытесняя
+    другие релевантные строки документа (найдено на реальных данных: нужная
+    строка таблицы полностью выпала из top-5 именно из-за такого дубля)."""
+    from analysis_service.pipeline import rag as rag_mod
+
+    from scoring_common.tz.files import FileRef
+
+    ref_a = FileRef("ТУ.doc", "http://x/a")
+    ref_b = FileRef("ТУ.doc", "http://x/b")
+    text = "1. Категория 16А — 360 тн\n\n2. Категория 24А — 80 тн"
+
+    def fake_enumerate(rec: dict, timeout: float = 30.0, verify_ssl: bool = True) -> list[FileRef]:
+        return [ref_a, ref_b]
+
+    def fake_extract(ref: FileRef, timeout: float = 30.0, verify_ssl: bool = True) -> str:
+        return text  # оба «файла» — байт-в-байт один и тот же текст
+
+    monkeypatch.setattr(rag_mod, "enumerate_document_refs", fake_enumerate)
+    monkeypatch.setattr(rag_mod, "extract_text_cached", fake_extract)
+
+    analyzer = _analyzer(_FakeLlm([]))
+    chunks, sources = asyncio.run(
+        analyzer._collect_document_chunks({"files_json": []})  # noqa: SLF001
+    )
+    assert sum("24А" in c for c in chunks) == 1
+    assert sum("16А" in c for c in chunks) == 1
+    assert sources.count("ТУ.doc") == len(chunks)
+
+
 # --- Отчётные поля (FR-12.2): проводка через RagAnalyzer.analyze -----------
 
 

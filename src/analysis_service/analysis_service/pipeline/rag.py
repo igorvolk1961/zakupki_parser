@@ -193,6 +193,7 @@ class RagAnalyzer:
             return chunks, sources
 
         total_chars = 0
+        seen_texts: set[str] = set()
         for ref in refs[: self._settings.max_files_per_procurement]:
             try:
                 raw = await asyncio.to_thread(
@@ -207,6 +208,17 @@ class RagAnalyzer:
             text = clean_text(raw) if raw else ""
             if not text:
                 continue
+            if text in seen_texts:
+                # Один и тот же файл нередко приходит по двум разным ссылкам
+                # (площадка отдаёт его под разными id) — без дедупликации
+                # чанки дублируются, и top-k эмбеддинг-поиска на отчётное поле
+                # (RagAnalyzer._analyze -> ReportFieldExtractor) забивается
+                # копиями одного и того же фрагмента, вытесняя другие
+                # релевантные строки документа (найдено на реальных данных:
+                # нужная строка таблицы полностью выпала из top-5 именно
+                # из-за такого дубля вложения).
+                continue
+            seen_texts.add(text)
             doc_name = ref.name.rsplit("/", 1)[-1]
             for chunk in split_tz_sections(text, max_chars=self._settings.chunk_max_chars):
                 chunks.append(chunk)
