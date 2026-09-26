@@ -5,11 +5,13 @@ ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Конвертеры легаси .doc в текст (catdoc/antiword): MarkItDown .doc не понимает
-# (см. analysis_service/Dockerfile — тот же extractor scoring_common.tz).
+# Конвертеры легаси .doc в текст (catdoc/antiword) + OCR-фолбэк для сканов PDF
+# (tesseract-ocr): MarkItDown .doc не понимает (см. analysis_service/Dockerfile —
+# тот же extractor scoring_common.tz).
 RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
     && apt-get update \
-    && apt-get install -y --no-install-recommends catdoc antiword \
+    && apt-get install -y --no-install-recommends \
+        catdoc antiword tesseract-ocr tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
 # Build context — ../src (содержит indexing_service и scoring_common).

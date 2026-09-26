@@ -228,9 +228,20 @@
       подтверждены рабочими вживую (401 не было бы, если бы ключ был не
       нужен).
       Тесты — `scoring_common/tests/{test_ocr.py,test_extractors.py}`.
-      Системный бинарник `tesseract` по-прежнему не установлен в этом
-      окружении (`apt install tesseract-ocr tesseract-ocr-rus` не
-      выполнялся) — фолбэк на него остаётся непроверенным вживую.
+      **Tesseract-фолбэк проверен вживую (2026-09-27)**: `tesseract-ocr`
+      `tesseract-ocr-rus` установлены (`apt install`), `TesseractOcrClient`
+      корректно распознал реальный многостраничный документ закупки 3088
+      (6693 символа) и синтетический скан; проверена вся цепочка через
+      `get_client()`, включая сценарий «ключ Yandex невалиден/сервис вернул
+      401» → `ChainOcrClient` автоматически переключается на `tesseract` без
+      потери результата. `tesseract-ocr`/`tesseract-ocr-rus` добавлены в
+      apt-установку `docker/Dockerfile`, `analysis_service/Dockerfile`,
+      `indexing_service/Dockerfile`, `scoring_service/Dockerfile` (только эти
+      4 образа реально доходят до `scoring_common.tz.extract_text_cached` →
+      `_extract_pdf` → OCR; `margin_service`/`pwin_service`/`scoring_transport`
+      документы не обрабатывают). `pytesseract` для root-проекта отдельно не
+      нужен — уже тянется транзитивно через `scoring-common` как обычную
+      (не PYTHONPATH-only) зависимость.
       **Тарификация (2026-09-27, решение пользователя):** Yandex OCR —
       платный сервис (0.1321 ₽/распознанная страница, подтверждено по
       документации). Добавлены `ocr_cost_rub`/`ocr_cost_usd` в

@@ -32,6 +32,8 @@ RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
     libxkbcommon0 \
     libxrandr2 \
     xdg-utils \
+    tesseract-ocr \
+    tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
 # uv для установки зависимостей

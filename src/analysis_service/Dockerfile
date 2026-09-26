@@ -6,10 +6,13 @@ ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
 # Конвертеры легаси .doc в текст (catdoc/antiword): MarkItDown .doc не понимает,
-# а RAG-экстрактор ТЗ падает на них без внешнего конвертера.
+# а RAG-экстрактор ТЗ падает на них без внешнего конвертера. tesseract-ocr —
+# локальный OCR-фолбэк для сканов PDF (scoring_common.ocr.TesseractOcrClient),
+# подхватывается автоматически, если облачный Yandex OCR не настроен/недоступен.
 RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
     && apt-get update \
-    && apt-get install -y --no-install-recommends catdoc antiword \
+    && apt-get install -y --no-install-recommends \
+        catdoc antiword tesseract-ocr tesseract-ocr-rus \
     && rm -rf /var/lib/apt/lists/*
 
 # Build context — ../src (содержит analysis_service и scoring_common).

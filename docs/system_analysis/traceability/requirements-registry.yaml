@@ -2814,6 +2814,19 @@ requirements:
       ``tesseract-ocr-rus``) — best-effort, без него фолбэк просто недоступен
       (``recognize_pdf`` возвращает ``None``, как отсутствие LibreOffice для
       ``.doc``).
+
+      2026-09-27 (решение пользователя): ``tesseract-ocr``/``tesseract-ocr-rus``
+      установлены и добавлены в apt-установку ``docker/Dockerfile``,
+      ``analysis_service/Dockerfile``, ``indexing_service/Dockerfile``,
+      ``scoring_service/Dockerfile`` — только эти 4 образа доходят до
+      ``scoring_common.tz.extract_text_cached`` (``margin_service``/
+      ``pwin_service``/``scoring_transport`` документы не обрабатывают).
+      ``pytesseract`` для root-проекта не потребовался — уже резолвится
+      транзитивно через ``scoring-common`` (обычная, не PYTHONPATH-only,
+      зависимость). Полная цепочка подтверждена вживую: реальный
+      многостраничный документ закупки 3088 (6693 символа) и сценарий
+      «невалидный ключ Yandex → 401 → автоматический откат на tesseract
+      (``ChainOcrClient``) без потери результата».
   - id: FR-13.7
     type: FR
     title: Условия отчётных полей (оператор + значение, проверка кодом), поле-список
