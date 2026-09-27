@@ -9,7 +9,7 @@
 #   scripts/compose.sh                   # то же, что: up
 #   scripts/compose.sh up                # собрать и поднять стек в фоне (up -d --build)
 #   scripts/compose.sh up --no-langfuse   # поднять стек БЕЗ LangFuse (быстрый dev-стек)
-#   scripts/compose.sh up --no-build       # поднять, НЕ пересобирая (использовать существующие образы)
+#   scripts/compose.sh up --no-build       # поднять, НЕ пересобирая (--build — дефолт; неизвестный флаг у up — ошибка)
 #   scripts/compose.sh demo up [args]    # изолированный демо-стек: свой project и свои
 #                                        # host-порты (не конфликтует с dev); demo down/ps/logs/config тоже работают
 #   scripts/compose.sh demo up --ref [тег]  # демо из зафиксированного снапшота (--ref без значения
@@ -121,6 +121,18 @@ else
     exit 1
 fi
 
+# Значение COMPOSE_PROFILES для docker compose. Пустая строка НЕ отключает
+# профили: docker compose игнорирует пустое значение и берёт COMPOSE_PROFILES
+# из docker/.env (там langfuse). Поэтому при выключенном LangFuse подставляем
+# заведомо необъявленный профиль — активными остаются только сервисы без profiles.
+compose_profiles_env() {
+    if [[ -n "$PROFILE" ]]; then
+        printf '%s' "$PROFILE"
+    else
+        printf '%s' "__none__"
+    fi
+}
+
 # --- free-port: освободить порт, занятый Docker-контейнером -----------------
 free_port() {
     local port="${1:-5432}"
@@ -171,14 +183,26 @@ case "$CMD" in
         ;;
     up)
         # LangFuse поднимается по умолчанию (продакшн). `--no-langfuse` — отключить.
-        # `--no-build` — не пересобирать образы (взять уже собранные).
+        # `--no-build` — не пересобирать образы (взять уже собранные), `--build` —
+        # явно пересобрать (то же, что дефолт). Неизвестные/опечатанные флаги —
+        # ошибка: раньше они молча игнорировались и стек поднимался с неверным
+        # профилем (например, опечатка в `--no-langfuse` оставляла LangFuse включённым).
         BUILD_FLAG="--build"
         for a in "$@"; do
             case "$a" in
                 --langfuse) PROFILE="langfuse" ;;
                 --no-langfuse) PROFILE="" ;;
+                --build) BUILD_FLAG="--build" ;;
                 --no-build) BUILD_FLAG="" ;;
-                *) ;;
+                *)
+                    echo "Ошибка: неизвестный аргумент '$a'." >&2
+                    if (( DEMO == 1 )); then
+                        echo "Допустимо для 'demo up': --ref [тег] | --langfuse | --no-langfuse | --build | --no-build." >&2
+                    else
+                        echo "Допустимо для 'up': --langfuse | --no-langfuse | --build | --no-build." >&2
+                    fi
+                    exit 2
+                    ;;
             esac
         done
 
@@ -244,43 +268,43 @@ case "$CMD" in
         fi
         cd "$ROOT_DIR"
         # shellcheck disable=SC2086
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d ${BUILD_FLAG}
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d ${BUILD_FLAG}
         echo "Стек поднят. API: http://localhost:${API_PORT:-8000}/  (лог: scripts/compose.sh logs)"
         ;;
     down)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" down
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" down
         echo "Стек остановлен и удалён (том БД pgdata сохранён)."
         ;;
     stop)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" down
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" down
         echo "Стек остановлен, контейнеры удалены (том БД pgdata сохранён)."
         ;;
     start)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" start
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" start
         echo "Контейнеры запущены."
         ;;
     restart)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" restart
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" restart
         ;;
     build)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" build
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" build
         ;;
     config)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" config "$@"
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" config "$@"
         ;;
     ps|status)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" ps
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" ps
         ;;
     logs)
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$PROFILE" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" logs -f "$@"
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" logs -f "$@"
         ;;
     free-port)
         free_port "$FP_PORT" "$FP_FORCE"

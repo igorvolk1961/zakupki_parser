@@ -120,9 +120,10 @@ LangFuse-сессию** (`session_id = run_id`): воркер создаёт о�
 В `docker/docker-compose.yml` стек LangFuse v4 (+ ClickHouse) за compose-профилем `langfuse`:
 postgres, clickhouse, MinIO, web, worker. Профиль **включён по умолчанию** для локального
 `docker compose up` (переменная `COMPOSE_PROFILES=langfuse` в `docker/.env`), поэтому при
-разработке LangFuse поднимается автоматически; отключить — `COMPOSE_PROFILES= docker compose up ...`.
-Боевой `scripts/compose.sh up` профиль отключает (LangFuse не поднимается); включить —
-`scripts/compose.sh up --langfuse`.
+разработке LangFuse поднимается автоматически. Отключить — `scripts/compose.sh up --no-langfuse`;
+для прямого `docker compose` — `COMPOSE_PROFILES=__none__ docker compose up ...` (пустое значение,
+`COMPOSE_PROFILES=`, профиль НЕ отключает: эту же переменную задаёт `docker/.env`).
+`scripts/compose.sh up` включает LangFuse по умолчанию; выключить — `--no-langfuse`.
 
 Dev-стек `scripts/run_all.sh` поднимает LangFuse по умолчанию (`SKIP_LANGFUSE=1` — пропустить).
 UI: http://localhost:3000 (логин/пароль из `LANG_ADMIN_PASSWORD` в `docker/.env`). Проект `zakupki`

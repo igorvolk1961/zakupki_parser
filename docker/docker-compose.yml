@@ -1,3 +1,12 @@
+# Образ MinIO. Публичные образы MinIO CE удалены из quay.io и Docker Hub
+# (401 UNAUTHORIZED / denied), поэтому используем зеркало Coolify — побайтово
+# официальный образ MinIO (тот же ENTRYPOINT/CMD, версии MinIO), публикуемое
+# после удаления. Образ зафиксирован по digest (неизменяемому), чтобы
+# пере-тег зеркала не подменял содержимое. Digest соответствует
+# RELEASE.2025-10-15T17-29-55Z. Образ содержит и сервер minio, и клиент mc
+# (/usr/bin/mc) — отдельный minio/mc не нужен (см. minio-init).
+x-minio-image: &minio-image ghcr.io/coollabsio/minio@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9
+
 services:
   db:
     image: postgres:16-alpine
@@ -89,7 +98,7 @@ services:
       start_period: 1s
 
   minio:
-    image: quay.io/minio/minio:latest
+    image: *minio-image
     # Без profiles: обязательное объектное хранилище стека (scoring_common.
     # object_storage — кэш текста документов закупки, OBJECT_STORAGE_*) и
     # хранилище Langfuse (LANG_S3_BUCKET).
@@ -105,7 +114,9 @@ services:
     restart: unless-stopped
 
   minio-init:
-    image: quay.io/minio/mc:latest
+    # В образе MinIO уже есть клиент mc (/usr/bin/mc, PATH включает /usr/bin),
+    # поэтому отдельный образ minio/mc не требуется.
+    image: *minio-image
     depends_on:
       minio:
         condition: service_started
