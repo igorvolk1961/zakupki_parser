@@ -623,34 +623,153 @@ function setProfileSaveStatus(msg, isError) {
   el.classList.toggle("error", !!isError);
 }
 
+// --- Подсказки ОКПД2: поиск по коду/названию в справочнике (~20300 записей) -
+// GET /api/reference/okpd2/search?q=&limit= — код-префикс ИЛИ подстрока названия.
+let okpdSuggestItems = [];
+let okpdSuggestActive = -1;
+let okpdSuggestSeq = 0; // защита от «опоздавшего» ответа при быстром вводе
+let okpdSearchTimer = null;
+
+function hideOkpdSuggest() {
+  const box = $("#pf-okpd-suggest");
+  if (!box) return;
+  box.hidden = true;
+  box.innerHTML = "";
+  okpdSuggestItems = [];
+  okpdSuggestActive = -1;
+}
+
+function updateOkpdSuggestActive() {
+  const box = $("#pf-okpd-suggest");
+  if (!box) return;
+  box.querySelectorAll(".okpd-suggest-item").forEach((el, i) => {
+    el.classList.toggle("active", i === okpdSuggestActive);
+  });
+  const activeEl = box.querySelector(".okpd-suggest-item.active");
+  if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
+}
+
+function pickOkpdSuggestion(idx) {
+  const item = okpdSuggestItems[idx];
+  if (!item) return;
+  if (!profileOkpd.includes(item.code)) profileOkpd.push(item.code);
+  const input = $("#pf-okpd-tags").querySelector("input");
+  input.value = "";
+  hideOkpdSuggest();
+  setProfileSaveStatus("");
+  renderTags(profileOkpd, "#pf-okpd-tags");
+  input.focus();
+}
+
+function renderOkpdSuggest(items) {
+  const box = $("#pf-okpd-suggest");
+  if (!box) return;
+  okpdSuggestItems = items;
+  okpdSuggestActive = items.length ? 0 : -1;
+  if (!items.length) {
+    box.innerHTML = '<div class="okpd-suggest-empty">Ничего не найдено</div>';
+    box.hidden = false;
+    return;
+  }
+  box.innerHTML = items
+    .map(
+      (it, i) =>
+        `<div class="okpd-suggest-item${i === 0 ? " active" : ""}" data-idx="${i}">` +
+        `<span class="code">${escapeHtml(it.code)}</span>` +
+        `<span class="name">${escapeHtml(it.name)}</span></div>`
+    )
+    .join("");
+  box.hidden = false;
+  box.querySelectorAll(".okpd-suggest-item").forEach((el) => {
+    // mousedown, не click: срабатывает раньше blur поля ввода — иначе blur
+    // скрыл бы подсказки до того, как клик успеет их обработать.
+    el.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      pickOkpdSuggestion(Number(el.dataset.idx));
+    });
+  });
+}
+
+async function searchOkpdSuggestions(q) {
+  const seq = ++okpdSuggestSeq;
+  if (!q.trim()) {
+    hideOkpdSuggest();
+    return;
+  }
+  try {
+    const r = await api("reference/okpd2/search", { q, limit: 20 });
+    if (seq !== okpdSuggestSeq) return; // ответ на устаревший запрос — игнорируем
+    renderOkpdSuggest(r.items || []);
+  } catch (err) {
+    if (seq === okpdSuggestSeq) hideOkpdSuggest();
+  }
+}
+
+function addRawOkpdCodes(input) {
+  const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return;
+  const bad = [];
+  parts.forEach((w) => {
+    if (!okpdIsValid(w)) {
+      bad.push(w);
+      return;
+    }
+    if (!profileOkpd.includes(w)) profileOkpd.push(w);
+  });
+  if (bad.length) {
+    setProfileSaveStatus(
+      `Код ОКПД2 «${bad.join('», «')}» имеет неверный формат: цифры, разделённые точками (например, 62.02 или 62.02.20.110)`,
+      true
+    );
+  } else {
+    setProfileSaveStatus("");
+  }
+  input.value = "";
+  hideOkpdSuggest();
+  renderTags(profileOkpd, "#pf-okpd-tags");
+}
+
 function bindOkpdTagInput() {
   const box = $("#pf-okpd-tags");
   if (!box) return;
   const input = box.querySelector("input");
   input.addEventListener("focus", () => renderTags(profileOkpd, "#pf-okpd-tags"));
+  input.addEventListener("input", () => {
+    clearTimeout(okpdSearchTimer);
+    const q = input.value;
+    okpdSearchTimer = setTimeout(() => searchOkpdSuggestions(q), 250);
+  });
+  input.addEventListener("blur", () => {
+    // Небольшая задержка: mousedown на подсказке уже успевает сработать раньше.
+    setTimeout(hideOkpdSuggest, 150);
+  });
   input.addEventListener("keydown", (e) => {
+    const suggestBox = $("#pf-okpd-suggest");
+    const suggestOpen = suggestBox && !suggestBox.hidden && okpdSuggestItems.length;
+    if (e.key === "ArrowDown" && suggestOpen) {
+      e.preventDefault();
+      okpdSuggestActive = Math.min(okpdSuggestActive + 1, okpdSuggestItems.length - 1);
+      updateOkpdSuggestActive();
+      return;
+    }
+    if (e.key === "ArrowUp" && suggestOpen) {
+      e.preventDefault();
+      okpdSuggestActive = Math.max(okpdSuggestActive - 1, 0);
+      updateOkpdSuggestActive();
+      return;
+    }
+    if (e.key === "Escape") {
+      hideOkpdSuggest();
+      return;
+    }
     if (e.key !== "Enter") return;
     e.preventDefault();
-    const parts = input.value.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!parts.length) return;
-    const bad = [];
-    parts.forEach((w) => {
-      if (!okpdIsValid(w)) {
-        bad.push(w);
-        return;
-      }
-      if (!profileOkpd.includes(w)) profileOkpd.push(w);
-    });
-    if (bad.length) {
-      setProfileSaveStatus(
-        `Код ОКПД2 «${bad.join('», «')}» имеет неверный формат: цифры, разделённые точками (например, 62.02 или 62.02.20.110)`,
-        true
-      );
-    } else {
-      setProfileSaveStatus("");
+    if (suggestOpen && okpdSuggestActive >= 0) {
+      pickOkpdSuggestion(okpdSuggestActive);
+      return;
     }
-    input.value = "";
-    renderTags(profileOkpd, "#pf-okpd-tags");
+    // Подсказок нет (или скрыты) — прежнее поведение: код как есть, по формату.
+    addRawOkpdCodes(input);
   });
 }
 

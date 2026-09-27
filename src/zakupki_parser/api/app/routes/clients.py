@@ -20,6 +20,8 @@ from zakupki_parser.api.app.profile_source import (
 )
 from zakupki_parser.api.app.schemas import (
     LicenseIn,
+    Okpd2CodeOut,
+    Okpd2SearchOut,
     ProfileExportOut,
     ProfileFromUrlIn,
     ProfileFromUrlOut,
@@ -372,6 +374,29 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         return ProfileListOut(
             total=total, items=[await _profile_out(r, keywords.get(r.id)) for r in rows]
         )
+
+    # Путь под /api/reference/ (как routes/reference.py), но зарегистрирован здесь,
+    # а не в REFERENCE_TABLES: это поиск-typeahead по большому (~20300 строк)
+    # справочнику для виджета выбора кодов в редакторе профиля (require_base —
+    # любой владелец профиля), а не CRUD-редактор маленькой аналитической таблицы
+    # (require_analyst, отдаёт список целиком) — разная аудитория и форма доступа.
+    @router.get(
+        "/api/reference/okpd2/search",
+        response_model=Okpd2SearchOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def search_okpd2(
+        q: str = Query(default="", max_length=200),
+        limit: int = Query(default=20, ge=1, le=50),
+    ) -> Okpd2SearchOut:
+        """Поиск кодов ОКПД2 по префиксу кода или подстроке названия (виджет выбора
+        кодов в редакторе профиля, FR — множественный выбор с поиском по коду/названию).
+
+        Пустой запрос — пустой результат (справочник ~20300 записей, отдавать его
+        целиком в ответ на пустой ``q`` бессмысленно и дорого).
+        """
+        rows = await _repo().search_okpd2_codes(q, limit=limit)
+        return Okpd2SearchOut(items=[Okpd2CodeOut(code=r.code, name=r.name) for r in rows])
 
     @router.get(
         "/api/clients/{client_id}",

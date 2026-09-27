@@ -921,3 +921,51 @@ def test_keywords_sync_and_single_active_profile() -> None:
             await db.dispose()
 
     asyncio.run(_run())
+
+
+@pytest.mark.slow  # тот же module-scoped mc_client (см. комментарий выше по файлу)
+def test_okpd2_search_by_code_prefix_and_name_fragment(mc_client: TestClient) -> None:
+    """GET /api/reference/okpd2/search — виджет выбора кодов ОКПД2 в редакторе
+    профиля: поиск по префиксу кода ИЛИ подстроке названия, пустой запрос — пусто.
+
+    Таблица создаётся ``Base.metadata.create_all`` (как весь тестовый стек), но
+    не заполняется — реальные 20300+ строк грузит только Liquibase ``loadData``
+    (docker/liquibase/changelog/db.changelog-1.71.yaml), в тестовой БД её нет.
+    Сеет 2 строки через тот же generic-хелпер, что использует admin-справочник.
+    """
+    from zakupki_parser.storage.db import Okpd2Code
+
+    async def _seed() -> None:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.create_reference_row(
+                Okpd2Code,
+                {"code": "62.02", "name": "Услуги консультативные по компьютерной технике"},
+            )
+            await repo.create_reference_row(
+                Okpd2Code,
+                {
+                    "code": "62.02.10",
+                    "name": "Услуги консультативные по компьютерному оборудованию",
+                },
+            )
+        finally:
+            await db.dispose()
+
+    asyncio.run(_seed())
+    client = mc_client
+
+    by_code = client.get("/api/reference/okpd2/search", params={"q": "62.02"})
+    assert by_code.status_code == 200
+    codes = [it["code"] for it in by_code.json()["items"]]
+    assert "62.02" in codes and "62.02.10" in codes
+
+    by_name = client.get("/api/reference/okpd2/search", params={"q": "консультативные"})
+    assert by_name.status_code == 200
+    assert len(by_name.json()["items"]) >= 2
+
+    empty = client.get("/api/reference/okpd2/search", params={"q": ""})
+    assert empty.status_code == 200
+    assert empty.json()["items"] == []

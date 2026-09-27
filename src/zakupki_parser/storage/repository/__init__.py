@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from zakupki_parser.storage.repository.accounts import AccountMixin
 from zakupki_parser.storage.repository.base import _round_score, effective_is_active
+from zakupki_parser.storage.repository.classifiers import ClassifierMixin
 from zakupki_parser.storage.repository.customers import CustomerMixin
 from zakupki_parser.storage.repository.cycle_stats import CycleStatsMixin
 from zakupki_parser.storage.repository.db_stats import DbStatsMixin
@@ -34,6 +35,7 @@ class ProcurementRepository(
     DbStatsMixin,
     PlatformStatsMixin,
     SiteSourceMixin,
+    ClassifierMixin,
 ):
     """Операции с таблицей ``procurements`` (и смежными доменами).
 

@@ -739,6 +739,19 @@ class ReferenceRowsOut(BaseModel):
     items: list[dict[str, Any]]
 
 
+class Okpd2CodeOut(BaseModel):
+    """Один код ОКПД2 (для поиска в редакторе профиля — код + наименование)."""
+
+    code: str
+    name: str
+
+
+class Okpd2SearchOut(BaseModel):
+    """Результат поиска по справочнику ОКПД2 (виджет выбора кодов профиля)."""
+
+    items: list[Okpd2CodeOut]
+
+
 class OptionOut(BaseModel):
     """Опция каталога в личном кабинете: что доступно и почему.
 

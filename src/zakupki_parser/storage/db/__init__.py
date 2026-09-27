@@ -30,6 +30,7 @@ from zakupki_parser.storage.db.profile import (
     ProfileExperience,
     ProfileLicense,
 )
+from zakupki_parser.storage.db.reference import Okpd2Code
 from zakupki_parser.storage.db.search_index import ProcurementSearchIndex
 from zakupki_parser.storage.db.site_source import SOURCE_FINAL_STATUSES, SiteSource
 from zakupki_parser.storage.db.user import User
@@ -44,6 +45,7 @@ __all__ = [
     "ExperienceConfirmationType",
     "Keyword",
     "LicenseType",
+    "Okpd2Code",
     "ParserCycleStats",
     "ParserPlatformStats",
     "Platform",
