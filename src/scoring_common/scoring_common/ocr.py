@@ -34,8 +34,11 @@ import base64
 import io
 import logging
 import shutil
+import subprocess
+import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
@@ -44,6 +47,79 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from scoring_common.costing import ocr_cost_rub, ocr_cost_usd
 
 logger = logging.getLogger(__name__)
+
+# Таймаут одного вызова pdftoppm (рендер PDF в изображения) — best-effort
+# фолбэк, не должен зависать на битом/огромном файле дольше разумного.
+_POPPLER_RENDER_TIMEOUT_SECONDS = 120.0
+
+
+def _render_pdf_pages(raw: bytes, resolution: int) -> list[Any] | None:
+    """Отрендерить страницы PDF в изображения (PIL): pdfplumber -> poppler (фолбэк).
+
+    Общая точка рендера для обоих OCR-клиентов (Yandex/Tesseract). pdfplumber
+    (pdfminer.six) иногда открывает технически валидный PDF, но не находит НИ
+    ОДНОЙ страницы — найдено на реальном сканированном ТЗ закупки (аудит
+    2026-09-28): ``pdfinfo``/``pdftoppm`` (poppler) корректно видят и рендерят
+    все 7 страниц, а ``pdfplumber.open(...).pages`` — пустой список без
+    исключения. Поэтому: pdfplumber пробуется первым (пока справляется для
+    подавляющего большинства файлов), пусто/сбой — фолбэк на poppler.
+    """
+    try:
+        import pdfplumber
+    except ImportError as exc:  # noqa: BLE001 - опциональная зависимость
+        logger.warning("OCR: недоступен pdfplumber для рендера страниц: %s", exc)
+        return _render_pdf_pages_via_poppler(raw, resolution)
+    try:
+        with pdfplumber.open(io.BytesIO(raw)) as pdf:
+            images = [page.to_image(resolution=resolution).original for page in pdf.pages]
+        if images:
+            return images
+        logger.info("OCR: pdfplumber не нашёл страниц в PDF — пробуем рендер через poppler")
+    except Exception as exc:  # noqa: BLE001 - битый PDF/сбой pdfplumber, best-effort
+        logger.warning("OCR: pdfplumber не смог отрендерить страницы PDF: %s", exc)
+    return _render_pdf_pages_via_poppler(raw, resolution)
+
+
+def _render_pdf_pages_via_poppler(raw: bytes, resolution: int) -> list[Any] | None:
+    """Резервный рендер страниц через системный poppler (``pdftoppm``, apt: ``poppler-utils``).
+
+    best-effort: без бинарника/Pillow или при сбое ``pdftoppm`` — ``None``
+    (не бросает исключение), как отсутствие tesseract у ``TesseractOcrClient``.
+    """
+    if shutil.which("pdftoppm") is None:
+        logger.warning(
+            "OCR: рендер страниц PDF недоступен — ни pdfplumber, ни poppler "
+            "(pdftoppm не найден в PATH, apt install poppler-utils)"
+        )
+        return None
+    try:
+        from PIL import Image
+    except ImportError as exc:  # noqa: BLE001 - опциональная зависимость
+        logger.warning("OCR: недоступен Pillow для рендера через poppler: %s", exc)
+        return None
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pdf_path = Path(tmpdir) / "input.pdf"
+        pdf_path.write_bytes(raw)
+        prefix = Path(tmpdir) / "page"
+        try:
+            subprocess.run(
+                ["pdftoppm", "-png", "-r", str(resolution), str(pdf_path), str(prefix)],
+                check=True,
+                capture_output=True,
+                timeout=_POPPLER_RENDER_TIMEOUT_SECONDS,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning("OCR: pdftoppm не смог отрендерить страницы PDF: %s", exc)
+            return None
+        page_files = sorted(Path(tmpdir).glob("page-*.png"))
+        if not page_files:
+            return None
+        images: list[Any] = []
+        for path in page_files:
+            image = Image.open(path)
+            image.load()  # страница нужна ПОСЛЕ удаления tmpdir — грузим в память сразу
+            images.append(image)
+        return images
 
 
 class Ocrable(Protocol):
@@ -139,16 +215,8 @@ class YandexOcrClient:
         self._pages_billed = 0
 
     def recognize_pdf(self, raw: bytes) -> str | None:
-        try:
-            import pdfplumber
-        except ImportError as exc:  # noqa: BLE001 - опциональная зависимость
-            logger.warning("Yandex OCR: недоступен pdfplumber для рендера страниц: %s", exc)
-            return None
-        try:
-            with pdfplumber.open(io.BytesIO(raw)) as pdf:
-                images = [page.to_image(resolution=self._resolution).original for page in pdf.pages]
-        except Exception as exc:  # noqa: BLE001 - битый PDF, best-effort
-            logger.warning("Yandex OCR: не удалось отрендерить страницы PDF: %s", exc)
+        images = _render_pdf_pages(raw, self._resolution)
+        if not images:
             return None
         texts: list[str] = []
         for image in images:
@@ -238,22 +306,22 @@ class TesseractOcrClient:
             )
             return None
         try:
-            import pdfplumber
             import pytesseract
         except ImportError as exc:  # noqa: BLE001 - опциональная зависимость
             logger.warning("Локальный OCR-фолбэк недоступен: %s", exc)
             return None
-        try:
-            texts: list[str] = []
-            with pdfplumber.open(io.BytesIO(raw)) as pdf:
-                for page in pdf.pages:
-                    image = page.to_image(resolution=self._settings.resolution).original
-                    page_text = pytesseract.image_to_string(image, lang=self._settings.languages)
-                    if page_text.strip():
-                        texts.append(page_text.strip())
-        except Exception as exc:  # noqa: BLE001 - битый PDF/сбой tesseract, best-effort
-            logger.warning("Tesseract: сбой распознавания PDF: %s", exc)
+        images = _render_pdf_pages(raw, self._settings.resolution)
+        if not images:
             return None
+        texts: list[str] = []
+        for image in images:
+            try:
+                page_text = pytesseract.image_to_string(image, lang=self._settings.languages)
+            except Exception as exc:  # noqa: BLE001 - сбой tesseract на одной странице, best-effort
+                logger.warning("Tesseract: сбой распознавания страницы: %s", exc)
+                continue
+            if page_text.strip():
+                texts.append(page_text.strip())
         text = "\n\n".join(texts).strip()
         return text or None
 

@@ -310,7 +310,10 @@ def test_tesseract_client_recognizes_pages(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_tesseract_client_missing_dependency_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(ocr_mod.shutil, "which", lambda _name: "/usr/bin/tesseract")
+    """Нет pdfplumber И нет poppler (pdftoppm) — рендер страниц недоступен вовсе."""
+    monkeypatch.setattr(
+        ocr_mod.shutil, "which", lambda name: "/usr/bin/tesseract" if name == "tesseract" else None
+    )
     monkeypatch.setitem(sys.modules, "pdfplumber", None)
     client = TesseractOcrClient()
     assert client.recognize_pdf(b"raw") is None
@@ -336,3 +339,107 @@ def test_chain_client_all_empty_returns_none() -> None:
 
     chain = ChainOcrClient([_Empty(), _Empty()])
     assert chain.recognize_pdf(b"raw") is None
+
+
+# --- Рендер страниц PDF: pdfplumber -> poppler (фолбэк) ---------------------
+
+
+def test_render_pdf_pages_falls_back_to_poppler_when_pdfplumber_finds_no_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """pdfplumber открывает файл, но не находит ни одной страницы (реальный
+    случай — скан закупки 2856, аудит 2026-09-28: pdfplumber видит 0 страниц
+    у технически валидного PDF, poppler видит и рендерит все) — фолбэк на
+    pdftoppm."""
+    monkeypatch.setitem(sys.modules, "pdfplumber", _fake_pdfplumber_with_pages(0))
+    monkeypatch.setattr(
+        ocr_mod.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None
+    )
+    captured_cmd: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        captured_cmd.append(cmd)
+        prefix = cmd[-1]
+        Image.new("RGB", (2, 2), "white").save(f"{prefix}-1.png")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ocr_mod.subprocess, "run", fake_run)
+    images = ocr_mod._render_pdf_pages(b"%PDF-raw", 200)
+    assert images is not None
+    assert len(images) == 1
+    assert captured_cmd and captured_cmd[0][0] == "pdftoppm"
+
+
+def test_render_pdf_pages_falls_back_to_poppler_when_pdfplumber_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def raising_open(_stream: Any) -> Any:
+        raise ValueError("broken pdf structure")
+
+    monkeypatch.setitem(sys.modules, "pdfplumber", SimpleNamespace(open=raising_open))
+    monkeypatch.setattr(
+        ocr_mod.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None
+    )
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        prefix = cmd[-1]
+        Image.new("RGB", (2, 2), "white").save(f"{prefix}-1.png")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ocr_mod.subprocess, "run", fake_run)
+    images = ocr_mod._render_pdf_pages(b"raw", 200)
+    assert images is not None and len(images) == 1
+
+
+def test_render_pdf_pages_via_poppler_no_binary_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ocr_mod.shutil, "which", lambda _name: None)
+    assert ocr_mod._render_pdf_pages_via_poppler(b"raw", 200) is None
+
+
+def test_render_pdf_pages_via_poppler_subprocess_failure_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ocr_mod.shutil, "which", lambda _name: "/usr/bin/pdftoppm")
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        raise ocr_mod.subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(ocr_mod.subprocess, "run", fake_run)
+    assert ocr_mod._render_pdf_pages_via_poppler(b"raw", 200) is None
+
+
+def test_render_pdf_pages_via_poppler_no_output_files_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """pdftoppm завершился успешно, но не создал ни одного файла (пустой PDF)."""
+    monkeypatch.setattr(ocr_mod.shutil, "which", lambda _name: "/usr/bin/pdftoppm")
+    monkeypatch.setattr(
+        ocr_mod.subprocess, "run", lambda cmd, **kwargs: SimpleNamespace(returncode=0)
+    )
+    assert ocr_mod._render_pdf_pages_via_poppler(b"raw", 200) is None
+
+
+def test_render_pdf_pages_via_poppler_orders_pages_and_loads_into_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Несколько страниц — порядок сохраняется, изображения читаются в память
+    до удаления временной директории. Имена файлов — как реально называет их
+    poppler: номер страницы дополняется нулями слева до ширины, нужной для
+    общего числа страниц (``page-01``…``page-10``, не ``page-1``…``page-10``),
+    поэтому лексикографическая сортировка ``sorted(...)`` даёт верный порядок."""
+    monkeypatch.setattr(ocr_mod.shutil, "which", lambda _name: "/usr/bin/pdftoppm")
+
+    def fake_run(cmd: list[str], **kwargs: Any) -> SimpleNamespace:
+        prefix = cmd[-1]
+        for n in (1, 2, 10):
+            Image.new("RGB", (2, 2), "white").save(f"{prefix}-{n:02d}.png")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ocr_mod.subprocess, "run", fake_run)
+    images = ocr_mod._render_pdf_pages_via_poppler(b"raw", 200)
+    assert images is not None
+    assert len(images) == 3
+    for image in images:
+        assert image.size == (2, 2)  # доступно после закрытия tmpdir — реально в памяти

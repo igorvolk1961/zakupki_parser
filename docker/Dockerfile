@@ -34,6 +34,7 @@ RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
     xdg-utils \
     tesseract-ocr \
     tesseract-ocr-rus \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # uv для установки зависимостей

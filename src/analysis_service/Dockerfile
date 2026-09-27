@@ -9,10 +9,13 @@ ENV PYTHONUNBUFFERED=1 \
 # а RAG-экстрактор ТЗ падает на них без внешнего конвертера. tesseract-ocr —
 # локальный OCR-фолбэк для сканов PDF (scoring_common.ocr.TesseractOcrClient),
 # подхватывается автоматически, если облачный Yandex OCR не настроен/недоступен.
+# poppler-utils (pdftoppm) — резервный рендерер страниц PDF в изображения для
+# OCR: pdfplumber иногда не может даже перечислить страницы технически
+# валидного PDF (найдено на реальном скане, аудит 2026-09-28), poppler — может.
 RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        catdoc antiword tesseract-ocr tesseract-ocr-rus \
+        catdoc antiword tesseract-ocr tesseract-ocr-rus poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Build context — ../src (содержит analysis_service и scoring_common).
