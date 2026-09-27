@@ -239,6 +239,7 @@ services:
     build:
       context: ../src
       dockerfile: scoring_service/Dockerfile
+      network: host
     depends_on:
       redis:
         condition: service_healthy
@@ -278,6 +279,7 @@ services:
     build:
       context: ../src
       dockerfile: scoring_transport/Dockerfile
+      network: host
     depends_on:
       redis:
         condition: service_healthy
@@ -300,6 +302,7 @@ services:
     build:
       context: ../src
       dockerfile: pwin_service/Dockerfile
+      network: host
     depends_on:
       redis:
         condition: service_healthy
@@ -317,6 +320,7 @@ services:
     build:
       context: ../src
       dockerfile: margin_service/Dockerfile
+      network: host
     depends_on:
       redis:
         condition: service_healthy
@@ -334,6 +338,7 @@ services:
     build:
       context: ../src
       dockerfile: analysis_service/Dockerfile
+      network: host
     depends_on:
       redis:
         condition: service_healthy
@@ -384,6 +389,7 @@ services:
     build:
       context: ../src
       dockerfile: indexing_service/Dockerfile
+      network: host
     depends_on:
       redis:
         condition: service_healthy
@@ -416,6 +422,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      network: host
     depends_on:
       liquibase:
         condition: service_completed_successfully
