@@ -7,7 +7,7 @@ import csv
 import io
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -50,6 +50,7 @@ from zakupki_parser.parser.by_url import (
 )
 from zakupki_parser.parser.detail import extract_detail_vars, extract_details, open_detail
 from zakupki_parser.parser.filtering import region_match
+from zakupki_parser.parser.handlers.dates import MSK
 from zakupki_parser.parser.json_utils import json_safe
 from zakupki_parser.storage.db import User
 from zakupki_parser.storage.repository.accounts import effective_options
@@ -763,6 +764,12 @@ def build_procurements_router(ctx: ApiContext) -> APIRouter:
             """Строка отчёта; барьер — цветом: жёсткий красным, мягкий янтарным."""
             if isinstance(value, (dict, list)):
                 value = json.dumps(value, ensure_ascii=False)
+            elif isinstance(value, datetime) and value.tzinfo is not None:
+                # Excel не поддерживает tz-aware datetime (openpyxl -> TypeError).
+                # Площадки отдают даты в МСК: приводим к ней и снимаем tzinfo.
+                value = value.astimezone(MSK).replace(tzinfo=None)
+            elif isinstance(value, time) and value.tzinfo is not None:
+                value = value.replace(tzinfo=None)
             ws.append([label, value])
             font = fonts.get(severity or "")
             if font is not None:

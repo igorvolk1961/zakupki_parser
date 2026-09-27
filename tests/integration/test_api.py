@@ -713,6 +713,49 @@ def test_export_procurement_xlsx_highlights_blocking_rows(
     assert label_cells["Номер"].font.bold is not True
 
 
+def test_export_procurement_xlsx_timezone_aware_dates(
+    api_client: tuple[TestClient, Path],
+) -> None:
+    """Excel-экспорт: tz-aware даты (Postgres timestamptz) не роняют wb.save.
+
+    Postgres отдаёт даты с tzinfo (UTC), а Excel не поддерживает tz-aware
+    datetime; экспорт приводит их к МСК и снимает tzinfo (см. MSK).
+    """
+    import openpyxl
+
+    client, _ = api_client
+
+    async def _seed() -> int:
+        db = Database(DbConfig(dsn=TEST_DSN, enabled=True))
+        await db.connect()
+        try:
+            repo = ProcurementRepository(db)
+            await repo.upsert(
+                {
+                    "number": "XLSX-TZ",
+                    "platform_id": "zakupki_mos",
+                    "subject": "Даты с поясом",
+                    "publication_date": datetime(2026, 9, 22, 8, 49, 52, tzinfo=UTC),
+                    "deadline": datetime(2026, 9, 24, 8, 0, tzinfo=UTC),
+                }
+            )
+            rows, _ = await repo.list_procurements(number="XLSX-TZ")
+            return rows[0].id
+        finally:
+            await db.dispose()
+
+    pid = asyncio.run(_seed())
+    resp = client.get(f"/api/procurements/{pid}/export.xlsx")
+    assert resp.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    assert ws is not None
+    rows_by_label = {row[0]: row[1] for row in ws.iter_rows(min_row=2, values_only=True)}
+    # 08:49:52 UTC -> 11:49:52 МСК (naive datetime в ячейке).
+    assert rows_by_label["Опубликовано"] == datetime(2026, 9, 22, 11, 49, 52)
+    assert rows_by_label["Срок подачи"] == datetime(2026, 9, 24, 11, 0)
+
+
 def test_export_procurement_xlsx_license_summary(api_client: tuple[TestClient, Path]) -> None:
     """Excel-экспорт: лицензии — компактной сводкой (вид + наличие у поставщика),
     а не сырым текстом требования (``rag_report.requirements_status.licenses``)."""
