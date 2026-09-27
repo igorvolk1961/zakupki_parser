@@ -53,6 +53,9 @@ function pollParser() {
   if (parserTimer) clearInterval(parserTimer);
   parserTimer = setInterval(async () => {
     const s = await refreshParserStatus();
+    // Статус недоступен (нет токена / сеть / 401) — не роняем таймер,
+    // повторяем попытку на следующем тике.
+    if (!s) return;
     if (s.running) {
       prevRunning = true;
       return;
