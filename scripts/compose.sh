@@ -8,6 +8,7 @@
 # Использование:
 #   scripts/compose.sh                   # то же, что: up
 #   scripts/compose.sh up                # собрать и поднять стек в фоне (up -d --build)
+#   scripts/compose.sh up api            # пересобрать/пересоздать только указанные сервисы (и зависимости)
 #   scripts/compose.sh up --no-langfuse   # поднять стек БЕЗ LangFuse (быстрый dev-стек)
 #   scripts/compose.sh up --no-build       # поднять, НЕ пересобирая (--build — дефолт; неизвестный флаг у up — ошибка)
 #   scripts/compose.sh demo up [args]    # изолированный демо-стек: свой project и свои
@@ -20,7 +21,8 @@
 #   scripts/compose.sh restart           # перезапустить
 #   scripts/compose.sh ps                # статус контейнеров
 #   scripts/compose.sh logs [svc]        # логи (можно по сервису, например: logs api)
-#   scripts/compose.sh build             # пересобрать образы
+#   scripts/compose.sh build             # пересобрать образы всех сервисов
+#   scripts/compose.sh build api scoring-service  # пересобрать только указанные сервисы
 #   scripts/compose.sh config [args]     # проверить/вывести манифест (docker compose config), напр. config --quiet
 #   scripts/compose.sh status            # алиас для ps
 #   scripts/compose.sh free-port [порт]  # освободить порт (по умолчанию 5432), занятый контейнером
@@ -133,6 +135,29 @@ compose_profiles_env() {
     fi
 }
 
+# Проверка имён сервисов, переданных пользователем (`up <svc...>` / `build <svc...>`):
+# неизвестное имя даёт понятную ошибку со списком, а не невнятный сбой compose.
+validate_services() {
+    (( $# )) || return 0
+    local known
+    # COMPOSE_PROFILES — чтобы в списке были и сервисы профиля langfuse
+    # (иначе валидация отвергла бы, например, langfuse-web).
+    known="$(COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" \
+        --project-name "$PROJECT" -f "$COMPOSE_FILE" config --services 2>/dev/null)" || known=""
+    if [[ -z "$known" ]]; then
+        return 0  # манифест не читается — не мешаем compose сообщить причину сам
+    fi
+    local svc
+    for svc in "$@"; do
+        if ! grep -qx -- "$svc" <<<"$known"; then
+            echo "Ошибка: неизвестный сервис '$svc'." >&2
+            echo "Доступные сервисы:" >&2
+            sed 's/^/  - /' <<<"$known" >&2
+            return 1
+        fi
+    done
+}
+
 # --- free-port: освободить порт, занятый Docker-контейнером -----------------
 free_port() {
     local port="${1:-5432}"
@@ -178,7 +203,7 @@ fi
 
 case "$CMD" in
     -h|--help|help)
-        sed -n '2,19p' "$0"
+        sed -n '2,29p' "$0"
         exit 0
         ;;
     up)
@@ -188,6 +213,7 @@ case "$CMD" in
         # ошибка: раньше они молча игнорировались и стек поднимался с неверным
         # профилем (например, опечатка в `--no-langfuse` оставляла LangFuse включённым).
         BUILD_FLAG="--build"
+        SERVICES=()
         for a in "$@"; do
             case "$a" in
                 --langfuse) PROFILE="langfuse" ;;
@@ -195,13 +221,18 @@ case "$CMD" in
                 --build) BUILD_FLAG="--build" ;;
                 --no-build) BUILD_FLAG="" ;;
                 *)
-                    echo "Ошибка: неизвестный аргумент '$a'." >&2
-                    if (( DEMO == 1 )); then
-                        echo "Допустимо для 'demo up': --ref [тег] | --langfuse | --no-langfuse | --build | --no-build." >&2
-                    else
-                        echo "Допустимо для 'up': --langfuse | --no-langfuse | --build | --no-build." >&2
+                    # Не флаг — имя сервиса: поднять/пересобрать только его
+                    # (например, `up --build api`). Флаги с опечаткой по-прежнему ошибка.
+                    if [[ "$a" == -* ]]; then
+                        echo "Ошибка: неизвестный аргумент '$a'." >&2
+                        if (( DEMO == 1 )); then
+                            echo "Допустимо для 'demo up': --ref [тег] | --langfuse | --no-langfuse | --build | --no-build | <сервис...>." >&2
+                        else
+                            echo "Допустимо для 'up': --langfuse | --no-langfuse | --build | --no-build | <сервис...>." >&2
+                        fi
+                        exit 2
                     fi
-                    exit 2
+                    SERVICES+=("$a")
                     ;;
             esac
         done
@@ -266,10 +297,15 @@ case "$CMD" in
                 exit 1
             fi
         fi
+        validate_services "${SERVICES[@]}" || exit 2
         cd "$ROOT_DIR"
         # shellcheck disable=SC2086
-        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d ${BUILD_FLAG}
-        echo "Стек поднят. API: http://localhost:${API_PORT:-8000}/  (лог: scripts/compose.sh logs)"
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" up -d ${BUILD_FLAG} "${SERVICES[@]}"
+        if (( ${#SERVICES[@]} )); then
+            echo "Подняты (пересобраны при необходимости) сервисы: ${SERVICES[*]}"
+        else
+            echo "Стек поднят. API: http://localhost:${API_PORT:-8000}/  (лог: scripts/compose.sh logs)"
+        fi
         ;;
     down)
         cd "$ROOT_DIR"
@@ -291,8 +327,11 @@ case "$CMD" in
         COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" restart
         ;;
     build)
+        # `build [svc ...]` — пересобрать образы всех сервисов или только указанных
+        # (`build api`). Пересоздать контейнер после сборки: `up --no-build api`.
+        validate_services "$@" || exit 2
         cd "$ROOT_DIR"
-        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" build
+        COMPOSE_PROFILES="$(compose_profiles_env)" "${COMPOSE_CMD[@]}" --project-name "$PROJECT" -f "$COMPOSE_FILE" build "$@"
         ;;
     config)
         cd "$ROOT_DIR"

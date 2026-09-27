@@ -355,6 +355,7 @@ Margin), возврат результата в `POST /score` и анализ д
 scripts/compose.sh                     # up (собрать + поднять в фоне, --build; включает LangFuse)
 scripts/compose.sh up                  # то же
 scripts/compose.sh up --no-langfuse    # то же, но без LangFuse (быстрый dev-стек)
+scripts/compose.sh up [--build] [svc]  # поднять только указанные сервисы, напр. up --build api
 scripts/compose.sh demo up             # изолированный демо-стек (свой project/порты/тома)
 scripts/compose.sh demo down           # остановить и удалить демо-стек
 scripts/compose.sh down                # остановить и удалить контейнеры (том БД сохраняется)
@@ -363,7 +364,7 @@ scripts/compose.sh start               # запустить остановлен
 scripts/compose.sh restart             # перезапустить
 scripts/compose.sh ps                  # статус контейнеров
 scripts/compose.sh logs [svc]          # логи (-f), например: logs api
-scripts/compose.sh build               # пересобрать образы
+scripts/compose.sh build [svc]         # пересобрать образы (все или только указанные: build api)
 scripts/compose.sh config --quiet      # проверить манифест (docker compose config) или вывести его
 scripts/compose.sh free-port [порт]    # освободить порт (по умолчанию 5432), занятый контейнером
 scripts/compose.sh free-port --force   # то же без запроса подтверждения

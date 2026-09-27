@@ -307,3 +307,15 @@ reverse-proxy; контейнеры остаются на HTTP внутри.
 ./scripts/compose.sh restart             # перезапуск
 ./scripts/compose.sh logs -f api         # следить за логами
 ```
+
+Пересобрать и пересоздать **только отдельные сервисы** (например, после правок в `api`,
+когда остальной стек трогать не нужно):
+
+```bash
+./scripts/compose.sh up --build api      # пересобрать образ api и пересоздать контейнер
+./scripts/compose.sh build api           # только пересобрать образ (без пересоздания)
+```
+
+Имена сервисов — как в `docker/docker-compose.yml` (`api`, `scoring-service`,
+`scoring-transport`, `analysis-service`, `indexing-service`, `pwin-service`,
+`margin-service`, ...). Неизвестное имя даёт ошибку со списком доступных.
