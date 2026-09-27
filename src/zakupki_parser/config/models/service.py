@@ -123,6 +123,25 @@ class ScoringConfig(_BaseConfig):
     )
 
 
+class AnalysisConfig(_BaseConfig):
+    """Настройки RAG-анализа стоп-условий (аналитик).
+
+    Параметры влияют на качество извлечения отчётных полей LLM; хранятся в
+    ``config_service.yaml``, значения применяются воркером analysis_service
+    (см. ``analysis_service.worker``) без рестарта — источник истины этот конфиг.
+    """
+
+    report_field_top_k: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Сколько ближайших по эмбеддингу чанков документа отдавать LLM на одно "
+            "отчётное поле. Больше — надёжнее находит нужную строку (табличные поля "
+            "вроде цены/объёма), но дороже (больше входных токенов на LLM-вызов)"
+        ),
+    )
+
+
 class IndexingConfig(_BaseConfig):
     """Фоновая индексация закупок+документов по ОКПД2 (мгновенный «горячий» пересбор).
 
@@ -233,6 +252,10 @@ class ServiceConfig(_BaseConfig):
     scoring: ScoringConfig = Field(
         default_factory=ScoringConfig,
         description="правила оценки закупки (вкладка «Параметры мониторинга»)",
+    )
+    analysis: AnalysisConfig = Field(
+        default_factory=AnalysisConfig,
+        description="настройки RAG-анализа стоп-условий (вкладка «Параметры мониторинга»)",
     )
     indexing: IndexingConfig = Field(
         default_factory=IndexingConfig,

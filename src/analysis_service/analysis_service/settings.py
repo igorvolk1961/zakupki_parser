@@ -158,8 +158,17 @@ class Settings(BaseSettings):
     # чтобы захватить нужную строку таблицы. concurrency ограничивает
     # одновременные LLM-вызовы по полям ОДНОЙ закупки (asyncio.gather под
     # семафором — в отличие от последовательного fill_requirements_data).
+    #
+    # Поднято с 5 до 10 (аудит профиля «Экопаттерн», закупка 3098, 2026-09-26/28):
+    # нужный чанк («24А — 80 тн») нестабильно попадал в top-5 (то 5-я, то 6-я
+    # позиция — шум эмбеддинг-API между вызовами), из-за чего поле иногда
+    # честно уходило в found=false вместо значения. При top_k=10 у чанка вдвое
+    # больше запаса до границы отсечения — тот же шум ранжирования уже не
+    # выталкивает его из контекста. Цена — больше входных токенов на каждый
+    # LLM-вызов отчётного поля (нелинейно к качеству, но приемлемо: контекст
+    # одного чанка небольшой, см. chunk_max_chars).
     report_field_top_k: int = Field(
-        default=5, ge=1, description="сколько чанков отдавать LLM на отчётное поле"
+        default=10, ge=1, description="сколько чанков отдавать LLM на отчётное поле"
     )
     report_field_concurrency: int = Field(
         default=4, ge=1, description="макс. одновременных LLM-вызовов на поля отчёта одной закупки"
@@ -203,3 +212,29 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     return Settings()
+
+
+# Поля Settings, переопределяемые аналитиком (config_service.yaml -> analysis) и
+# применяемые воркером без рестарта — тот же принцип, что у SCORING_TUNABLE_FIELDS
+# в scoring_service.settings. Ключи совпадают с именами полей Settings; snapshot
+# из /api/config/analysis прокидывается как есть.
+ANALYSIS_TUNABLE_FIELDS: frozenset[str] = frozenset({"report_field_top_k"})
+
+
+def apply_analysis_overrides(settings: Settings, analysis: dict[str, object] | None) -> None:
+    """Применить к ``settings`` аналитические настройки анализа (config_service.yaml).
+
+    В отличие от ``scoring_service.apply_scoring_overrides`` (immutable — возвращает
+    новый ``Settings``, воркер пересобирает Scorer целиком), здесь настройки
+    мутируются НА МЕСТЕ: ``AnalysisWorker`` хранит ЕДИНЫЙ объект ``Settings``,
+    разделяемый по ссылке с ``RagAnalyzer``/``ReportFieldExtractor`` — им не нужно
+    пересобираться, чтобы увидеть новое значение (``report_field_top_k`` не влияет
+    на конструирование LLM/эмбеддинг-клиентов, только читается за раз перед каждым
+    отчётным полем). ``analysis`` — snapshot ``ServiceConfig.analysis`` (из парсера);
+    пустой/неизвестный snapshot настройки не меняет.
+    """
+    if not analysis:
+        return
+    for key, value in analysis.items():
+        if key in ANALYSIS_TUNABLE_FIELDS and value is not None:
+            setattr(settings, key, value)

@@ -23,7 +23,7 @@ from analysis_service.pipeline.matcher import (
 )
 from analysis_service.pipeline.prompts import build_geo_address_messages
 from analysis_service.pipeline.rag import RagAnalyzer
-from analysis_service.settings import Settings
+from analysis_service.settings import Settings, apply_analysis_overrides
 from scoring_common.geo.centers import GeoPoint
 from scoring_common.geo.distance import distance_km
 from scoring_common.geo.geocoder import Geocoder, build_geocoder
@@ -266,10 +266,27 @@ class AnalysisWorker:
             "region_centers": [{"lat": c.lat, "lon": c.lon} for c in centers],
         }
 
+    async def _refresh_analysis_config(self) -> None:
+        """Подтянуть аналитические настройки анализа (config_service.yaml -> analysis).
+
+        Кэшируется ``ParserApiClient`` на TTL — вызов на каждое задание дешёвый
+        (сеть идёт не чаще раза в минуту). Сбой сети/парсера — best-effort,
+        оставляет текущие (последние применённые или стартовые) настройки.
+        """
+        try:
+            snapshot = await self._parser.get_analysis_config(
+                internal_token=self._settings.parser_internal_token
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort, не роняет обработку задания
+            logger.warning("Не удалось получить настройки анализа от парсера: %s", exc)
+            return
+        apply_analysis_overrides(self._settings, snapshot)
+
     async def _process_once(self) -> None:
         job = await self._queue.pop_job()
         if job is None:
             return
+        await self._refresh_analysis_config()
         procurement_id, profile_id, priority = job
         logger.info(
             "Processing analysis for procurement %s (profile %s, priority=%.2f)",

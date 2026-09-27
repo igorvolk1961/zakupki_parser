@@ -384,6 +384,11 @@ def _service_schema_transform(schema: list[dict[str, Any]]) -> list[dict[str, An
                 label = scoring_labels.get(sub["key"])
                 if label:
                     sub["label"] = label
+        elif field.get("key") == "analysis" and field.get("kind") == "object":
+            field["stack"] = True
+            for sub in field["fields"]:
+                if sub["key"] == "report_field_top_k":
+                    sub["label"] = "Чанков на отчётное поле (top-k)"
         elif field.get("key") == "indexing" and field.get("kind") == "object":
             field["stack"] = True
             field["label"] = "Фоновая индексация по ОКПД2"
@@ -1113,6 +1118,20 @@ def build_config_router(ctx: ApiContext) -> APIRouter:
         чтобы воркер применял актуальные правила оценки без рестарта.
         """
         return state.cfg.service.scoring.model_dump()
+
+    @router.get(
+        "/api/config/analysis",
+        response_model=dict[str, Any],
+        include_in_schema=False,
+        dependencies=[Depends(ctx.require_user_or_internal)],
+    )
+    async def get_analysis_config() -> dict[str, Any]:
+        """Настройки RAG-анализа (config_service.yaml -> analysis).
+
+        Читается внутренним конвейером (analysis_service) через X-Internal-Token,
+        чтобы воркер применял актуальные настройки анализа без рестарта.
+        """
+        return state.cfg.service.analysis.model_dump()
 
     @router.get(
         "/api/platforms",

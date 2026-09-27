@@ -33,6 +33,8 @@ scoring:
   min_fit_score: 0.0
   score_round_digits: 2
   tz_download_timeout: 30.0
+analysis:
+  report_field_top_k: 10
 indexing:
   enabled: true
   okpd2_prefixes:

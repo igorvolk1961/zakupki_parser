@@ -274,6 +274,20 @@ def test_service_config_scoring_loaded_from_seed(app_config: AppConfig) -> None:
     assert scoring.tz_download_timeout > 0
 
 
+def test_service_config_analysis_defaults() -> None:
+    """Настройки RAG-анализа (config_service.yaml -> analysis) валидируются и
+    имеют дефолты (без секции analysis в YAML — pydantic default_factory)."""
+    from zakupki_parser.config.models.service import AnalysisConfig
+
+    ac = AnalysisConfig()
+    assert ac.report_field_top_k == 10
+
+
+def test_service_config_analysis_loaded_from_seed(app_config: AppConfig) -> None:
+    """Значения из config_service.yaml -> analysis подхватываются загрузчиком."""
+    assert app_config.service.analysis.report_field_top_k == 8
+
+
 def test_score_service_config_rejects_unknown_keys() -> None:
     from zakupki_parser.config.models import ScoringServiceConfig
 

@@ -2450,10 +2450,14 @@ requirements:
       - src/analysis_service/analysis_service/worker.py
       - src/analysis_service/analysis_service/settings.py
       - src/scoring_common/scoring_common/giga.py
+      - src/scoring_common/scoring_common/parser_api.py
+      - src/zakupki_parser/config/models/service.py
+      - src/zakupki_parser/api/app/routes/config.py
     tests:
       - src/analysis_service/tests/test_report_fields.py
       - src/analysis_service/tests/test_rag.py
       - src/scoring_common/tests/test_giga.py
+      - tests/unit/test_config.py
     notes: >-
       Переиспользует уже собранные чанки/эмбеддинги документов закупки
       (RagAnalyzer._collect_document_chunks, тот же охват ВСЕХ документов
@@ -2485,6 +2489,35 @@ requirements:
       MAX_CHARS_PER_CHUNK не всегда верна). Живая проверка: закупка,
       падавшая на 413 (fields=0, status=deferred), после фикса —
       status=ok, 8/8 полей оценены.
+
+      2026-09-28 (решение пользователя, «реши top-k retrieval проблему...
+      поднять k до 10»): дефолт ``report_field_top_k`` поднят с 5 до 10 —
+      остаточная проблема аудита (закупка 3098, нужный чанк «24А — 80 тн»
+      нестабильно попадал в top-5, то по 5-й, то по 6-й позиции из-за шума
+      эмбеддинг-API). Проверено вживую ПОВТОРНО (два прогона реальных
+      Giga-эмбеддингов): целевой чанк ранжируется на 6–7-й позиции —
+      устойчиво в пределах top-10. Поле ``f4`` («Объём отходов») теперь
+      корректно возвращает ``value: 80.0``. Попутно выяснилось: поле ``f8``
+      («Минимальный объём партии»), ранее ошибочно принятое за
+      неисправное, на самом деле корректно отдаёт ``found: false`` — «80 тн»
+      относится к общему объёму лота (f4), в документе нет отдельного
+      требования к минимальному объёму партии — это не баг retrieval, а
+      различие двух разных полей профиля.
+
+      Параметр вынесен в конфигурацию по образцу ``scoring``
+      (``config_service.yaml`` -> ``analysis``, решение пользователя,
+      2026-09-28): новая модель ``AnalysisConfig``, эндпоинт
+      ``GET /api/config/analysis`` (аналог ``/api/config/scoring``),
+      ``ParserApiClient.get_analysis_config`` (TTL-кэш 60с),
+      ``analysis_service.settings.apply_analysis_overrides``. В отличие от
+      ``apply_scoring_overrides`` (immutable — новый ``Settings``,
+      пересборка ``Scorer``), здесь настройки мутируются НА МЕСТЕ: единый
+      объект ``Settings`` разделяется по ссылке с ``RagAnalyzer``/
+      ``ReportFieldExtractor``, пересборка не нужна (поле не влияет на
+      конструирование LLM/эмбеддинг-клиентов). Аналитик меняет значение в
+      форме «Параметры мониторинга» — воркер подхватывает без рестарта
+      (``AnalysisWorker._refresh_analysis_config``, вызывается на каждое
+      задание, сеть не чаще раза в минуту благодаря TTL-кэшу клиента).
   - id: FR-12.3
     type: FR
     title: Очистка табличного шума (Unnamed/NaN) при извлечении текста документов

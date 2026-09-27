@@ -21,6 +21,10 @@ _active_client_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _SCORING_CONFIG_TTL_SECONDS = 60.0
 _scoring_config_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
+# Настройки RAG-анализа (config_service.yaml -> analysis) — тот же принцип.
+_ANALYSIS_CONFIG_TTL_SECONDS = 60.0
+_analysis_config_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
 
 class ParserApiClient:
     """Обёртка над REST API парсера."""
@@ -98,6 +102,26 @@ class ParserApiClient:
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
         _scoring_config_cache["global"] = (time.monotonic(), data)
+        return data
+
+    async def get_analysis_config(self, internal_token: str | None = None) -> dict[str, Any]:
+        """Настройки RAG-анализа (config_service.yaml -> analysis) из парсера.
+
+        ``internal_token`` — внутренний токен парсера (X-Internal-Token): эндпоинт
+        /api/config/analysis открыт и для конвейера, и для пользователей. Ответ
+        кешируется на ``_ANALYSIS_CONFIG_TTL_SECONDS`` (настройки меняются редко).
+        """
+        now = time.monotonic()
+        cached = _analysis_config_cache.get("global")
+        if cached is not None and now - cached[0] < _ANALYSIS_CONFIG_TTL_SECONDS:
+            return cached[1]
+        url = f"{self._base}/api/config/analysis"
+        headers = self._headers(internal_token)
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            data: dict[str, Any] = resp.json()
+        _analysis_config_cache["global"] = (time.monotonic(), data)
         return data
 
     async def post_score(

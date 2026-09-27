@@ -11,3 +11,5 @@ search_criteria:
   deadline_not_expired: true
 scoring:
   embedding_filter_threshold: 0.55
+analysis:
+  report_field_top_k: 8

@@ -11,7 +11,7 @@ from analysis_service.pipeline.prompts import (
     build_field_extract_messages,
 )
 from analysis_service.pipeline.report_fields import ReportFieldExtractor
-from analysis_service.settings import Settings
+from analysis_service.settings import ANALYSIS_TUNABLE_FIELDS, Settings, apply_analysis_overrides
 
 from scoring_common.conditions import extraction_key, normalize_report_fields
 
@@ -113,6 +113,41 @@ def _settings(*, top_k: int = 2, concurrency: int = 4) -> Settings:
     settings.report_field_top_k = top_k
     settings.report_field_concurrency = concurrency
     return settings
+
+
+# --- Аналитические настройки (config_service.yaml -> analysis) -------------
+
+
+def test_report_field_top_k_default_is_ten() -> None:
+    """Дефолт поднят с 5 до 10 (аудит профиля «Экопаттерн», закупка 3098) —
+    нужный чанк нестабильно попадал в top-5 из-за шума ранжирования эмбеддингов."""
+    assert Settings().report_field_top_k == 10
+
+
+def test_apply_analysis_overrides_updates_settings_in_place() -> None:
+    """``apply_analysis_overrides`` мутирует переданный ``Settings`` НА МЕСТЕ (не
+    возвращает копию) — воркер и уже сконструированный ``RagAnalyzer``/
+    ``ReportFieldExtractor`` (тот же объект по ссылке) видят новое значение
+    без пересборки."""
+    settings = Settings()
+    apply_analysis_overrides(settings, {"report_field_top_k": 7})
+    assert settings.report_field_top_k == 7
+
+
+def test_apply_analysis_overrides_ignores_unknown_and_none() -> None:
+    settings = Settings()
+    original = settings.report_field_top_k
+    apply_analysis_overrides(settings, None)
+    assert settings.report_field_top_k == original
+    apply_analysis_overrides(settings, {})
+    assert settings.report_field_top_k == original
+    apply_analysis_overrides(settings, {"unknown_field": 999})
+    assert settings.report_field_top_k == original
+    assert not hasattr(settings, "unknown_field")  # неизвестный ключ не пришит
+
+
+def test_analysis_tunable_fields_contains_report_field_top_k() -> None:
+    assert "report_field_top_k" in ANALYSIS_TUNABLE_FIELDS
 
 
 def _chunks(n: int) -> tuple[list[str], list[list[float]], list[str]]:
