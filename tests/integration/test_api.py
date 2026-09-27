@@ -2867,11 +2867,30 @@ def test_url_condition_rechecked_when_site_collected(api_client: tuple[TestClien
         },
     ]
 
-    def _wait(url: str) -> None:
+    def _recheck_started() -> str | None:
+        payload = client.get(f"/api/clients/{profile_id}/recheck").json()
+        return cast(str | None, payload.get("started_at"))
+
+    def _wait(url: str, *, after: str | None) -> None:
+        """Ждём завершения сбора сайта И пересчёта, запущенного ПОСЛЕ маркера.
+
+        Сбор помечает источник собранным раньше, чем ``on_finished`` запускает
+        пересчёт (``SourceCrawlManager._run``), поэтому проверки «пересчёт не
+        идёт» недостаточно — можно вернуться в окне до старта нового пересчёта и
+        прочитать отчёт до его пересчёта. ``after`` — ``started_at`` прежнего
+        пересчёта: ждём пересчёт с другим ``started_at``.
+        """
         for _ in range(200):
             recheck = client.get(f"/api/clients/{profile_id}/recheck").json()
             source = client.post("/api/sources", json={"url": url}).json()
-            if not recheck["running"] and not source["active"] and source["status"] != "pending":
+            started = recheck.get("started_at")
+            if (
+                not recheck["running"]
+                and started is not None
+                and started != after
+                and not source["active"]
+                and source["status"] != "pending"
+            ):
                 return
             time.sleep(0.05)
         raise AssertionError("сбор/пересчёт не завершился")
@@ -2879,12 +2898,13 @@ def test_url_condition_rechecked_when_site_collected(api_client: tuple[TestClien
     original = manager._driver_factory  # noqa: SLF001
     manager._driver_factory = _Site  # noqa: SLF001
     try:
+        before = _recheck_started()
         saved = client.put(
             f"/api/clients/{profile_id}",
             json={"name": active["name"], "competencies": COMP_JSON, "report_fields": fields},
         )
         assert saved.status_code == 200, saved.text
-        _wait("https://fkko.example.org/org")
+        _wait("https://fkko.example.org/org", after=before)
 
         # Анализ получает сведения о сайте вместе с условием.
         internal = client.get(
@@ -2943,8 +2963,9 @@ def test_url_condition_rechecked_when_site_collected(api_client: tuple[TestClien
             "/api/sources", json={"url": "https://fkko.example.org/org"}
         ).json()["id"]
         # Пересбор сайта -> по окончании пересчёт условий профиля.
+        before = _recheck_started()
         assert client.post(f"/api/sources/{source_id}/refresh").status_code == 200
-        _wait("https://fkko.example.org/org")
+        _wait("https://fkko.example.org/org", after=before)
         card = client.get(f"/api/procurements/{pid}").json()
         codes = next(f for f in card["rag_report"]["fields"] if f["field_id"] == "codes")
         assert codes["match"] is False
@@ -2954,8 +2975,9 @@ def test_url_condition_rechecked_when_site_collected(api_client: tuple[TestClien
 
         # Сайт обновился: у семян появилась утилизация — отклонение снимается.
         site["rows"] = site["rows"].replace("Сбор (1)\nII", "Сбор (1)  Утилизация (1)\nII")
+        before = _recheck_started()
         assert client.post(f"/api/sources/{source_id}/refresh").status_code == 200
-        _wait("https://fkko.example.org/org")
+        _wait("https://fkko.example.org/org", after=before)
         card = client.get(f"/api/procurements/{pid}").json()
         codes = next(f for f in card["rag_report"]["fields"] if f["field_id"] == "codes")
         assert codes["match"] is True

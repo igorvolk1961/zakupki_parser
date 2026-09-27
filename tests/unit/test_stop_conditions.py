@@ -50,7 +50,6 @@ def _make_orch(
     )
 
 
-@pytest.mark.asyncio
 def test_is_known_skips_existing(app_config: AppConfig) -> None:
     now = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
     orch = _make_orch(app_config, now)

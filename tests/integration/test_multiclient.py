@@ -812,9 +812,18 @@ def test_analyze_and_pwin_margin_queue(mc_client: TestClient) -> None:
 def test_list_uses_active_user_scores(mc_client: TestClient) -> None:
     client = mc_client
     procurement_id = _seed_procurement()
+    # Активный профиль мог смениться тестами этого модуля, создающими профиль с
+    # is_active=true (единственный активный профиль, BR-07) — берём текущий, а не
+    # жёстко id=1, иначе закупка не попадёт в выдачу /api/procurements.
+    active_profile_id = client.get("/api/clients/active").json()["id"]
     client.post(
         f"/api/procurements/{procurement_id}/score",
-        json={"profile_id": 1, "score": 10.0, "fit_score": 0.9, "score_method": "fit"},
+        json={
+            "profile_id": active_profile_id,
+            "score": 10.0,
+            "fit_score": 0.9,
+            "score_method": "fit",
+        },
         headers=INTERNAL_HEADERS,
     )
     data = client.get("/api/procurements").json()
