@@ -116,6 +116,29 @@ cp docker/.env.example docker/.env
 
 Также убедись, что корневой `.env` (или `docker/.env`) содержит тот же `ZAKUPKI_INTERNAL_TOKEN`.
 
+### 4.1.1 Обязательный пароль БД
+
+`compose.sh up` откажется поднимать стек, если в `docker/.env` не задан `ZAKUPKI_DB_PASSWORD`
+(он подставляется в `db`, `liquibase` и в DSN `api`). На сервере задай длинный случайный пароль:
+
+```bash
+# в docker/.env:
+ZAKUPKI_DB_PASSWORD=$(openssl rand -hex 16)
+```
+
+> Важно: `POSTGRES_PASSWORD`/`ZAKUPKI_DB_PASSWORD` применяется только при **первичной**
+> инициализации пустого тома `pgdata`. На уже существующем томе пароль меняют явно
+> (данные сохраняются):
+>
+> ```bash
+> docker exec -it <db-container> psql -U postgres -c "ALTER USER postgres WITH PASSWORD '<новый>';"
+> ```
+>
+> после чего пересоздать `api` (и прогнать `liquibase`): `./scripts/compose.sh up --no-build api`.
+> Никогда не удаляй том БД (`docker volume rm`/`down -v`) ради смены пароля — это стирает данные.
+
+Не публикуй порт БД наружу: в `docker-compose.yml` он забинден на `127.0.0.1`.
+
 ### 4.2 LLM-ключи
 
 ```bash

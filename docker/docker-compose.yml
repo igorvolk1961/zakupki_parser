@@ -12,7 +12,10 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # Пароль берётся из docker/.env (файл вне git). Значение применяется только
+      # при первичной инициализации пустого тома; на существующем томе пароль
+      # меняется явно — ALTER USER postgres WITH PASSWORD ... (см. docs/DEPLOY.md).
+      POSTGRES_PASSWORD: ${ZAKUPKI_DB_PASSWORD:?set ZAKUPKI_DB_PASSWORD in docker/.env}
       POSTGRES_DB: zakupki_dev
     ports:
       # Только loopback: БД не должна быть доступна из интернета (открытый наружу
@@ -36,7 +39,7 @@ services:
     environment:
       LIQUIBASE_COMMAND_URL: jdbc:postgresql://db:5432/zakupki_dev
       LIQUIBASE_COMMAND_USERNAME: postgres
-      LIQUIBASE_COMMAND_PASSWORD: postgres
+      LIQUIBASE_COMMAND_PASSWORD: ${ZAKUPKI_DB_PASSWORD:?set ZAKUPKI_DB_PASSWORD in docker/.env}
       LIQUIBASE_COMMAND_CHANGELOG_FILE: db.changelog-master.yaml
     volumes:
       - ./liquibase/changelog:/liquibase/changelog
@@ -447,7 +450,7 @@ services:
       - ../.env
     environment:
       ZAKUPKI_CONFIGS: /app/configs
-      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:postgres@db:5432/zakupki_dev
+      ZAKUPKI_DB_DSN: postgresql+asyncpg://postgres:${ZAKUPKI_DB_PASSWORD:?set ZAKUPKI_DB_PASSWORD in docker/.env}@db:5432/zakupki_dev
       ZAKUPKI_NOTIFY_BACKEND: none
       ZAKUPKI_SCORING_TRANSPORT_URL: http://scoring-transport:8200
       # Обнуляем host-путь к Chromium из корневого .env (env_file ../.env): он нужен

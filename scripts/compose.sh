@@ -265,6 +265,14 @@ case "$CMD" in
             exit 1
         fi
 
+        # Пароль основной БД — тоже обязателен (docker-compose.yml подставляет его
+        # как ${ZAKUPKI_DB_PASSWORD:?...}). Проверяем здесь ради понятного сообщения.
+        if [[ -z "${ZAKUPKI_DB_PASSWORD:-}" ]]; then
+            echo "Ошибка: ZAKUPKI_DB_PASSWORD не задан в docker/.env." >&2
+            echo "Задайте пароль пользователя postgres (на сервере — длинный случайный)." >&2
+            exit 1
+        fi
+
         # Host-порты LangFuse (переопределяются в docker/.env: LANGFUSE_*_PORT;
         # дефолтные — 5433/9000/9001/3000). Порт 5432 проверяем чуть ниже.
         if [[ -n "$PROFILE" ]]; then
