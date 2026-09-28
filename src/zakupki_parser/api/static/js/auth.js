@@ -53,6 +53,9 @@ function showLogin() {
   const sub = $("#login-modal .login-sub");
   if (sub) sub.textContent = "Рабочее пространство тендеролога";
   $("#login-error").textContent = "";
+  // Не оставляем пароль от предыдущего входа: иначе при открытии окна поле уже
+  // заполнено, и Enter с «пустым» (на самом деле старым) паролем выполняет вход.
+  $("#login-password").value = "";
   $("#login-password").type = "password";
   $("#login-password").autocomplete = "new-password";
   $("#login-confirm-field").style.display = "none";
@@ -114,6 +117,9 @@ async function doLogin(register) {
     setToken(data.access_token);
     state.authUser = data.user;
     state.authRequired = true;
+    // Успешный вход: не оставляем пароль в DOM до следующего открытия окна.
+    $("#login-password").value = "";
+    $("#login-password-confirm").value = "";
     hideLogin();
     renderAuth();
     connectWS();
@@ -174,6 +180,9 @@ function renderTrialPill(trialEndAt) {
 function logout() {
   setToken(null);
   state.authUser = null;
+  // Сбрасываем поля входа, чтобы пароль прошлого пользователя не оставался в DOM.
+  $("#login-password").value = "";
+  $("#login-password-confirm").value = "";
   // Закрываем канал обновлений: при отсутствии токена onclose переподключаться не будет.
   if (state.wsSocket) {
     try {
@@ -242,7 +251,7 @@ $("#login-switch").addEventListener("click", () => {
   $("#login-error").textContent = "";
   $("#login-username").focus();
 });
-["login-username", "login-password"].forEach((id) => {
+["login-username", "login-password", "login-password-confirm"].forEach((id) => {
   document.getElementById(id).addEventListener("keydown", (e) => {
     if (e.key === "Enter") doLogin(loginMode === "register");
   });
