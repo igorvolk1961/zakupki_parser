@@ -29,6 +29,7 @@
       <b id="user-name"></b><span class="pill" id="user-role"></span>
       <span class="pill trial" id="user-trial" style="display:none;" title="Триал-режим: все опции поиска и скоринга бесплатны"></span>
       <button class="ghost" id="open-account" title="Личный кабинет: аккаунты, платные опции, смена пароля">Кабинет</button>
+      <button class="ghost" id="open-password" title="Сменить свой пароль">Пароль</button>
       <button class="ghost" id="logout" title="Выйти">Выйти</button>
     </span>
     <button class="topnav-link warn" id="menu-login" title="Войти в систему">Вход</button>
@@ -1025,6 +1026,30 @@
     <button class="primary login-btn" id="login-submit">Вход</button>
     <div class="login-foot">
       <div class="switch"><button type="button" id="login-switch">Зарегистрироваться</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="password-modal-bg">
+  <div class="modal" id="password-modal">
+    <span class="close" id="password-close" title="Закрыть">×</span>
+    <h2>Смена пароля</h2>
+    <div class="field">
+      <label for="pwd-current">Текущий пароль</label>
+      <input id="pwd-current" type="password" autocomplete="current-password">
+    </div>
+    <div class="field">
+      <label for="pwd-new">Новый пароль (не менее 8 символов)</label>
+      <input id="pwd-new" type="password" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label for="pwd-confirm">Повторите новый пароль</label>
+      <input id="pwd-confirm" type="password" autocomplete="new-password">
+    </div>
+    <div class="error" id="pwd-error"></div>
+    <div class="toolbar" style="margin:10px 0 0;">
+      <button class="primary" id="pwd-save">Сменить пароль</button>
+      <span id="pwd-status" class="muted"></span>
     </div>
   </div>
 </div>

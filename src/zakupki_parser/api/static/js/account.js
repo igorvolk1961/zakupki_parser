@@ -279,3 +279,75 @@ $("#acct-password-save").addEventListener("click", changePassword);
     if (e.key === "Enter") changePassword();
   });
 });
+
+// --- Смена пароля из шапки (доступна любой роли) -----------------------
+// Вкладка «Личный кабинет» показывается только ролям с профилем (user/analyst),
+// поэтому admin/devops сменить пароль из UI не могли. Отдельная модалка в шапке
+// вызывает тот же эндпоинт /api/account/password (требует лишь авторизацию).
+function openPasswordModal() {
+  ["pwd-current", "pwd-new", "pwd-confirm"].forEach((id) => {
+    document.getElementById(id).value = "";
+  });
+  $("#pwd-error").textContent = "";
+  $("#pwd-status").textContent = "";
+  $("#password-modal-bg").classList.add("open");
+  $("#pwd-current").focus();
+}
+
+function closePasswordModal() {
+  $("#password-modal-bg").classList.remove("open");
+}
+
+async function submitPasswordModal() {
+  const err = $("#pwd-error");
+  err.textContent = "";
+  const current = $("#pwd-current").value;
+  const np = $("#pwd-new").value;
+  const conf = $("#pwd-confirm").value;
+  if (!current || !np) {
+    err.textContent = "Заполните все поля";
+    return;
+  }
+  if (np.length < 8) {
+    err.textContent = "Новый пароль — не менее 8 символов";
+    return;
+  }
+  if (np !== conf) {
+    err.textContent = "Пароли не совпадают";
+    return;
+  }
+  const btn = $("#pwd-save");
+  btn.disabled = true;
+  try {
+    const r = await apiJSON("/api/account/password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: current, new_password: np, new_password_confirm: conf }),
+    });
+    if (!r.ok) {
+      err.textContent = await apiErrorDetail(r);
+      return;
+    }
+    ["pwd-current", "pwd-new", "pwd-confirm"].forEach((id) => {
+      document.getElementById(id).value = "";
+    });
+    $("#pwd-status").textContent = "Пароль изменён ✓";
+    setTimeout(closePasswordModal, 1200);
+  } catch (e) {
+    err.textContent = "Ошибка: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("#open-password").addEventListener("click", openPasswordModal);
+$("#password-close").addEventListener("click", closePasswordModal);
+$("#password-modal-bg").addEventListener("click", (e) => {
+  if (e.target.id === "password-modal-bg") closePasswordModal();
+});
+$("#pwd-save").addEventListener("click", submitPasswordModal);
+["pwd-current", "pwd-new", "pwd-confirm"].forEach((id) => {
+  document.getElementById(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submitPasswordModal();
+  });
+});
