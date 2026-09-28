@@ -15,7 +15,11 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: zakupki_dev
     ports:
-      - "${ZAKUPKI_DB_PORT:-5432}:5432"
+      # Только loopback: БД не должна быть доступна из интернета (открытый наружу
+      # PostgreSQL со стандартным паролем — частая точка входа: перебор пароля,
+      # создание закладок-суперпользователей). Контейнеры ходят к ней по внутренней
+      # compose-сети (db:5432), публикация во внешний интерфейс не нужна.
+      - "127.0.0.1:${ZAKUPKI_DB_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
