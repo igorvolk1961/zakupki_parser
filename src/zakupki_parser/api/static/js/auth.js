@@ -251,10 +251,27 @@ $("#login-switch").addEventListener("click", () => {
   $("#login-error").textContent = "";
   $("#login-username").focus();
 });
-["login-username", "login-password", "login-password-confirm"].forEach((id) => {
-  document.getElementById(id).addEventListener("keydown", (e) => {
-    if (e.key === "Enter") doLogin(loginMode === "register");
-  });
+// Enter отправляет форму ТОЛЬКО из полей пароля. В поле логина Enter лишь
+// переводит фокус дальше — иначе после ввода одного логина форма сразу уходит
+// на отправку (и «закрывалась» при подставленном из прошлого входа пароле).
+$("#login-username").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  $("#login-password").focus();
+});
+$("#login-password").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  if (loginMode === "register") {
+    $("#login-password-confirm").focus();
+  } else {
+    doLogin(false);
+  }
+});
+$("#login-password-confirm").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  doLogin(true);
 });
 // Окно входа закрывается (клик по фону, крестик, Escape): вход необязателен,
 // главный экран приложения доступен и без него.
