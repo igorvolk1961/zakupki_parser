@@ -616,6 +616,66 @@ function okpdIsValid(code) {
   return /^\d{2}(\.\d{1,3})*$/.test(cleaned);
 }
 
+// Диапазон фоновой индексации ОКПД2 (GET /api/clients/indexing-info): нужен,
+// чтобы при создании профиля предупредить, что введённые коды вне индекса и
+// сбор по ним пойдёт живым обходом площадок (медленнее). Загружается при
+// открытии редактора и кэшируется на время его работы; недоступность
+// эндпоинта (best-effort) — проверку пропускаем.
+let indexingInfo = null;
+let indexingInfoPromise = null;
+
+async function ensureIndexingInfo() {
+  if (indexingInfo) return indexingInfo;
+  if (!indexingInfoPromise) indexingInfoPromise = api("clients/indexing-info");
+  try {
+    indexingInfo = await indexingInfoPromise;
+  } catch (err) {
+    indexingInfoPromise = null; // позволить повторную попытку в следующий раз
+    indexingInfo = null;
+  }
+  return indexingInfo;
+}
+
+// Сравнение по цифрам нормализованного кода — зеркало backend-функции
+// `src/zakupki_parser/okpd.py::okpd_code_covered_by_prefixes` (иерархия ОКПД2:
+// сравниваются только цифры, поэтому код «26.62.11» не совпадает с префиксом
+// «62»). Коды профиля уже проверены `okpdIsValid`, префиксы приходят из
+// `IndexingConfig` — для валидных значений поведение совпадает с сервером.
+function okpdCoveredByIndexing(code, prefixes) {
+  const digits = String(code == null ? "" : code).replace(/\D/g, "");
+  if (!digits) return false;
+  return prefixes.some((p) => {
+    const prefixDigits = String(p == null ? "" : p).replace(/\D/g, "");
+    return !!prefixDigits && digits.startsWith(prefixDigits);
+  });
+}
+
+// Текст предупреждения для нового профиля или null, если предупреждать не о чем.
+// Индексация выключена/без префиксов — фоновая индексация не работает вовсе:
+// сверять коды не с чем, поэтому не предупреждаем (это глобальная настройка, а
+// не ошибка профиля).
+function indexingCoverageWarning(codes) {
+  const info = indexingInfo;
+  if (!info || !info.enabled) return null;
+  const prefixes = info.okpd2_prefixes || [];
+  if (!prefixes.length) return null;
+  const uncovered = codes.filter((c) => !okpdCoveredByIndexing(c, prefixes));
+  if (codes.length && !uncovered.length) return null;
+  const range = prefixes.join(", ");
+  if (!codes.length) {
+    return (
+      `В профиле не указаны коды ОКПД2, поэтому закупки не попадают в диапазон ` +
+      `фоновой индексации (${range}). Сбор закупок по такому профилю будет ` +
+      `выполняться медленнее. Сохранить профиль?`
+    );
+  }
+  return (
+    `Коды ОКПД2 «${uncovered.join("», «")}» не входят в диапазон фоновой ` +
+    `индексации (${range}) — закупки по ним не индексируются, сбор будет ` +
+    `выполняться медленнее. Сохранить профиль?`
+  );
+}
+
 function setProfileSaveStatus(msg, isError) {
   const el = $("#profile-save-status");
   if (!el) return;
@@ -1818,6 +1878,12 @@ function closeProfileEditor() {
 
 async function openProfileEditor(id) {
   profileEditorId = id || null;
+  // Диапазон индексации нужен для предупреждения о медленном сборе при создании
+  // профиля — перечитываем при каждом открытии редактора (настройка может
+  // измениться за время работы страницы), best-effort: ошибки гасятся внутри.
+  indexingInfo = null;
+  indexingInfoPromise = null;
+  ensureIndexingInfo();
   let p = null;
   if (id) {
     try {
@@ -1860,6 +1926,40 @@ async function saveProfile() {
     setProfileSaveStatus(msg, true);
     setProfileStatus("Ошибка сохранения: " + msg);
     return false;
+  }
+  // Отключённый профиль (снят флажок «Включён»): закупки по нему не собираются —
+  // предупреждаем; по умолчанию не сохраняем (фокус на «Отмена»), но даём
+  // пользователю принять профиль осознанно. Проверку диапазона индексации в этом
+  // случае пропускаем: сбора нет, значит и сравнивать нечего.
+  if (!data.enabled) {
+    const accepted = await confirmDialogAsync(
+      "Профиль отключён (снят флажок «Включён») — закупки по нему собираться " +
+        "не будут. Сохранить профиль?",
+      { defaultCancel: true, okLabel: "Сохранить профиль" }
+    );
+    if (!accepted) {
+      setProfileSaveStatus("Сохранение отменено: профиль отключён", true);
+      setProfileStatus("Сохранение профиля отменено");
+      return false;
+    }
+  } else {
+    // Включённый профиль (новый ИЛИ правка существующего): коды вне диапазона
+    // фоновой индексации собираются медленнее — предупреждаем и по умолчанию не
+    // сохраняем (фокус на «Отмена»), но даём пользователю принять изменения
+    // осознанно.
+    await ensureIndexingInfo();
+    const warning = indexingCoverageWarning(data.okpd_codes);
+    if (warning) {
+      const accepted = await confirmDialogAsync(warning, {
+        defaultCancel: true,
+        okLabel: "Сохранить профиль",
+      });
+      if (!accepted) {
+        setProfileSaveStatus("Сохранение отменено: коды ОКПД2 вне диапазона индексации", true);
+        setProfileStatus("Сохранение профиля отменено");
+        return false;
+      }
+    }
   }
   setProfileSaveStatus("");
   // Защита от случайной потери: в профиле были слова, а форма пустая.

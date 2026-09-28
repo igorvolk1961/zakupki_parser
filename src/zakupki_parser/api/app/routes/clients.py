@@ -19,6 +19,7 @@ from zakupki_parser.api.app.profile_source import (
     generate_profile_from_url,
 )
 from zakupki_parser.api.app.schemas import (
+    IndexingInfoOut,
     LicenseIn,
     Okpd2CodeOut,
     Okpd2SearchOut,
@@ -397,6 +398,27 @@ def build_clients_router(ctx: ApiContext) -> APIRouter:
         """
         rows = await _repo().search_okpd2_codes(q, limit=limit)
         return Okpd2SearchOut(items=[Okpd2CodeOut(code=r.code, name=r.name) for r in rows])
+
+    # Зарегистрирован ДО ``/api/clients/{client_id}``: иначе динамический
+    # int-параметр перехватил бы литеральный путь и вернул 422.
+    @router.get(
+        "/api/clients/indexing-info",
+        response_model=IndexingInfoOut,
+        dependencies=[Depends(require_base)],
+    )
+    async def indexing_info() -> IndexingInfoOut:
+        """Диапазон кодов ОКПД2 фоновой индексации (``IndexingConfig``).
+
+        Редактор профиля использует его, чтобы предупредить пользователя до
+        сохранения: коды нового профиля вне диапазона не покрыты индексом и
+        собираются живым обходом площадок — медленнее. Доступ — любой владелец
+        профиля (``require_base``), в отличие от полной сводки devops.
+        """
+        indexing = state.cfg.service.indexing
+        return IndexingInfoOut(
+            enabled=indexing.enabled,
+            okpd2_prefixes=list(indexing.okpd2_prefixes),
+        )
 
     @router.get(
         "/api/clients/{client_id}",

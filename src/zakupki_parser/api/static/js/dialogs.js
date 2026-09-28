@@ -6,16 +6,25 @@ import { $ } from "./utils.js";
 let confirmCallback = null;
 let confirmCancelCallback = null;
 
-export function confirmDialog(message, onOk, onCancel) {
+// options: { okLabel, cancelLabel, defaultCancel } — defaultCancel ставит фокус на
+// «Отмена» (безопасное действие по умолчанию для предупреждений, где согласие
+// пользователя нужно получить явно).
+export function confirmDialog(message, onOk, onCancel, options) {
   confirmCallback = onOk || null;
   confirmCancelCallback = onCancel || null;
+  const opts = options || {};
+  const okBtn = $("#generic-confirm-ok");
+  const cancelBtn = $("#generic-confirm-cancel");
+  okBtn.textContent = opts.okLabel || "Продолжить";
+  cancelBtn.textContent = opts.cancelLabel || "Отмена";
   $("#generic-confirm-message").textContent = message;
   $("#generic-confirm-modal-bg").classList.add("open");
+  (opts.defaultCancel ? cancelBtn : okBtn).focus();
 }
 
-export function confirmDialogAsync(message) {
+export function confirmDialogAsync(message, options) {
   return new Promise((resolve) => {
-    confirmDialog(message, () => resolve(true), () => resolve(false));
+    confirmDialog(message, () => resolve(true), () => resolve(false), options);
   });
 }
 
